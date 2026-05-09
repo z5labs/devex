@@ -20,6 +20,9 @@ func (c *Ci) Test(ctx context.Context) error {
 	jobs = jobs.WithJob("random", func(ctx context.Context) error {
 		return dag.RandomTests().All(ctx)
 	})
+	jobs = jobs.WithJob("crypto", func(ctx context.Context) error {
+		return dag.CryptoTests().All(ctx)
+	})
 
 	return jobs.Run(ctx)
 }
