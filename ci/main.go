@@ -17,15 +17,9 @@ func (c *Ci) Test(ctx context.Context) error {
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 
-	jobs = jobs.WithJob("random", func(ctx context.Context) error {
-		return dag.RandomTests().All(ctx)
-	})
-	jobs = jobs.WithJob("crypto", func(ctx context.Context) error {
-		return dag.CryptoTests().All(ctx)
-	})
-	jobs = jobs.WithJob("certificate-management", func(ctx context.Context) error {
-		return dag.CertificateManagementTests().All(ctx)
-	})
+	jobs = jobs.WithJob("random", dag.RandomTests().All)
+	jobs = jobs.WithJob("crypto", dag.CryptoTests().All)
+	jobs = jobs.WithJob("certificate-management", dag.CertificateManagementTests().All)
 
 	return jobs.Run(ctx)
 }
