@@ -32,6 +32,8 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("IssueServerCertificateChainsToCa", t.IssueServerCertificateChainsToCa)
 	jobs = jobs.WithJob("IssueClientCertificateChainsToCa", t.IssueClientCertificateChainsToCa)
 	jobs = jobs.WithJob("IssueMutualTlsCertificateChainsToCa", t.IssueMutualTlsCertificateChainsToCa)
+	jobs = jobs.WithJob("IssueServerCertificateWithEcdsaKey", t.IssueServerCertificateWithEcdsaKey)
+	jobs = jobs.WithJob("IssueServerCertificateWithEd25519Key", t.IssueServerCertificateWithEd25519Key)
 	jobs = jobs.WithJob("LoadKeyStoreFromPkcs12RoundTrip", t.LoadKeyStoreFromPkcs12RoundTrip)
 	jobs = jobs.WithJob("LoadTrustStoreFromPkcs12RoundTrip", t.LoadTrustStoreFromPkcs12RoundTrip)
 
@@ -46,7 +48,11 @@ func (t *Tests) CreateCaProducesUsableKeyStore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ca := dag.CertificateManagement().CreateCertificateAuthority(pwdSecret)
+	caKey, err := newKey(ctx, "ca-key", "rsa")
+	if err != nil {
+		return err
+	}
+	ca := dag.CertificateManagement().CreateCertificateAuthority(pwdSecret, caKey)
 
 	data, err := readPkcs12(ctx, ca.KeyStore().Pkcs12())
 	if err != nil {
@@ -70,8 +76,12 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caKey, err := newKey(ctx, "rt-ca-key", "rsa")
+	if err != nil {
+		return err
+	}
 	cm := dag.CertificateManagement()
-	originalCA := cm.CreateCertificateAuthority(pwdSecret)
+	originalCA := cm.CreateCertificateAuthority(pwdSecret, caKey)
 	originalKeystoreFile := originalCA.KeyStore().Pkcs12()
 	reloadedCA := cm.LoadCertificateAuthority(originalKeystoreFile, pwdSecret)
 
@@ -79,7 +89,11 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	issued := reloadedCA.IssueServerCertificate("example.com", leafPwdSecret,
+	leafKey, err := newKey(ctx, "rt-leaf-key", "rsa")
+	if err != nil {
+		return err
+	}
+	issued := reloadedCA.IssueServerCertificate("example.com", leafPwdSecret, leafKey,
 		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 			DNSSans: []string{"example.com"},
 		})
@@ -110,9 +124,10 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 }
 
 func (t *Tests) IssueServerCertificateChainsToCa(ctx context.Context) error {
-	return verifyIssued(ctx, "server", []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueServerCertificate("server.example.com", leafPwd,
+	return verifyIssued(ctx, "server", "rsa",
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("server.example.com", leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 					DNSSans: []string{"server.example.com"},
 				})
@@ -120,19 +135,46 @@ func (t *Tests) IssueServerCertificateChainsToCa(ctx context.Context) error {
 }
 
 func (t *Tests) IssueClientCertificateChainsToCa(ctx context.Context) error {
-	return verifyIssued(ctx, "client", []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueClientCertificate("client", leafPwd)
+	return verifyIssued(ctx, "client", "rsa",
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueClientCertificate("client", leafPwd, leafKey)
 		})
 }
 
 func (t *Tests) IssueMutualTlsCertificateChainsToCa(ctx context.Context) error {
-	return verifyIssued(ctx, "mtls",
+	return verifyIssued(ctx, "mtls", "rsa",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueMutualTLSCertificate("peer.example.com", leafPwd,
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueMutualTLSCertificate("peer.example.com", leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueMutualTLSCertificateOpts{
 					DNSSans: []string{"peer.example.com"},
+				})
+		})
+}
+
+// IssueServerCertificateWithEcdsaKey exercises the caller-chosen-algorithm
+// capability by signing the CA and leaf with ECDSA P-256 keys.
+func (t *Tests) IssueServerCertificateWithEcdsaKey(ctx context.Context) error {
+	return verifyIssued(ctx, "ecdsa-server", "ecdsa",
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("ecdsa.example.com", leafPwd, leafKey,
+				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
+					DNSSans: []string{"ecdsa.example.com"},
+				})
+		})
+}
+
+// IssueServerCertificateWithEd25519Key exercises the caller-chosen-algorithm
+// capability by signing the CA and leaf with Ed25519 keys.
+func (t *Tests) IssueServerCertificateWithEd25519Key(ctx context.Context) error {
+	return verifyIssued(ctx, "ed25519-server", "ed25519",
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("ed25519.example.com", leafPwd, leafKey,
+				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
+					DNSSans: []string{"ed25519.example.com"},
 				})
 		})
 }
@@ -145,14 +187,22 @@ func (t *Tests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caKey, err := newKey(ctx, "lks-ca-key", "rsa")
+	if err != nil {
+		return err
+	}
 	leafPwdSecret, leafPwd, err := newPassword(ctx, "lks-leaf-pwd")
+	if err != nil {
+		return err
+	}
+	leafKey, err := newKey(ctx, "lks-leaf-key", "rsa")
 	if err != nil {
 		return err
 	}
 
 	cm := dag.CertificateManagement()
-	ca := cm.CreateCertificateAuthority(caPwdSecret)
-	issued := ca.IssueServerCertificate("round.example.com", leafPwdSecret,
+	ca := cm.CreateCertificateAuthority(caPwdSecret, caKey)
+	issued := ca.IssueServerCertificate("round.example.com", leafPwdSecret, leafKey,
 		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 			DNSSans: []string{"round.example.com"},
 		})
@@ -175,8 +225,12 @@ func (t *Tests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caKey, err := newKey(ctx, "lts-ca-key", "rsa")
+	if err != nil {
+		return err
+	}
 	cm := dag.CertificateManagement()
-	ca := cm.CreateCertificateAuthority(caPwdSecret)
+	ca := cm.CreateCertificateAuthority(caPwdSecret, caKey)
 
 	wrapped := cm.LoadTrustStoreFromPkcs12(ca.TrustStore().Pkcs12(), caPwdSecret)
 	data, err := readPkcs12(ctx, wrapped.Pkcs12())
@@ -199,10 +253,15 @@ func (t *Tests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error {
 func verifyIssued(
 	ctx context.Context,
 	label string,
+	keyKind string,
 	requireEKU []x509.ExtKeyUsage,
-	issue func(*dagger.CertificateManagementCertificateAuthority, *dagger.Secret) *dagger.CertificateManagementIssuedCertificate,
+	issue func(*dagger.CertificateManagementCertificateAuthority, *dagger.Secret, *dagger.Secret) *dagger.CertificateManagementIssuedCertificate,
 ) error {
 	caPwdSecret, _, err := newPassword(ctx, label+"-ca-pwd")
+	if err != nil {
+		return err
+	}
+	caKey, err := newKey(ctx, label+"-ca-key", keyKind)
 	if err != nil {
 		return err
 	}
@@ -210,9 +269,13 @@ func verifyIssued(
 	if err != nil {
 		return err
 	}
+	leafKey, err := newKey(ctx, label+"-leaf-key", keyKind)
+	if err != nil {
+		return err
+	}
 
-	ca := dag.CertificateManagement().CreateCertificateAuthority(caPwdSecret)
-	issued := issue(ca, leafPwdSecret)
+	ca := dag.CertificateManagement().CreateCertificateAuthority(caPwdSecret, caKey)
+	issued := issue(ca, leafPwdSecret, leafKey)
 
 	leafCert, err := readPemCert(ctx, issued.CertPemFile())
 	if err != nil {
@@ -279,17 +342,52 @@ func newPassword(ctx context.Context, name string) (*dagger.Secret, string, erro
 	return dag.SetSecret(name+"-"+pwdHex[:16], pwdHex), pwdHex, nil
 }
 
+// newKey mints a fresh PKCS#8 PEM private key via the crypto module and
+// wraps it as a *dagger.Secret. The kind argument selects the algorithm
+// ("rsa", "ecdsa", or "ed25519"). PEM is text, so File.Contents() is safe
+// here (the binary-corruption concern only applies to PKCS#12 archives).
+func newKey(ctx context.Context, name, kind string) (*dagger.Secret, error) {
+	var pemFile *dagger.File
+	switch kind {
+	case "rsa":
+		pemFile = dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem()
+	case "ecdsa":
+		pemFile = dag.Crypto().GenerateEcdsaP256Key().Pem()
+	case "ed25519":
+		pemFile = dag.Crypto().GenerateEd25519Key().Pem()
+	default:
+		return nil, fmt.Errorf("unknown key kind %q", kind)
+	}
+	contents, err := pemFile.Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read generated key: %w", err)
+	}
+	suffix, err := randomHex(8)
+	if err != nil {
+		return nil, err
+	}
+	return dag.SetSecret(name+"-"+suffix, contents), nil
+}
+
+func randomHex(n int) (string, error) {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate random hex: %w", err)
+	}
+	return hex.EncodeToString(b), nil
+}
+
 // readPkcs12 round-trips a Dagger file through the module runtime container's
 // scratch directory: Export materializes the bytes on local disk, then we
 // read them with os.ReadFile. This is required because PKCS#12 archives are
 // arbitrary binary; reading File.Contents() directly would force the bytes
 // through a GraphQL String and corrupt non-UTF-8 sequences.
 func readPkcs12(ctx context.Context, f *dagger.File) ([]byte, error) {
-	var buf [12]byte
-	if _, err := rand.Read(buf[:]); err != nil {
-		return nil, fmt.Errorf("generate scratch name: %w", err)
+	suffix, err := randomHex(12)
+	if err != nil {
+		return nil, err
 	}
-	local := "p12-" + hex.EncodeToString(buf[:]) + ".bin"
+	local := "p12-" + suffix + ".bin"
 	if _, err := f.Export(ctx, local); err != nil {
 		return nil, fmt.Errorf("export pkcs12 file: %w", err)
 	}

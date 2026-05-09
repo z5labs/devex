@@ -18,19 +18,29 @@ for PKCS#12 encoding.
 `KeyStore` and `TrustStore` both expose `Pkcs12()` (the `*dagger.File`) and
 `Password()` (the `*dagger.Secret` they were sealed with).
 
-## Caching and freshness
+## Determinism
 
-`CreateCertificateAuthority`, `IssueServerCertificate`, `IssueClientCertificate`,
-and `IssueMutualTlsCertificate` generate fresh RSA keys and random serials
-each time they execute. They carry `+cache="session"`, so within a single
-Dagger engine session the same arguments resolve to the same CA / leaf — this
-is what keeps `ca.KeyStore()`, `ca.TrustStore()`, and `ca.IssueXxx()`
-consistent across field accesses on a single returned object. Across
-sessions, the same arguments yield a fresh CA / leaf.
+The module is a pure signer: callers supply the private key as a PEM-encoded
+PKCS#8 `*dagger.Secret`. `CreateCertificateAuthority` and the three `Issue*`
+methods do not generate random keys themselves, so they carry no `+cache=`
+directive and Dagger's default content-addressed caching applies. To force a
+fresh CA or leaf, vary an input — pass a fresh password or a fresh key.
 
-To force a fresh CA or leaf within a session, vary an input — pass a fresh
-password from [`daggerverse/random`](../random)'s `Sha256()`. See
-`tests/main.go:newPassword` for the canonical pattern.
+## Generating keys
+
+Pair this module with [`daggerverse/crypto`](../crypto), which exposes
+`GenerateRsaKey`, `GenerateEcdsaP256Key` / `P384` / `P521`, and
+`GenerateEd25519Key`. Each returns an object whose `.Pem()` is a `*dagger.File`
+holding a PKCS#8 PEM blob; bridge it into a `*dagger.Secret` once:
+
+```go
+pem, _ := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).
+    Pem().Contents(ctx)
+key := dag.SetSecret("ca-key", pem)
+```
+
+Any algorithm whose private key implements `crypto.Signer` (RSA, ECDSA,
+Ed25519) is accepted.
 
 ## Go SDK naming
 
@@ -44,19 +54,20 @@ The CLI form is the kebab-case `issue-mutual-tls-certificate`.
 
 ### CreateCertificateAuthority
 
-Creates a self-signed root CA.
+Self-signs a root CA over the caller-supplied private key.
 
 ```sh
 dagger -m github.com/z5labs/devex/daggerverse/certificate-management call \
   create-certificate-authority \
   --password=env:CA_PWD \
+  --key=env:CA_KEY_PEM \
   --common-name="My Root CA" \
   --validity-days=3650
 ```
 
 ```go
 ca := dag.CertificateManagement().
-    CreateCertificateAuthority(pwd,
+    CreateCertificateAuthority(pwd, key,
         dagger.CertificateManagementCreateCertificateAuthorityOpts{
             CommonName:   "My Root CA",
             ValidityDays: 3650,
@@ -73,10 +84,11 @@ ca := dag.CertificateManagement().LoadCertificateAuthority(p12File, pwd)
 
 ### IssueServerCertificate / IssueClientCertificate / IssueMutualTlsCertificate
 
-Issue leaf certificates with `serverAuth`, `clientAuth`, or both EKUs.
+Sign leaf certificates with `serverAuth`, `clientAuth`, or both EKUs. Each
+takes the leaf's private key as input.
 
 ```go
-issued := ca.IssueServerCertificate("svc.example.com", leafPwd,
+issued := ca.IssueServerCertificate("svc.example.com", leafPwd, leafKey,
     dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
         DNSSans: []string{"svc.example.com"},
         IPSans:  []string{"10.0.0.1"},
@@ -108,6 +120,5 @@ ts := dag.CertificateManagement().LoadTrustStoreFromPkcs12(p12File, pwd)
 
 ## Limitations
 
-- RSA-3072 keys only.
 - Single-tier CAs (no intermediate CAs).
 - No CRL or OCSP issuance.

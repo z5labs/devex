@@ -3,8 +3,8 @@ package main
 
 import (
 	"context"
+	"crypto"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -21,16 +21,12 @@ import (
 	"software.sslmate.com/src/go-pkcs12"
 )
 
-const rsaKeyBits = 3072
-
 // CertificateManagement provides functions for creating and managing X.509
 // certificate authorities, issuing server / client / mutual-TLS certificates,
-// and packaging them as PKCS#12 keystores and truststores. Issuance functions
-// generate fresh RSA private keys and serials, but carry `+cache="session"`
-// so their outputs are stable for the lifetime of a Dagger engine session
-// (and thus consistent across the field accesses on a single returned
-// object). To force a fresh CA or leaf, vary an input — for example by
-// passing a fresh password from the `random` module's `Sha256()`.
+// and packaging them as PKCS#12 keystores and truststores. The module is a
+// pure signer: callers supply the private key material as a PEM-encoded
+// PKCS#8 *dagger.Secret (RSA, ECDSA, or Ed25519). Pair with
+// `daggerverse/crypto`'s key generators for fresh per-call keys.
 type CertificateManagement struct{}
 
 // CertificateAuthority is a self-signed X.509 root capable of issuing leaf
@@ -38,7 +34,7 @@ type CertificateManagement struct{}
 // TrustStore().
 type CertificateAuthority struct {
 	CertPemFile   *dagger.File   // PEM-encoded CA certificate (public).
-	PrivateKeyPem *dagger.Secret // PEM-encoded CA private key (sensitive).
+	PrivateKeyPem *dagger.Secret // PEM-encoded PKCS#8 CA private key.
 	Pwd           *dagger.Secret // PKCS#12 password bound at creation/load time.
 }
 
@@ -46,7 +42,7 @@ type CertificateAuthority struct {
 // issuing CA's certificate (used to build trust bundles).
 type IssuedCertificate struct {
 	CertPemFile    *dagger.File   // PEM-encoded leaf certificate.
-	PrivateKeyPem  *dagger.Secret // PEM-encoded leaf private key.
+	PrivateKeyPem  *dagger.Secret // PEM-encoded PKCS#8 leaf private key.
 	IssuerCertFile *dagger.File   // PEM-encoded issuing CA certificate.
 	Pwd            *dagger.Secret // PKCS#12 password.
 }
@@ -77,14 +73,10 @@ func (t *TrustStore) Pkcs12() *dagger.File { return t.File }
 // Password returns the secret used to encrypt the PKCS#12 archive.
 func (t *TrustStore) Password() *dagger.Secret { return t.Pwd }
 
-// CreateCertificateAuthority generates a self-signed root CA using a fresh
-// RSA private key and random serial. The supplied password is bound to the
-// resulting CA's KeyStore() and TrustStore() output. With `+cache="session"`
-// the result is reused across field accesses within a single engine session,
-// so `ca.KeyStore()` and `ca.TrustStore()` see a consistent cert+key pair.
-// To force a fresh CA, vary an input — pass a fresh password.
-//
-// +cache="session"
+// CreateCertificateAuthority self-signs a root CA over the caller-supplied
+// private key. The key must be PEM-encoded PKCS#8 (RSA, ECDSA, or Ed25519).
+// The supplied password is bound to the resulting CA's KeyStore() and
+// TrustStore() output.
 func (m *CertificateManagement) CreateCertificateAuthority(
 	ctx context.Context,
 	// Subject common name for the CA certificate.
@@ -95,10 +87,12 @@ func (m *CertificateManagement) CreateCertificateAuthority(
 	validityDays int,
 	// PKCS#12 password used by the CA's KeyStore and TrustStore.
 	password *dagger.Secret,
+	// PEM-encoded PKCS#8 private key the CA will sign with and embed.
+	key *dagger.Secret,
 ) (*CertificateAuthority, error) {
-	key, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	signer, err := readKeySecret(ctx, key)
 	if err != nil {
-		return nil, fmt.Errorf("generate CA key: %w", err)
+		return nil, fmt.Errorf("read CA key: %w", err)
 	}
 
 	tmpl, err := buildCATemplate(commonName, validityDays)
@@ -106,29 +100,19 @@ func (m *CertificateManagement) CreateCertificateAuthority(
 		return nil, err
 	}
 
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, signer.Public(), signer)
 	if err != nil {
 		return nil, fmt.Errorf("self-sign CA: %w", err)
 	}
 
-	certPem := pemEncodeCert(der)
-	keyPem, err := pemEncodeKey(key)
-	if err != nil {
-		return nil, err
-	}
-
-	certFile, err := bytesToFile("ca.crt", certPem)
-	if err != nil {
-		return nil, err
-	}
-	keySecret, err := bytesToSecret(ctx, "cm-ca-key", keyPem)
+	certFile, err := bytesToFile("ca.crt", pemEncodeCert(der))
 	if err != nil {
 		return nil, err
 	}
 
 	return &CertificateAuthority{
 		CertPemFile:   certFile,
-		PrivateKeyPem: keySecret,
+		PrivateKeyPem: key,
 		Pwd:           password,
 	}, nil
 }
@@ -156,16 +140,15 @@ func (m *CertificateManagement) LoadCertificateAuthority(
 	if err != nil {
 		return nil, fmt.Errorf("decode PKCS#12: %w", err)
 	}
-	rsaKey, ok := priv.(*rsa.PrivateKey)
-	if !ok {
-		return nil, fmt.Errorf("loaded private key is not RSA: %T", priv)
+	if _, ok := priv.(crypto.Signer); !ok {
+		return nil, fmt.Errorf("loaded private key %T does not implement crypto.Signer", priv)
 	}
 	if !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
 		return nil, fmt.Errorf("loaded certificate is not a CA (IsCA=%v, keyUsage=%v)",
 			cert.IsCA, cert.KeyUsage)
 	}
 
-	keyPem, err := pemEncodeKey(rsaKey)
+	keyPem, err := pemEncodeKey(priv)
 	if err != nil {
 		return nil, err
 	}
@@ -240,13 +223,9 @@ func (ca *CertificateAuthority) TrustStore(ctx context.Context) (*TrustStore, er
 	return &TrustStore{File: file, Pwd: ca.Pwd}, nil
 }
 
-// IssueServerCertificate issues a leaf TLS server certificate signed by this
-// CA with the given DNS and IP Subject Alternative Names. The leaf uses a
-// fresh RSA key and random serial; with `+cache="session"` the result is
-// reused across field accesses within a single engine session. Pass a fresh
-// password to obtain a fresh certificate.
-//
-// +cache="session"
+// IssueServerCertificate signs a leaf TLS server certificate from the
+// caller-supplied private key (PEM PKCS#8) using this CA. The leaf is
+// embedded with the given DNS and IP Subject Alternative Names.
 func (ca *CertificateAuthority) IssueServerCertificate(
 	ctx context.Context,
 	// Subject common name for the server certificate.
@@ -263,35 +242,31 @@ func (ca *CertificateAuthority) IssueServerCertificate(
 	// PKCS#12 password used by the issued certificate's KeyStore and
 	// TrustStore.
 	password *dagger.Secret,
+	// PEM-encoded PKCS#8 private key for the leaf certificate.
+	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, dnsSans, ipSans, validityDays,
-		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, password)
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, password, key)
 }
 
-// IssueClientCertificate issues a leaf TLS client certificate signed by this
-// CA. The leaf uses a fresh RSA key and random serial; with `+cache="session"`
-// the result is reused across field accesses within a single engine session.
-// Pass a fresh password to obtain a fresh certificate.
-//
-// +cache="session"
+// IssueClientCertificate signs a leaf TLS client certificate from the
+// caller-supplied private key (PEM PKCS#8) using this CA.
 func (ca *CertificateAuthority) IssueClientCertificate(
 	ctx context.Context,
 	commonName string,
 	// +default=365
 	validityDays int,
 	password *dagger.Secret,
+	// PEM-encoded PKCS#8 private key for the leaf certificate.
+	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, nil, nil, validityDays,
-		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, password)
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, password, key)
 }
 
-// IssueMutualTlsCertificate issues a leaf certificate that is valid for both
-// server and client authentication, suitable for mutual-TLS use. The leaf
-// uses a fresh RSA key and random serial; with `+cache="session"` the result
-// is reused across field accesses within a single engine session. Pass a
-// fresh password to obtain a fresh certificate.
-//
-// +cache="session"
+// IssueMutualTlsCertificate signs a leaf certificate that is valid for both
+// server and client authentication, suitable for mutual-TLS use, from the
+// caller-supplied private key (PEM PKCS#8).
 func (ca *CertificateAuthority) IssueMutualTlsCertificate(
 	ctx context.Context,
 	commonName string,
@@ -302,10 +277,12 @@ func (ca *CertificateAuthority) IssueMutualTlsCertificate(
 	// +default=365
 	validityDays int,
 	password *dagger.Secret,
+	// PEM-encoded PKCS#8 private key for the leaf certificate.
+	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, dnsSans, ipSans, validityDays,
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		password)
+		password, key)
 }
 
 // KeyStore returns a PKCS#12 archive containing the leaf certificate, its
@@ -353,15 +330,16 @@ func (ca *CertificateAuthority) issueLeaf(
 	validityDays int,
 	eku []x509.ExtKeyUsage,
 	password *dagger.Secret,
+	leafKeySecret *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	caCert, caKey, _, err := ca.materialize(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	leafKey, err := rsa.GenerateKey(rand.Reader, rsaKeyBits)
+	leafSigner, err := readKeySecret(ctx, leafKeySecret)
 	if err != nil {
-		return nil, fmt.Errorf("generate leaf key: %w", err)
+		return nil, fmt.Errorf("read leaf key: %w", err)
 	}
 	tmpl, err := buildLeafTemplate(commonName, dnsSans, ipSans, eku, validityDays)
 	if err != nil {
@@ -369,33 +347,25 @@ func (ca *CertificateAuthority) issueLeaf(
 	}
 
 	der, err := x509.CreateCertificate(rand.Reader, tmpl, caCert,
-		&leafKey.PublicKey, caKey)
+		leafSigner.Public(), caKey)
 	if err != nil {
 		return nil, fmt.Errorf("sign leaf certificate: %w", err)
 	}
 
-	keyPem, err := pemEncodeKey(leafKey)
-	if err != nil {
-		return nil, err
-	}
 	certFile, err := bytesToFile("leaf.crt", pemEncodeCert(der))
-	if err != nil {
-		return nil, err
-	}
-	keySecret, err := bytesToSecret(ctx, "cm-leaf-key", keyPem)
 	if err != nil {
 		return nil, err
 	}
 
 	return &IssuedCertificate{
 		CertPemFile:    certFile,
-		PrivateKeyPem:  keySecret,
+		PrivateKeyPem:  leafKeySecret,
 		IssuerCertFile: ca.CertPemFile,
 		Pwd:            password,
 	}, nil
 }
 
-func (ca *CertificateAuthority) materialize(ctx context.Context) (*x509.Certificate, *rsa.PrivateKey, string, error) {
+func (ca *CertificateAuthority) materialize(ctx context.Context) (*x509.Certificate, crypto.Signer, string, error) {
 	cert, err := readCertFile(ctx, ca.CertPemFile)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("read CA cert: %w", err)
@@ -411,7 +381,7 @@ func (ca *CertificateAuthority) materialize(ctx context.Context) (*x509.Certific
 	return cert, key, pwd, nil
 }
 
-func (ic *IssuedCertificate) materialize(ctx context.Context) (*x509.Certificate, *rsa.PrivateKey, *x509.Certificate, string, error) {
+func (ic *IssuedCertificate) materialize(ctx context.Context) (*x509.Certificate, crypto.Signer, *x509.Certificate, string, error) {
 	leafCert, err := readCertFile(ctx, ic.CertPemFile)
 	if err != nil {
 		return nil, nil, nil, "", fmt.Errorf("read leaf cert: %w", err)
@@ -494,7 +464,7 @@ func pemEncodeCert(der []byte) []byte {
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
-func pemEncodeKey(k *rsa.PrivateKey) ([]byte, error) {
+func pemEncodeKey(k crypto.PrivateKey) ([]byte, error) {
 	der, err := x509.MarshalPKCS8PrivateKey(k)
 	if err != nil {
 		return nil, fmt.Errorf("marshal key: %w", err)
@@ -514,7 +484,7 @@ func parsePemCert(data []byte) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-func parsePemKey(data []byte) (*rsa.PrivateKey, error) {
+func parsePemKey(data []byte) (crypto.Signer, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("no PEM block found")
@@ -523,11 +493,11 @@ func parsePemKey(data []byte) (*rsa.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse PKCS#8 key: %w", err)
 	}
-	rsaKey, ok := priv.(*rsa.PrivateKey)
+	signer, ok := priv.(crypto.Signer)
 	if !ok {
-		return nil, fmt.Errorf("expected RSA key, got %T", priv)
+		return nil, fmt.Errorf("private key type %T does not implement crypto.Signer", priv)
 	}
-	return rsaKey, nil
+	return signer, nil
 }
 
 func readCertFile(ctx context.Context, f *dagger.File) (*x509.Certificate, error) {
@@ -538,7 +508,7 @@ func readCertFile(ctx context.Context, f *dagger.File) (*x509.Certificate, error
 	return parsePemCert(b)
 }
 
-func readKeySecret(ctx context.Context, s *dagger.Secret) (*rsa.PrivateKey, error) {
+func readKeySecret(ctx context.Context, s *dagger.Secret) (crypto.Signer, error) {
 	pt, err := s.Plaintext(ctx)
 	if err != nil {
 		return nil, err
