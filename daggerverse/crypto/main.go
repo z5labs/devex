@@ -1,5 +1,9 @@
 // Package main implements the crypto Dagger module: file digests and key
-// generation utilities backed entirely by the Go standard library.
+// generation utilities. All operations run in pure Go inside the module
+// runtime — no helper containers or external tools — using `crypto/*` from
+// the standard library plus `golang.org/x/crypto/sha3` and
+// `golang.org/x/crypto/ssh` for SHA-3 hashing and OpenSSH public-key
+// formatting.
 package main
 
 import (

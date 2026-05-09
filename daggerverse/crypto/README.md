@@ -1,7 +1,8 @@
 # crypto
 
 A Dagger module exposing common crypto utilities — file digests and ephemeral
-key generation — implemented entirely in pure Go (no helper containers).
+key generation — implemented in pure Go (no helper containers) on top of
+`crypto/*`, `golang.org/x/crypto/sha3`, and `golang.org/x/crypto/ssh`.
 
 ## Functions
 
@@ -52,9 +53,10 @@ dagger -m github.com/z5labs/devex/daggerverse/crypto call \
 # ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIK…
 ```
 
-Go SDK:
+Go SDK (chained lazily — terminal calls like `Contents`/`Size`/`Sync` take
+the `ctx` and return the error):
 
 ```go
-key, err := dag.Crypto().GenerateEd25519Key(ctx)
-pubFile := key.OpenSshPublicKey()
+pubFile := dag.Crypto().GenerateEd25519Key().OpenSSHPublicKey()
+line, err := pubFile.Contents(ctx)
 ```

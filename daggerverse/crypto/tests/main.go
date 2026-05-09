@@ -123,7 +123,7 @@ func (t *Tests) RsaKeyShouldNotBeCached(ctx context.Context) error {
 		return err
 	}
 	if a == b {
-		return fmt.Errorf("expected different RSA keys, got the same: %s", a)
+		return fmt.Errorf("expected different RSA keys, got the same")
 	}
 	return nil
 }
