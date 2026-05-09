@@ -23,6 +23,9 @@ func (c *Ci) Test(ctx context.Context) error {
 	jobs = jobs.WithJob("crypto", func(ctx context.Context) error {
 		return dag.CryptoTests().All(ctx)
 	})
+	jobs = jobs.WithJob("certificate-management", func(ctx context.Context) error {
+		return dag.CertificateManagementTests().All(ctx)
+	})
 
 	return jobs.Run(ctx)
 }
