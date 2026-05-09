@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
+	"fmt"
 	"io"
 
 	"github.com/google/uuid"
@@ -44,6 +45,10 @@ func (r *Random) Sha256(
 	//+default=32
 	n int,
 ) (string, error) {
+	if n <= 0 {
+		return "", fmt.Errorf("n must be greater than 0, got %d", n)
+	}
+
 	var b = make([]byte, n)
 	_, err := io.ReadFull(rand.Reader, b)
 	if err != nil {
@@ -61,6 +66,10 @@ func (r *Random) Sha512(
 	//+default=64
 	n int,
 ) (string, error) {
+	if n <= 0 {
+		return "", fmt.Errorf("n must be greater than 0, got %d", n)
+	}
+
 	var b = make([]byte, n)
 	_, err := io.ReadFull(rand.Reader, b)
 	if err != nil {

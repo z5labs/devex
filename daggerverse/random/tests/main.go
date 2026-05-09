@@ -10,7 +10,7 @@ import (
 type Tests struct{}
 
 // +check
-// +cache=session
+// +cache="session"
 func (t *Tests) All(ctx context.Context) error {
 	jobs := parallel.New().
 		WithRollupLogs(true).
