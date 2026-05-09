@@ -272,11 +272,11 @@ func hasAllEKUs(have, want []x509.ExtKeyUsage) bool {
 // Returns the secret (for passing back into the certificate-management API)
 // and its plaintext (for in-process verification).
 func newPassword(ctx context.Context, name string) (*dagger.Secret, string, error) {
-	hex, err := dag.Random().Sha256(ctx)
+	pwdHex, err := dag.Random().Sha256(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("generate password: %w", err)
 	}
-	return dag.SetSecret(name+"-"+hex[:16], hex), hex, nil
+	return dag.SetSecret(name+"-"+pwdHex[:16], pwdHex), pwdHex, nil
 }
 
 // readPkcs12 round-trips a Dagger file through the module runtime container's

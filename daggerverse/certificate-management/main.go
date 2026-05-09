@@ -25,8 +25,12 @@ const rsaKeyBits = 3072
 
 // CertificateManagement provides functions for creating and managing X.509
 // certificate authorities, issuing server / client / mutual-TLS certificates,
-// and packaging them as PKCS#12 keystores and truststores. Each issuance
-// generates a fresh private key; results are not cached by the Dagger engine.
+// and packaging them as PKCS#12 keystores and truststores. Issuance functions
+// generate fresh RSA private keys and serials, but carry `+cache="session"`
+// so their outputs are stable for the lifetime of a Dagger engine session
+// (and thus consistent across the field accesses on a single returned
+// object). To force a fresh CA or leaf, vary an input — for example by
+// passing a fresh password from the `random` module's `Sha256()`.
 type CertificateManagement struct{}
 
 // CertificateAuthority is a self-signed X.509 root capable of issuing leaf
@@ -73,11 +77,14 @@ func (t *TrustStore) Pkcs12() *dagger.File { return t.File }
 // Password returns the secret used to encrypt the PKCS#12 archive.
 func (t *TrustStore) Password() *dagger.Secret { return t.Pwd }
 
-// CreateCertificateAuthority generates a self-signed root CA. The supplied
-// password is bound to the resulting CA's KeyStore() and TrustStore() output.
-// The CA's identity is derived deterministically from the function inputs
-// (so two calls with the same arguments resolve to the same CA); pass a
-// freshly generated password to obtain a fresh CA.
+// CreateCertificateAuthority generates a self-signed root CA using a fresh
+// RSA private key and random serial. The supplied password is bound to the
+// resulting CA's KeyStore() and TrustStore() output. With `+cache="session"`
+// the result is reused across field accesses within a single engine session,
+// so `ca.KeyStore()` and `ca.TrustStore()` see a consistent cert+key pair.
+// To force a fresh CA, vary an input — pass a fresh password.
+//
+// +cache="session"
 func (m *CertificateManagement) CreateCertificateAuthority(
 	ctx context.Context,
 	// Subject common name for the CA certificate.
@@ -152,6 +159,10 @@ func (m *CertificateManagement) LoadCertificateAuthority(
 	rsaKey, ok := priv.(*rsa.PrivateKey)
 	if !ok {
 		return nil, fmt.Errorf("loaded private key is not RSA: %T", priv)
+	}
+	if !cert.IsCA || cert.KeyUsage&x509.KeyUsageCertSign == 0 {
+		return nil, fmt.Errorf("loaded certificate is not a CA (IsCA=%v, keyUsage=%v)",
+			cert.IsCA, cert.KeyUsage)
 	}
 
 	keyPem, err := pemEncodeKey(rsaKey)
@@ -230,9 +241,12 @@ func (ca *CertificateAuthority) TrustStore(ctx context.Context) (*TrustStore, er
 }
 
 // IssueServerCertificate issues a leaf TLS server certificate signed by this
-// CA with the given DNS and IP Subject Alternative Names. The leaf's identity
-// is deterministic given the function inputs; pass a fresh password to obtain
-// a fresh certificate.
+// CA with the given DNS and IP Subject Alternative Names. The leaf uses a
+// fresh RSA key and random serial; with `+cache="session"` the result is
+// reused across field accesses within a single engine session. Pass a fresh
+// password to obtain a fresh certificate.
+//
+// +cache="session"
 func (ca *CertificateAuthority) IssueServerCertificate(
 	ctx context.Context,
 	// Subject common name for the server certificate.
@@ -255,8 +269,11 @@ func (ca *CertificateAuthority) IssueServerCertificate(
 }
 
 // IssueClientCertificate issues a leaf TLS client certificate signed by this
-// CA. The leaf's identity is deterministic given the function inputs; pass a
-// fresh password to obtain a fresh certificate.
+// CA. The leaf uses a fresh RSA key and random serial; with `+cache="session"`
+// the result is reused across field accesses within a single engine session.
+// Pass a fresh password to obtain a fresh certificate.
+//
+// +cache="session"
 func (ca *CertificateAuthority) IssueClientCertificate(
 	ctx context.Context,
 	commonName string,
@@ -269,9 +286,12 @@ func (ca *CertificateAuthority) IssueClientCertificate(
 }
 
 // IssueMutualTlsCertificate issues a leaf certificate that is valid for both
-// server and client authentication, suitable for mutual-TLS use. The leaf's
-// identity is deterministic given the function inputs; pass a fresh password
-// to obtain a fresh certificate.
+// server and client authentication, suitable for mutual-TLS use. The leaf
+// uses a fresh RSA key and random serial; with `+cache="session"` the result
+// is reused across field accesses within a single engine session. Pass a
+// fresh password to obtain a fresh certificate.
+//
+// +cache="session"
 func (ca *CertificateAuthority) IssueMutualTlsCertificate(
 	ctx context.Context,
 	commonName string,

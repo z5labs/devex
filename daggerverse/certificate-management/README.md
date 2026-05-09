@@ -18,17 +18,27 @@ for PKCS#12 encoding.
 `KeyStore` and `TrustStore` both expose `Pkcs12()` (the `*dagger.File`) and
 `Password()` (the `*dagger.Secret` they were sealed with).
 
-## Determinism and freshness
+## Caching and freshness
 
 `CreateCertificateAuthority`, `IssueServerCertificate`, `IssueClientCertificate`,
-and `IssueMutualTlsCertificate` are **deterministic given their inputs**. Two
-calls with the same arguments resolve to the same CA / leaf, which is what
-keeps `ca.KeyStore()`, `ca.TrustStore()`, and `ca.IssueXxx()` consistent across
-field accesses on the same object.
+and `IssueMutualTlsCertificate` generate fresh RSA keys and random serials
+each time they execute. They carry `+cache="session"`, so within a single
+Dagger engine session the same arguments resolve to the same CA / leaf — this
+is what keeps `ca.KeyStore()`, `ca.TrustStore()`, and `ca.IssueXxx()`
+consistent across field accesses on a single returned object. Across
+sessions, the same arguments yield a fresh CA / leaf.
 
-To get a fresh CA or leaf, pass a fresh password — for example via
-[`daggerverse/random`](../random)'s `Sha256()`. See
+To force a fresh CA or leaf within a session, vary an input — pass a fresh
+password from [`daggerverse/random`](../random)'s `Sha256()`. See
 `tests/main.go:newPassword` for the canonical pattern.
+
+## Go SDK naming
+
+Dagger uppercases acronyms in the generated Go bindings: the source method
+`IssueMutualTlsCertificate` becomes `IssueMutualTLSCertificate` on the SDK
+client, and its options struct is
+`CertificateManagementCertificateAuthorityIssueMutualTLSCertificateOpts`.
+The CLI form is the kebab-case `issue-mutual-tls-certificate`.
 
 ## Functions
 
