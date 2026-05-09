@@ -20,10 +20,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run ci/All
+      - name: Run ci/Test
         uses: dagger/dagger-for-github@v7
         with:
           version: "0.20.8"
           module: "ci"
           verb: "call"
-          call: "all"
+          call: "test"

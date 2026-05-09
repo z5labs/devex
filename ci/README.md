@@ -7,7 +7,7 @@ to `main`.
 ## Run locally
 
 ```sh
-dagger -m ci call all
+dagger -m ci call test
 ```
 
 ## Adding a new daggerverse module
