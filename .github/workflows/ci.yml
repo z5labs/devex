@@ -27,3 +27,4 @@ jobs:
           module: "ci"
           verb: "call"
           call: "test"
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
