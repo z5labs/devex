@@ -8,6 +8,10 @@
     {
       "name": "random-tests",
       "source": "../daggerverse/random/tests"
+    },
+    {
+      "name": "crypto-tests",
+      "source": "../daggerverse/crypto/tests"
     }
   ]
 }
