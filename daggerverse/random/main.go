@@ -10,6 +10,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// Random provides functions for generating random values such as UUIDs and
+// random-derived SHA hashes. Each call returns a fresh value; results are not
+// cached by the Dagger engine.
 type Random struct{}
 
 // UuidV4 generates a random UUID version 4 and returns it as a string.
