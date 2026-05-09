@@ -205,7 +205,8 @@ func keyFormatChecks(
 		return fmt.Errorf("read key.pem: %w", err)
 	}
 	if !strings.HasPrefix(privPem, "-----BEGIN PRIVATE KEY-----") {
-		return fmt.Errorf("key.pem missing PKCS#8 PEM header, got: %q", trim(privPem))
+		// Don't echo any portion of private-key material into CI logs.
+		return fmt.Errorf("key.pem missing PKCS#8 PEM header (%d bytes)", len(privPem))
 	}
 
 	publicPem, err := pubPem().Contents(ctx)

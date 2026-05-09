@@ -339,6 +339,10 @@ func openSshPublicKey(pub any) (*dagger.File, error) {
 // is derived from a hash of the content, so distinct outputs land at distinct
 // WorkdirFile paths (different Dagger File IDs) and identical outputs are
 // idempotent.
+//
+// The write goes through a sibling temp file + atomic rename so concurrent
+// callers materializing the same content (e.g. parallel field resolution or
+// duplicate aliases) can't observe a partially written file.
 func writeWorkdirFile(name string, content []byte) (*dagger.File, error) {
 	sum := sha256.Sum256(content)
 	dir := "out-" + hex.EncodeToString(sum[:])
@@ -346,7 +350,28 @@ func writeWorkdirFile(name string, content []byte) (*dagger.File, error) {
 		return nil, err
 	}
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, content, 0o600); err != nil {
+
+	tmp, err := os.CreateTemp(dir, "."+name+"-*")
+	if err != nil {
+		return nil, err
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return nil, err
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
 		return nil, err
 	}
 	return dag.CurrentModule().WorkdirFile(path), nil
