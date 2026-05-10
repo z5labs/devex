@@ -113,7 +113,7 @@ func (l *Loki) Service() *dagger.Service {
 	ctr := dag.Container().From(l.Image).
 		WithUser("0:0").
 		WithMountedFile(lokiConfigPath, l.ConfigFile).
-		WithExposedPort(3100)
+		WithExposedPort(lokiHTTPPort)
 	ctr = mountDataDir(ctr, lokiDataDir, l.Storage)
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
 		UseEntrypoint: true,
@@ -126,7 +126,7 @@ func (l *Loki) Service() *dagger.Service {
 // +cache="never"
 func (l *Loki) Endpoint(ctx context.Context) (string, error) {
 	return l.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   3100,
+		Port:   lokiHTTPPort,
 		Scheme: "http",
 	})
 }
@@ -196,7 +196,7 @@ func (t *Tempo) Service() *dagger.Service {
 	ctr := dag.Container().From(t.Image).
 		WithUser("0:0").
 		WithMountedFile(tempoConfigPath, t.ConfigFile).
-		WithExposedPort(3200).
+		WithExposedPort(tempoHTTPPort).
 		WithExposedPort(4317).
 		WithExposedPort(4318)
 	ctr = mountDataDir(ctr, tempoDataDir, t.Storage)
@@ -212,7 +212,7 @@ func (t *Tempo) Service() *dagger.Service {
 // +cache="never"
 func (t *Tempo) HttpEndpoint(ctx context.Context) (string, error) {
 	return t.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   3200,
+		Port:   tempoHTTPPort,
 		Scheme: "http",
 	})
 }
@@ -296,7 +296,7 @@ func (m *Mimir) Service() *dagger.Service {
 	ctr := dag.Container().From(m.Image).
 		WithUser("0:0").
 		WithMountedFile(mimirConfigPath, m.ConfigFile).
-		WithExposedPort(9009)
+		WithExposedPort(mimirHTTPPort)
 	ctr = mountDataDir(ctr, mimirDataDir, m.Storage)
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
 		UseEntrypoint: true,
@@ -311,7 +311,7 @@ func (m *Mimir) Service() *dagger.Service {
 // +cache="never"
 func (m *Mimir) Endpoint(ctx context.Context) (string, error) {
 	return m.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   9009,
+		Port:   mimirHTTPPort,
 		Scheme: "http",
 	})
 }
