@@ -26,6 +26,9 @@ func (c *Ci) Test(ctx context.Context) error {
 	jobs = jobs.WithJob("kafka", func(ctx context.Context) error {
 		return dag.KafkaTests().All(ctx)
 	})
+	jobs = jobs.WithJob("go", func(ctx context.Context) error {
+		return dag.GoTests().All(ctx)
+	})
 
 	return jobs.Run(ctx)
 }

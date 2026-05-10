@@ -24,6 +24,10 @@
     {
       "name": "kafka-tests",
       "source": "../daggerverse/kafka/tests"
+    },
+    {
+      "name": "go-tests",
+      "source": "../daggerverse/go/tests"
     }
   ]
 }
