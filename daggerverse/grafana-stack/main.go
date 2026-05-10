@@ -107,6 +107,8 @@ func (l *Loki) Service() *dagger.Service {
 }
 
 // Endpoint returns the Loki HTTP base URL, e.g. http://<host>:3100.
+//
+// +cache="never"
 func (l *Loki) Endpoint(ctx context.Context) (string, error) {
 	return l.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
 		Port:   3100,
@@ -116,6 +118,8 @@ func (l *Loki) Endpoint(ctx context.Context) (string, error) {
 
 // OtlpHttpEndpoint returns the Loki OTLP/HTTP logs receiver URL, suitable
 // as the `endpoint` for an OpenTelemetry exporter posting log data.
+//
+// +cache="never"
 func (l *Loki) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 	base, err := l.Endpoint(ctx)
 	if err != nil {
@@ -189,6 +193,8 @@ func (t *Tempo) Service() *dagger.Service {
 
 // HttpEndpoint returns the Tempo HTTP query/push base URL,
 // e.g. http://<host>:3200.
+//
+// +cache="never"
 func (t *Tempo) HttpEndpoint(ctx context.Context) (string, error) {
 	return t.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
 		Port:   3200,
@@ -198,6 +204,8 @@ func (t *Tempo) HttpEndpoint(ctx context.Context) (string, error) {
 
 // OtlpGrpcEndpoint returns the Tempo OTLP/gRPC receiver address,
 // e.g. <host>:4317. No URL scheme — gRPC clients want host:port.
+//
+// +cache="never"
 func (t *Tempo) OtlpGrpcEndpoint(ctx context.Context) (string, error) {
 	return t.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
 		Port: 4317,
@@ -207,6 +215,8 @@ func (t *Tempo) OtlpGrpcEndpoint(ctx context.Context) (string, error) {
 // OtlpHttpEndpoint returns the Tempo OTLP/HTTP receiver base URL,
 // e.g. http://<host>:4318. The OpenTelemetry HTTP exporter appends
 // the per-signal path itself (e.g. /v1/traces).
+//
+// +cache="never"
 func (t *Tempo) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 	return t.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
 		Port:   4318,
@@ -282,6 +292,8 @@ func (m *Mimir) Service() *dagger.Service {
 // Endpoint returns the Mimir HTTP base URL, e.g. http://<host>:9009.
 // This endpoint serves both the Prometheus-compatible query API and
 // the OTLP HTTP metrics ingester.
+//
+// +cache="never"
 func (m *Mimir) Endpoint(ctx context.Context) (string, error) {
 	return m.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
 		Port:   9009,
@@ -292,6 +304,8 @@ func (m *Mimir) Endpoint(ctx context.Context) (string, error) {
 // OtlpHttpEndpoint returns the Mimir OTLP/HTTP metrics receiver URL,
 // suitable as the `endpoint` for an OpenTelemetry exporter posting
 // metric data.
+//
+// +cache="never"
 func (m *Mimir) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 	base, err := m.Endpoint(ctx)
 	if err != nil {
