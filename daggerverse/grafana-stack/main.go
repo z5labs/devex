@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"dagger/grafana-stack/internal/dagger"
 )
@@ -30,14 +31,28 @@ var defaultTempoConfig []byte
 //go:embed configs/mimir.yaml
 var defaultMimirConfig []byte
 
+//go:embed configs/grafana.ini
+var defaultGrafanaConfig []byte
+
 const lokiDataDir = "/var/lib/loki"
 const lokiConfigPath = "/etc/loki/loki.yaml"
+const lokiHTTPPort = 3100
 
 const tempoDataDir = "/var/lib/tempo"
 const tempoConfigPath = "/etc/tempo/tempo.yaml"
+const tempoHTTPPort = 3200
 
 const mimirDataDir = "/var/lib/mimir"
 const mimirConfigPath = "/etc/mimir/mimir.yaml"
+const mimirHTTPPort = 9009
+
+const grafanaHTTPPort = 3000
+const grafanaDataDir = "/var/lib/grafana"
+const grafanaDashboardsDir = grafanaDataDir + "/dashboards"
+const grafanaConfigPath = "/etc/grafana/grafana.ini"
+const grafanaDsProvPath = "/etc/grafana/provisioning/datasources/datasources.yaml"
+const grafanaDbProvPath = "/etc/grafana/provisioning/dashboards/dashboards.yaml"
+const grafanaAdminPwdPath = "/run/secrets/grafana-admin-password"
 
 // Loki wraps a configured grafana/loki container. Use Service() to obtain
 // the *dagger.Service for binding into other containers, and Endpoint() /
@@ -98,7 +113,7 @@ func (l *Loki) Service() *dagger.Service {
 	ctr := dag.Container().From(l.Image).
 		WithUser("0:0").
 		WithMountedFile(lokiConfigPath, l.ConfigFile).
-		WithExposedPort(3100)
+		WithExposedPort(lokiHTTPPort)
 	ctr = mountDataDir(ctr, lokiDataDir, l.Storage)
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
 		UseEntrypoint: true,
@@ -111,7 +126,7 @@ func (l *Loki) Service() *dagger.Service {
 // +cache="never"
 func (l *Loki) Endpoint(ctx context.Context) (string, error) {
 	return l.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   3100,
+		Port:   lokiHTTPPort,
 		Scheme: "http",
 	})
 }
@@ -181,7 +196,7 @@ func (t *Tempo) Service() *dagger.Service {
 	ctr := dag.Container().From(t.Image).
 		WithUser("0:0").
 		WithMountedFile(tempoConfigPath, t.ConfigFile).
-		WithExposedPort(3200).
+		WithExposedPort(tempoHTTPPort).
 		WithExposedPort(4317).
 		WithExposedPort(4318)
 	ctr = mountDataDir(ctr, tempoDataDir, t.Storage)
@@ -197,7 +212,7 @@ func (t *Tempo) Service() *dagger.Service {
 // +cache="never"
 func (t *Tempo) HttpEndpoint(ctx context.Context) (string, error) {
 	return t.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   3200,
+		Port:   tempoHTTPPort,
 		Scheme: "http",
 	})
 }
@@ -281,7 +296,7 @@ func (m *Mimir) Service() *dagger.Service {
 	ctr := dag.Container().From(m.Image).
 		WithUser("0:0").
 		WithMountedFile(mimirConfigPath, m.ConfigFile).
-		WithExposedPort(9009)
+		WithExposedPort(mimirHTTPPort)
 	ctr = mountDataDir(ctr, mimirDataDir, m.Storage)
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
 		UseEntrypoint: true,
@@ -296,7 +311,7 @@ func (m *Mimir) Service() *dagger.Service {
 // +cache="never"
 func (m *Mimir) Endpoint(ctx context.Context) (string, error) {
 	return m.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
-		Port:   9009,
+		Port:   mimirHTTPPort,
 		Scheme: "http",
 	})
 }
@@ -312,6 +327,225 @@ func (m *Mimir) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return base + "/otlp/v1/metrics", nil
+}
+
+// Grafana wraps a configured grafana/grafana container with file-based
+// datasource and dashboard provisioning. Datasources and dashboards are
+// accumulated via the WithX builder methods and rendered into the
+// container's /etc/grafana/provisioning tree at Service() time.
+type Grafana struct {
+	// Image is the resolved <registry>/grafana/grafana:<tag> reference.
+	Image string
+	// ConfigFile is the grafana.ini config: caller-supplied override or
+	// the embedded default.
+	ConfigFile *dagger.File
+	// AdminPassword is mounted into the container as a file and pointed
+	// at via GF_SECURITY_ADMIN_PASSWORD__FILE so plaintext never enters
+	// generated bindings.
+	AdminPassword *dagger.Secret
+	// Storage is the optional persistence volume for /var/lib/grafana.
+	Storage *dagger.CacheVolume
+
+	// LokiNames[i] is the in-network hostname bound to LokiSvcs[i] and
+	// is also used as the Grafana datasource name + uid. Same shape for
+	// Tempo and Mimir.
+	LokiNames  []string
+	LokiSvcs   []*dagger.Service
+	TempoNames []string
+	TempoSvcs  []*dagger.Service
+	MimirNames []string
+	MimirSvcs  []*dagger.Service
+
+	// Dashboards is the accumulated set of dashboard JSON files, mounted
+	// at /var/lib/grafana/dashboards on the Grafana container at
+	// Service() time. Starts empty.
+	Dashboards *dagger.Directory
+}
+
+// Grafana configures a grafana/grafana service with file-based datasource
+// and dashboard provisioning. Listens on :3000 plaintext.
+//
+// registry defaults to docker.io. tag defaults to a known-good upstream
+// version. configFile fully replaces the embedded default when supplied.
+// adminPassword is required and is mounted into the container at a fixed
+// path; Grafana reads it via GF_SECURITY_ADMIN_PASSWORD__FILE so the
+// plaintext never enters generated bindings. storage, when non-nil, is
+// mounted at /var/lib/grafana for persistence; when nil, an ephemeral
+// empty Directory is mounted instead.
+func (g *GrafanaStack) Grafana(
+	// Container registry hosting the grafana/grafana image.
+	// +default="docker.io"
+	registry string,
+	// Image tag for grafana/grafana.
+	// +default="12.0.0"
+	tag string,
+	// grafana.ini config; replaces the embedded default when supplied.
+	// +optional
+	configFile *dagger.File,
+	// Admin password supplied to GF_SECURITY_ADMIN_PASSWORD__FILE.
+	adminPassword *dagger.Secret,
+	// Persistence volume mounted at /var/lib/grafana. When nil the data
+	// dir is ephemeral.
+	// +optional
+	storage *dagger.CacheVolume,
+) (*Grafana, error) {
+	cfg, err := resolveConfig(configFile, "grafana.ini", defaultGrafanaConfig)
+	if err != nil {
+		return nil, fmt.Errorf("resolve grafana config: %w", err)
+	}
+	return &Grafana{
+		Image:         fmt.Sprintf("%s/grafana/grafana:%s", registry, tag),
+		ConfigFile:    cfg,
+		AdminPassword: adminPassword,
+		Storage:       storage,
+		Dashboards:    dag.Directory(),
+	}, nil
+}
+
+// WithLokiDatasource binds loki into Grafana's network at hostname `name`
+// and accumulates a Loki datasource entry under the same name (which is
+// also used as the datasource uid, so callers can hit
+// /api/datasources/proxy/uid/<name>/...).
+//
+// `name` must be a valid DNS label: it is used as the in-network
+// hostname (enforced by Dagger's WithServiceBinding), as the Grafana
+// datasource uid, and is interpolated into provisioning YAML.
+func (g *Grafana) WithLokiDatasource(name string, loki *Loki) *Grafana {
+	out := *g
+	out.LokiNames = append(append([]string{}, g.LokiNames...), name)
+	out.LokiSvcs = append(append([]*dagger.Service{}, g.LokiSvcs...), loki.Service())
+	return &out
+}
+
+// WithTempoDatasource binds tempo into Grafana's network at hostname
+// `name` and accumulates a Tempo datasource entry under the same name.
+// See WithLokiDatasource for the constraints on `name`.
+func (g *Grafana) WithTempoDatasource(name string, tempo *Tempo) *Grafana {
+	out := *g
+	out.TempoNames = append(append([]string{}, g.TempoNames...), name)
+	out.TempoSvcs = append(append([]*dagger.Service{}, g.TempoSvcs...), tempo.Service())
+	return &out
+}
+
+// WithMimirDatasource binds mimir into Grafana's network at hostname
+// `name` and accumulates a Prometheus-type datasource entry pointing at
+// Mimir's Prometheus-compatible API endpoint. See WithLokiDatasource
+// for the constraints on `name`.
+func (g *Grafana) WithMimirDatasource(name string, mimir *Mimir) *Grafana {
+	out := *g
+	out.MimirNames = append(append([]string{}, g.MimirNames...), name)
+	out.MimirSvcs = append(append([]*dagger.Service{}, g.MimirSvcs...), mimir.Service())
+	return &out
+}
+
+// WithDashboard adds a single dashboard JSON file to the provisioned
+// dashboards directory under the supplied name. `.json` is appended if
+// the supplied name does not already end with it.
+func (g *Grafana) WithDashboard(name string, file *dagger.File) *Grafana {
+	if !strings.HasSuffix(name, ".json") {
+		name += ".json"
+	}
+	out := *g
+	out.Dashboards = g.Dashboards.WithFile(name, file)
+	return &out
+}
+
+// WithDashboards adds every *.json entry in dir to the provisioned
+// dashboards directory, preserving filenames.
+func (g *Grafana) WithDashboards(dir *dagger.Directory) *Grafana {
+	out := *g
+	out.Dashboards = g.Dashboards.WithDirectory(".", dir, dagger.DirectoryWithDirectoryOpts{
+		Include: []string{"*.json"},
+	})
+	return &out
+}
+
+// Service returns the Grafana Dagger service. The container is run as
+// root (see Loki.Service for the rationale). The accumulated datasource
+// and dashboard state is rendered into the container's provisioning
+// tree at this point — subsequent WithX calls on the same *Grafana
+// receiver are not visible to the returned service.
+func (g *Grafana) Service() *dagger.Service {
+	ctr := dag.Container().From(g.Image).
+		WithUser("0:0").
+		WithExposedPort(grafanaHTTPPort).
+		WithMountedFile(grafanaConfigPath, g.ConfigFile).
+		WithMountedSecret(grafanaAdminPwdPath, g.AdminPassword).
+		WithEnvVariable("GF_SECURITY_ADMIN_PASSWORD__FILE", grafanaAdminPwdPath)
+
+	ctr = mountDataDir(ctr, grafanaDataDir, g.Storage)
+
+	for i, n := range g.LokiNames {
+		ctr = ctr.WithServiceBinding(n, g.LokiSvcs[i])
+	}
+	for i, n := range g.TempoNames {
+		ctr = ctr.WithServiceBinding(n, g.TempoSvcs[i])
+	}
+	for i, n := range g.MimirNames {
+		ctr = ctr.WithServiceBinding(n, g.MimirSvcs[i])
+	}
+
+	dsYAML := renderDatasourcesYAML(g.LokiNames, g.TempoNames, g.MimirNames)
+	dsFile := dag.Directory().WithNewFile("datasources.yaml", dsYAML).File("datasources.yaml")
+	ctr = ctr.WithMountedFile(grafanaDsProvPath, dsFile)
+
+	dbFile := dag.Directory().WithNewFile("dashboards.yaml", dashboardsProviderYAML).File("dashboards.yaml")
+	ctr = ctr.
+		WithMountedFile(grafanaDbProvPath, dbFile).
+		WithMountedDirectory(grafanaDashboardsDir, g.Dashboards)
+
+	return ctr.AsService(dagger.ContainerAsServiceOpts{
+		UseEntrypoint: true,
+	})
+}
+
+// Endpoint returns the Grafana HTTP base URL, e.g. http://<host>:3000.
+//
+// +cache="never"
+func (g *Grafana) Endpoint(ctx context.Context) (string, error) {
+	return g.Service().Endpoint(ctx, dagger.ServiceEndpointOpts{
+		Port:   grafanaHTTPPort,
+		Scheme: "http",
+	})
+}
+
+// dashboardsProviderYAML is a fixed single-provider config pointing at
+// the on-disk dashboards directory inside the Grafana container. All
+// provisioned dashboards land in one flat folder at the Grafana UI;
+// callers wanting folder grouping should embed it in the dashboard JSON.
+const dashboardsProviderYAML = `apiVersion: 1
+providers:
+  - name: default
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: false
+    options:
+      path: ` + grafanaDashboardsDir + `
+`
+
+// renderDatasourcesYAML emits the file-based provisioning YAML for the
+// accumulated set of {Loki, Tempo, Mimir} datasources. Each entry sets
+// uid == name so callers can address datasources via the proxy API at
+// /api/datasources/proxy/uid/<name>/... without an extra lookup.
+func renderDatasourcesYAML(lokiNames, tempoNames, mimirNames []string) string {
+	var b strings.Builder
+	b.WriteString("apiVersion: 1\ndatasources:\n")
+	for _, n := range lokiNames {
+		fmt.Fprintf(&b, "  - name: %s\n    uid: %s\n    type: loki\n    access: proxy\n    url: http://%s:%d\n    isDefault: false\n",
+			n, n, n, lokiHTTPPort)
+	}
+	for _, n := range tempoNames {
+		fmt.Fprintf(&b, "  - name: %s\n    uid: %s\n    type: tempo\n    access: proxy\n    url: http://%s:%d\n    isDefault: false\n",
+			n, n, n, tempoHTTPPort)
+	}
+	for _, n := range mimirNames {
+		fmt.Fprintf(&b, "  - name: %s\n    uid: %s\n    type: prometheus\n    access: proxy\n    url: http://%s:%d/prometheus\n    isDefault: false\n",
+			n, n, n, mimirHTTPPort)
+	}
+	return b.String()
 }
 
 // resolveConfig returns the caller-supplied config file when non-nil,
