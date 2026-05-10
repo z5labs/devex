@@ -54,12 +54,15 @@ func freshCluster(ctx context.Context) (*dagger.KafkaCluster, error) {
 
 type Tests struct{}
 
-// All runs every kafka round-trip test in parallel.
+// All runs every kafka round-trip test, capped at two concurrent jobs so
+// the engine doesn't have dozens of cluster containers (controller +
+// brokers per test) in flight at once on smaller CI runners.
 //
 // +check
 // +cache="session"
 func (t *Tests) All(ctx context.Context) error {
 	jobs := parallel.New().
+		WithLimit(2).
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 

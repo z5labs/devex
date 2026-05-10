@@ -106,6 +106,12 @@ func (k *Kafka) Cluster(
 	if clientListenerSecurity == nil || clientListenerSecurity.Mode != "PLAINTEXT" {
 		return nil, fmt.Errorf("only PLAINTEXT clientListenerSecurity is supported")
 	}
+	if raw, err := base64.RawURLEncoding.DecodeString(clusterId); err != nil || len(raw) != 16 {
+		return nil, fmt.Errorf(
+			"clusterId must be 16 bytes encoded as 22 unpadded base64-url chars, got %q",
+			clusterId,
+		)
+	}
 
 	image := fmt.Sprintf("%s/apache/kafka-native:%s", registry, tag)
 
@@ -469,10 +475,11 @@ func (c *Client) Consume(
 		if errs := fetches.Errors(); len(errs) > 0 {
 			for _, e := range errs {
 				if errors.Is(e.Err, context.DeadlineExceeded) || errors.Is(e.Err, context.Canceled) {
-					return out, nil
+					continue
 				}
 				return nil, fmt.Errorf("poll fetches: %w", e.Err)
 			}
+			return out, nil
 		}
 		iter := fetches.RecordIter()
 		for !iter.Done() && len(out) < maxMessages {
