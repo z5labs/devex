@@ -1,0 +1,56 @@
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  log_level: info
+
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /var/lib/mimir/data
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /var/lib/mimir/blocks
+  bucket_store:
+    sync_dir: /var/lib/mimir/tsdb-sync
+  tsdb:
+    dir: /var/lib/mimir/tsdb
+
+ingester:
+  ring:
+    replication_factor: 1
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+distributor:
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /var/lib/mimir/rules
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+compactor:
+  data_dir: /var/lib/mimir/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+limits:
+  ingestion_rate: 100000
+
+usage_stats:
+  enabled: false
