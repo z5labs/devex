@@ -59,8 +59,8 @@ runs at most once per (clusterId, args) within an engine session, so
 chained method calls (`cluster.Client().Produce(...) → Consume(...)`) all
 observe the same underlying broker services and the same internal CA.
 
-- `Cluster.BootstrapServers() []string` — broker `host:port` pairs the
-  client (and `BindBrokers` consumers) connect to. Returns
+- `Cluster.BootstrapServers(ctx) ([]string, error)` — broker `host:port`
+  pairs the client (and `BindBrokers` consumers) connect to. Returns
   `["broker-100:9092", "broker-101:9092", ...]`.
 - `Cluster.BindBrokers(c *dagger.Container) *dagger.Container` — chains
   `WithServiceBinding` for every broker so a caller's container resolves
@@ -118,7 +118,7 @@ records, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
 // truststore.p12 / keystore.p12 references resolve.
-props := client.PropertiesFile(ctx) // *dagger.File
+props := client.PropertiesFile() // *dagger.File — resolve via .Contents(ctx) / .Export(ctx)
 ```
 
 `keyEncoding` / `valueEncoding` accept `"raw"` (literal UTF-8 bytes),
@@ -139,10 +139,12 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
   sign broker server certs is independent from the CA used to validate
   incoming client certs. Pass the same CA to both args for symmetric
   setups, or split for asymmetric trust.
-- `PropertiesFile(ctx)` writes plaintext passwords into the rendered
+- `PropertiesFile()` writes plaintext passwords into the rendered
   Java `client.properties` — the Apache Kafka CLI tools require
-  plaintext password values. Export the resulting directory with
-  restrictive permissions if you persist it.
+  plaintext password values. The context is provided when you resolve
+  the returned `*dagger.File` (`.Contents(ctx)` / `.Export(ctx)`).
+  Export the resulting directory with restrictive permissions if you
+  persist it.
 
 ## Image source
 

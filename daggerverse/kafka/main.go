@@ -494,7 +494,7 @@ func writeWorkdirBytes(label, name string, content []byte) (*dagger.File, error)
 		os.Remove(tmpPath)
 		return nil, fmt.Errorf("write %s: %w", tmpPath, err)
 	}
-	if err := tmp.Chmod(0o644); err != nil {
+	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		os.Remove(tmpPath)
 		return nil, fmt.Errorf("chmod %s: %w", tmpPath, err)
@@ -801,8 +801,13 @@ func (c *Client) PropertiesFile(ctx context.Context) (*dagger.File, error) {
 	}
 
 	content := []byte(sb.String())
-	sum := sha256.Sum256(content)
-	dir := "props-" + hex.EncodeToString(sum[:])
+	h := sha256.New()
+	h.Write(content)
+	for _, sc := range sidecars {
+		fmt.Fprintf(h, "\x00%s\x00%d\x00", sc.name, len(sc.data))
+		h.Write(sc.data)
+	}
+	dir := "props-" + hex.EncodeToString(h.Sum(nil))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir %q: %w", dir, err)
 	}
