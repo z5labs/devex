@@ -15,8 +15,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"dagger/kafka/internal/dagger"
 
@@ -253,10 +255,15 @@ func decodeString(s, encoding string) ([]byte, error) {
 }
 
 // encodeBytes renders raw bytes into a string per the named encoding, the
-// inverse of decodeString.
+// inverse of decodeString. raw rejects non-UTF-8 input because the result
+// crosses GraphQL/JSON, which would silently replace invalid bytes with
+// U+FFFD; callers with arbitrary binary should use hex or base64.
 func encodeBytes(b []byte, encoding string) (string, error) {
 	switch encoding {
 	case "raw":
+		if !utf8.Valid(b) {
+			return "", fmt.Errorf("raw encoding requires valid UTF-8 bytes; use hex or base64 for arbitrary binary")
+		}
 		return string(b), nil
 	case "hex":
 		return hex.EncodeToString(b), nil
@@ -333,6 +340,12 @@ func (c *Client) CreateTopic(
 	// +default=1
 	replicationFactor int,
 ) error {
+	if partitions <= 0 {
+		return fmt.Errorf("partitions must be > 0, got %d", partitions)
+	}
+	if replicationFactor <= 0 {
+		return fmt.Errorf("replicationFactor must be > 0, got %d", replicationFactor)
+	}
 	cl, err := c.newKgoClient()
 	if err != nil {
 		return fmt.Errorf("new kafka client: %w", err)
@@ -403,7 +416,10 @@ func (c *Client) Produce(
 	defer cl.Close()
 
 	res := cl.ProduceSync(ctx, &kgo.Record{Topic: topic, Key: keyBytes, Value: valBytes})
-	return res.FirstErr()
+	if err := res.FirstErr(); err != nil {
+		return fmt.Errorf("produce to %q: %w", topic, err)
+	}
+	return nil
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
@@ -424,9 +440,15 @@ func (c *Client) Consume(
 	// +default="raw"
 	valueEncoding string,
 ) ([]ConsumedRecord, error) {
+	if maxMessages <= 0 {
+		return nil, fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
+	}
 	d, err := time.ParseDuration(timeout)
 	if err != nil {
 		return nil, fmt.Errorf("parse timeout %q: %w", timeout, err)
+	}
+	if d <= 0 {
+		return nil, fmt.Errorf("timeout must be > 0, got %s", d)
 	}
 
 	cl, err := c.newKgoClient(
@@ -488,5 +510,6 @@ func (c *Client) ListTopics(ctx context.Context) ([]string, error) {
 	for name := range topics {
 		out = append(out, name)
 	}
+	sort.Strings(out)
 	return out, nil
 }

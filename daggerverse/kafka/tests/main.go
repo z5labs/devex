@@ -450,9 +450,8 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 	}
 
 	out, err := cluster.BindBrokers(dag.Container().From("alpine:3.22")).
-		WithExec([]string{"sh", "-c",
-			"nc -z -w 5 " + host + " " + port + " && echo OK",
-		}).
+		WithExec([]string{"nc", "-z", "-w", "5", host, port}).
+		WithExec([]string{"echo", "OK"}).
 		Stdout(ctx)
 	if err != nil {
 		return fmt.Errorf("bound container exec: %w", err)
