@@ -20,6 +20,10 @@
     {
       "name": "grafana-stack-tests",
       "source": "../daggerverse/grafana-stack/tests"
+    },
+    {
+      "name": "kafka-tests",
+      "source": "../daggerverse/kafka/tests"
     }
   ]
 }
