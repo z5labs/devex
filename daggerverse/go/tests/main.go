@@ -25,6 +25,7 @@ func (t *Tests) All(ctx context.Context) error {
 		WithRollupSpans(true)
 
 	jobs = jobs.WithJob("ContainerHasGoToolchain", t.ContainerHasGoToolchain)
+	jobs = jobs.WithJob("ContainerInfersVersionFromGoMod", t.ContainerInfersVersionFromGoMod)
 	jobs = jobs.WithJob("ToolVersionContainsGoVersion", t.ToolVersionContainsGoVersion)
 	jobs = jobs.WithJob("EnvContainsGoroot", t.EnvContainsGoroot)
 	jobs = jobs.WithJob("VetHelloPasses", t.VetHelloPasses)
@@ -248,6 +249,25 @@ func (t *Tests) ToolVersionContainsGoVersion(ctx context.Context) error {
 	}
 	if !strings.Contains(out, "go version") {
 		return fmt.Errorf("expected 'go version' in output, got: %q", out)
+	}
+	return nil
+}
+
+// ContainerInfersVersionFromGoMod asserts that constructing the module with
+// New("") and a fixture whose go.mod declares `go 1.23` actually pulls the
+// matching golang:1.23 image — i.e. resolveVersion + go.mod parsing wire
+// through to the toolchain selection. Catches regressions in go.mod parsing
+// or in the fallback path silently using `latest`.
+func (t *Tests) ContainerInfersVersionFromGoMod(ctx context.Context) error {
+	out, err := dag.Go().
+		Container(helloDir()).
+		WithExec([]string{"go", "version"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("go version exec: %w", err)
+	}
+	if !strings.Contains(out, "go1.23") {
+		return fmt.Errorf("expected 'go1.23' (from fixture go.mod) in output, got: %q", out)
 	}
 	return nil
 }

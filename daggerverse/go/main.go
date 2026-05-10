@@ -100,6 +100,8 @@ func pkgBinName(pkg string) string {
 // Work runs `go work <subcommand> [args...]` against the supplied source
 // and returns stdout. subcommand is required (e.g. "init", "use", "sync",
 // "version").
+//
+// +cache="session"
 func (g *Go) Work(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -118,6 +120,8 @@ func (g *Go) Work(
 
 // ModTidy runs `go mod tidy` against the supplied source and returns the
 // updated /src directory.
+//
+// +cache="session"
 func (g *Go) ModTidy(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -130,6 +134,8 @@ func (g *Go) ModTidy(
 }
 
 // ModDownload runs `go mod download` against the supplied source.
+//
+// +cache="session"
 func (g *Go) ModDownload(ctx context.Context, source *dagger.Directory) error {
 	ctr, err := g.Container(ctx, source)
 	if err != nil {
@@ -140,6 +146,8 @@ func (g *Go) ModDownload(ctx context.Context, source *dagger.Directory) error {
 }
 
 // ModVerify runs `go mod verify` against the supplied source.
+//
+// +cache="session"
 func (g *Go) ModVerify(ctx context.Context, source *dagger.Directory) error {
 	ctr, err := g.Container(ctx, source)
 	if err != nil {
@@ -151,6 +159,8 @@ func (g *Go) ModVerify(ctx context.Context, source *dagger.Directory) error {
 
 // Generate runs `go generate pkg` against the supplied source and returns
 // /src after generation. pkg defaults to `./...`.
+//
+// +cache="session"
 func (g *Go) Generate(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -166,6 +176,8 @@ func (g *Go) Generate(
 
 // Run runs `go run pkg [args...]` against the supplied source and returns
 // the program's stdout. pkg is required (a single runnable main package).
+//
+// +cache="session"
 func (g *Go) Run(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -186,6 +198,8 @@ func (g *Go) Run(
 // source and returns /out as a *dagger.Directory. pkg defaults to `./...`;
 // when output is empty, `-o /out/` is used so go build picks names per its
 // own rules (one binary per main package).
+//
+// +cache="session"
 func (g *Go) Build(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -213,6 +227,8 @@ func (g *Go) Build(
 // Test runs `go test -count=1 [-race] [flags] pkg` against the supplied
 // source and returns the combined stdout. -count=1 is always passed to
 // bypass Go's internal test cache.
+//
+// +cache="session"
 func (g *Go) Test(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -239,6 +255,8 @@ func (g *Go) Test(
 // Fmt runs `gofmt -l -d .` against the supplied source. Returns the diff
 // of any unformatted files; non-empty output is also returned as an error so
 // CI fails fast on formatting violations.
+//
+// +cache="session"
 func (g *Go) Fmt(ctx context.Context, source *dagger.Directory) (string, error) {
 	ctr, err := g.Container(ctx, source)
 	if err != nil {
@@ -256,6 +274,8 @@ func (g *Go) Fmt(ctx context.Context, source *dagger.Directory) (string, error) 
 
 // Vet runs `go vet pkg` against the supplied source. pkg defaults to
 // `./...`. Returns a non-nil error when vet reports any issue.
+//
+// +cache="session"
 func (g *Go) Vet(
 	ctx context.Context,
 	source *dagger.Directory,
