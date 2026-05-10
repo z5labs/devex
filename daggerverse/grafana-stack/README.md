@@ -196,9 +196,11 @@ dagger -m daggerverse/grafana-stack/tests call mimir-accepts-otlp-metrics
 dagger -m daggerverse/grafana-stack/tests call grafana-proxies-loki-query
 ```
 
-Each test takes a `--tag` flag (default matches the parent module's
-pinned defaults) so a fresh upstream release can be qualified
-end-to-end without editing any module:
+Each backend test exposes an image tag override (default matches the
+parent module's pinned defaults) so a fresh upstream release can be
+qualified end-to-end without editing any module. The single-backend
+tests take `--tag`; `grafana-proxies-loki-query` takes `--grafana-tag`
+and `--loki-tag`:
 
 ```sh
 dagger -m daggerverse/grafana-stack/tests call loki-accepts-otlp-logs --tag=3.5.0

@@ -406,6 +406,10 @@ func (g *GrafanaStack) Grafana(
 // and accumulates a Loki datasource entry under the same name (which is
 // also used as the datasource uid, so callers can hit
 // /api/datasources/proxy/uid/<name>/...).
+//
+// `name` must be a valid DNS label: it is used as the in-network
+// hostname (enforced by Dagger's WithServiceBinding), as the Grafana
+// datasource uid, and is interpolated into provisioning YAML.
 func (g *Grafana) WithLokiDatasource(name string, loki *Loki) *Grafana {
 	out := *g
 	out.LokiNames = append(append([]string{}, g.LokiNames...), name)
@@ -415,6 +419,7 @@ func (g *Grafana) WithLokiDatasource(name string, loki *Loki) *Grafana {
 
 // WithTempoDatasource binds tempo into Grafana's network at hostname
 // `name` and accumulates a Tempo datasource entry under the same name.
+// See WithLokiDatasource for the constraints on `name`.
 func (g *Grafana) WithTempoDatasource(name string, tempo *Tempo) *Grafana {
 	out := *g
 	out.TempoNames = append(append([]string{}, g.TempoNames...), name)
@@ -424,7 +429,8 @@ func (g *Grafana) WithTempoDatasource(name string, tempo *Tempo) *Grafana {
 
 // WithMimirDatasource binds mimir into Grafana's network at hostname
 // `name` and accumulates a Prometheus-type datasource entry pointing at
-// Mimir's Prometheus-compatible API endpoint.
+// Mimir's Prometheus-compatible API endpoint. See WithLokiDatasource
+// for the constraints on `name`.
 func (g *Grafana) WithMimirDatasource(name string, mimir *Mimir) *Grafana {
 	out := *g
 	out.MimirNames = append(append([]string{}, g.MimirNames...), name)
