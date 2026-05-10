@@ -1,12 +1,11 @@
 # grafana-stack
 
 A Dagger module that spins up Loki, Tempo, and Mimir as Dagger services
-for local development and testing. Each backend runs in single-binary /
-monolithic mode and exposes both its native ingest API and an OTLP/HTTP
-receiver. Plaintext is the only supported transport on every listener.
-
-The Grafana UI itself is intentionally out of scope for this module —
-that lands in a follow-up.
+for local development and testing, plus a Grafana UI wired up to all
+three with file-based datasource and dashboard provisioning. Each
+backend runs in single-binary / monolithic mode and exposes both its
+native ingest API and an OTLP/HTTP receiver. Plaintext is the only
+supported transport on every listener.
 
 ## Backends and ports
 
@@ -15,6 +14,7 @@ that lands in a follow-up.
 | Loki    | `:3100`     | `:3100/otlp/v1/logs`                 | —         |
 | Tempo   | `:3200`     | `:4318` (collector appends `/v1/...`)| `:4317`   |
 | Mimir   | `:9009`     | `:9009/otlp/v1/metrics`              | —         |
+| Grafana | `:3000`     | —                                    | —         |
 
 ## Quickstart
 
@@ -79,6 +79,52 @@ url, err = mimir.Endpoint(ctx)         // http://<host>:9009
 url, err = mimir.OtlpHttpEndpoint(ctx) // http://<host>:9009/otlp/v1/metrics
 ```
 
+## Grafana UI
+
+`Grafana(registry, tag, configFile, adminPassword, storage)` returns a
+`*Grafana` builder. `adminPassword` is required and is supplied as a
+`*dagger.Secret`; it is mounted into the container and read via
+`GF_SECURITY_ADMIN_PASSWORD__FILE` so plaintext never enters generated
+bindings. The default tag is `12.0.0`. `configFile` defaults to a
+minimal `grafana.ini` that disables analytics and lets every other
+setting fall through to the upstream image's default; supplying a
+config file fully replaces it (no merge).
+
+Datasources and dashboards are accumulated via builder methods that
+return a new `*Grafana`:
+
+```go
+g := dag.GrafanaStack().Grafana(adminPassword).
+    WithLokiDatasource("loki", dag.GrafanaStack().Loki()).
+    WithTempoDatasource("tempo", dag.GrafanaStack().Tempo()).
+    WithMimirDatasource("mimir", dag.GrafanaStack().Mimir()).
+    WithDashboard("api-overview", dashboardFile).
+    WithDashboards(dashboardDir)
+
+svc := g.Service()                    // listens on :3000
+url, _ := g.Endpoint(ctx)             // http://<host>:3000
+```
+
+The `name` argument to each `WithXDatasource` is used both as the
+in-network service hostname **and** the datasource name + UID. Setting
+`uid == name` lets callers address the datasource via Grafana's proxy
+API without an extra lookup:
+
+```
+http://<host>:3000/api/datasources/proxy/uid/<name>/<backend-path>
+```
+
+Mimir is registered as a `prometheus`-type datasource pointing at
+`http://<name>:9009/prometheus` (Mimir's Prometheus-compatible API
+prefix, matching the existing Mimir round-trip test).
+
+Dashboards land in a single flat folder at `/var/lib/grafana/dashboards`
+on the container (auto-generated provider config). `WithDashboard(name,
+file)` appends `.json` to the supplied name if missing;
+`WithDashboards(dir)` includes every `*.json` entry in the directory,
+preserving filenames. Callers wanting folder grouping should embed it
+in the dashboard JSON itself.
+
 ## Plaintext-only
 
 Every listener is plaintext HTTP/gRPC. The story explicitly defers TLS
@@ -128,13 +174,14 @@ multi-tenant production deployment.
 `tests/` contains a sibling Dagger module that exercises each backend
 end-to-end:
 
-| Test                       | What it does                                           |
-|----------------------------|--------------------------------------------------------|
-| `LokiAcceptsOtlpLogs`      | POST OTLP/HTTP log → poll LogQL until marker visible.  |
-| `TempoAcceptsOtlpTraces`   | POST OTLP/HTTP span → GET `/api/traces/<hex>` checks.  |
-| `MimirAcceptsOtlpMetrics`  | POST OTLP/HTTP gauge → poll Prometheus API for series. |
+| Test                       | What it does                                                       |
+|----------------------------|--------------------------------------------------------------------|
+| `LokiAcceptsOtlpLogs`      | POST OTLP/HTTP log → poll LogQL until marker visible.              |
+| `TempoAcceptsOtlpTraces`   | POST OTLP/HTTP span → GET `/api/traces/<hex>` checks.              |
+| `MimirAcceptsOtlpMetrics`  | POST OTLP/HTTP gauge → poll Prometheus API for series.             |
+| `GrafanaProxiesLokiQuery`  | POST OTLP/HTTP log → query through Grafana's datasource proxy API. |
 
-Run all three in parallel:
+Run all four in parallel:
 
 ```sh
 dagger -m daggerverse/grafana-stack/tests call all
@@ -146,6 +193,15 @@ Run a single one:
 dagger -m daggerverse/grafana-stack/tests call loki-accepts-otlp-logs
 dagger -m daggerverse/grafana-stack/tests call tempo-accepts-otlp-traces
 dagger -m daggerverse/grafana-stack/tests call mimir-accepts-otlp-metrics
+dagger -m daggerverse/grafana-stack/tests call grafana-proxies-loki-query
+```
+
+Both `all` and `grafana-proxies-loki-query` accept a `--tag` argument
+(default `12.0.0`) so a fresh Grafana release can be qualified end-to-end
+without editing any module:
+
+```sh
+dagger -m daggerverse/grafana-stack/tests call all --tag=12.1.0
 ```
 
 Note the kebab-case CLI form (`loki-accepts-otlp-logs`); the Go SDK

@@ -9,6 +9,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"dagger/tests/internal/dagger"
+
 	"github.com/dagger/dagger/util/parallel"
 )
 
@@ -18,9 +20,22 @@ type Tests struct{}
 
 // All runs every grafana-stack round-trip test in parallel.
 //
+// tag is forwarded to GrafanaProxiesLokiQuery so callers can qualify a
+// new Grafana image at the CLI without editing any module:
+//
+//	dagger -m daggerverse/grafana-stack/tests call all --tag=12.1.0
+//
+// The default matches the parent module's `Grafana(...)` default so the
+// bare `call all` keeps working.
+//
 // +check
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
+func (t *Tests) All(
+	ctx context.Context,
+	// Grafana image tag to test.
+	// +default="12.0.0"
+	tag string,
+) error {
 	jobs := parallel.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
@@ -28,6 +43,9 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("LokiAcceptsOtlpLogs", t.LokiAcceptsOtlpLogs)
 	jobs = jobs.WithJob("TempoAcceptsOtlpTraces", t.TempoAcceptsOtlpTraces)
 	jobs = jobs.WithJob("MimirAcceptsOtlpMetrics", t.MimirAcceptsOtlpMetrics)
+	jobs = jobs.WithJob("GrafanaProxiesLokiQuery", func(ctx context.Context) error {
+		return t.GrafanaProxiesLokiQuery(ctx, tag)
+	})
 
 	return jobs.Run(ctx)
 }
@@ -445,6 +463,175 @@ exit 1
 		Stdout(ctx)
 	if err != nil {
 		return fmt.Errorf("mimir round-trip: %w", err)
+	}
+	_ = out
+	return nil
+}
+
+// GrafanaProxiesLokiQuery starts a Loki backend and a Grafana UI wired
+// to it via WithLokiDatasource, posts a single OTLP log carrying a
+// unique marker UUID directly to Loki, then issues an authenticated
+// LogQL query *through* Grafana's datasource proxy
+// (/api/datasources/proxy/uid/<name>/loki/api/v1/query_range) until the
+// marker reappears in the response. Verifies admin-password file
+// mounting, datasources.yaml provisioning, the in-network service
+// binding hostname, and Grafana's proxy plumbing all work end-to-end.
+//
+// tag overrides the grafana/grafana image tag at the CLI; defaults to
+// the parent module's pinned default.
+func (t *Tests) GrafanaProxiesLokiQuery(
+	ctx context.Context,
+	// +default="12.0.0"
+	tag string,
+) error {
+	pwd, err := randomHex(32)
+	if err != nil {
+		return fmt.Errorf("generate admin password: %w", err)
+	}
+	adminPassword := dag.SetSecret("grafana-admin-password", pwd)
+
+	marker, err := dag.Random().UUIDV4(ctx)
+	if err != nil {
+		return fmt.Errorf("generate marker: %w", err)
+	}
+
+	loki := dag.GrafanaStack().Loki()
+	grafana := dag.GrafanaStack().
+		Grafana(adminPassword, dagger.GrafanaStackGrafanaOpts{Tag: tag}).
+		WithLokiDatasource("loki", loki)
+
+	script := `set -eu
+# Wait for Loki and Grafana to become ready in turn. Loki readiness is
+# the same shape as in LokiAcceptsOtlpLogs; Grafana exposes /api/health
+# which returns {"database":"ok",...} once the DB is up.
+READY_TIMEOUT=120
+ATTEMPT=0
+while [ "${ATTEMPT}" -lt "${READY_TIMEOUT}" ]; do
+  if curl -fsS http://loki:3100/ready >/dev/null 2>&1; then
+    echo "loki ready after ${ATTEMPT}s"
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+if [ "${ATTEMPT}" -ge "${READY_TIMEOUT}" ]; then
+  echo "loki not ready after ${READY_TIMEOUT}s" >&2
+  exit 1
+fi
+
+ATTEMPT=0
+while [ "${ATTEMPT}" -lt "${READY_TIMEOUT}" ]; do
+  HEALTH=$(curl -fsS http://grafana:3000/api/health || true)
+  case "${HEALTH}" in
+    *'"database": "ok"'*|*'"database":"ok"'*)
+      echo "grafana ready after ${ATTEMPT}s"
+      break
+      ;;
+  esac
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+if [ "${ATTEMPT}" -ge "${READY_TIMEOUT}" ]; then
+  echo "grafana not ready after ${READY_TIMEOUT}s" >&2
+  echo "last /api/health: ${HEALTH}" >&2
+  exit 1
+fi
+
+NS_NANOS="$(date +%s)000000000"
+PAYLOAD=$(cat <<EOF
+{
+  "resourceLogs": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "grafana-stack-test"}}
+        ]
+      },
+      "scopeLogs": [
+        {
+          "scope": {"name": "grafana-stack-tests"},
+          "logRecords": [
+            {
+              "timeUnixNano": "${NS_NANOS}",
+              "severityNumber": 9,
+              "severityText": "INFO",
+              "body": {"stringValue": "${MARKER}"}
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+EOF
+)
+
+ATTEMPT=0
+while [ "${ATTEMPT}" -lt 60 ]; do
+  HTTP_CODE=$(curl -sS -o /tmp/post.out -w '%{http_code}' \
+    -X POST -H 'content-type: application/json' \
+    --data "${PAYLOAD}" \
+    http://loki:3100/otlp/v1/logs || echo 000)
+  if [ "${HTTP_CODE}" = "200" ] || [ "${HTTP_CODE}" = "204" ]; then
+    echo "loki accepted OTLP push (HTTP ${HTTP_CODE}) after ${ATTEMPT}s"
+    break
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+if [ "${ATTEMPT}" -ge 60 ]; then
+  echo "loki rejected OTLP push for 60s; last HTTP=${HTTP_CODE}" >&2
+  cat /tmp/post.out >&2 || true
+  exit 1
+fi
+
+# Allow the entry to land in the queriers before we ask Grafana to
+# proxy a LogQL request to Loki.
+sleep 2
+
+QUERY='{service_name="grafana-stack-test"}'
+NOW_SECONDS=$(date +%s)
+END_NANOS="${NOW_SECONDS}000000000"
+START_SECONDS=$((NOW_SECONDS - 600))
+START_NANOS="${START_SECONDS}000000000"
+
+ATTEMPT=0
+while [ "${ATTEMPT}" -lt 30 ]; do
+  HTTP_CODE=$(curl -sS -o /tmp/get.out -w '%{http_code}' --get \
+    -u "admin:${GRAFANA_PASSWORD}" \
+    --data-urlencode "query=${QUERY}" \
+    --data-urlencode "start=${START_NANOS}" \
+    --data-urlencode "end=${END_NANOS}" \
+    --data-urlencode 'limit=100' \
+    'http://grafana:3000/api/datasources/proxy/uid/loki/loki/api/v1/query_range' \
+    || echo 000)
+  if [ "${HTTP_CODE}" = "200" ]; then
+    case "$(cat /tmp/get.out)" in
+      *"${MARKER}"*)
+        echo "marker observed via grafana datasource proxy"
+        exit 0
+        ;;
+    esac
+  fi
+  ATTEMPT=$((ATTEMPT + 1))
+  sleep 1
+done
+
+echo "marker ${MARKER} never appeared via grafana proxy" >&2
+echo "last HTTP=${HTTP_CODE} body:" >&2
+cat /tmp/get.out >&2 || true
+exit 1
+`
+
+	out, err := dag.Container().From(curlImage).
+		WithServiceBinding("loki", loki.Service()).
+		WithServiceBinding("grafana", grafana.Service()).
+		WithEnvVariable("MARKER", marker).
+		WithEnvVariable("GRAFANA_PASSWORD", pwd).
+		WithExec([]string{"sh", "-c", script}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("grafana proxy round-trip: %w", err)
 	}
 	_ = out
 	return nil
