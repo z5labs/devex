@@ -9,6 +9,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"os"
+	"time"
 
 	"dagger/certificate-management-tests/internal/dagger"
 
@@ -52,7 +53,11 @@ func (t *Tests) CreateCaProducesUsableKeyStore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ca := dag.CertificateManagement().CreateCertificateAuthority(pwdSecret, caKey)
+	caSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
+	ca := dag.CertificateManagement().CreateCertificateAuthority(nowRfc3339(), caSerial, pwdSecret, caKey)
 
 	data, err := readPkcs12(ctx, ca.KeyStore().Pkcs12())
 	if err != nil {
@@ -80,8 +85,12 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
 	cm := dag.CertificateManagement()
-	originalCA := cm.CreateCertificateAuthority(pwdSecret, caKey)
+	originalCA := cm.CreateCertificateAuthority(nowRfc3339(), caSerial, pwdSecret, caKey)
 	originalKeystoreFile := originalCA.KeyStore().Pkcs12()
 	reloadedCA := cm.LoadCertificateAuthority(originalKeystoreFile, pwdSecret)
 
@@ -93,7 +102,11 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	issued := reloadedCA.IssueServerCertificate("example.com", leafPwdSecret, leafKey,
+	leafSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
+	issued := reloadedCA.IssueServerCertificate("example.com", nowRfc3339(), leafSerial, leafPwdSecret, leafKey,
 		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 			DNSSans: []string{"example.com"},
 		})
@@ -126,8 +139,8 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 func (t *Tests) IssueServerCertificateChainsToCa(ctx context.Context) error {
 	return verifyIssued(ctx, "server", "rsa",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueServerCertificate("server.example.com", leafPwd, leafKey,
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafNB, leafSerial string, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("server.example.com", leafNB, leafSerial, leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 					DNSSans: []string{"server.example.com"},
 				})
@@ -137,16 +150,16 @@ func (t *Tests) IssueServerCertificateChainsToCa(ctx context.Context) error {
 func (t *Tests) IssueClientCertificateChainsToCa(ctx context.Context) error {
 	return verifyIssued(ctx, "client", "rsa",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueClientCertificate("client", leafPwd, leafKey)
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafNB, leafSerial string, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueClientCertificate("client", leafNB, leafSerial, leafPwd, leafKey)
 		})
 }
 
 func (t *Tests) IssueMutualTlsCertificateChainsToCa(ctx context.Context) error {
 	return verifyIssued(ctx, "mtls", "rsa",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueMutualTLSCertificate("peer.example.com", leafPwd, leafKey,
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafNB, leafSerial string, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueMutualTLSCertificate("peer.example.com", leafNB, leafSerial, leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueMutualTLSCertificateOpts{
 					DNSSans: []string{"peer.example.com"},
 				})
@@ -158,8 +171,8 @@ func (t *Tests) IssueMutualTlsCertificateChainsToCa(ctx context.Context) error {
 func (t *Tests) IssueServerCertificateWithEcdsaKey(ctx context.Context) error {
 	return verifyIssued(ctx, "ecdsa-server", "ecdsa",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueServerCertificate("ecdsa.example.com", leafPwd, leafKey,
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafNB, leafSerial string, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("ecdsa.example.com", leafNB, leafSerial, leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 					DNSSans: []string{"ecdsa.example.com"},
 				})
@@ -171,8 +184,8 @@ func (t *Tests) IssueServerCertificateWithEcdsaKey(ctx context.Context) error {
 func (t *Tests) IssueServerCertificateWithEd25519Key(ctx context.Context) error {
 	return verifyIssued(ctx, "ed25519-server", "ed25519",
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		func(ca *dagger.CertificateManagementCertificateAuthority, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
-			return ca.IssueServerCertificate("ed25519.example.com", leafPwd, leafKey,
+		func(ca *dagger.CertificateManagementCertificateAuthority, leafNB, leafSerial string, leafPwd, leafKey *dagger.Secret) *dagger.CertificateManagementIssuedCertificate {
+			return ca.IssueServerCertificate("ed25519.example.com", leafNB, leafSerial, leafPwd, leafKey,
 				dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 					DNSSans: []string{"ed25519.example.com"},
 				})
@@ -191,6 +204,10 @@ func (t *Tests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
 	leafPwdSecret, leafPwd, err := newPassword(ctx, "lks-leaf-pwd")
 	if err != nil {
 		return err
@@ -199,10 +216,14 @@ func (t *Tests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	leafSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
 
 	cm := dag.CertificateManagement()
-	ca := cm.CreateCertificateAuthority(caPwdSecret, caKey)
-	issued := ca.IssueServerCertificate("round.example.com", leafPwdSecret, leafKey,
+	ca := cm.CreateCertificateAuthority(nowRfc3339(), caSerial, caPwdSecret, caKey)
+	issued := ca.IssueServerCertificate("round.example.com", nowRfc3339(), leafSerial, leafPwdSecret, leafKey,
 		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
 			DNSSans: []string{"round.example.com"},
 		})
@@ -229,8 +250,12 @@ func (t *Tests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	caSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
 	cm := dag.CertificateManagement()
-	ca := cm.CreateCertificateAuthority(caPwdSecret, caKey)
+	ca := cm.CreateCertificateAuthority(nowRfc3339(), caSerial, caPwdSecret, caKey)
 
 	wrapped := cm.LoadTrustStoreFromPkcs12(ca.TrustStore().Pkcs12(), caPwdSecret)
 	data, err := readPkcs12(ctx, wrapped.Pkcs12())
@@ -255,13 +280,17 @@ func verifyIssued(
 	label string,
 	keyKind string,
 	requireEKU []x509.ExtKeyUsage,
-	issue func(*dagger.CertificateManagementCertificateAuthority, *dagger.Secret, *dagger.Secret) *dagger.CertificateManagementIssuedCertificate,
+	issue func(*dagger.CertificateManagementCertificateAuthority, string, string, *dagger.Secret, *dagger.Secret) *dagger.CertificateManagementIssuedCertificate,
 ) error {
 	caPwdSecret, _, err := newPassword(ctx, label+"-ca-pwd")
 	if err != nil {
 		return err
 	}
 	caKey, err := newKey(ctx, label+"-ca-key", keyKind)
+	if err != nil {
+		return err
+	}
+	caSerial, err := newSerial()
 	if err != nil {
 		return err
 	}
@@ -273,9 +302,13 @@ func verifyIssued(
 	if err != nil {
 		return err
 	}
+	leafSerial, err := newSerial()
+	if err != nil {
+		return err
+	}
 
-	ca := dag.CertificateManagement().CreateCertificateAuthority(caPwdSecret, caKey)
-	issued := issue(ca, leafPwdSecret, leafKey)
+	ca := dag.CertificateManagement().CreateCertificateAuthority(nowRfc3339(), caSerial, caPwdSecret, caKey)
+	issued := issue(ca, nowRfc3339(), leafSerial, leafPwdSecret, leafKey)
 
 	leafCert, err := readPemCert(ctx, issued.CertPemFile())
 	if err != nil {
@@ -333,13 +366,18 @@ func hasAllEKUs(have, want []x509.ExtKeyUsage) bool {
 // newPassword mints a fresh PKCS#12 password by hashing 32 random bytes via
 // the random module and wrapping the resulting hex string as a Dagger secret.
 // Returns the secret (for passing back into the certificate-management API)
-// and its plaintext (for in-process verification).
+// and its plaintext (for in-process verification). The secret name uses an
+// independent random suffix so password material never appears in logs.
 func newPassword(ctx context.Context, name string) (*dagger.Secret, string, error) {
 	pwdHex, err := dag.Random().Sha256(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("generate password: %w", err)
 	}
-	return dag.SetSecret(name+"-"+pwdHex[:16], pwdHex), pwdHex, nil
+	suffix, err := randomHex(8)
+	if err != nil {
+		return nil, "", err
+	}
+	return dag.SetSecret(name+"-"+suffix, pwdHex), pwdHex, nil
 }
 
 // newKey mints a fresh PKCS#8 PEM private key via the crypto module and
@@ -375,6 +413,19 @@ func randomHex(n int) (string, error) {
 		return "", fmt.Errorf("generate random hex: %w", err)
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// nowRfc3339 returns the current UTC time in RFC3339 form, suitable for
+// passing to CreateCertificateAuthority / Issue* as the notBefore input.
+// Using a fresh value per call also acts as the cache-busting input that
+// signs with truly deterministic templates.
+func nowRfc3339() string {
+	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// newSerial returns a fresh 128-bit hex-encoded serial number.
+func newSerial() (string, error) {
+	return randomHex(16)
 }
 
 // readPkcs12 round-trips a Dagger file through the module runtime container's

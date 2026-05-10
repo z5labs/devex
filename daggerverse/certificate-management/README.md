@@ -20,11 +20,20 @@ for PKCS#12 encoding.
 
 ## Determinism
 
-The module is a pure signer: callers supply the private key as a PEM-encoded
-PKCS#8 `*dagger.Secret`. `CreateCertificateAuthority` and the three `Issue*`
-methods do not generate random keys themselves, so they carry no `+cache=`
-directive and Dagger's default content-addressed caching applies. To force a
-fresh CA or leaf, vary an input — pass a fresh password or a fresh key.
+The module is a pure signer: every certificate output is fully determined by
+its inputs. `CreateCertificateAuthority` and the three `Issue*` methods take
+the private key, the password, the validity window's `notBefore` (RFC3339),
+and the certificate `serial` (hex) as inputs — there is no `time.Now()` or
+`rand.Int` hidden inside the signing template. As a result the functions
+carry no `+cache=` directive and Dagger's default content-addressed caching
+works as advertised: identical inputs return identical bytes; varying
+`notBefore` or `serial` (or any other input) is the natural cache-busting
+mechanism.
+
+In practice you almost always want fresh certs per call. Pass
+`time.Now().UTC().Format(time.RFC3339)` for `notBefore` and a fresh
+random hex string for `serial`; both will differ each run and Dagger
+will re-sign accordingly.
 
 ## Generating keys
 
@@ -41,6 +50,21 @@ key := dag.SetSecret("ca-key", pem)
 
 Any algorithm whose private key implements `crypto.Signer` (RSA, ECDSA,
 Ed25519) is accepted.
+
+## Minting `notBefore` and `serial`
+
+```go
+import (
+    "crypto/rand"
+    "encoding/hex"
+    "time"
+)
+
+notBefore := time.Now().UTC().Format(time.RFC3339)
+var serialBytes [16]byte
+_, _ = rand.Read(serialBytes[:])
+serial := hex.EncodeToString(serialBytes[:]) // 32 hex chars = 128 bits
+```
 
 ## Go SDK naming
 
@@ -59,6 +83,8 @@ Self-signs a root CA over the caller-supplied private key.
 ```sh
 dagger -m github.com/z5labs/devex/daggerverse/certificate-management call \
   create-certificate-authority \
+  --not-before="2026-05-09T00:00:00Z" \
+  --serial="0123456789abcdef0123456789abcdef" \
   --password=env:CA_PWD \
   --key=env:CA_KEY_PEM \
   --common-name="My Root CA" \
@@ -67,7 +93,7 @@ dagger -m github.com/z5labs/devex/daggerverse/certificate-management call \
 
 ```go
 ca := dag.CertificateManagement().
-    CreateCertificateAuthority(pwd, key,
+    CreateCertificateAuthority(notBefore, serial, pwd, key,
         dagger.CertificateManagementCreateCertificateAuthorityOpts{
             CommonName:   "My Root CA",
             ValidityDays: 3650,
@@ -85,10 +111,13 @@ ca := dag.CertificateManagement().LoadCertificateAuthority(p12File, pwd)
 ### IssueServerCertificate / IssueClientCertificate / IssueMutualTlsCertificate
 
 Sign leaf certificates with `serverAuth`, `clientAuth`, or both EKUs. Each
-takes the leaf's private key as input.
+takes the leaf's private key, `notBefore`, and `serial` as inputs. Leaves
+get `KeyUsageDigitalSignature`; RSA leaves additionally get
+`KeyUsageKeyEncipherment` (omitted for ECDSA / Ed25519, where it is
+semantically meaningless).
 
 ```go
-issued := ca.IssueServerCertificate("svc.example.com", leafPwd, leafKey,
+issued := ca.IssueServerCertificate("svc.example.com", notBefore, serial, leafPwd, leafKey,
     dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
         DNSSans: []string{"svc.example.com"},
         IPSans:  []string{"10.0.0.1"},

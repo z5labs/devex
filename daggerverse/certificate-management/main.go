@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
@@ -77,6 +78,11 @@ func (t *TrustStore) Password() *dagger.Secret { return t.Pwd }
 // private key. The key must be PEM-encoded PKCS#8 (RSA, ECDSA, or Ed25519).
 // The supplied password is bound to the resulting CA's KeyStore() and
 // TrustStore() output.
+//
+// The function is pure given its inputs (commonName, validityDays, notBefore,
+// serial, password, key). Vary notBefore and serial per call to bust Dagger's
+// default cache when fresh certs are wanted; reuse them for byte-stable
+// output across calls.
 func (m *CertificateManagement) CreateCertificateAuthority(
 	ctx context.Context,
 	// Subject common name for the CA certificate.
@@ -85,17 +91,32 @@ func (m *CertificateManagement) CreateCertificateAuthority(
 	// Number of days the CA certificate is valid for.
 	// +default=3650
 	validityDays int,
+	// RFC3339 timestamp the CA becomes valid at. The CA's NotAfter is
+	// notBefore + validityDays. Pass time.Now().UTC().Format(time.RFC3339)
+	// for a fresh CA per call.
+	notBefore string,
+	// Hex-encoded certificate serial number (typically 32 hex chars =
+	// 128 bits). Must be a positive integer.
+	serial string,
 	// PKCS#12 password used by the CA's KeyStore and TrustStore.
 	password *dagger.Secret,
 	// PEM-encoded PKCS#8 private key the CA will sign with and embed.
 	key *dagger.Secret,
 ) (*CertificateAuthority, error) {
+	nb, err := parseNotBefore(notBefore)
+	if err != nil {
+		return nil, err
+	}
+	sn, err := parseSerial(serial)
+	if err != nil {
+		return nil, err
+	}
 	signer, err := readKeySecret(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("read CA key: %w", err)
 	}
 
-	tmpl, err := buildCATemplate(commonName, validityDays)
+	tmpl, err := buildCATemplate(commonName, validityDays, nb, sn)
 	if err != nil {
 		return nil, err
 	}
@@ -226,6 +247,8 @@ func (ca *CertificateAuthority) TrustStore(ctx context.Context) (*TrustStore, er
 // IssueServerCertificate signs a leaf TLS server certificate from the
 // caller-supplied private key (PEM PKCS#8) using this CA. The leaf is
 // embedded with the given DNS and IP Subject Alternative Names.
+//
+// Pure given its inputs; vary notBefore and serial per call to bust caching.
 func (ca *CertificateAuthority) IssueServerCertificate(
 	ctx context.Context,
 	// Subject common name for the server certificate.
@@ -239,6 +262,11 @@ func (ca *CertificateAuthority) IssueServerCertificate(
 	// Number of days the certificate is valid for.
 	// +default=365
 	validityDays int,
+	// RFC3339 timestamp the certificate becomes valid at.
+	notBefore string,
+	// Hex-encoded certificate serial number (typically 32 hex chars =
+	// 128 bits). Must be a positive integer.
+	serial string,
 	// PKCS#12 password used by the issued certificate's KeyStore and
 	// TrustStore.
 	password *dagger.Secret,
@@ -246,27 +274,36 @@ func (ca *CertificateAuthority) IssueServerCertificate(
 	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, dnsSans, ipSans, validityDays,
-		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, password, key)
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, notBefore, serial, password, key)
 }
 
 // IssueClientCertificate signs a leaf TLS client certificate from the
 // caller-supplied private key (PEM PKCS#8) using this CA.
+//
+// Pure given its inputs; vary notBefore and serial per call to bust caching.
 func (ca *CertificateAuthority) IssueClientCertificate(
 	ctx context.Context,
 	commonName string,
 	// +default=365
 	validityDays int,
+	// RFC3339 timestamp the certificate becomes valid at.
+	notBefore string,
+	// Hex-encoded certificate serial number (typically 32 hex chars =
+	// 128 bits). Must be a positive integer.
+	serial string,
 	password *dagger.Secret,
 	// PEM-encoded PKCS#8 private key for the leaf certificate.
 	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, nil, nil, validityDays,
-		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, password, key)
+		[]x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}, notBefore, serial, password, key)
 }
 
 // IssueMutualTlsCertificate signs a leaf certificate that is valid for both
 // server and client authentication, suitable for mutual-TLS use, from the
 // caller-supplied private key (PEM PKCS#8).
+//
+// Pure given its inputs; vary notBefore and serial per call to bust caching.
 func (ca *CertificateAuthority) IssueMutualTlsCertificate(
 	ctx context.Context,
 	commonName string,
@@ -276,13 +313,18 @@ func (ca *CertificateAuthority) IssueMutualTlsCertificate(
 	ipSans []string,
 	// +default=365
 	validityDays int,
+	// RFC3339 timestamp the certificate becomes valid at.
+	notBefore string,
+	// Hex-encoded certificate serial number (typically 32 hex chars =
+	// 128 bits). Must be a positive integer.
+	serial string,
 	password *dagger.Secret,
 	// PEM-encoded PKCS#8 private key for the leaf certificate.
 	key *dagger.Secret,
 ) (*IssuedCertificate, error) {
 	return ca.issueLeaf(ctx, commonName, dnsSans, ipSans, validityDays,
 		[]x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
-		password, key)
+		notBefore, serial, password, key)
 }
 
 // KeyStore returns a PKCS#12 archive containing the leaf certificate, its
@@ -329,9 +371,19 @@ func (ca *CertificateAuthority) issueLeaf(
 	ipSans []string,
 	validityDays int,
 	eku []x509.ExtKeyUsage,
+	notBefore string,
+	serial string,
 	password *dagger.Secret,
 	leafKeySecret *dagger.Secret,
 ) (*IssuedCertificate, error) {
+	nb, err := parseNotBefore(notBefore)
+	if err != nil {
+		return nil, err
+	}
+	sn, err := parseSerial(serial)
+	if err != nil {
+		return nil, err
+	}
 	caCert, caKey, _, err := ca.materialize(ctx)
 	if err != nil {
 		return nil, err
@@ -341,7 +393,7 @@ func (ca *CertificateAuthority) issueLeaf(
 	if err != nil {
 		return nil, fmt.Errorf("read leaf key: %w", err)
 	}
-	tmpl, err := buildLeafTemplate(commonName, dnsSans, ipSans, eku, validityDays)
+	tmpl, err := buildLeafTemplate(commonName, dnsSans, ipSans, eku, validityDays, nb, sn, leafSigner.Public())
 	if err != nil {
 		return nil, err
 	}
@@ -401,33 +453,26 @@ func (ic *IssuedCertificate) materialize(ctx context.Context) (*x509.Certificate
 	return leafCert, leafKey, caCert, pwd, nil
 }
 
-func buildCATemplate(commonName string, validityDays int) (*x509.Certificate, error) {
+func buildCATemplate(commonName string, validityDays int, notBefore time.Time, serial *big.Int) (*x509.Certificate, error) {
 	if validityDays <= 0 {
 		return nil, fmt.Errorf("validityDays must be positive, got %d", validityDays)
 	}
-	serial, err := randomSerial()
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
 	return &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: commonName},
-		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.AddDate(0, 0, validityDays),
+		SerialNumber: serial,
+		Subject:      pkix.Name{CommonName: commonName},
+		// Subtract a minute as a small clock-skew fudge for verifiers whose
+		// clocks lag the issuer's.
+		NotBefore:             notBefore.Add(-time.Minute),
+		NotAfter:              notBefore.AddDate(0, 0, validityDays),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		IsCA:                  true,
 		BasicConstraintsValid: true,
 	}, nil
 }
 
-func buildLeafTemplate(commonName string, dnsSans []string, ipSans []string, eku []x509.ExtKeyUsage, validityDays int) (*x509.Certificate, error) {
+func buildLeafTemplate(commonName string, dnsSans []string, ipSans []string, eku []x509.ExtKeyUsage, validityDays int, notBefore time.Time, serial *big.Int, pub crypto.PublicKey) (*x509.Certificate, error) {
 	if validityDays <= 0 {
 		return nil, fmt.Errorf("validityDays must be positive, got %d", validityDays)
-	}
-	serial, err := randomSerial()
-	if err != nil {
-		return nil, err
 	}
 	ips := make([]net.IP, 0, len(ipSans))
 	for _, raw := range ipSans {
@@ -437,13 +482,18 @@ func buildLeafTemplate(commonName string, dnsSans []string, ipSans []string, eku
 		}
 		ips = append(ips, ip)
 	}
-	now := time.Now().UTC()
+	// KeyEncipherment is only meaningful for RSA key transport; ECDSA and
+	// Ed25519 leaves get DigitalSignature alone.
+	keyUsage := x509.KeyUsageDigitalSignature
+	if _, isRSA := pub.(*rsa.PublicKey); isRSA {
+		keyUsage |= x509.KeyUsageKeyEncipherment
+	}
 	return &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
-		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.AddDate(0, 0, validityDays),
-		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyEncipherment,
+		NotBefore:             notBefore.Add(-time.Minute),
+		NotAfter:              notBefore.AddDate(0, 0, validityDays),
+		KeyUsage:              keyUsage,
 		ExtKeyUsage:           eku,
 		BasicConstraintsValid: true,
 		DNSNames:              dnsSans,
@@ -451,11 +501,24 @@ func buildLeafTemplate(commonName string, dnsSans []string, ipSans []string, eku
 	}, nil
 }
 
-func randomSerial() (*big.Int, error) {
-	limit := new(big.Int).Lsh(big.NewInt(1), 128)
-	n, err := rand.Int(rand.Reader, limit)
+func parseNotBefore(s string) (time.Time, error) {
+	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		return nil, fmt.Errorf("generate serial: %w", err)
+		return time.Time{}, fmt.Errorf("parse notBefore %q: %w", s, err)
+	}
+	return t.UTC(), nil
+}
+
+func parseSerial(s string) (*big.Int, error) {
+	if s == "" {
+		return nil, fmt.Errorf("serial must not be empty")
+	}
+	n, ok := new(big.Int).SetString(s, 16)
+	if !ok {
+		return nil, fmt.Errorf("parse serial %q: not valid hex", s)
+	}
+	if n.Sign() <= 0 {
+		return nil, fmt.Errorf("serial must be a positive integer, got %s", s)
 	}
 	return n, nil
 }
@@ -535,18 +598,20 @@ func fileBytes(ctx context.Context, f *dagger.File) ([]byte, error) {
 
 // bytesToFile writes raw bytes to the module's scratch working directory and
 // returns a *dagger.File pointing at the resulting file. Each call uses a
-// fresh subdirectory so concurrent invocations do not collide.
+// fresh subdirectory so concurrent invocations do not collide. Permissions
+// are restrictive (0700 dir / 0600 file) because callers may pass PKCS#12
+// archives containing private keys.
 func bytesToFile(name string, data []byte) (*dagger.File, error) {
 	suffix, err := uniqueSuffix()
 	if err != nil {
 		return nil, err
 	}
 	dir := "cm-out-" + suffix
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create scratch dir: %w", err)
 	}
 	rel := filepath.Join(dir, name)
-	if err := os.WriteFile(rel, data, 0o644); err != nil {
+	if err := os.WriteFile(rel, data, 0o600); err != nil {
 		return nil, fmt.Errorf("write %s: %w", rel, err)
 	}
 	return dag.CurrentModule().WorkdirFile(rel), nil
