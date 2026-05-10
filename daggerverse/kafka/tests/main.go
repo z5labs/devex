@@ -15,11 +15,6 @@ import (
 	"github.com/dagger/dagger/util/parallel"
 )
 
-// kafkaImageTag is the apache/kafka-native tag the test suite spins up. Pin it
-// here so increments don't drift; bump deliberately when adopting a newer
-// Kafka release.
-const kafkaImageTag = "4.2.0"
-
 // newClusterId mints a fresh KRaft-shaped cluster ID — 16 random bytes
 // rendered as 22 unpadded base64-url characters — by feeding random bytes
 // from the random module through the standard library.
@@ -43,13 +38,15 @@ func newClusterId(ctx context.Context) (string, error) {
 // container — for use by every cluster-touching test. The returned
 // KafkaCluster is a lazy chain; the server-side Cluster constructor runs
 // only when a leaf op (e.g. BootstrapServers) resolves.
-func freshCluster(ctx context.Context) (*dagger.KafkaCluster, error) {
+func freshCluster(ctx context.Context, kafkaImageTag string) (*dagger.KafkaCluster, error) {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
 		return nil, err
 	}
 	k := dag.Kafka()
-	return k.Cluster(clusterId, kafkaImageTag, k.PlaintextServerSecurity()), nil
+	return k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+		Tag: kafkaImageTag,
+	}), nil
 }
 
 type Tests struct{}
@@ -58,27 +55,66 @@ type Tests struct{}
 // the engine doesn't have dozens of cluster containers (controller +
 // brokers per test) in flight at once on smaller CI runners.
 //
+// kafkaImageTag picks the apache/kafka-native tag every spawned cluster
+// runs against, so callers can verify the module against a newer Kafka
+// release without first changing main.go. The default matches the
+// Cluster constructor's own default.
+//
 // +check
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
+func (t *Tests) All(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
 	jobs := parallel.New().
 		WithLimit(2).
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 
 	jobs = jobs.WithJob("PlaintextSecurityProfilesAreNonNil", t.PlaintextSecurityProfilesAreNonNil)
-	jobs = jobs.WithJob("SingleNodeClusterStarts", t.SingleNodeClusterStarts)
-	jobs = jobs.WithJob("ClusterClientCanListTopicsOnFreshCluster", t.ClusterClientCanListTopicsOnFreshCluster)
-	jobs = jobs.WithJob("CreateAndDeleteTopicRoundTrip", t.CreateAndDeleteTopicRoundTrip)
-	jobs = jobs.WithJob("ProduceConsumeRoundTripRaw", t.ProduceConsumeRoundTripRaw)
-	jobs = jobs.WithJob("ProduceConsumeRoundTripHex", t.ProduceConsumeRoundTripHex)
-	jobs = jobs.WithJob("ProduceConsumeRoundTripBase64", t.ProduceConsumeRoundTripBase64)
-	jobs = jobs.WithJob("ProduceRejectsUnknownEncoding", t.ProduceRejectsUnknownEncoding)
-	jobs = jobs.WithJob("PropertiesFileContainsBootstrapAndSecurityProtocol", t.PropertiesFileContainsBootstrapAndSecurityProtocol)
-	jobs = jobs.WithJob("BindBrokersExposesBrokersToCallerContainer", t.BindBrokersExposesBrokersToCallerContainer)
-	jobs = jobs.WithJob("DedicatedControllerAndBrokerProduceConsume", t.DedicatedControllerAndBrokerProduceConsume)
-	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", t.OneControllerTwoBrokersReplicationFactorTwo)
-	jobs = jobs.WithJob("MultiControllerIsRejected", t.MultiControllerIsRejected)
+	jobs = jobs.WithJob("SingleNodeClusterStarts", func(ctx context.Context) error {
+		return t.SingleNodeClusterStarts(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ClusterClientCanListTopicsOnFreshCluster", func(ctx context.Context) error {
+		return t.ClusterClientCanListTopicsOnFreshCluster(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("CreateAndDeleteTopicRoundTrip", func(ctx context.Context) error {
+		return t.CreateAndDeleteTopicRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProduceConsumeRoundTripRaw", func(ctx context.Context) error {
+		return t.ProduceConsumeRoundTripRaw(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProduceConsumeRoundTripHex", func(ctx context.Context) error {
+		return t.ProduceConsumeRoundTripHex(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProduceConsumeRoundTripBase64", func(ctx context.Context) error {
+		return t.ProduceConsumeRoundTripBase64(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProduceRejectsUnknownEncoding", func(ctx context.Context) error {
+		return t.ProduceRejectsUnknownEncoding(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("PropertiesFileContainsBootstrapAndSecurityProtocol", func(ctx context.Context) error {
+		return t.PropertiesFileContainsBootstrapAndSecurityProtocol(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("BindBrokersExposesBothListeners", func(ctx context.Context) error {
+		return t.BindBrokersExposesBothListeners(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("DedicatedControllerAndBrokerProduceConsume", func(ctx context.Context) error {
+		return t.DedicatedControllerAndBrokerProduceConsume(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", func(ctx context.Context) error {
+		return t.OneControllerTwoBrokersReplicationFactorTwo(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("MultiControllerIsRejected", func(ctx context.Context) error {
+		return t.MultiControllerIsRejected(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("AutoCreateTopicsDisabled", func(ctx context.Context) error {
+		return t.AutoCreateTopicsDisabled(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", func(ctx context.Context) error {
+		return t.ConsumerGroupOnSingleBrokerWorks(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }
@@ -122,8 +158,12 @@ func (t *Tests) PlaintextSecurityProfilesAreNonNil(ctx context.Context) error {
 // to run by resolving BootstrapServers, asserting only that the broker
 // hostname is non-empty. End-to-end reachability is covered by sibling
 // tests that exercise ListTopics / produce / consume.
-func (t *Tests) SingleNodeClusterStarts(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) SingleNodeClusterStarts(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -147,8 +187,12 @@ func (t *Tests) SingleNodeClusterStarts(ctx context.Context) error {
 // A fresh KRaft cluster has no user topics, so the result may be empty —
 // but the call itself must succeed, which proves module-runtime networking
 // can reach the started broker service.
-func (t *Tests) ClusterClientCanListTopicsOnFreshCluster(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) ClusterClientCanListTopicsOnFreshCluster(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -166,8 +210,12 @@ func (t *Tests) ClusterClientCanListTopicsOnFreshCluster(ctx context.Context) er
 // CreateAndDeleteTopicRoundTrip exercises the create/list/delete cycle to
 // confirm kadm wiring. The topic name is randomized so the test is
 // repeatable against the same cluster and never collides with leftovers.
-func (t *Tests) CreateAndDeleteTopicRoundTrip(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) CreateAndDeleteTopicRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -211,8 +259,12 @@ func (t *Tests) CreateAndDeleteTopicRoundTrip(ctx context.Context) error {
 // and value, then consumes it back and asserts byte equality. The raw
 // encoding round-trips Go strings verbatim, so the assertion is direct
 // string equality.
-func (t *Tests) ProduceConsumeRoundTripRaw(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) ProduceConsumeRoundTripRaw(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -269,20 +321,32 @@ func (t *Tests) ProduceConsumeRoundTripRaw(ctx context.Context) error {
 // ProduceConsumeRoundTripHex round-trips a binary payload through hex
 // encoding. The non-UTF-8 bytes (including 0x00) verify that hex transports
 // arbitrary binary safely.
-func (t *Tests) ProduceConsumeRoundTripHex(ctx context.Context) error {
-	return roundTripBinary(ctx, "hex", "deadbeef", "00010203fffefdfc")
+func (t *Tests) ProduceConsumeRoundTripHex(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	return roundTripBinary(ctx, kafkaImageTag, "hex", "deadbeef", "00010203fffefdfc")
 }
 
 // ProduceConsumeRoundTripBase64 round-trips the same kind of binary payload
 // through standard base64 (with padding).
-func (t *Tests) ProduceConsumeRoundTripBase64(ctx context.Context) error {
-	return roundTripBinary(ctx, "base64", "3q2+7w==", "AAECA//+/fw=")
+func (t *Tests) ProduceConsumeRoundTripBase64(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	return roundTripBinary(ctx, kafkaImageTag, "base64", "3q2+7w==", "AAECA//+/fw=")
 }
 
 // ProduceRejectsUnknownEncoding verifies that a Produce call with a bogus
 // encoding name fails fast rather than silently misbehaving.
-func (t *Tests) ProduceRejectsUnknownEncoding(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) ProduceRejectsUnknownEncoding(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return err
 	}
@@ -313,8 +377,12 @@ func (t *Tests) ProduceRejectsUnknownEncoding(ctx context.Context) error {
 // rendered Java client.properties file carries the bootstrap.servers list
 // and a plaintext security.protocol entry — enough for the Apache Kafka
 // CLI tools to pick up the connection settings.
-func (t *Tests) PropertiesFileContainsBootstrapAndSecurityProtocol(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+func (t *Tests) PropertiesFileContainsBootstrapAndSecurityProtocol(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -343,13 +411,18 @@ func (t *Tests) PropertiesFileContainsBootstrapAndSecurityProtocol(ctx context.C
 // must reject any larger value with a clear error rather than silently
 // spinning up a broken topology. Multi-controller HA is gated behind a
 // follow-up story; see daggerverse/kafka/README.md.
-func (t *Tests) MultiControllerIsRejected(ctx context.Context) error {
+func (t *Tests) MultiControllerIsRejected(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
 		return err
 	}
 	k := dag.Kafka()
-	cluster := k.Cluster(clusterId, kafkaImageTag, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+	cluster := k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+		Tag:         kafkaImageTag,
 		Controllers: 3,
 		Brokers:     1,
 	})
@@ -363,13 +436,18 @@ func (t *Tests) MultiControllerIsRejected(ctx context.Context) error {
 // creates a replication-factor-2 topic so the produce path forces inter-
 // broker replication. A successful round-trip proves brokers can reach
 // each other over the engine network without explicit peer bindings.
-func (t *Tests) OneControllerTwoBrokersReplicationFactorTwo(ctx context.Context) error {
+func (t *Tests) OneControllerTwoBrokersReplicationFactorTwo(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
 		return err
 	}
 	k := dag.Kafka()
-	cluster := k.Cluster(clusterId, kafkaImageTag, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+	cluster := k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+		Tag:         kafkaImageTag,
 		Controllers: 1,
 		Brokers:     2,
 	})
@@ -427,16 +505,25 @@ func (t *Tests) OneControllerTwoBrokersReplicationFactorTwo(ctx context.Context)
 // controller+broker topology (introduced this increment) still supports a
 // full produce/consume round-trip — i.e. the broker correctly joined the
 // controller quorum over its WithServiceBinding alias.
-func (t *Tests) DedicatedControllerAndBrokerProduceConsume(ctx context.Context) error {
-	return roundTripBinary(ctx, "raw", "k", "v")
+func (t *Tests) DedicatedControllerAndBrokerProduceConsume(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	return roundTripBinary(ctx, kafkaImageTag, "raw", "k", "v")
 }
 
-// BindBrokersExposesBrokersToCallerContainer binds the cluster's brokers
-// into a vanilla alpine container and asserts that the broker hostname
-// resolves and its client-facing port is reachable from inside that
-// container — the integration the BindBrokers contract promises.
-func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) error {
-	cluster, err := freshCluster(ctx)
+// BindBrokersExposesBothListeners binds the cluster's brokers into a
+// vanilla alpine container and asserts that both the host-facing client
+// port (9092) and the inter-broker port (19092) are reachable from inside
+// that container — together they cover the dual-listener contract
+// (PLAINTEXT_HOST:9092 for clients, PLAINTEXT:19092 for inter-broker).
+func (t *Tests) BindBrokersExposesBothListeners(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -454,6 +541,7 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 
 	out, err := cluster.BindBrokers(dag.Container().From("alpine:3.22")).
 		WithExec([]string{"nc", "-z", "-w", "5", host, port}).
+		WithExec([]string{"nc", "-z", "-w", "5", host, "19092"}).
 		WithExec([]string{"echo", "OK"}).
 		Stdout(ctx)
 	if err != nil {
@@ -465,11 +553,112 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 	return nil
 }
 
+// AutoCreateTopicsDisabled produces to a topic that was never created and
+// asserts the call errors out. With KAFKA_AUTO_CREATE_TOPICS_ENABLE=false on
+// the broker, the produce path must surface a topic-not-found error rather
+// than silently auto-creating, so producer typos can't pass tests.
+func (t *Tests) AutoCreateTopicsDisabled(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = client.Produce(ctx, topic, "k", "v", dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err == nil {
+		return fmt.Errorf("expected Produce to non-existent topic %q to fail, got nil error", topic)
+	}
+	return nil
+}
+
+// ConsumerGroupOnSingleBrokerWorks produces one record then consumes it back
+// through a consumer group on a 1-broker cluster. A successful round-trip
+// proves __consumer_offsets was created at the broker's configured
+// replication factor (1, after the system-topic env vars take effect).
+// Without KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 the broker would refuse
+// to create __consumer_offsets at the upstream default RF=3 and the group
+// join would hang or error.
+func (t *Tests) ConsumerGroupOnSingleBrokerWorks(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	group, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "20s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+		Group:         group,
+	})
+	if err != nil {
+		return fmt.Errorf("consume with group: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantVal {
+		return fmt.Errorf("value mismatch: want %q, got %q", wantVal, gotVal)
+	}
+	return nil
+}
+
 // roundTripBinary is shared helper for hex/base64 tests: produce one record
 // with the given encoding and assert the consumed key/value strings are
 // identical to the produced ones.
-func roundTripBinary(ctx context.Context, encoding, key, value string) error {
-	cluster, err := freshCluster(ctx)
+func roundTripBinary(ctx context.Context, kafkaImageTag, encoding, key, value string) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}

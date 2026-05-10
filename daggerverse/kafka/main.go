@@ -91,6 +91,7 @@ func (k *Kafka) Cluster(
 	brokers int,
 	// +default="docker.io"
 	registry string,
+	// +default="4.2.0"
 	tag string,
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
@@ -129,9 +130,9 @@ func (k *Kafka) Cluster(
 		WithEnvVariable("KAFKA_PROCESS_ROLES", "controller").
 		WithEnvVariable("KAFKA_LISTENERS", "CONTROLLER://0.0.0.0:9093").
 		WithEnvVariable("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER").
-		WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT").
+		WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT").
 		WithEnvVariable("KAFKA_CONTROLLER_QUORUM_VOTERS", quorumVoters).
-		WithEnvVariable("KAFKA_CLUSTER_ID", clusterId).
+		WithEnvVariable("CLUSTER_ID", clusterId).
 		WithExposedPort(9093)
 	ctrlSvc := ctrlCtr.AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
 
@@ -144,16 +145,25 @@ func (k *Kafka) Cluster(
 			WithServiceBinding(controllerAlias, ctrlSvc).
 			WithEnvVariable("KAFKA_NODE_ID", fmt.Sprintf("%d", nodeID)).
 			WithEnvVariable("KAFKA_PROCESS_ROLES", "broker").
-			WithEnvVariable("KAFKA_LISTENERS", "INTERNAL://0.0.0.0:9092").
-			WithEnvVariable("KAFKA_INTER_BROKER_LISTENER_NAME", "INTERNAL").
+			WithEnvVariable("KAFKA_LISTENERS", "PLAINTEXT://0.0.0.0:19092,PLAINTEXT_HOST://0.0.0.0:9092").
+			WithEnvVariable("KAFKA_INTER_BROKER_LISTENER_NAME", "PLAINTEXT").
 			WithEnvVariable("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER").
-			WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT").
+			WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT").
 			WithEnvVariable("KAFKA_CONTROLLER_QUORUM_VOTERS", quorumVoters).
-			WithEnvVariable("KAFKA_CLUSTER_ID", clusterId).
+			WithEnvVariable("CLUSTER_ID", clusterId).
+			WithEnvVariable("KAFKA_LOG_DIRS", "/tmp/kraft-combined-logs").
+			WithEnvVariable("KAFKA_AUTO_CREATE_TOPICS_ENABLE", "false").
+			WithEnvVariable("KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", "1").
+			WithEnvVariable("KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", "1").
+			WithEnvVariable("KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", "1").
+			WithEnvVariable("KAFKA_SHARE_COORDINATOR_STATE_TOPIC_REPLICATION_FACTOR", "1").
+			WithEnvVariable("KAFKA_SHARE_COORDINATOR_STATE_TOPIC_MIN_ISR", "1").
+			WithEnvVariable("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0").
 			WithExposedPort(9092).
+			WithExposedPort(19092).
 			WithEntrypoint([]string{"sh", "-c"}).
 			WithDefaultArgs([]string{
-				`export KAFKA_ADVERTISED_LISTENERS="INTERNAL://$(hostname):9092" && exec /etc/kafka/docker/run`,
+				`export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://$(hostname):19092,PLAINTEXT_HOST://$(hostname):9092" && exec /etc/kafka/docker/run`,
 			})
 
 		svc := brkCtr.AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
@@ -436,6 +446,12 @@ func (c *Client) Produce(
 // the parsed timeout elapses. Each record's key and value are encoded into
 // the requested string forms before being returned.
 //
+// When group is non-empty, the consume runs as a member of that consumer
+// group: the broker assigns partitions and the join itself writes group
+// metadata to __consumer_offsets (offsets are not committed — the function
+// stays idempotent under +cache="never"). When group is empty (the
+// default), partitions are consumed directly with no group state.
+//
 // +cache="never"
 func (c *Client) Consume(
 	ctx context.Context,
@@ -448,6 +464,8 @@ func (c *Client) Consume(
 	keyEncoding string,
 	// +default="raw"
 	valueEncoding string,
+	// +default=""
+	group string,
 ) ([]ConsumedRecord, error) {
 	if maxMessages <= 0 {
 		return nil, fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
@@ -460,10 +478,20 @@ func (c *Client) Consume(
 		return nil, fmt.Errorf("timeout must be > 0, got %s", d)
 	}
 
-	cl, err := c.newKgoClient(
+	opts := []kgo.Opt{
 		kgo.ConsumeTopics(topic),
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
-	)
+	}
+	if group != "" {
+		// DisableAutoCommit keeps Consume idempotent under
+		// +cache="never": re-runs triggered by lazy record loading
+		// always re-read from the start instead of resuming past a
+		// committed offset. The group join itself still exercises
+		// __consumer_offsets, which is what proves the system-topic
+		// replication-factor defaults are correct.
+		opts = append(opts, kgo.ConsumerGroup(group), kgo.DisableAutoCommit())
+	}
+	cl, err := c.newKgoClient(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("new kafka client: %w", err)
 	}
