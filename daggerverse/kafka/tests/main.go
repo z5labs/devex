@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"time"
 
 	"dagger/tests/internal/dagger"
 
@@ -47,6 +48,144 @@ func freshCluster(ctx context.Context, kafkaImageTag string) (*dagger.KafkaClust
 	return k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
 		Tag: kafkaImageTag,
 	}), nil
+}
+
+// freshCa mints a fresh per-test root CA via the certificate-management
+// module. Each call uses fresh inputs (random key, random password,
+// random serial, time.Now() notBefore) so the resulting CA is unique per
+// test. Returns the CA itself (lazy chain) for further leaf signing.
+func freshCa(ctx context.Context, label string) (*dagger.CertificateManagementCertificateAuthority, error) {
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca key: %w", label, err)
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := dag.SetSecret(label+"-ca-key-"+suffix, keyPem)
+
+	pwdHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca password: %w", label, err)
+	}
+	pwd := dag.SetSecret(label+"-ca-pwd-"+suffix, pwdHex)
+
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	return dag.CertificateManagement().CreateCertificateAuthority(nb, serial, pwd, key,
+		dagger.CertificateManagementCreateCertificateAuthorityOpts{
+			CommonName:   "Test CA " + label,
+			ValidityDays: 30,
+		}), nil
+}
+
+// freshTlsCluster mints a fresh CA, hands its keystore to TlsServerSecurity,
+// and returns the cluster + the CA's truststore (file + password) so the
+// caller can build a matching TlsClientSecurity. Single-broker by default;
+// callers needing more brokers can extend the opts before calling.
+func freshTlsCluster(ctx context.Context, kafkaImageTag string, brokers int) (
+	*dagger.KafkaCluster, *dagger.File, *dagger.Secret, error,
+) {
+	ca, err := freshCa(ctx, "tls-server")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	serverSec := dag.Kafka().TLSServerSecurity(caKs.Pkcs12(), caKs.Password())
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cluster := dag.Kafka().Cluster(clusterId, serverSec, dagger.KafkaClusterOpts{
+		Tag:     kafkaImageTag,
+		Brokers: brokers,
+	})
+	return cluster, ts.Pkcs12(), ts.Password(), nil
+}
+
+// freshMtlsCluster mints two fresh CAs (one for the server-side leaf
+// signing, one for the client trust path), wires them into MtlsServerSecurity,
+// and additionally issues a client leaf signed by the client-side CA so the
+// caller can build a working MtlsClientSecurity. Returns the cluster, the
+// server-CA truststore (file + password) for the client to trust the broker,
+// and the client leaf keystore (file + password) for the broker to trust the
+// client.
+func freshMtlsCluster(ctx context.Context, kafkaImageTag string, brokers int) (
+	cluster *dagger.KafkaCluster,
+	serverTs *dagger.File, serverTsPwd *dagger.Secret,
+	clientKs *dagger.File, clientKsPwd *dagger.Secret,
+	err error,
+) {
+	serverCa, err := freshCa(ctx, "mtls-server")
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	clientCa, err := freshCa(ctx, "mtls-client")
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	serverCaKs := serverCa.KeyStore()
+	clientCaTs := clientCa.TrustStore()
+	serverSec := dag.Kafka().MtlsServerSecurity(
+		serverCaKs.Pkcs12(), serverCaKs.Password(),
+		clientCaTs.Pkcs12(), clientCaTs.Password(),
+	)
+
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	leafKeyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate client leaf key: %w", err)
+	}
+	leafKey := dag.SetSecret("mtls-client-leaf-key-"+suffix, leafKeyPem)
+
+	leafPwdHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate client leaf password: %w", err)
+	}
+	leafPwd := dag.SetSecret("mtls-client-leaf-pwd-"+suffix, leafPwdHex)
+
+	leafSerial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate client leaf serial: %w", err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	clientLeaf := clientCa.IssueClientCertificate("test-client", nb, leafSerial, leafPwd, leafKey)
+	leafKs := clientLeaf.KeyStore()
+
+	serverTrust := serverCa.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	cluster = dag.Kafka().Cluster(clusterId, serverSec, dagger.KafkaClusterOpts{
+		Tag:     kafkaImageTag,
+		Brokers: brokers,
+	})
+	return cluster, serverTrust.Pkcs12(), serverTrust.Password(), leafKs.Pkcs12(), leafKs.Password(), nil
+}
+
+// randHex returns a fresh hex suffix, used to disambiguate Dagger secret
+// names across concurrent test invocations within the same engine session.
+func randHex(ctx context.Context) (string, error) {
+	h, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return "", fmt.Errorf("randHex: %w", err)
+	}
+	if len(h) < 16 {
+		return "", fmt.Errorf("randHex too short: %d", len(h))
+	}
+	return h[:16], nil
 }
 
 type Tests struct{}
@@ -115,6 +254,30 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", func(ctx context.Context) error {
 		return t.ConsumerGroupOnSingleBrokerWorks(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("TlsClusterStarts", func(ctx context.Context) error {
+		return t.TlsClusterStarts(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("TlsRoundTrip", func(ctx context.Context) error {
+		return t.TlsRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("TlsClientWithWrongCaFails", func(ctx context.Context) error {
+		return t.TlsClientWithWrongCaFails(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("InternalListenersAreEncrypted", func(ctx context.Context) error {
+		return t.InternalListenersAreEncrypted(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("MtlsRoundTrip", func(ctx context.Context) error {
+		return t.MtlsRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("MtlsRequiresClientCert", func(ctx context.Context) error {
+		return t.MtlsRequiresClientCert(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("PropertiesFileContainsTlsSettings", func(ctx context.Context) error {
+		return t.PropertiesFileContainsTlsSettings(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("PropertiesFileContainsMtlsSettings", func(ctx context.Context) error {
+		return t.PropertiesFileContainsMtlsSettings(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }
@@ -139,6 +302,325 @@ func contains(haystack []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// PropertiesFileContainsTlsSettings verifies the rendered Java
+// client.properties carries security.protocol=SSL plus an ssl.truststore.*
+// triple referencing a sidecar PKCS#12 file by basename.
+func (t *Tests) PropertiesFileContainsTlsSettings(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, err := freshTlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create tls cluster: %w", err)
+	}
+	props, err := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd)).
+		PropertiesFile().
+		Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read PropertiesFile: %w", err)
+	}
+	for _, want := range []string{
+		"security.protocol=SSL",
+		"ssl.truststore.location=truststore.p12",
+		"ssl.truststore.type=PKCS12",
+	} {
+		if !strings.Contains(props, want) {
+			return fmt.Errorf("expected properties to contain %q, got:\n%s", want, props)
+		}
+	}
+	return nil
+}
+
+// PropertiesFileContainsMtlsSettings verifies that mTLS mode also renders
+// the ssl.keystore.* triple referencing a keystore.p12 sidecar.
+func (t *Tests) PropertiesFileContainsMtlsSettings(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, ks, ksPwd, err := freshMtlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create mtls cluster: %w", err)
+	}
+	props, err := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd)).
+		PropertiesFile().
+		Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read PropertiesFile: %w", err)
+	}
+	for _, want := range []string{
+		"security.protocol=SSL",
+		"ssl.truststore.location=truststore.p12",
+		"ssl.truststore.type=PKCS12",
+		"ssl.keystore.location=keystore.p12",
+		"ssl.keystore.type=PKCS12",
+	} {
+		if !strings.Contains(props, want) {
+			return fmt.Errorf("expected properties to contain %q, got:\n%s", want, props)
+		}
+	}
+	return nil
+}
+
+// MtlsRequiresClientCert points a TLS-only client (no keystore) at an
+// MTLS broker and asserts the handshake fails. Confirms the broker's
+// client.auth=required setting is actually being honoured.
+func (t *Tests) MtlsRequiresClientCert(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, _, _, err := freshMtlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create mtls cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
+	if _, err := client.ListTopics(ctx); err == nil {
+		return fmt.Errorf("expected ListTopics to fail without a client cert against MTLS broker, got nil error")
+	}
+	return nil
+}
+
+// MtlsRoundTrip produces and consumes a single record over a mutual-TLS
+// external listener. The broker presents its cert (signed by the server
+// CA) and demands a client cert in return; the test client presents one
+// signed by an independent client CA the broker is configured to trust.
+func (t *Tests) MtlsRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, ks, ksPwd, err := freshMtlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create mtls cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd))
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "15s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey || gotVal != wantVal {
+		return fmt.Errorf("mtls round-trip mismatch: got (%q, %q), want (%q, %q)", gotKey, gotVal, wantKey, wantVal)
+	}
+	return nil
+}
+
+// TlsClientWithWrongCaFails verifies that pointing the client at a
+// truststore for an unrelated CA fails the handshake — i.e. the broker is
+// genuinely presenting a cert chained to its own CA, not skipping
+// verification.
+func (t *Tests) TlsClientWithWrongCaFails(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, _, _, err := freshTlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create tls cluster: %w", err)
+	}
+	wrongCa, err := freshCa(ctx, "wrong")
+	if err != nil {
+		return fmt.Errorf("create unrelated ca: %w", err)
+	}
+	wrongTs := wrongCa.TrustStore()
+	client := cluster.Client(dag.Kafka().TLSClientSecurity(wrongTs.Pkcs12(), wrongTs.Password()))
+	if _, err := client.ListTopics(ctx); err == nil {
+		return fmt.Errorf("expected ListTopics to fail with wrong-CA truststore, got nil error")
+	}
+	return nil
+}
+
+// InternalListenersAreEncrypted spins up a 1+2 cluster with TLS on the
+// external listener and creates an RF=2 topic. A successful produce →
+// consume round-trip proves replication traffic flowed over the (always
+// mTLS) INTERNAL inter-broker listener: without working internal mTLS,
+// the second broker would never become an in-sync replica and the produce
+// (with default acks=all-isr) would stall.
+func (t *Tests) InternalListenersAreEncrypted(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, err := freshTlsCluster(ctx, kafkaImageTag, 2)
+	if err != nil {
+		return fmt.Errorf("create tls cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 2,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "20s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey || gotVal != wantVal {
+		return fmt.Errorf("rf=2 round-trip mismatch: got (%q, %q), want (%q, %q)", gotKey, gotVal, wantKey, wantVal)
+	}
+	return nil
+}
+
+// TlsRoundTrip produces and consumes a single record over a TLS-only
+// external listener with TlsClientSecurity holding the CA's truststore.
+// Exercises: SAN matching the bootstrap address, kgo dialer + TLS, broker
+// SSL listener, end-to-end encryption.
+func (t *Tests) TlsRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, ts, tsPwd, err := freshTlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create tls cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "15s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantVal {
+		return fmt.Errorf("value mismatch: want %q, got %q", wantVal, gotVal)
+	}
+	return nil
+}
+
+// TlsClusterStarts forces the lazy Cluster construction to run under
+// TlsServerSecurity and confirms BootstrapServers reports a non-empty,
+// non-zero-port broker address. No client connection attempted — this
+// proves caller's CA loads, leaf signing succeeds, the keystore mounts,
+// and the broker doesn't crash on startup.
+func (t *Tests) TlsClusterStarts(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, _, _, err := freshTlsCluster(ctx, kafkaImageTag, 1)
+	if err != nil {
+		return fmt.Errorf("create tls cluster: %w", err)
+	}
+	bs, err := cluster.BootstrapServers(ctx)
+	if err != nil {
+		return fmt.Errorf("bootstrap servers: %w", err)
+	}
+	if len(bs) == 0 {
+		return fmt.Errorf("expected at least one bootstrap server, got none")
+	}
+	for _, b := range bs {
+		if b == "" || b == ":9092" {
+			return fmt.Errorf("expected non-empty bootstrap server, got %q", b)
+		}
+	}
+	return nil
 }
 
 func (t *Tests) PlaintextSecurityProfilesAreNonNil(ctx context.Context) error {

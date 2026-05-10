@@ -3,5 +3,19 @@
   "engineVersion": "v0.20.8",
   "sdk": {
     "source": "go"
-  }
+  },
+  "dependencies": [
+    {
+      "name": "certificate-management",
+      "source": "../certificate-management"
+    },
+    {
+      "name": "crypto",
+      "source": "../crypto"
+    },
+    {
+      "name": "random",
+      "source": "../random"
+    }
+  ]
 }
