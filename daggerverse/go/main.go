@@ -54,6 +54,9 @@ func (g *Go) Container(
 	ctx context.Context,
 	source *dagger.Directory,
 ) (*dagger.Container, error) {
+	if source == nil {
+		return nil, fmt.Errorf("source is required; use Env/ToolVersion/Install for source-less workflows")
+	}
 	version, err := g.resolveVersion(ctx, source)
 	if err != nil {
 		return nil, err
@@ -346,9 +349,13 @@ func (g *Go) resolveVersion(ctx context.Context, source *dagger.Directory) (stri
 
 // parseGoDirective scans a go.mod file's contents for the top-level
 // `go X.Y[.Z]` directive and returns the version string. Returns "" when
-// no directive is present.
+// no directive is present or when scanning fails.
 func parseGoDirective(content string) string {
 	scanner := bufio.NewScanner(strings.NewReader(content))
+	// Raise the per-line limit well above the default 64KiB — generated
+	// or vendored go.mod files can have very long require blocks. 1MiB
+	// is comfortably larger than any real-world go.mod line.
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if rest, ok := strings.CutPrefix(line, "go "); ok {
@@ -359,5 +366,8 @@ func parseGoDirective(content string) string {
 			}
 		}
 	}
+	// Scanner errors (e.g. line longer than the buffer) fall through to
+	// "" so the caller fallbacks to "latest" rather than panicking.
+	_ = scanner.Err()
 	return ""
 }
