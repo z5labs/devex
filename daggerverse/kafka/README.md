@@ -74,6 +74,7 @@ err := client.Produce(ctx, "my-topic", "k", "v", dagger.KafkaClientProduceOpts{
 records, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     MaxMessages: 10, Timeout: "10s",
     KeyEncoding: "raw", ValueEncoding: "raw",
+    Group: "", // group-less direct consume; pass "my-group" to consume as a group member
 })
 
 // java client.properties for the apache kafka CLI tools
@@ -82,6 +83,9 @@ props := client.PropertiesFile() // *dagger.File
 
 `keyEncoding` / `valueEncoding` accept `"raw"` (literal UTF-8 bytes),
 `"hex"`, or `"base64"` (standard padding). Anything else is rejected.
+
+Topic auto-creation is disabled on the broker — call `CreateTopic` before
+`Produce` / `Consume`.
 
 ## Image source
 

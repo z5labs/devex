@@ -75,10 +75,12 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("ProduceConsumeRoundTripBase64", t.ProduceConsumeRoundTripBase64)
 	jobs = jobs.WithJob("ProduceRejectsUnknownEncoding", t.ProduceRejectsUnknownEncoding)
 	jobs = jobs.WithJob("PropertiesFileContainsBootstrapAndSecurityProtocol", t.PropertiesFileContainsBootstrapAndSecurityProtocol)
-	jobs = jobs.WithJob("BindBrokersExposesBrokersToCallerContainer", t.BindBrokersExposesBrokersToCallerContainer)
+	jobs = jobs.WithJob("BindBrokersExposesBothListeners", t.BindBrokersExposesBothListeners)
 	jobs = jobs.WithJob("DedicatedControllerAndBrokerProduceConsume", t.DedicatedControllerAndBrokerProduceConsume)
 	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", t.OneControllerTwoBrokersReplicationFactorTwo)
 	jobs = jobs.WithJob("MultiControllerIsRejected", t.MultiControllerIsRejected)
+	jobs = jobs.WithJob("AutoCreateTopicsDisabled", t.AutoCreateTopicsDisabled)
+	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", t.ConsumerGroupOnSingleBrokerWorks)
 
 	return jobs.Run(ctx)
 }
@@ -431,11 +433,12 @@ func (t *Tests) DedicatedControllerAndBrokerProduceConsume(ctx context.Context) 
 	return roundTripBinary(ctx, "raw", "k", "v")
 }
 
-// BindBrokersExposesBrokersToCallerContainer binds the cluster's brokers
-// into a vanilla alpine container and asserts that the broker hostname
-// resolves and its client-facing port is reachable from inside that
-// container — the integration the BindBrokers contract promises.
-func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) error {
+// BindBrokersExposesBothListeners binds the cluster's brokers into a
+// vanilla alpine container and asserts that both the host-facing client
+// port (9092) and the inter-broker port (19092) are reachable from inside
+// that container — together they cover the dual-listener contract
+// (PLAINTEXT_HOST:9092 for clients, PLAINTEXT:19092 for inter-broker).
+func (t *Tests) BindBrokersExposesBothListeners(ctx context.Context) error {
 	cluster, err := freshCluster(ctx)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
@@ -454,6 +457,7 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 
 	out, err := cluster.BindBrokers(dag.Container().From("alpine:3.22")).
 		WithExec([]string{"nc", "-z", "-w", "5", host, port}).
+		WithExec([]string{"nc", "-z", "-w", "5", host, "19092"}).
 		WithExec([]string{"echo", "OK"}).
 		Stdout(ctx)
 	if err != nil {
@@ -461,6 +465,99 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 	}
 	if !strings.Contains(out, "OK") {
 		return fmt.Errorf("expected OK from nc, got: %q", out)
+	}
+	return nil
+}
+
+// AutoCreateTopicsDisabled produces to a topic that was never created and
+// asserts the call errors out. With KAFKA_AUTO_CREATE_TOPICS_ENABLE=false on
+// the broker, the produce path must surface a topic-not-found error rather
+// than silently auto-creating, so producer typos can't pass tests.
+func (t *Tests) AutoCreateTopicsDisabled(ctx context.Context) error {
+	cluster, err := freshCluster(ctx)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+
+	err = client.Produce(ctx, topic, "k", "v", dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err == nil {
+		return fmt.Errorf("expected Produce to non-existent topic %q to fail, got nil error", topic)
+	}
+	return nil
+}
+
+// ConsumerGroupOnSingleBrokerWorks produces one record then consumes it back
+// through a consumer group on a 1-broker cluster. A successful round-trip
+// proves __consumer_offsets was created at the broker's configured
+// replication factor (1, after the system-topic env vars take effect).
+// Without KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 the broker would refuse
+// to create __consumer_offsets at the upstream default RF=3 and the group
+// join would hang or error.
+func (t *Tests) ConsumerGroupOnSingleBrokerWorks(ctx context.Context) error {
+	cluster, err := freshCluster(ctx)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	group, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "20s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+		Group:         group,
+	})
+	if err != nil {
+		return fmt.Errorf("consume with group: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantVal {
+		return fmt.Errorf("value mismatch: want %q, got %q", wantVal, gotVal)
 	}
 	return nil
 }
