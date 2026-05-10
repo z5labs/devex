@@ -1,0 +1,21 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "certificate-management",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    },
+    {
+      "name": "crypto",
+      "source": "../../crypto"
+    }
+  ]
+}

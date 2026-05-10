@@ -6,6 +6,10 @@
   },
   "dependencies": [
     {
+      "name": "certificate-management-tests",
+      "source": "../daggerverse/certificate-management/tests"
+    },
+    {
       "name": "random-tests",
       "source": "../daggerverse/random/tests"
     },

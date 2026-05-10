@@ -11,6 +11,7 @@ invocation returns a fresh value.
 - [UuidV7](#uuidv7) — random UUID v7 (time-ordered)
 - [Sha256](#sha256) — SHA-256 hash of N random bytes
 - [Sha512](#sha512) — SHA-512 hash of N random bytes
+- [Serial](#serial) — random hex-encoded X.509 certificate serial number
 
 ### UuidV4
 
@@ -82,4 +83,27 @@ Go SDK:
 ```go
 h, err := dag.Random().Sha512(ctx)
 h, err := dag.Random().Sha512(ctx, dagger.RandomSha512Opts{N: 128})
+```
+
+### Serial
+
+Generates `n` random bytes (default 16, i.e. 128 bits) and returns them as a
+lowercase hex string suitable for an X.509 certificate serial number. The low
+bit is forced to 1 to guarantee the value is non-zero (an all-zero result is
+astronomically unlikely from `crypto/rand` but would be rejected by consumers
+that require a positive integer). ASN.1 INTEGER sign encoding is x509's
+responsibility and is unaffected by this adjustment.
+
+CLI:
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/random call serial
+dagger -m github.com/z5labs/devex/daggerverse/random call serial --n=20
+```
+
+Go SDK:
+
+```go
+s, err := dag.Random().Serial(ctx)
+s, err := dag.Random().Serial(ctx, dagger.RandomSerialOpts{N: 20})
 ```
