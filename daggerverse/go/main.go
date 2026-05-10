@@ -68,6 +68,13 @@ func (g *Go) Container(
 // GOBIN=/out and returns the resulting binary as a *dagger.File. The
 // returned filename is the basename of pkg (with any @version suffix
 // stripped), matching `go install`'s naming rules.
+//
+// Callers should pin pkg to a specific version (e.g. `pkg@v1.2.3`) for
+// reproducible builds; `@latest` or unpinned paths will resolve against
+// the proxy at call time. Result caching is disabled so unpinned callers
+// don't get silently stale binaries.
+//
+// +cache="never"
 func (g *Go) Install(pkg string) *dagger.File {
 	return g.bareContainer().
 		WithEnvVariable("GOBIN", "/out").
@@ -269,7 +276,11 @@ func (g *Go) Env(ctx context.Context) (string, error) {
 // ToolVersion runs `go version` in a source-less base container and returns
 // the trimmed output (e.g. "go version go1.23.0 linux/amd64").
 func (g *Go) ToolVersion(ctx context.Context) (string, error) {
-	return g.bareContainer().WithExec([]string{"go", "version"}).Stdout(ctx)
+	out, err := g.bareContainer().WithExec([]string{"go", "version"}).Stdout(ctx)
+	if err != nil {
+		return out, err
+	}
+	return strings.TrimSpace(out), nil
 }
 
 // bareContainer is the source-less variant of Container: golang image at
@@ -315,7 +326,11 @@ func parseGoDirective(content string) string {
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if rest, ok := strings.CutPrefix(line, "go "); ok {
-			return strings.TrimSpace(rest)
+			// First whitespace-separated field only — drops any inline
+			// `// comment` and trailing tokens.
+			if fields := strings.Fields(rest); len(fields) > 0 {
+				return fields[0]
+			}
 		}
 	}
 	return ""

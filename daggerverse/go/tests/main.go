@@ -85,10 +85,11 @@ func (t *Tests) TestMultipkgPkgArgVariants(ctx context.Context) error {
 }
 
 // InstallSmallToolReturnsBinary installs a small public tool (stringer) and
-// asserts the returned binary is non-empty. Requires network egress for the
+// asserts the returned binary is non-empty. The version is pinned so CI
+// doesn't drift with upstream releases. Requires network egress for the
 // initial fetch; subsequent runs hit the go-mod-cache.
 func (t *Tests) InstallSmallToolReturnsBinary(ctx context.Context) error {
-	size, err := dag.Go().Install("golang.org/x/tools/cmd/stringer@latest").Size(ctx)
+	size, err := dag.Go().Install("golang.org/x/tools/cmd/stringer@v0.45.0").Size(ctx)
 	if err != nil {
 		return fmt.Errorf("Install stringer: %w", err)
 	}
