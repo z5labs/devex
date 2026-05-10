@@ -79,10 +79,11 @@ func (t *TrustStore) Password() *dagger.Secret { return t.Pwd }
 // The supplied password is bound to the resulting CA's KeyStore() and
 // TrustStore() output.
 //
-// The function is pure given its inputs (commonName, validityDays, notBefore,
-// serial, password, key). Vary notBefore and serial per call to bust Dagger's
-// default cache when fresh certs are wanted; reuse them for byte-stable
-// output across calls.
+// Every field of the certificate template is fully determined by the
+// function's inputs (commonName, validityDays, notBefore, serial, password,
+// key). Vary notBefore and serial per call to bust Dagger's default cache
+// when fresh certs are wanted; reuse them to hit the cache and re-use the
+// previously signed bytes.
 func (m *CertificateManagement) CreateCertificateAuthority(
 	ctx context.Context,
 	// Subject common name for the CA certificate.
@@ -458,11 +459,9 @@ func buildCATemplate(commonName string, validityDays int, notBefore time.Time, s
 		return nil, fmt.Errorf("validityDays must be positive, got %d", validityDays)
 	}
 	return &x509.Certificate{
-		SerialNumber: serial,
-		Subject:      pkix.Name{CommonName: commonName},
-		// Subtract a minute as a small clock-skew fudge for verifiers whose
-		// clocks lag the issuer's.
-		NotBefore:             notBefore.Add(-time.Minute),
+		SerialNumber:          serial,
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             notBefore,
 		NotAfter:              notBefore.AddDate(0, 0, validityDays),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		IsCA:                  true,
@@ -491,7 +490,7 @@ func buildLeafTemplate(commonName string, dnsSans []string, ipSans []string, eku
 	return &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: commonName},
-		NotBefore:             notBefore.Add(-time.Minute),
+		NotBefore:             notBefore,
 		NotAfter:              notBefore.AddDate(0, 0, validityDays),
 		KeyUsage:              keyUsage,
 		ExtKeyUsage:           eku,

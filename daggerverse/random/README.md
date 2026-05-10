@@ -89,8 +89,10 @@ h, err := dag.Random().Sha512(ctx, dagger.RandomSha512Opts{N: 128})
 
 Generates `n` random bytes (default 16, i.e. 128 bits) and returns them as a
 lowercase hex string suitable for an X.509 certificate serial number. The low
-bit is forced to 1 so the result always parses as a positive integer per
-RFC 5280.
+bit is forced to 1 to guarantee the value is non-zero (an all-zero result is
+astronomically unlikely from `crypto/rand` but would be rejected by consumers
+that require a positive integer). ASN.1 INTEGER sign encoding is x509's
+responsibility and is unaffected by this adjustment.
 
 CLI:
 

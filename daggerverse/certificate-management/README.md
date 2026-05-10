@@ -20,20 +20,25 @@ for PKCS#12 encoding.
 
 ## Determinism
 
-The module is a pure signer: every certificate output is fully determined by
-its inputs. `CreateCertificateAuthority` and the three `Issue*` methods take
-the private key, the password, the validity window's `notBefore` (RFC3339),
-and the certificate `serial` (hex) as inputs — there is no `time.Now()` or
-`rand.Int` hidden inside the signing template. As a result the functions
-carry no `+cache=` directive and Dagger's default content-addressed caching
-works as advertised: identical inputs return identical bytes; varying
-`notBefore` or `serial` (or any other input) is the natural cache-busting
-mechanism.
+The module is a pure signer: every field of the certificate template is
+fully determined by the inputs. `CreateCertificateAuthority` and the three
+`Issue*` methods take the private key, the password, the validity window's
+`notBefore` (RFC3339), and the certificate `serial` (hex) — there is no
+`time.Now()` or `rand.Int` hidden inside the template. As a result the
+functions carry no `+cache=` directive and Dagger's default content-addressed
+caching works as intended: identical inputs hit the cache and return the
+previously signed bytes; varying `notBefore` or `serial` (or any other input)
+is the natural cache-busting mechanism.
+
+(The signature *bytes* themselves are not necessarily reproducible across
+fresh signings for ECDSA keys — `crypto/ecdsa` uses a random nonce — but
+this is invisible to callers because Dagger replays the cached bytes from
+the first signing call.)
 
 In practice you almost always want fresh certs per call. Pass
-`time.Now().UTC().Format(time.RFC3339)` for `notBefore` and a fresh
-random hex string for `serial`; both will differ each run and Dagger
-will re-sign accordingly.
+`time.Now().UTC().Format(time.RFC3339)` for `notBefore` and a fresh random
+hex string for `serial`; both will differ each run and Dagger will re-sign
+accordingly.
 
 ## Generating keys
 
