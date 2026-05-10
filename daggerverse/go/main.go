@@ -48,6 +48,8 @@ func New(
 // when New("") was used, from source/go.mod's `go` directive (fallback
 // "latest"). The signature takes ctx + returns error because go.mod
 // inspection requires async I/O.
+//
+// +cache="session"
 func (g *Go) Container(
 	ctx context.Context,
 	source *dagger.Directory,
@@ -269,12 +271,16 @@ func (g *Go) Vet(
 }
 
 // Env runs `go env` in a source-less base container and returns its stdout.
+//
+// +cache="session"
 func (g *Go) Env(ctx context.Context) (string, error) {
 	return g.bareContainer().WithExec([]string{"go", "env"}).Stdout(ctx)
 }
 
 // ToolVersion runs `go version` in a source-less base container and returns
 // the trimmed output (e.g. "go version go1.23.0 linux/amd64").
+//
+// +cache="session"
 func (g *Go) ToolVersion(ctx context.Context) (string, error) {
 	out, err := g.bareContainer().WithExec([]string{"go", "version"}).Stdout(ctx)
 	if err != nil {
