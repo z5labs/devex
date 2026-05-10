@@ -42,9 +42,11 @@ func randomHex(n int) (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// randomIDPair returns n random bytes encoded as both hex (for URL
-// lookups, e.g. /api/traces/<id>) and base64-standard (for OTLP/HTTP
-// JSON push, where bytes fields are base64-encoded per protobuf JSON).
+// randomIDPair returns n random bytes encoded as both hex (used for
+// URL lookups and for OTLP/HTTP JSON push — Tempo's pdata marshaler
+// expects trace/span IDs as hex strings) and base64-standard (used
+// for read-back assertions, since on the query path Tempo re-encodes
+// IDs as base64 per protojson's default bytes encoding).
 func randomIDPair(n int) (hexEnc, b64Enc string, err error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
@@ -193,7 +195,7 @@ exit 1
 // default config wires up the OTLP HTTP receiver and the local trace
 // store end-to-end.
 func (t *Tests) TempoAcceptsOtlpTraces(ctx context.Context) error {
-	traceIDHex, traceIDB64, err := randomIDPair(16)
+	traceIDHex, err := randomHex(16)
 	if err != nil {
 		return fmt.Errorf("generate trace id: %w", err)
 	}
@@ -309,7 +311,6 @@ exit 1
 	out, err := dag.Container().From(curlImage).
 		WithServiceBinding("tempo", tempo.Service()).
 		WithEnvVariable("TRACE_ID_HEX", traceIDHex).
-		WithEnvVariable("TRACE_ID_B64", traceIDB64).
 		WithEnvVariable("SPAN_ID_HEX", spanIDHex).
 		WithEnvVariable("SPAN_ID_B64", spanIDB64).
 		WithExec([]string{"sh", "-c", script}).
