@@ -196,12 +196,22 @@ dagger -m daggerverse/grafana-stack/tests call mimir-accepts-otlp-metrics
 dagger -m daggerverse/grafana-stack/tests call grafana-proxies-loki-query
 ```
 
-Both `all` and `grafana-proxies-loki-query` accept a `--tag` argument
-(default `12.0.0`) so a fresh Grafana release can be qualified end-to-end
-without editing any module:
+Each test takes a `--tag` flag (default matches the parent module's
+pinned defaults) so a fresh upstream release can be qualified
+end-to-end without editing any module:
 
 ```sh
-dagger -m daggerverse/grafana-stack/tests call all --tag=12.1.0
+dagger -m daggerverse/grafana-stack/tests call loki-accepts-otlp-logs --tag=3.5.0
+dagger -m daggerverse/grafana-stack/tests call tempo-accepts-otlp-traces --tag=2.8.0
+dagger -m daggerverse/grafana-stack/tests call mimir-accepts-otlp-metrics --tag=2.16.0
+dagger -m daggerverse/grafana-stack/tests call grafana-proxies-loki-query --grafana-tag=12.1.0
+```
+
+`call all` exposes `--loki-tag`, `--tempo-tag`, `--mimir-tag`, and
+`--grafana-tag` (each with the same default as its single-test form):
+
+```sh
+dagger -m daggerverse/grafana-stack/tests call all --grafana-tag=12.1.0
 ```
 
 Note the kebab-case CLI form (`loki-accepts-otlp-logs`); the Go SDK

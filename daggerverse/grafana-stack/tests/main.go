@@ -20,31 +20,48 @@ type Tests struct{}
 
 // All runs every grafana-stack round-trip test in parallel.
 //
-// tag is forwarded to GrafanaProxiesLokiQuery so callers can qualify a
-// new Grafana image at the CLI without editing any module:
+// Each tag flag is forwarded to the matching per-backend test so a fresh
+// upstream release can be qualified at the CLI without editing any
+// module:
 //
-//	dagger -m daggerverse/grafana-stack/tests call all --tag=12.1.0
+//	dagger -m daggerverse/grafana-stack/tests call all --grafana-tag=12.1.0
+//	dagger -m daggerverse/grafana-stack/tests call all --loki-tag=3.5.0
 //
-// The default matches the parent module's `Grafana(...)` default so the
-// bare `call all` keeps working.
+// Defaults match the parent module's pinned defaults so the bare
+// `call all` keeps working.
 //
 // +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
-	// Grafana image tag to test.
+	// grafana/loki image tag.
+	// +default="3.4.1"
+	lokiTag string,
+	// grafana/tempo image tag.
+	// +default="2.7.1"
+	tempoTag string,
+	// grafana/mimir image tag.
+	// +default="2.15.1"
+	mimirTag string,
+	// grafana/grafana image tag.
 	// +default="12.0.0"
-	tag string,
+	grafanaTag string,
 ) error {
 	jobs := parallel.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 
-	jobs = jobs.WithJob("LokiAcceptsOtlpLogs", t.LokiAcceptsOtlpLogs)
-	jobs = jobs.WithJob("TempoAcceptsOtlpTraces", t.TempoAcceptsOtlpTraces)
-	jobs = jobs.WithJob("MimirAcceptsOtlpMetrics", t.MimirAcceptsOtlpMetrics)
+	jobs = jobs.WithJob("LokiAcceptsOtlpLogs", func(ctx context.Context) error {
+		return t.LokiAcceptsOtlpLogs(ctx, lokiTag)
+	})
+	jobs = jobs.WithJob("TempoAcceptsOtlpTraces", func(ctx context.Context) error {
+		return t.TempoAcceptsOtlpTraces(ctx, tempoTag)
+	})
+	jobs = jobs.WithJob("MimirAcceptsOtlpMetrics", func(ctx context.Context) error {
+		return t.MimirAcceptsOtlpMetrics(ctx, mimirTag)
+	})
 	jobs = jobs.WithJob("GrafanaProxiesLokiQuery", func(ctx context.Context) error {
-		return t.GrafanaProxiesLokiQuery(ctx, tag)
+		return t.GrafanaProxiesLokiQuery(ctx, lokiTag, grafanaTag)
 	})
 
 	return jobs.Run(ctx)
@@ -77,13 +94,17 @@ func randomIDPair(n int) (hexEnc, b64Enc string, err error) {
 // the OTLP/HTTP receiver carrying a unique marker UUID, then queries Loki
 // LogQL until the marker reappears in the query response. Verifies the
 // default config wires up the OTLP HTTP ingester end-to-end.
-func (t *Tests) LokiAcceptsOtlpLogs(ctx context.Context) error {
+func (t *Tests) LokiAcceptsOtlpLogs(
+	ctx context.Context,
+	// +default="3.4.1"
+	tag string,
+) error {
 	marker, err := dag.Random().UUIDV4(ctx)
 	if err != nil {
 		return fmt.Errorf("generate marker: %w", err)
 	}
 
-	loki := dag.GrafanaStack().Loki()
+	loki := dag.GrafanaStack().Loki(dagger.GrafanaStackLokiOpts{Tag: tag})
 
 	script := `set -eu
 # Wait for Loki to become ready. /ready returns 503 during warmup
@@ -212,7 +233,11 @@ exit 1
 // /api/traces/<trace_id> until Tempo returns the trace. Verifies the
 // default config wires up the OTLP HTTP receiver and the local trace
 // store end-to-end.
-func (t *Tests) TempoAcceptsOtlpTraces(ctx context.Context) error {
+func (t *Tests) TempoAcceptsOtlpTraces(
+	ctx context.Context,
+	// +default="2.7.1"
+	tag string,
+) error {
 	traceIDHex, err := randomHex(16)
 	if err != nil {
 		return fmt.Errorf("generate trace id: %w", err)
@@ -222,7 +247,7 @@ func (t *Tests) TempoAcceptsOtlpTraces(ctx context.Context) error {
 		return fmt.Errorf("generate span id: %w", err)
 	}
 
-	tempo := dag.GrafanaStack().Tempo()
+	tempo := dag.GrafanaStack().Tempo(dagger.GrafanaStackTempoOpts{Tag: tag})
 
 	script := `set -eu
 # Wait for Tempo to become ready. Tempo takes a moment to bring up
@@ -345,7 +370,11 @@ exit 1
 // queries Mimir's Prometheus-compatible API until that metric appears.
 // Verifies the default config wires up the OTLP HTTP ingester and the
 // filesystem block store end-to-end.
-func (t *Tests) MimirAcceptsOtlpMetrics(ctx context.Context) error {
+func (t *Tests) MimirAcceptsOtlpMetrics(
+	ctx context.Context,
+	// +default="2.15.1"
+	tag string,
+) error {
 	suffix, err := randomHex(8)
 	if err != nil {
 		return fmt.Errorf("generate metric suffix: %w", err)
@@ -354,7 +383,7 @@ func (t *Tests) MimirAcceptsOtlpMetrics(ctx context.Context) error {
 	// suffix gives us a unique series per test run.
 	metricName := "grafana_stack_test_marker_" + suffix
 
-	mimir := dag.GrafanaStack().Mimir()
+	mimir := dag.GrafanaStack().Mimir(dagger.GrafanaStackMimirOpts{Tag: tag})
 
 	script := `set -eu
 READY_TIMEOUT=120
@@ -477,12 +506,14 @@ exit 1
 // mounting, datasources.yaml provisioning, the in-network service
 // binding hostname, and Grafana's proxy plumbing all work end-to-end.
 //
-// tag overrides the grafana/grafana image tag at the CLI; defaults to
-// the parent module's pinned default.
+// lokiTag and grafanaTag override their respective image tags at the
+// CLI; both default to the parent module's pinned defaults.
 func (t *Tests) GrafanaProxiesLokiQuery(
 	ctx context.Context,
+	// +default="3.4.1"
+	lokiTag string,
 	// +default="12.0.0"
-	tag string,
+	grafanaTag string,
 ) error {
 	pwd, err := randomHex(32)
 	if err != nil {
@@ -495,9 +526,9 @@ func (t *Tests) GrafanaProxiesLokiQuery(
 		return fmt.Errorf("generate marker: %w", err)
 	}
 
-	loki := dag.GrafanaStack().Loki()
+	loki := dag.GrafanaStack().Loki(dagger.GrafanaStackLokiOpts{Tag: lokiTag})
 	grafana := dag.GrafanaStack().
-		Grafana(adminPassword, dagger.GrafanaStackGrafanaOpts{Tag: tag}).
+		Grafana(adminPassword, dagger.GrafanaStackGrafanaOpts{Tag: grafanaTag}).
 		WithLokiDatasource("loki", loki)
 
 	script := `set -eu
