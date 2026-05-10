@@ -80,10 +80,12 @@ func (t *TrustStore) Password() *dagger.Secret { return t.Pwd }
 // TrustStore() output.
 //
 // Every field of the certificate template is fully determined by the
-// function's inputs (commonName, validityDays, notBefore, serial, password,
-// key). Vary notBefore and serial per call to bust Dagger's default cache
-// when fresh certs are wanted; reuse them to hit the cache and re-use the
-// previously signed bytes.
+// function's inputs (commonName, validityDays, notBefore, serial, key); the
+// password binds to the CA's KeyStore/TrustStore output but does not
+// influence the certificate contents or signature. Vary notBefore and
+// serial per call to bust Dagger's default cache when fresh certs are
+// wanted; reuse them to hit the cache and re-use the previously signed
+// bytes.
 func (m *CertificateManagement) CreateCertificateAuthority(
 	ctx context.Context,
 	// Subject common name for the CA certificate.
@@ -385,7 +387,7 @@ func (ca *CertificateAuthority) issueLeaf(
 	if err != nil {
 		return nil, err
 	}
-	caCert, caKey, _, err := ca.materialize(ctx)
+	caCert, caKey, err := ca.loadCertAndKey(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -418,14 +420,27 @@ func (ca *CertificateAuthority) issueLeaf(
 	}, nil
 }
 
-func (ca *CertificateAuthority) materialize(ctx context.Context) (*x509.Certificate, crypto.Signer, string, error) {
+// loadCertAndKey reads the CA certificate and private key without touching
+// the password secret. Use this for signing paths (issueLeaf) so leaf
+// issuance never decrypts the CA's PKCS#12 password unnecessarily.
+func (ca *CertificateAuthority) loadCertAndKey(ctx context.Context) (*x509.Certificate, crypto.Signer, error) {
 	cert, err := readCertFile(ctx, ca.CertPemFile)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("read CA cert: %w", err)
+		return nil, nil, fmt.Errorf("read CA cert: %w", err)
 	}
 	key, err := readKeySecret(ctx, ca.PrivateKeyPem)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("read CA key: %w", err)
+		return nil, nil, fmt.Errorf("read CA key: %w", err)
+	}
+	return cert, key, nil
+}
+
+// materialize loads the CA cert, key, and PKCS#12 password. Used by
+// KeyStore/TrustStore which need the password to seal the archive.
+func (ca *CertificateAuthority) materialize(ctx context.Context) (*x509.Certificate, crypto.Signer, string, error) {
+	cert, key, err := ca.loadCertAndKey(ctx)
+	if err != nil {
+		return nil, nil, "", err
 	}
 	pwd, err := ca.Pwd.Plaintext(ctx)
 	if err != nil {
@@ -562,12 +577,15 @@ func parsePemKey(data []byte) (crypto.Signer, error) {
 	return signer, nil
 }
 
+// readCertFile reads a PEM-encoded certificate via File.Contents(). PEM is
+// ASCII text so the GraphQL String round-trip is safe (no Export needed) —
+// fileBytes is reserved for binary payloads like PKCS#12.
 func readCertFile(ctx context.Context, f *dagger.File) (*x509.Certificate, error) {
-	b, err := fileBytes(ctx, f)
+	contents, err := f.Contents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read cert file: %w", err)
 	}
-	return parsePemCert(b)
+	return parsePemCert([]byte(contents))
 }
 
 func readKeySecret(ctx context.Context, s *dagger.Secret) (crypto.Signer, error) {
