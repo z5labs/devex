@@ -94,7 +94,10 @@ func (k *Kafka) Cluster(
 	tag string,
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
-	if controllers != 1 {
+	if controllers < 1 {
+		return nil, fmt.Errorf("at least one controller is required, got %d", controllers)
+	}
+	if controllers > 1 {
 		return nil, fmt.Errorf(
 			"multi-controller clusters are not supported in this story (got controllers=%d); see README for details",
 			controllers,
