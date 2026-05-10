@@ -38,10 +38,11 @@ func newClusterId(ctx context.Context) (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// freshCluster spins up a 1+1 combined-mode plaintext cluster — the smallest
-// topology the kafka module can produce — for use by every cluster-touching
-// test. The returned KafkaCluster is a lazy chain; the server-side Cluster
-// constructor runs only when a leaf op (e.g. BootstrapServers) resolves.
+// freshCluster spins up the smallest split-role plaintext cluster the kafka
+// module can produce — one dedicated controller container plus one broker
+// container — for use by every cluster-touching test. The returned
+// KafkaCluster is a lazy chain; the server-side Cluster constructor runs
+// only when a leaf op (e.g. BootstrapServers) resolves.
 func freshCluster(ctx context.Context) (*dagger.KafkaCluster, error) {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
@@ -113,11 +114,11 @@ func (t *Tests) PlaintextSecurityProfilesAreNonNil(ctx context.Context) error {
 	return nil
 }
 
-// SingleNodeClusterStarts spins up a 1+1 combined-mode cluster and forces
-// the server-side Cluster constructor to run by resolving BootstrapServers.
-// Asserting that the broker actually starts and is reachable is deferred to
-// increment 3 once ListTopics exists; this increment only verifies that the
-// cluster can be constructed and that its broker hostname is non-empty.
+// SingleNodeClusterStarts spins up the smallest split-role cluster (one
+// controller + one broker) and forces the server-side Cluster constructor
+// to run by resolving BootstrapServers, asserting only that the broker
+// hostname is non-empty. End-to-end reachability is covered by sibling
+// tests that exercise ListTopics / produce / consume.
 func (t *Tests) SingleNodeClusterStarts(ctx context.Context) error {
 	cluster, err := freshCluster(ctx)
 	if err != nil {
@@ -448,7 +449,7 @@ func (t *Tests) BindBrokersExposesBrokersToCallerContainer(ctx context.Context) 
 		return fmt.Errorf("malformed bootstrap server %q", bs[0])
 	}
 
-	out, err := cluster.BindBrokers(dag.Container().From("alpine:latest")).
+	out, err := cluster.BindBrokers(dag.Container().From("alpine:3.22")).
 		WithExec([]string{"sh", "-c",
 			"nc -z -w 5 " + host + " " + port + " && echo OK",
 		}).

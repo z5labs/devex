@@ -18,8 +18,7 @@ clientSec := dag.Kafka().PlaintextClientSecurity()
 ## Cluster
 
 ```go
-cluster, err := dag.Kafka().Cluster(
-    ctx,
+cluster := dag.Kafka().Cluster(
     clusterId,        // 22-char base64-url Kafka cluster ID
     "4.2.0",          // apache/kafka-native tag
     serverSec,
@@ -31,13 +30,16 @@ cluster, err := dag.Kafka().Cluster(
 )
 ```
 
-- `Cluster.BootstrapServers() []string` — the broker `host:port` pairs the
-  client (and `BindBrokers` consumers) connect to.
+`Cluster` is a lazy chain — the server-side constructor only runs when a
+leaf op (e.g. `BootstrapServers`) resolves.
+
+- `Cluster.BootstrapServers(ctx) ([]string, error)` — the broker `host:port`
+  pairs the client (and `BindBrokers` consumers) connect to.
 - `Cluster.BindBrokers(c *dagger.Container) *dagger.Container` — chains
   `WithServiceBinding` for every broker so a caller's container resolves
   the same hostnames `BootstrapServers` reports.
-- `Cluster.Client(security *ClientSecurity) *Client` — starts every broker
-  service and returns a franz-go-backed Client wired to dial them.
+- `Cluster.Client(security *KafkaClientSecurity) *KafkaClient` — starts every
+  broker service and returns a franz-go-backed Client wired to dial them.
 
 ### Topology limit
 
@@ -51,8 +53,8 @@ follow-up alongside TLS / mTLS.
 
 ## Client
 
-`Kafka.Client(bootstrapServers, security)` constructs a franz-go-backed
-Client without any I/O. `Cluster.Client(security)` does the same but also
+`dag.Kafka().Client(bootstrapServers, security)` constructs a franz-go-backed
+Client without any I/O. `cluster.Client(security)` does the same but also
 guarantees the local cluster is started.
 
 ```go

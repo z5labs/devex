@@ -274,20 +274,41 @@ func encodeBytes(b []byte, encoding string) (string, error) {
 //
 // +cache="never"
 func (c *Client) PropertiesFile() (*dagger.File, error) {
-	content := fmt.Sprintf(
+	content := []byte(fmt.Sprintf(
 		"bootstrap.servers=%s\nsecurity.protocol=%s\n",
 		strings.Join(c.Bootstrap, ","),
 		c.SecurityMode,
-	)
+	))
 
-	sum := sha256.Sum256([]byte(content))
+	sum := sha256.Sum256(content)
 	dir := "props-" + hex.EncodeToString(sum[:])
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("mkdir %q: %w", dir, err)
 	}
 	path := filepath.Join(dir, "client.properties")
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
-		return nil, fmt.Errorf("write %q: %w", path, err)
+
+	tmp, err := os.CreateTemp(dir, ".client.properties-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp: %w", err)
+	}
+	tmpPath := tmp.Name()
+	if _, err := tmp.Write(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("write %q: %w", tmpPath, err)
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("chmod %q: %w", tmpPath, err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("close %q: %w", tmpPath, err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return nil, fmt.Errorf("rename to %q: %w", path, err)
 	}
 	return dag.CurrentModule().WorkdirFile(path), nil
 }
