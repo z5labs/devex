@@ -91,6 +91,7 @@ func (k *Kafka) Cluster(
 	brokers int,
 	// +default="docker.io"
 	registry string,
+	// +default="4.2.0"
 	tag string,
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
