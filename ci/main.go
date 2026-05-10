@@ -21,7 +21,9 @@ func (c *Ci) Test(ctx context.Context) error {
 	jobs = jobs.WithJob("crypto", dag.CryptoTests().All)
 	jobs = jobs.WithJob("certificate-management", dag.CertificateManagementTests().All)
 	jobs = jobs.WithJob("grafana-stack", dag.GrafanaStackTests().All)
-	jobs = jobs.WithJob("kafka", dag.KafkaTests().All)
+	jobs = jobs.WithJob("kafka", func(ctx context.Context) error {
+		return dag.KafkaTests().All(ctx)
+	})
 
 	return jobs.Run(ctx)
 }
