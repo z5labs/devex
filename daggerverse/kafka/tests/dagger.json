@@ -1,0 +1,17 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "kafka",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    }
+  ]
+}
