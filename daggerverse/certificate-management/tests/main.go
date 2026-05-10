@@ -53,7 +53,7 @@ func (t *Tests) CreateCaProducesUsableKeyStore(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	caSerial, err := newSerial()
+	caSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -85,7 +85,7 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	caSerial, err := newSerial()
+	caSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (t *Tests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	leafSerial, err := newSerial()
+	leafSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -204,7 +204,7 @@ func (t *Tests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	caSerial, err := newSerial()
+	caSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -216,7 +216,7 @@ func (t *Tests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	leafSerial, err := newSerial()
+	leafSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -250,7 +250,7 @@ func (t *Tests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	caSerial, err := newSerial()
+	caSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -290,7 +290,7 @@ func verifyIssued(
 	if err != nil {
 		return err
 	}
-	caSerial, err := newSerial()
+	caSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -302,7 +302,7 @@ func verifyIssued(
 	if err != nil {
 		return err
 	}
-	leafSerial, err := newSerial()
+	leafSerial, err := dag.Random().Serial(ctx)
 	if err != nil {
 		return err
 	}
@@ -421,11 +421,6 @@ func randomHex(n int) (string, error) {
 // signs with truly deterministic templates.
 func nowRfc3339() string {
 	return time.Now().UTC().Format(time.RFC3339)
-}
-
-// newSerial returns a fresh 128-bit hex-encoded serial number.
-func newSerial() (string, error) {
-	return randomHex(16)
 }
 
 // readPkcs12 round-trips a Dagger file through the module runtime container's

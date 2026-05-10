@@ -20,6 +20,7 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("UuidV7ShouldNotBeCached", t.UuidV7ShouldNotBeCached)
 	jobs = jobs.WithJob("Sha256ShouldNotBeCached", t.Sha256ShouldNotBeCached)
 	jobs = jobs.WithJob("Sha512ShouldNotBeCached", t.Sha512ShouldNotBeCached)
+	jobs = jobs.WithJob("SerialShouldNotBeCached", t.SerialShouldNotBeCached)
 
 	return jobs.Run(ctx)
 }
@@ -88,6 +89,23 @@ func (t *Tests) Sha512ShouldNotBeCached(ctx context.Context) error {
 
 	if s1 == s2 {
 		return fmt.Errorf("expected different SHA512 hashes, got the same: %s", s1)
+	}
+	return nil
+}
+
+func (t *Tests) SerialShouldNotBeCached(ctx context.Context) error {
+	s1, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return err
+	}
+
+	s2, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return err
+	}
+
+	if s1 == s2 {
+		return fmt.Errorf("expected different serials, got the same: %s", s1)
 	}
 	return nil
 }
