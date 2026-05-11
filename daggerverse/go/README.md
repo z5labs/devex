@@ -35,6 +35,7 @@ and use that version; if no directive is present the image falls back to
 | `Work(source, subcommand, args)` | `go work <subcommand> args...`; returns stdout. |
 | `Env()` | `go env`. |
 | `ToolVersion()` | `go version`. |
+| `Ci(source)` | Returns a `Ci` builder for staged pipelines (parallel checks → build). `Run` returns the built binary as a `*File`. |
 
 ## CLI quick reference
 
@@ -64,3 +65,55 @@ stdout, err := g.Test(ctx, src, dagger.GoTestOpts{Race: true})
 ```
 
 See `tests/main.go` for one example per function.
+
+## CI pipeline (`Ci` builder)
+
+`Ci(source)` returns a builder that composes Go static checks and build
+into a single staged pipeline.
+
+### Stages
+
+1. **Parallel checks** — enabled individually via `WithFmt()`, `WithVet()`,
+   `WithLint(version, config)`, `WithTest(race)`. Errors from enabled
+   checks are aggregated via `github.com/dagger/dagger/util/parallel`;
+   stage 2 is short-circuited on any stage-1 failure.
+2. **Build** — always runs after stage 1 succeeds. `WithBuild(pkg, binaryName)`
+   customises the build parameters (both optional). `pkg` defaults to `.`;
+   `binaryName` defaults to the basename of the `module` directive in
+   `go.mod`. `Run` returns the built binary as a `*File`.
+
+`Ci` is the entrypoint. Whatever a downstream pipeline does with the
+returned binary — package, sign, scan, publish — is up to the caller.
+
+### CLI
+
+    dagger -m daggerverse/go call ci \
+        --source=path/to/project \
+        with-fmt with-vet with-test --race=true with-lint \
+        with-build \
+        run export --path=/tmp/my-app
+
+### Go SDK
+
+```go
+// Language Ci produces the artifact; downstream pipeline composes it.
+binary := dag.Go().Ci(src).
+    WithFmt().
+    WithVet().
+    WithLint().
+    WithTest(dagger.GoCiWithTestOpts{Race: true}).
+    WithBuild().
+    Run()
+
+if _, err := dag.Container().
+    From("gcr.io/distroless/static:nonroot").
+    WithFile("/app", binary).
+    WithEntrypoint([]string{"/app"}).
+    Publish(ctx, "registry.example.com/my-app:latest"); err != nil {
+    return err
+}
+```
+
+The `WithBuild` second parameter is named `binaryName` (CLI flag
+`--binary-name`) to avoid colliding with Dagger CLI's top-level
+`--output/-o` flag.
