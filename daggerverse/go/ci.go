@@ -178,33 +178,33 @@ func (c *Ci) runLint(ctx context.Context) error {
 	return err
 }
 
-// runBuild compiles c.Source. pkg defaults to "."; output defaults to the
-// basename of the `module` directive in go.mod.
+// runBuild compiles c.Source. pkg defaults to "."; binaryName defaults to
+// the basename of the `module` directive in go.mod.
 func (c *Ci) runBuild(ctx context.Context) (*dagger.File, error) {
 	pkg := c.BuildPkg
 	if pkg == "" {
 		pkg = "."
 	}
-	output := c.BuildBinaryName
-	if output == "" {
+	binaryName := c.BuildBinaryName
+	if binaryName == "" {
 		modContents, err := c.Source.File("go.mod").Contents(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("read go.mod to derive output name: %w", err)
+			return nil, fmt.Errorf("read go.mod to derive binary name: %w", err)
 		}
 		modulePath, err := parseModuleDirective(modContents)
 		if err != nil {
-			return nil, fmt.Errorf("parse go.mod to derive output name: %w", err)
+			return nil, fmt.Errorf("parse go.mod to derive binary name: %w", err)
 		}
-		output = basenameAfterSlash(modulePath)
-		if output == "" {
-			return nil, fmt.Errorf("could not derive default output name from go.mod module directive")
+		binaryName = basenameAfterSlash(modulePath)
+		if binaryName == "" {
+			return nil, fmt.Errorf("could not derive default binary name from go.mod module directive")
 		}
 	}
 	ctr, err := c.Go.Container(ctx, c.Source)
 	if err != nil {
 		return nil, err
 	}
-	target := "/out/" + output
+	target := "/out/" + binaryName
 	return ctr.WithExec([]string{"go", "build", "-o", target, pkg}).File(target), nil
 }
 

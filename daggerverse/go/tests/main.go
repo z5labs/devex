@@ -46,7 +46,7 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("CiWithVetPasses", t.CiWithVetPasses)
 	jobs = jobs.WithJob("CiWithTestPasses", t.CiWithTestPasses)
 	jobs = jobs.WithJob("CiWithTestRacePasses", t.CiWithTestRacePasses)
-	jobs = jobs.WithJob("CiWithBuildCustomOutput", t.CiWithBuildCustomOutput)
+	jobs = jobs.WithJob("CiWithBuildCustomBinaryName", t.CiWithBuildCustomBinaryName)
 	jobs = jobs.WithJob("CiWithLintPasses", t.CiWithLintPasses)
 	jobs = jobs.WithJob("CiRunHelloAllStages", t.CiRunHelloAllStages)
 	jobs = jobs.WithJob("CiRunVetBadAggregates", t.CiRunVetBadAggregates)
@@ -109,9 +109,9 @@ func (t *Tests) CiWithLintPasses(ctx context.Context) error {
 	return nil
 }
 
-// CiWithBuildCustomOutput configures a custom binary name via WithBuild
+// CiWithBuildCustomBinaryName configures a custom binary name via WithBuild
 // and asserts the produced File carries that name.
-func (t *Tests) CiWithBuildCustomOutput(ctx context.Context) error {
+func (t *Tests) CiWithBuildCustomBinaryName(ctx context.Context) error {
 	f := dag.Go().Ci(helloDir()).
 		WithBuild(dagger.GoCiWithBuildOpts{BinaryName: "custom"}).
 		Run()
