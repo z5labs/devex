@@ -41,8 +41,166 @@ func (t *Tests) All(ctx context.Context) error {
 	jobs = jobs.WithJob("InstallSmallToolReturnsBinary", t.InstallSmallToolReturnsBinary)
 	jobs = jobs.WithJob("BuildMultipkgDotSlashEllipsis", t.BuildMultipkgDotSlashEllipsis)
 	jobs = jobs.WithJob("TestMultipkgPkgArgVariants", t.TestMultipkgPkgArgVariants)
+	jobs = jobs.WithJob("CiRunHelloDefaultsProduceModuleNameBinary", t.CiRunHelloDefaultsProduceModuleNameBinary)
+	jobs = jobs.WithJob("CiWithFmtPasses", t.CiWithFmtPasses)
+	jobs = jobs.WithJob("CiWithVetPasses", t.CiWithVetPasses)
+	jobs = jobs.WithJob("CiWithTestPasses", t.CiWithTestPasses)
+	jobs = jobs.WithJob("CiWithTestRacePasses", t.CiWithTestRacePasses)
+	jobs = jobs.WithJob("CiWithBuildCustomOutput", t.CiWithBuildCustomOutput)
+	jobs = jobs.WithJob("CiWithLintPasses", t.CiWithLintPasses)
+	jobs = jobs.WithJob("CiRunHelloAllStages", t.CiRunHelloAllStages)
+	jobs = jobs.WithJob("CiRunVetBadAggregates", t.CiRunVetBadAggregates)
 
 	return jobs.Run(ctx)
+}
+
+// CiRunVetBadAggregates runs Ci against the vet-bad fixture with both Vet
+// and Lint enabled and asserts Run returns an error. Both stage-1 tools
+// report the Printf verb mismatch via Dagger trace output (visible at the
+// CLI); the Go-level error surfaces as "exit code: 1" from the underlying
+// withExec, so the load-bearing invariant here is that stage 1 fails and
+// Build is short-circuited (no nil error returned).
+func (t *Tests) CiRunVetBadAggregates(ctx context.Context) error {
+	_, err := dag.Go().Ci(vetBadDir()).
+		WithVet().
+		WithLint().
+		Run().Size(ctx)
+	if err == nil {
+		return fmt.Errorf("expected non-nil error from Ci.Run on vet-bad fixture, got nil")
+	}
+	return nil
+}
+
+// CiRunHelloAllStages runs Ci with every stage enabled against the hello
+// fixture and asserts a non-empty binary is produced.
+func (t *Tests) CiRunHelloAllStages(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).
+		WithFmt().
+		WithVet().
+		WithLint().
+		WithTest(dagger.GoCiWithTestOpts{Race: true}).
+		WithBuild().
+		Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci all-stages Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithLintPasses runs Ci with the Lint stage enabled against the
+// clean hello fixture and asserts a non-empty binary is produced.
+// Uses the pinned default golangci-lint version.
+func (t *Tests) CiWithLintPasses(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).WithLint().Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithLint.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithBuildCustomOutput configures a custom binary name via WithBuild
+// and asserts the produced File carries that name.
+func (t *Tests) CiWithBuildCustomOutput(ctx context.Context) error {
+	f := dag.Go().Ci(helloDir()).
+		WithBuild(dagger.GoCiWithBuildOpts{BinaryName: "custom"}).
+		Run()
+	name, err := f.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("binary.Name: %w", err)
+	}
+	if name != "custom" {
+		return fmt.Errorf("expected binary name %q, got %q", "custom", name)
+	}
+	size, err := f.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("binary.Size: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithTestPasses runs Ci with the Test stage enabled (no race) against
+// hello and asserts a non-empty binary is produced.
+func (t *Tests) CiWithTestPasses(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).WithTest().Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithTest.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithTestRacePasses runs Ci with the Test stage enabled with -race and
+// asserts a non-empty binary is produced.
+func (t *Tests) CiWithTestRacePasses(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).
+		WithTest(dagger.GoCiWithTestOpts{Race: true}).
+		Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithTest(race).Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithVetPasses runs Ci with the Vet stage enabled against the vet-clean
+// hello fixture and asserts a non-empty binary is produced.
+func (t *Tests) CiWithVetPasses(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).WithVet().Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithVet.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithFmtPasses runs Ci with the Fmt stage enabled against the
+// gofmt-clean hello fixture and asserts a non-empty binary is produced.
+func (t *Tests) CiWithFmtPasses(ctx context.Context) error {
+	size, err := dag.Go().Ci(helloDir()).WithFmt().Run().Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithFmt.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiRunHelloDefaultsProduceModuleNameBinary asserts that Ci.Run with no
+// builders configured still produces a binary named after the go.mod
+// module path (example.com/hello → "hello").
+func (t *Tests) CiRunHelloDefaultsProduceModuleNameBinary(ctx context.Context) error {
+	f := dag.Go().Ci(helloDir()).Run()
+	name, err := f.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("binary.Name: %w", err)
+	}
+	if name != "hello" {
+		return fmt.Errorf("expected binary name %q, got %q", "hello", name)
+	}
+	size, err := f.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("binary.Size: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty hello binary, got size 0")
+	}
+	return nil
 }
 
 // helloDir returns the on-disk hello fixture as a *dagger.Directory.
@@ -53,6 +211,12 @@ func helloDir() *dagger.Directory {
 // multipkgDir returns the multi-package fixture (main + pkg/foo subpackage).
 func multipkgDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/multipkg")
+}
+
+// vetBadDir returns the vet-bad fixture (intentional Printf verb mismatch
+// for stage-1 failure aggregation tests).
+func vetBadDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/vet-bad")
 }
 
 // BuildMultipkgDotSlashEllipsis builds the multipkg fixture with the default
