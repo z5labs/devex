@@ -204,7 +204,7 @@ func (k *Kafka) ApacheNativeCluster(
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
 	image := fmt.Sprintf("%s/apache/kafka-native:%s", registry, tag)
-	return buildApacheCluster(ctx, clusterId, controllers, brokers, image, clientListenerSecurity)
+	return buildKafkaCluster(ctx, clusterId, controllers, brokers, image, nil, clientListenerSecurity)
 }
 
 // ApacheCluster spins up a KRaft Kafka cluster of the requested size with
@@ -235,19 +235,61 @@ func (k *Kafka) ApacheCluster(
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
 	image := fmt.Sprintf("%s/apache/kafka:%s", registry, tag)
-	return buildApacheCluster(ctx, clusterId, controllers, brokers, image, clientListenerSecurity)
+	return buildKafkaCluster(ctx, clusterId, controllers, brokers, image, nil, clientListenerSecurity)
 }
 
-// buildApacheCluster is the shared body behind ApacheNativeCluster and
-// ApacheCluster. Both Apache images share an identical Scala wrapper +
-// `KAFKA_*` env-var contract, so the only thing that varies between the
-// two callers is the image string.
-func buildApacheCluster(
+// ConfluentCluster spins up a KRaft Kafka cluster of the requested size
+// using the `confluentinc/cp-kafka` image — the Confluent Platform
+// distribution. Confluent Platform 8.x bundles Apache Kafka 4.x (CP
+// 8.2.0 ships Kafka 4.2.0), and cp-kafka speaks the same Scala-wrapper
+// `KAFKA_*` env-var contract that ApacheCluster does, so the returned
+// `*Cluster` and `ServerSecurity` API are identical to the Apache
+// constructors — callers swap distros by changing the constructor
+// name alone.
+//
+// The constructor silently disables Confluent's phone-home telemetry
+// (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`) on every broker so
+// the cluster behaves the same way the Apache variants do at startup.
+//
+// +cache="session"
+func (k *Kafka) ConfluentCluster(
+	ctx context.Context,
+	clusterId string,
+	// +default=1
+	controllers int,
+	// +default=1
+	brokers int,
+	// +default="docker.io"
+	registry string,
+	// +default="8.2.0"
+	tag string,
+	clientListenerSecurity *ServerSecurity,
+) (*Cluster, error) {
+	image := fmt.Sprintf("%s/confluentinc/cp-kafka:%s", registry, tag)
+	extraEnv := []envKV{
+		{K: "KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE", V: "false"},
+	}
+	return buildKafkaCluster(ctx, clusterId, controllers, brokers, image, extraEnv, clientListenerSecurity)
+}
+
+// envKV is a key/value pair for distro-specific broker env overrides
+// passed into buildKafkaCluster. A slice (not a map) so iteration order
+// is stable across invocations and doesn't perturb Dagger's per-arg
+// cache key.
+type envKV struct{ K, V string }
+
+// buildKafkaCluster is the shared body behind every Kafka.*Cluster
+// constructor. The Apache and Confluent images all speak the same
+// `KAFKA_*` Scala-wrapper env-var contract under KRaft, so the only
+// per-distro inputs are the image string and any extra broker-side
+// env overrides (e.g. Confluent's telemetry kill switch).
+func buildKafkaCluster(
 	ctx context.Context,
 	clusterId string,
 	controllers int,
 	brokers int,
 	image string,
+	extraBrokerEnv []envKV,
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
 	if controllers < 1 {
@@ -319,6 +361,12 @@ func buildApacheCluster(
 
 	ctrlCtr := dag.Container().
 		From(image).
+		// confluentinc/cp-kafka pre-sets KAFKA_ADVERTISED_LISTENERS=""
+		// in the image; the Scala config validator rejects the empty
+		// value even on controller-only nodes that have no advertised
+		// listeners. Strip it so the controller boots regardless of
+		// distro (no-op for the Apache images, which don't pre-set it).
+		WithoutEnvVariable("KAFKA_ADVERTISED_LISTENERS").
 		WithEnvVariable("KAFKA_NODE_ID", "1").
 		WithEnvVariable("KAFKA_PROCESS_ROLES", "controller").
 		WithEnvVariable("KAFKA_LISTENERS", "CONTROLLER://0.0.0.0:9093").
@@ -359,6 +407,9 @@ func buildApacheCluster(
 			WithEnvVariable("KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS", "0").
 			WithExposedPort(9092).
 			WithExposedPort(19092)
+		for _, kv := range extraBrokerEnv {
+			brkCtr = brkCtr.WithEnvVariable(kv.K, kv.V)
+		}
 		brkCtr = applyInternalListenerSsl(brkCtr, "INTERNAL", internal.Brokers[i])
 		brkCtr = applyInternalListenerSsl(brkCtr, "CONTROLLER", internal.Brokers[i])
 		if externalLeaves != nil {

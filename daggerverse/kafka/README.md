@@ -1,9 +1,10 @@
 # kafka
 
-A Dagger module that spins up a KRaft Kafka cluster from
-`apache/kafka-native` and exposes a pure-Go franz-go client that targets
-either the local cluster or any reachable remote cluster (AWS MSK,
-Confluent Cloud, etc.).
+A Dagger module that spins up a KRaft Kafka cluster from one of three
+upstream images — `apache/kafka-native` (GraalVM), `apache/kafka` (JVM),
+or `confluentinc/cp-kafka` (Confluent Platform) — and exposes a pure-Go
+franz-go client that targets either the local cluster or any reachable
+remote cluster (AWS MSK, Confluent Cloud, etc.).
 
 The module supports plaintext, TLS, and mTLS on the external client-facing
 listener. The internal listeners (inter-broker and controller-quorum) are
@@ -92,6 +93,32 @@ controller to know every other controller at static config time, which
 Dagger's `WithServiceBinding` model can't express without an unresolvable
 cycle. Multi-controller HA lands in a follow-up.
 
+## ConfluentCluster
+
+```go
+cluster := dag.Kafka().ConfluentCluster(
+    clusterId,
+    serverSec,
+    dagger.KafkaConfluentClusterOpts{
+        Tag:         "8.2.0",
+        Controllers: 1,
+        Brokers:     2,
+        Registry:    "docker.io",
+    },
+)
+```
+
+`ConfluentCluster` uses the `confluentinc/cp-kafka` image and is
+otherwise API-identical to the Apache constructors — same topology,
+same `ServerSecurity` / `*Cluster` types, same listener layout. Confluent
+Platform 8.x bundles Apache Kafka 4.x with the same minor version (CP
+8.2.0 ships Kafka 4.2.0), so callers swap distros by changing the
+constructor name alone.
+
+The constructor silently sets `KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`
+on each broker to disable Confluent's phone-home telemetry, matching
+the Apache variants' startup behavior.
+
 ## Client
 
 `dag.Kafka().Client(bootstrapServers, security)` constructs a franz-go-backed
@@ -151,10 +178,10 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
 
 ## Image source
 
-The module exposes two cluster constructors, one per upstream Apache
-image. Both speak the same `KAFKA_*` env-var contract and return the
-same `*Cluster`, so downstream code is identical regardless of which
-one you pick:
+The module exposes three cluster constructors, one per upstream image.
+All three speak the same `KAFKA_*` env-var contract and return the same
+`*Cluster`, so downstream code is identical regardless of which one
+you pick:
 
 - `ApacheNativeCluster` → `<registry>/apache/kafka-native:<tag>`
   (default `docker.io/apache/kafka-native:4.2.0`). GraalVM-compiled;
@@ -166,7 +193,12 @@ one you pick:
   observed to segfault during broker startup under Dagger Cloud trace
   `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor when
   startup robustness matters more than cold-start latency.
+- `ConfluentCluster` → `<registry>/confluentinc/cp-kafka:<tag>` (default
+  `docker.io/confluentinc/cp-kafka:8.2.0`). Confluent Platform 8.x
+  bundles Apache Kafka 4.x at the same minor version, so CP 8.2.0
+  ships Kafka 4.2.0. The constructor silently disables Confluent's
+  phone-home telemetry (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`).
 
-`registry` (default `docker.io`) and `tag` (default `4.2.0`) are the
-only caller-overridable parts; the `apache/kafka{-native,}` portion is
-fixed per constructor.
+`registry` (default `docker.io`) and `tag` are the only caller-
+overridable parts; the `apache/kafka{-native,}` or `confluentinc/cp-kafka`
+portion is fixed per constructor.
