@@ -187,7 +187,7 @@ func (k *Kafka) MtlsClientSecurity(
 // The GraalVM-compiled image has been observed to flake during the broker
 // `setup` step under load — see Dagger Cloud trace
 // `377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,
-// use `ApacheCluster()` (forthcoming).
+// use `ApacheCluster()`.
 //
 // +cache="session"
 func (k *Kafka) ApacheNativeCluster(
@@ -201,6 +201,53 @@ func (k *Kafka) ApacheNativeCluster(
 	registry string,
 	// +default="4.2.0"
 	tag string,
+	clientListenerSecurity *ServerSecurity,
+) (*Cluster, error) {
+	image := fmt.Sprintf("%s/apache/kafka-native:%s", registry, tag)
+	return buildApacheCluster(ctx, clusterId, controllers, brokers, image, clientListenerSecurity)
+}
+
+// ApacheCluster spins up a KRaft Kafka cluster of the requested size with
+// dedicated controller and broker containers, using the `apache/kafka`
+// JVM image.
+//
+// Identical in topology, caching, and security semantics to
+// ApacheNativeCluster — only the image differs. The JVM image runs the
+// same Scala wrapper but on HotSpot, so it does not share
+// `apache/kafka-native`'s AOT-compiled `getpwuid` substitution
+// (`Pwd.getpwuid` from `SystemPropertiesSupport.userHomeValue`) that has
+// been observed to segfault during broker startup — see Dagger Cloud
+// trace `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor
+// whenever startup robustness matters more than cold-start latency.
+//
+// +cache="session"
+func (k *Kafka) ApacheCluster(
+	ctx context.Context,
+	clusterId string,
+	// +default=1
+	controllers int,
+	// +default=1
+	brokers int,
+	// +default="docker.io"
+	registry string,
+	// +default="4.2.0"
+	tag string,
+	clientListenerSecurity *ServerSecurity,
+) (*Cluster, error) {
+	image := fmt.Sprintf("%s/apache/kafka:%s", registry, tag)
+	return buildApacheCluster(ctx, clusterId, controllers, brokers, image, clientListenerSecurity)
+}
+
+// buildApacheCluster is the shared body behind ApacheNativeCluster and
+// ApacheCluster. Both Apache images share an identical Scala wrapper +
+// `KAFKA_*` env-var contract, so the only thing that varies between the
+// two callers is the image string.
+func buildApacheCluster(
+	ctx context.Context,
+	clusterId string,
+	controllers int,
+	brokers int,
+	image string,
 	clientListenerSecurity *ServerSecurity,
 ) (*Cluster, error) {
 	if controllers < 1 {
@@ -236,8 +283,6 @@ func (k *Kafka) ApacheNativeCluster(
 			clusterId,
 		)
 	}
-
-	image := fmt.Sprintf("%s/apache/kafka-native:%s", registry, tag)
 
 	// Stable hostnames are scoped per-cluster so parallel test invocations
 	// don't collide on `broker-100` / `controller-1`. The suffix is derived
