@@ -758,8 +758,22 @@ func encodeBytes(b []byte, encoding string) (string, error) {
 // +cache="never"
 func (c *Client) PropertiesFile(ctx context.Context) (*dagger.File, error) {
 	proto := "PLAINTEXT"
-	if c.SecurityMode != "PLAINTEXT" {
+	switch c.SecurityMode {
+	case "PLAINTEXT":
+	case "TLS", "MTLS":
 		proto = "SSL"
+	default:
+		return nil, fmt.Errorf("PropertiesFile: unsupported SecurityMode %q", c.SecurityMode)
+	}
+	if c.SecurityMode == "TLS" || c.SecurityMode == "MTLS" {
+		if c.TrustStore == nil || c.TrustStorePassword == nil {
+			return nil, fmt.Errorf("PropertiesFile: %s mode requires TrustStore + TrustStorePassword", c.SecurityMode)
+		}
+	}
+	if c.SecurityMode == "MTLS" {
+		if c.KeyStore == nil || c.KeyStorePassword == nil {
+			return nil, fmt.Errorf("PropertiesFile: MTLS mode requires KeyStore + KeyStorePassword")
+		}
 	}
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "bootstrap.servers=%s\n", strings.Join(c.Bootstrap, ","))

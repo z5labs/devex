@@ -36,8 +36,9 @@ The CA `keystore`/`truststore` arguments are PKCS#12 archives produced by
 the [`certificate-management`](../certificate-management) module (or any
 PKCS#12 source). The cluster mints per-broker leaf certificates from the
 supplied CA at `Cluster()` time, with each broker's stable hostname
-(`broker-100`, `broker-101`, ...) bound as a DNS SAN. Clients dialing the
-bootstrap address verify the broker's cert against the matching truststore.
+(`broker-100-<suffix>`, `broker-101-<suffix>`, ...) bound as a DNS SAN.
+Clients dialing the bootstrap address verify the broker's cert against
+the matching truststore.
 
 ## Cluster
 
@@ -61,7 +62,9 @@ observe the same underlying broker services and the same internal CA.
 
 - `Cluster.BootstrapServers(ctx) ([]string, error)` — broker `host:port`
   pairs the client (and `BindBrokers` consumers) connect to. Returns
-  `["broker-100:9092", "broker-101:9092", ...]`.
+  `["broker-100-<suffix>:9092", "broker-101-<suffix>:9092", ...]` where
+  `<suffix>` is a short DNS-safe hash derived from `clusterId` (see
+  "Listener layout" below).
 - `Cluster.BindBrokers(c *dagger.Container) *dagger.Container` — chains
   `WithServiceBinding` for every broker so a caller's container resolves
   the same hostnames `BootstrapServers` reports.
