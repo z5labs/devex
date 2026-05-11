@@ -7,27 +7,28 @@
   "dependencies": [
     {
       "name": "certificate-management-tests",
-      "source": "../daggerverse/certificate-management/tests"
+      "source": "daggerverse/certificate-management/tests"
     },
     {
       "name": "random-tests",
-      "source": "../daggerverse/random/tests"
+      "source": "daggerverse/random/tests"
     },
     {
       "name": "crypto-tests",
-      "source": "../daggerverse/crypto/tests"
+      "source": "daggerverse/crypto/tests"
     },
     {
       "name": "grafana-stack-tests",
-      "source": "../daggerverse/grafana-stack/tests"
+      "source": "daggerverse/grafana-stack/tests"
     },
     {
       "name": "kafka-tests",
-      "source": "../daggerverse/kafka/tests"
+      "source": "daggerverse/kafka/tests"
     },
     {
       "name": "go-tests",
-      "source": "../daggerverse/go/tests"
+      "source": "daggerverse/go/tests"
     }
-  ]
+  ],
+  "source": "ci"
 }
