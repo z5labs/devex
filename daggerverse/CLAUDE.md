@@ -48,3 +48,31 @@ and CLI names become kebab-case (`Sha256ShouldNotBeCached` → `sha-256-should-n
 - `dagger call <fn> [--arg=val]` — invoke a function.
 - `dagger develop` — regenerate SDK bindings after source changes.
 - `dagger version` — engine and CLI version.
+
+## TDD loop for module implementation
+
+When building or extending a `daggerverse/<module>` package, drive
+features one test at a time. **Do not** write the full module then run
+the suite; do not even write all tests then implement.
+
+1. Pick the next test from the acceptance-criteria (or design) list,
+   easiest first — pure-validation tests before render-only tests
+   before service round-trips.
+2. Write only that test in `<module>/tests/main.go`.
+3. Run `dagger develop` in `<module>` (if module API moved) and in
+   `<module>/tests`.
+4. Run `dagger -m daggerverse/<module>/tests call <test-name-kebab>`
+   and confirm it fails for the *expected* reason (compile error,
+   missing factory, validation gap) — not an unrelated reason.
+5. Implement the **minimum** code in `<module>/main.go` to flip that
+   single test green.
+6. Re-run the single test until green.
+7. Only then move to the next test.
+
+Run `dagger -m daggerverse/<module>/tests call all` only at the end,
+after every individual test is green. Reason: a single failure inside
+the parallel aggregator triggers a cross-feature debugging trip and
+buries the actual root cause under red herrings (a YAML rendering bug
+masquerades as a network-binding bug; a validation-message mismatch
+masks a real cluster-ref bug). Tight loops keep the failure surface
+to the single feature just added.
