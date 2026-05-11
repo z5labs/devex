@@ -55,11 +55,12 @@ func (t *Tests) All(ctx context.Context) error {
 }
 
 // CiRunVetBadAggregates runs Ci against the vet-bad fixture with both Vet
-// and Lint enabled and asserts Run returns an error. Both stage-1 tools
-// report the Printf verb mismatch via Dagger trace output (visible at the
-// CLI); the Go-level error surfaces as "exit code: 1" from the underlying
-// withExec, so the load-bearing invariant here is that stage 1 fails and
-// Build is short-circuited (no nil error returned).
+// and Lint enabled and asserts that stage-1 aggregated BOTH job failures
+// rather than short-circuiting on the first. parallel.New concatenates each
+// job's raw error (job names appear in trace spans, not the Go-level
+// string), so each underlying `withExec` failure surfaces as a separate
+// "exit code: 1" line. Counting those occurrences confirms both vet and
+// lint ran and both errors were propagated through Run.
 func (t *Tests) CiRunVetBadAggregates(ctx context.Context) error {
 	_, err := dag.Go().Ci(vetBadDir()).
 		WithVet().
@@ -67,6 +68,10 @@ func (t *Tests) CiRunVetBadAggregates(ctx context.Context) error {
 		Run().Size(ctx)
 	if err == nil {
 		return fmt.Errorf("expected non-nil error from Ci.Run on vet-bad fixture, got nil")
+	}
+	msg := err.Error()
+	if got := strings.Count(msg, "exit code: 1"); got < 2 {
+		return fmt.Errorf("expected aggregated error to contain at least 2 \"exit code: 1\" lines (one per failing stage-1 job), got %d: %s", got, msg)
 	}
 	return nil
 }

@@ -191,7 +191,11 @@ func (c *Ci) runBuild(ctx context.Context) (*dagger.File, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read go.mod to derive output name: %w", err)
 		}
-		output = basenameAfterSlash(parseModuleDirective(modContents))
+		modulePath, err := parseModuleDirective(modContents)
+		if err != nil {
+			return nil, fmt.Errorf("parse go.mod to derive output name: %w", err)
+		}
+		output = basenameAfterSlash(modulePath)
 		if output == "" {
 			return nil, fmt.Errorf("could not derive default output name from go.mod module directive")
 		}
@@ -205,20 +209,22 @@ func (c *Ci) runBuild(ctx context.Context) (*dagger.File, error) {
 }
 
 // parseModuleDirective scans go.mod for the top-level `module <path>`
-// directive and returns the path. Returns "" if absent.
-func parseModuleDirective(content string) string {
+// directive and returns the path. Returns "" if absent. Tolerates
+// arbitrary whitespace between `module` and the path (go.mod permits
+// tabs as well as spaces).
+func parseModuleDirective(content string) (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if rest, ok := strings.CutPrefix(line, "module "); ok {
-			if fields := strings.Fields(rest); len(fields) > 0 {
-				return fields[0]
-			}
+		fields := strings.Fields(scanner.Text())
+		if len(fields) >= 2 && fields[0] == "module" {
+			return fields[1], nil
 		}
 	}
-	_ = scanner.Err()
-	return ""
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 // basenameAfterSlash returns everything after the final "/" in s (or s
