@@ -24,7 +24,6 @@ jobs:
         uses: dagger/dagger-for-github@v7
         with:
           version: "0.20.8"
-          module: "ci"
           verb: "call"
           call: "test"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
