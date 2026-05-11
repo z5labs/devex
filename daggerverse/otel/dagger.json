@@ -1,0 +1,7 @@
+{
+  "name": "otel",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  }
+}
