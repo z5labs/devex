@@ -16,23 +16,57 @@ type Tests struct{}
 
 // All runs every otel test in parallel.
 //
+// collectorTag picks the otel/opentelemetry-collector{,-contrib} tag
+// every spawned collector runs against; lokiTag/tempoTag/mimirTag
+// pick the grafana/{loki,tempo,mimir} tags for the round-trip
+// backends. Each default matches the upstream module's own default,
+// so the no-arg invocation stays a smooth path.
+//
 // +check
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
+func (t *Tests) All(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="3.4.1"
+	lokiTag string,
+	// +default="2.7.1"
+	tempoTag string,
+	// +default="2.15.1"
+	mimirTag string,
+) error {
 	jobs := parallel.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 	jobs = jobs.WithJob("RejectsInvalidComponentName", t.RejectsInvalidComponentName)
 	jobs = jobs.WithJob("RejectsUnknownPipelineSignal", t.RejectsUnknownPipelineSignal)
-	jobs = jobs.WithJob("SharedReceiverIsDedupedInRenderedYaml", t.SharedReceiverIsDedupedInRenderedYaml)
-	jobs = jobs.WithJob("CustomComponentBodyIsSpliced", t.CustomComponentBodyIsSpliced)
-	jobs = jobs.WithJob("BindsCollectorIntoFreshContainer", t.BindsCollectorIntoFreshContainer)
-	jobs = jobs.WithJob("ServiceWithoutPipelinesOrConfigFails", t.ServiceWithoutPipelinesOrConfigFails)
-	jobs = jobs.WithJob("DebugPipelineAcceptsOtlpPush", t.DebugPipelineAcceptsOtlpPush)
-	jobs = jobs.WithJob("CoreForwardsLogsToLoki", t.CoreForwardsLogsToLoki)
-	jobs = jobs.WithJob("CoreForwardsTracesToTempo", t.CoreForwardsTracesToTempo)
-	jobs = jobs.WithJob("CoreForwardsMetricsToMimir", t.CoreForwardsMetricsToMimir)
-	jobs = jobs.WithJob("ContribForwardsLogsToLoki", t.ContribForwardsLogsToLoki)
+	jobs = jobs.WithJob("SharedReceiverIsDedupedInRenderedYaml", func(ctx context.Context) error {
+		return t.SharedReceiverIsDedupedInRenderedYaml(ctx, collectorTag)
+	})
+	jobs = jobs.WithJob("CustomComponentBodyIsSpliced", func(ctx context.Context) error {
+		return t.CustomComponentBodyIsSpliced(ctx, collectorTag)
+	})
+	jobs = jobs.WithJob("BindsCollectorIntoFreshContainer", func(ctx context.Context) error {
+		return t.BindsCollectorIntoFreshContainer(ctx, collectorTag)
+	})
+	jobs = jobs.WithJob("ServiceWithoutPipelinesOrConfigFails", func(ctx context.Context) error {
+		return t.ServiceWithoutPipelinesOrConfigFails(ctx, collectorTag)
+	})
+	jobs = jobs.WithJob("DebugPipelineAcceptsOtlpPush", func(ctx context.Context) error {
+		return t.DebugPipelineAcceptsOtlpPush(ctx, collectorTag)
+	})
+	jobs = jobs.WithJob("CoreForwardsLogsToLoki", func(ctx context.Context) error {
+		return t.CoreForwardsLogsToLoki(ctx, collectorTag, lokiTag)
+	})
+	jobs = jobs.WithJob("CoreForwardsTracesToTempo", func(ctx context.Context) error {
+		return t.CoreForwardsTracesToTempo(ctx, collectorTag, tempoTag)
+	})
+	jobs = jobs.WithJob("CoreForwardsMetricsToMimir", func(ctx context.Context) error {
+		return t.CoreForwardsMetricsToMimir(ctx, collectorTag, mimirTag)
+	})
+	jobs = jobs.WithJob("ContribForwardsLogsToLoki", func(ctx context.Context) error {
+		return t.ContribForwardsLogsToLoki(ctx, collectorTag, lokiTag)
+	})
 	return jobs.Run(ctx)
 }
 
@@ -55,13 +89,17 @@ func marker(ctx context.Context) (string, error) {
 // DebugPipelineAcceptsOtlpPush asserts a collector configured with
 // DebugPipeline("logs") accepts an OTLP/HTTP log push without
 // erroring (HTTP 200/204).
-func (t *Tests) DebugPipelineAcceptsOtlpPush(ctx context.Context) error {
+func (t *Tests) DebugPipelineAcceptsOtlpPush(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
 	mark, err := marker(ctx)
 	if err != nil {
 		return err
 	}
 	o := dag.Otel()
-	col := o.Core().WithPipeline(o.DebugPipeline("logs"))
+	col := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).WithPipeline(o.DebugPipeline("logs"))
 	_, err = dag.Container().From(curlImage).
 		WithServiceBinding("col", col.Service()).
 		WithEnvVariable("MARKER", mark).
@@ -142,9 +180,13 @@ exit 1
 // BindsCollectorIntoFreshContainer asserts that a collector configured
 // with the DebugPipeline can be reached on :4317 and :4318 from a
 // vanilla alpine container via WithServiceBinding.
-func (t *Tests) BindsCollectorIntoFreshContainer(ctx context.Context) error {
+func (t *Tests) BindsCollectorIntoFreshContainer(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
 	o := dag.Otel()
-	col := o.Core().WithPipeline(o.DebugPipeline("logs"))
+	col := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).WithPipeline(o.DebugPipeline("logs"))
 	if err := probeCollectorPorts(ctx, col.Service()); err != nil {
 		return fmt.Errorf("probe collector ports: %w", err)
 	}
@@ -155,9 +197,13 @@ func (t *Tests) BindsCollectorIntoFreshContainer(ctx context.Context) error {
 // on a collector with no pipelines and no override produces a
 // container whose exec exits non-zero — the collector binary refuses
 // to start without --config.
-func (t *Tests) ServiceWithoutPipelinesOrConfigFails(ctx context.Context) error {
+func (t *Tests) ServiceWithoutPipelinesOrConfigFails(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
 	o := dag.Otel()
-	if err := probeCollectorPorts(ctx, o.Core().Service()); err == nil {
+	if err := probeCollectorPorts(ctx, o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).Service()); err == nil {
 		return fmt.Errorf("expected collector with no config to fail to start, but probe succeeded")
 	}
 	return nil
@@ -166,14 +212,19 @@ func (t *Tests) ServiceWithoutPipelinesOrConfigFails(ctx context.Context) error 
 // SharedReceiverIsDedupedInRenderedYaml asserts that wiring one
 // receiver into three pipelines emits a single top-level
 // receivers.otlp/primary entry rather than three.
-func (t *Tests) SharedReceiverIsDedupedInRenderedYaml(ctx context.Context) error {
+func (t *Tests) SharedReceiverIsDedupedInRenderedYaml(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
 	o := dag.Otel()
 	primary := o.OtlpReceiver("primary")
 	p1 := o.Pipeline("logs", "p1").WithReceiver(primary)
 	p2 := o.Pipeline("traces", "p2").WithReceiver(primary)
 	p3 := o.Pipeline("metrics", "p3").WithReceiver(primary)
 
-	contents, err := o.Core().WithPipeline(p1).WithPipeline(p2).WithPipeline(p3).
+	contents, err := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
+		WithPipeline(p1).WithPipeline(p2).WithPipeline(p3).
 		ConfigFile().Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
@@ -196,14 +247,19 @@ func (t *Tests) SharedReceiverIsDedupedInRenderedYaml(ctx context.Context) error
 // CustomComponentBodyIsSpliced asserts that a Custom* component's
 // caller-supplied YAML body lands structurally under the rendered
 // config (not as a quoted scalar).
-func (t *Tests) CustomComponentBodyIsSpliced(ctx context.Context) error {
+func (t *Tests) CustomComponentBodyIsSpliced(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
 	o := dag.Otel()
 	custom := o.CustomExporter("file", "out", "path: /tmp/out.json\n")
 	p := o.Pipeline("logs", "p").
 		WithReceiver(o.OtlpReceiver("r")).
 		WithExporter(custom)
 
-	contents, err := o.Core().WithPipeline(p).ConfigFile().Contents(ctx)
+	contents, err := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
+		WithPipeline(p).ConfigFile().Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("read config: %w", err)
 	}
@@ -402,36 +458,48 @@ exit 1
 // CoreForwardsLogsToLoki asserts a Core collector forwards an OTLP/HTTP
 // log push through to the grafana-stack Loki backend, where it is
 // queryable via LogQL.
-func (t *Tests) CoreForwardsLogsToLoki(ctx context.Context) error {
+func (t *Tests) CoreForwardsLogsToLoki(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="3.4.1"
+	lokiTag string,
+) error {
 	mark, err := marker(ctx)
 	if err != nil {
 		return err
 	}
-	loki := dag.GrafanaStack().Loki()
+	loki := dag.GrafanaStack().Loki(dagger.GrafanaStackLokiOpts{Tag: lokiTag})
 	o := dag.Otel()
 	exp := o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")
 	p := o.Pipeline("logs", "p").
 		WithReceiver(o.OtlpReceiver("in")).
 		WithExporter(exp)
-	col := o.Core().
+	col := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
 		WithServiceBinding("loki", loki.Service()).
 		WithPipeline(p)
 	return lokiRoundTrip(ctx, col.Service(), loki.Service(), mark)
 }
 
 // ContribForwardsLogsToLoki — smoke check on the contrib distribution.
-func (t *Tests) ContribForwardsLogsToLoki(ctx context.Context) error {
+func (t *Tests) ContribForwardsLogsToLoki(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="3.4.1"
+	lokiTag string,
+) error {
 	mark, err := marker(ctx)
 	if err != nil {
 		return err
 	}
-	loki := dag.GrafanaStack().Loki()
+	loki := dag.GrafanaStack().Loki(dagger.GrafanaStackLokiOpts{Tag: lokiTag})
 	o := dag.Otel()
 	exp := o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")
 	p := o.Pipeline("logs", "p").
 		WithReceiver(o.OtlpReceiver("in")).
 		WithExporter(exp)
-	col := o.Contrib().
+	col := o.Contrib(dagger.OtelContribOpts{Tag: collectorTag}).
 		WithServiceBinding("loki", loki.Service()).
 		WithPipeline(p)
 	return lokiRoundTrip(ctx, col.Service(), loki.Service(), mark)
@@ -439,7 +507,13 @@ func (t *Tests) ContribForwardsLogsToLoki(ctx context.Context) error {
 
 // CoreForwardsTracesToTempo asserts an OTLP/HTTP trace pushed to the
 // collector lands in Tempo via the OTLP/gRPC exporter.
-func (t *Tests) CoreForwardsTracesToTempo(ctx context.Context) error {
+func (t *Tests) CoreForwardsTracesToTempo(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="2.7.1"
+	tempoTag string,
+) error {
 	mark, err := marker(ctx)
 	if err != nil {
 		return err
@@ -456,13 +530,13 @@ func (t *Tests) CoreForwardsTracesToTempo(ctx context.Context) error {
 	traceID := pool[:32]
 	spanID := pool[32:48]
 
-	tempo := dag.GrafanaStack().Tempo()
+	tempo := dag.GrafanaStack().Tempo(dagger.GrafanaStackTempoOpts{Tag: tempoTag})
 	o := dag.Otel()
 	exp := o.OtlpExporter("tempo", "tempo:4317")
 	p := o.Pipeline("traces", "p").
 		WithReceiver(o.OtlpReceiver("in")).
 		WithExporter(exp)
-	col := o.Core().
+	col := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
 		WithServiceBinding("tempo", tempo.Service()).
 		WithPipeline(p)
 
@@ -535,18 +609,24 @@ exit 1
 // CoreForwardsMetricsToMimir asserts an OTLP/HTTP metric pushed to the
 // collector lands in Mimir via the OTLP/HTTP exporter and is
 // queryable via the Prometheus API.
-func (t *Tests) CoreForwardsMetricsToMimir(ctx context.Context) error {
+func (t *Tests) CoreForwardsMetricsToMimir(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="2.15.1"
+	mimirTag string,
+) error {
 	mark, err := marker(ctx)
 	if err != nil {
 		return err
 	}
-	mimir := dag.GrafanaStack().Mimir()
+	mimir := dag.GrafanaStack().Mimir(dagger.GrafanaStackMimirOpts{Tag: mimirTag})
 	o := dag.Otel()
 	exp := o.OtlpHTTPExporter("mimir", "http://mimir:9009/otlp")
 	p := o.Pipeline("metrics", "p").
 		WithReceiver(o.OtlpReceiver("in")).
 		WithExporter(exp)
-	col := o.Core().
+	col := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
 		WithServiceBinding("mimir", mimir.Service()).
 		WithPipeline(p)
 
