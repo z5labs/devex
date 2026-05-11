@@ -65,7 +65,7 @@ Apply the user's feedback. If they ask for a change, restate the affected part o
 
 Now design the `tests/` package. Output a list of test methods on the `Tests` struct, each with:
 
-- A method name (camelCase in Go, kebab-cased on the CLI per name mangling).
+- A method name — **exported PascalCase/UpperCamelCase** in Go (e.g. `UuidV4ShouldNotBeCached`). Methods must be exported or Dagger will not expose them as functions. The CLI name is derived by name mangling (`UuidV4ShouldNotBeCached` → `uuid-v-4-should-not-be-cached`); don't try to control the CLI name by lower-casing the Go method.
 - One-line description of what behavior it pins down.
 - Which prod function(s) it exercises and what failure mode it catches.
 
@@ -159,7 +159,9 @@ These are non-negotiable. Every proposal in steps 3, 5, 7 must respect them; if 
 - **No hardcoded secrets, even in tests.** Test passwords, cluster IDs, topic names, and other identifiers are generated at runtime via `dag.Random().Sha256(ctx)` (preferred when the dep is already in scope) or `crypto/rand` in Go module code. Literal credential strings never enter git, not even as placeholders.
 - **`+cache="never"` must repeat on every chained method.** If a function returns an object and callers will chain methods off that object, every method on that returned type also needs `+cache="never"` — otherwise repeated chained queries serve stale cached values. The kafka `Cluster` and `Client` are the canonical example.
 - **No external module types across module boundaries.** A Dagger function cannot accept or return another module's exported types. Pass `*dagger.File` and `*dagger.Secret` across boundaries and re-load via the dep's `Load*` helpers inside the receiving module.
-- **Runtime I/O is pure Go.** When the module needs to materialize a file, use `file.Export(ctx, ...)` plus `dag.CurrentModule().Workdir` / `WorkdirFile(...)`. Do not spin up an alpine helper container just to write a file.
+- **Runtime I/O is pure Go.** Do not spin up an alpine helper container just to move bytes. Two distinct paths:
+  - **Reading an input `*dagger.File`:** `file.Export(ctx, localPath)` materializes it onto the module's local filesystem, then read it with `os.Open` / `os.ReadFile`. See `daggerverse/crypto/main.go:digestFile` and `daggerverse/certificate-management/main.go` for the pattern.
+  - **Returning an output `*dagger.File`:** write the bytes under a subdir of `dag.CurrentModule().Workdir` with `os.WriteFile` (or equivalent), then return `dag.CurrentModule().WorkdirFile(relPath)`. See the `writeWorkdirFile` helper in `daggerverse/crypto/main.go` and `daggerverse/grafana-stack/main.go`. Do **not** use `Export` for outputs — that is the input direction.
 - **Render YAML with `gopkg.in/yaml.v3`.** Any function that produces YAML (config files, compose-style fragments) uses `yaml.v3`'s `Marshal` or `Encoder` — never `fmt.Fprintf` or string concatenation. Hand-rolled YAML mishandles quoting and escaping of caller-supplied strings.
 - **`+cache=` directives go on their own line in the doc comment block above the function.** Place above the signature; do not inline.
 - **Function name mangling is real.** Go method `Sha256ShouldNotBeCached` becomes `sha-256-should-not-be-cached` on the CLI; `UuidV4` becomes `UUIDV4(ctx)` on the dag client (acronyms uppercase in generated bindings). Account for this when discussing CLI invocation in the issue body.
