@@ -1,0 +1,21 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "grafana-stack",
+      "source": "../../grafana-stack"
+    },
+    {
+      "name": "otel",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    }
+  ]
+}
