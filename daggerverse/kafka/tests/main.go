@@ -292,10 +292,11 @@ type Tests struct{}
 // the engine doesn't have dozens of cluster containers (controller +
 // brokers per test) in flight at once on smaller CI runners.
 //
-// kafkaImageTag picks the apache/kafka-native tag every spawned cluster
-// runs against, so callers can verify the module against a newer Kafka
-// release without first changing main.go. The default matches the
-// Cluster constructor's own default.
+// kafkaImageTag picks the tag every spawned cluster runs against — applied
+// to both the apache/kafka-native image (ApacheNativeCluster) and the
+// apache/kafka JVM image (ApacheCluster) — so callers can verify the module
+// against a newer Kafka release without first changing main.go. The default
+// matches the cluster constructors' own default.
 //
 // +check
 // +cache="session"
