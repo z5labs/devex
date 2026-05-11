@@ -12,6 +12,14 @@
     {
       "name": "random",
       "source": "../../random"
+    },
+    {
+      "name": "certificate-management",
+      "source": "../../certificate-management"
+    },
+    {
+      "name": "crypto",
+      "source": "../../crypto"
     }
   ]
 }
