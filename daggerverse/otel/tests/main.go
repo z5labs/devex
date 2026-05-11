@@ -43,6 +43,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("SharedReceiverIsDedupedInRenderedYaml", func(ctx context.Context) error {
 		return t.SharedReceiverIsDedupedInRenderedYaml(ctx, collectorTag)
 	})
+	jobs = jobs.WithJob("ConflictingComponentBodiesAreRejected", func(ctx context.Context) error {
+		return t.ConflictingComponentBodiesAreRejected(ctx, collectorTag)
+	})
 	jobs = jobs.WithJob("CustomComponentBodyIsSpliced", func(ctx context.Context) error {
 		return t.CustomComponentBodyIsSpliced(ctx, collectorTag)
 	})
@@ -244,6 +247,31 @@ func (t *Tests) SharedReceiverIsDedupedInRenderedYaml(
 	return nil
 }
 
+// ConflictingComponentBodiesAreRejected asserts that wiring two
+// distinct *CustomExporter instances sharing the same <kind>/<name>
+// but with different bodies into the pipeline graph surfaces a
+// non-nil error from the rendered-config path, rather than silently
+// keeping whichever was registered first.
+func (t *Tests) ConflictingComponentBodiesAreRejected(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+) error {
+	o := dag.Otel()
+	a := o.CustomExporter("file", "out", "path: /tmp/a.json\n")
+	b := o.CustomExporter("file", "out", "path: /tmp/b.json\n")
+	p := o.Pipeline("logs", "p").
+		WithReceiver(o.OtlpReceiver("in")).
+		WithExporter(a).
+		WithExporter(b)
+	_, err := o.Core(dagger.OtelCoreOpts{Tag: collectorTag}).
+		WithPipeline(p).ConfigFile().Contents(ctx)
+	if err == nil {
+		return fmt.Errorf("expected conflict error for file/out with two distinct bodies, got nil")
+	}
+	return nil
+}
+
 // CustomComponentBodyIsSpliced asserts that a Custom* component's
 // caller-supplied YAML body lands structurally under the rendered
 // config (not as a quoted scalar).
@@ -382,7 +410,7 @@ func (t *Tests) RejectsInvalidComponentName(ctx context.Context) error {
 	return nil
 }
 
-// loksRoundTrip runs the shared logs round-trip body — usable by both
+// lokiRoundTrip runs the shared logs round-trip body — usable by both
 // CoreForwardsLogsToLoki and ContribForwardsLogsToLoki.
 func lokiRoundTrip(ctx context.Context, collectorService *dagger.Service, lokiSvc *dagger.Service, mark string) error {
 	script := `

@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 
 	"dagger/otel/internal/dagger"
@@ -473,34 +474,22 @@ func renderCollectorYAML(pipelines []*Pipeline) ([]byte, error) {
 		var rNames, prNames, eNames []string
 		for _, r := range p.Receivers {
 			id := r.Kind + "/" + r.Name
-			if _, ok := receivers[id]; !ok {
-				body, err := parseBody("receiver", id, r.Body)
-				if err != nil {
-					return nil, err
-				}
-				receivers[id] = body
+			if err := dedupComponent("receiver", id, r.Body, receivers); err != nil {
+				return nil, err
 			}
 			rNames = append(rNames, id)
 		}
 		for _, pr := range p.Processors {
 			id := pr.Kind + "/" + pr.Name
-			if _, ok := processors[id]; !ok {
-				body, err := parseBody("processor", id, pr.Body)
-				if err != nil {
-					return nil, err
-				}
-				processors[id] = body
+			if err := dedupComponent("processor", id, pr.Body, processors); err != nil {
+				return nil, err
 			}
 			prNames = append(prNames, id)
 		}
 		for _, e := range p.Exporters {
 			id := e.Kind + "/" + e.Name
-			if _, ok := exporters[id]; !ok {
-				body, err := parseBody("exporter", id, e.Body)
-				if err != nil {
-					return nil, err
-				}
-				exporters[id] = body
+			if err := dedupComponent("exporter", id, e.Body, exporters); err != nil {
+				return nil, err
 			}
 			eNames = append(eNames, id)
 		}
@@ -530,6 +519,25 @@ func renderCollectorYAML(pipelines []*Pipeline) ([]byte, error) {
 	root["service"] = map[string]any{"pipelines": pipelineBlock}
 
 	return yaml.Marshal(root)
+}
+
+// dedupComponent inserts the parsed body for id into dst when the id
+// is new, and returns an error if id already maps to a different
+// parsed body — surfacing accidental same-id-different-body collisions
+// instead of silently keeping whichever was registered first.
+func dedupComponent(kind, id, body string, dst map[string]any) error {
+	parsed, err := parseBody(kind, id, body)
+	if err != nil {
+		return err
+	}
+	if existing, ok := dst[id]; ok {
+		if !reflect.DeepEqual(existing, parsed) {
+			return fmt.Errorf("conflicting %s body for %s: same id wired into the pipeline graph with different configs; reuse a single instance instead", kind, id)
+		}
+		return nil
+	}
+	dst[id] = parsed
+	return nil
 }
 
 func parseBody(kind, id, body string) (any, error) {
