@@ -35,18 +35,18 @@ clientSec := dag.Kafka().MtlsClientSecurity(
 The CA `keystore`/`truststore` arguments are PKCS#12 archives produced by
 the [`certificate-management`](../certificate-management) module (or any
 PKCS#12 source). The cluster mints per-broker leaf certificates from the
-supplied CA at `Cluster()` time, with each broker's stable hostname
+supplied CA at `ApacheNativeCluster()` time, with each broker's stable hostname
 (`broker-100-<suffix>`, `broker-101-<suffix>`, ...) bound as a DNS SAN.
 Clients dialing the bootstrap address verify the broker's cert against
 the matching truststore.
 
-## Cluster
+## ApacheNativeCluster
 
 ```go
-cluster := dag.Kafka().Cluster(
+cluster := dag.Kafka().ApacheNativeCluster(
     clusterId,        // 22-char base64-url Kafka cluster ID
     serverSec,
-    dagger.KafkaClusterOpts{
+    dagger.KafkaApacheNativeClusterOpts{
         Tag:         "4.2.0",
         Controllers: 1,    // multi-controller is rejected; see below
         Brokers:     2,
@@ -55,7 +55,7 @@ cluster := dag.Kafka().Cluster(
 )
 ```
 
-`Cluster` is a session-cached lazy chain — the server-side constructor
+`ApacheNativeCluster` is a session-cached lazy chain — the server-side constructor
 runs at most once per (clusterId, args) within an engine session, so
 chained method calls (`cluster.Client().Produce(...) → Consume(...)`) all
 observe the same underlying broker services and the same internal CA.
@@ -132,7 +132,7 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
 
 ## TLS / mTLS notes
 
-- The internal CA is fresh per `Cluster()` invocation. Cert material
+- The internal CA is fresh per `ApacheNativeCluster()` invocation. Cert material
   never crosses the module boundary.
 - Caller-supplied CAs are loaded via
   `dag.CertificateManagement().LoadCertificateAuthority(file, secret)`

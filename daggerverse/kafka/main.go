@@ -162,8 +162,9 @@ func (k *Kafka) MtlsClientSecurity(
 	}
 }
 
-// Cluster spins up a KRaft Kafka cluster of the requested size with
-// dedicated controller and broker containers.
+// ApacheNativeCluster spins up a KRaft Kafka cluster of the requested
+// size with dedicated controller and broker containers, using the
+// `apache/kafka-native` GraalVM-compiled image.
 //
 // Topology: a single controller forms a one-node KRaft quorum; one or more
 // brokers connect to it and discover each other over the engine's
@@ -183,8 +184,13 @@ func (k *Kafka) MtlsClientSecurity(
 // (with a brand-new CA the previous invocation's franz-go client doesn't
 // trust) every time the test calls another method on the chain.
 //
+// The GraalVM-compiled image has been observed to flake during the broker
+// `setup` step under load — see Dagger Cloud trace
+// `377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,
+// use `ApacheCluster()` (forthcoming).
+//
 // +cache="session"
-func (k *Kafka) Cluster(
+func (k *Kafka) ApacheNativeCluster(
 	ctx context.Context,
 	clusterId string,
 	// +default=1

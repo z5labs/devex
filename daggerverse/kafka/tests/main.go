@@ -45,7 +45,7 @@ func freshCluster(ctx context.Context, kafkaImageTag string) (*dagger.KafkaClust
 		return nil, err
 	}
 	k := dag.Kafka()
-	return k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+	return k.ApacheNativeCluster(clusterId,k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
 		Tag: kafkaImageTag,
 	}), nil
 }
@@ -102,7 +102,7 @@ func freshTlsCluster(ctx context.Context, kafkaImageTag string, brokers int) (
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	cluster := dag.Kafka().Cluster(clusterId, serverSec, dagger.KafkaClusterOpts{
+	cluster := dag.Kafka().ApacheNativeCluster(clusterId,serverSec, dagger.KafkaApacheNativeClusterOpts{
 		Tag:     kafkaImageTag,
 		Brokers: brokers,
 	})
@@ -168,7 +168,7 @@ func freshMtlsCluster(ctx context.Context, kafkaImageTag string, brokers int) (
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	cluster = dag.Kafka().Cluster(clusterId, serverSec, dagger.KafkaClusterOpts{
+	cluster = dag.Kafka().ApacheNativeCluster(clusterId,serverSec, dagger.KafkaApacheNativeClusterOpts{
 		Tag:     kafkaImageTag,
 		Brokers: brokers,
 	})
@@ -903,7 +903,7 @@ func (t *Tests) MultiControllerIsRejected(
 		return err
 	}
 	k := dag.Kafka()
-	cluster := k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+	cluster := k.ApacheNativeCluster(clusterId,k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
 		Tag:         kafkaImageTag,
 		Controllers: 3,
 		Brokers:     1,
@@ -928,7 +928,7 @@ func (t *Tests) OneControllerTwoBrokersReplicationFactorTwo(
 		return err
 	}
 	k := dag.Kafka()
-	cluster := k.Cluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaClusterOpts{
+	cluster := k.ApacheNativeCluster(clusterId,k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
 		Tag:         kafkaImageTag,
 		Controllers: 1,
 		Brokers:     2,
