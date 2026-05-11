@@ -151,6 +151,22 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
 
 ## Image source
 
-Image is built as `<registry>/apache/kafka-native:<tag>`. The
-`apache/kafka-native` portion is fixed; only `registry` (default
-`docker.io`) and `tag` (default `4.2.0`) are caller-overridable.
+The module exposes two cluster constructors, one per upstream Apache
+image. Both speak the same `KAFKA_*` env-var contract and return the
+same `*Cluster`, so downstream code is identical regardless of which
+one you pick:
+
+- `ApacheNativeCluster` → `<registry>/apache/kafka-native:<tag>`
+  (default `docker.io/apache/kafka-native:4.2.0`). GraalVM-compiled;
+  fastest cold start.
+- `ApacheCluster` → `<registry>/apache/kafka:<tag>` (default
+  `docker.io/apache/kafka:4.2.0`). Stock JVM image; slower cold start
+  but does not share the native image's AOT-compiled `Pwd.getpwuid`
+  substitution (`SystemPropertiesSupport.userHomeValue`) that has been
+  observed to segfault during broker startup under Dagger Cloud trace
+  `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor when
+  startup robustness matters more than cold-start latency.
+
+`registry` (default `docker.io`) and `tag` (default `4.2.0`) are the
+only caller-overridable parts; the `apache/kafka{-native,}` portion is
+fixed per constructor.
