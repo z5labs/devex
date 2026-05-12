@@ -222,9 +222,12 @@ func (e *Envoy) CustomHttpFilter(name, yamlBody string) (*HttpFilter, error) {
 	if err := validateName("name", name); err != nil {
 		return nil, err
 	}
-	var v any
-	if err := yaml.Unmarshal([]byte(yamlBody), &v); err != nil {
+	var body map[string]any
+	if err := yaml.Unmarshal([]byte(yamlBody), &body); err != nil {
 		return nil, fmt.Errorf("custom http filter %q: invalid YAML body: %w", name, err)
+	}
+	if body == nil {
+		return nil, fmt.Errorf("custom http filter %q: YAML body must be a mapping", name)
 	}
 	return &HttpFilter{Name: name, Body: yamlBody}, nil
 }
@@ -513,8 +516,10 @@ type Proxy struct {
 
 // Proxy returns a Proxy backed by the envoyproxy/envoy image at
 // <registry>/envoyproxy/envoy:<tag>. configFile, when supplied, fully
-// replaces the rendered bootstrap; listeners and clusters added via
-// WithListener / WithCluster are ignored when an override is set.
+// replaces the rendered bootstrap; clusters added via WithCluster are
+// ignored when an override is set, and listeners added via WithListener
+// are ignored for rendering but still drive container port exposure so
+// callers can expose ports from an override config.
 func (e *Envoy) Proxy(
 	// +default="docker.io"
 	registry string,
@@ -577,7 +582,11 @@ func (p *Proxy) ConfigFile() (*dagger.File, error) {
 	if err := validateProxy(p); err != nil {
 		return nil, err
 	}
-	body, err := renderBootstrap(p.AdminPort, p.Listeners, p.Clusters)
+	adminPort := p.AdminPort
+	if adminPort == 0 {
+		adminPort = defaultAdminPort
+	}
+	body, err := renderBootstrap(adminPort, p.Listeners, p.Clusters)
 	if err != nil {
 		return nil, err
 	}
@@ -611,6 +620,11 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 		WithUser("0:0").
 		WithoutDefaultArgs().
 		WithExposedPort(adminPort)
+	// When Override is set, WithListener registrations are ignored for
+	// rendering; they are honored here solely as port-exposure hints so
+	// callers can expose ports from an override config by registering
+	// matching Listeners. When Override is unset, listener ports come
+	// from the rendered bootstrap's listeners list.
 	for _, l := range p.Listeners {
 		if port, ok := extractListenerPort(l.Body); ok {
 			ctr = ctr.WithExposedPort(port)
