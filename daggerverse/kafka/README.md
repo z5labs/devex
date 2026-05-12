@@ -151,12 +151,14 @@ started via `rpk redpanda start --mode dev-container` (which bundles
 `--overprovisioned`, `--reserve-memory 0M`, `--check=false`, and
 `--unsafe-bypass-fsync`).
 
-- `RedpandaCluster.BootstrapServers() []string` — `[host:9092]`.
+- `RedpandaCluster.BootstrapServers(ctx) ([]string, error)` —
+  `[host:9092]`.
 - `RedpandaCluster.BindBrokers(c *dagger.Container) *dagger.Container`
   — same shape as `Cluster.BindBrokers`.
-- `RedpandaCluster.Client(security *KafkaClientSecurity) *KafkaClient`
-  — returns the same `*Client` the Apache constructors return. The
-  Kafka wire protocol matches, so producer/consumer code is shared.
+- `RedpandaCluster.Client(ctx, security *KafkaClientSecurity)
+  (*KafkaClient, error)` — returns the same `*Client` the Apache
+  constructors return. The Kafka wire protocol matches, so
+  producer/consumer code is shared.
 
 ### Security profile
 
@@ -173,8 +175,10 @@ Redpanda reads PEM (`server.crt`, `server.key`) from its
 constructors hand to the JVM. The API surface still accepts the same
 PKCS#12 CA you'd hand to `TLSServerSecurity` — the constructor loads
 the CA via `certificate-management`'s existing PKCS#12 loader, issues
-the per-cluster server leaf, then writes its PEM cert/key pair into
-the rendered `redpanda.yaml`. Callers don't have to convert between
+the per-cluster server leaf, then mounts the PEM cert/key files into
+the broker container at `/etc/redpanda/certs/server.{crt,key}` and
+points the rendered `redpanda.yaml` at those paths (the YAML never
+embeds PEM material itself). Callers don't have to convert between
 formats. The server private key crosses into the broker container as
 a `*dagger.Secret` (mounted via `WithMountedSecret`) so its plaintext
 never lands in the module workdir. mTLS (truststore + client-auth) is
