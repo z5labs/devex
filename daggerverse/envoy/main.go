@@ -582,9 +582,9 @@ func (p *Proxy) ConfigFile() (*dagger.File, error) {
 	if err := validateProxy(p); err != nil {
 		return nil, err
 	}
-	adminPort := p.AdminPort
-	if adminPort == 0 {
-		adminPort = defaultAdminPort
+	adminPort, err := p.effectiveAdminPort()
+	if err != nil {
+		return nil, err
 	}
 	body, err := renderBootstrap(adminPort, p.Listeners, p.Clusters)
 	if err != nil {
@@ -611,9 +611,9 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 	if tag == "" {
 		tag = defaultTag
 	}
-	adminPort := p.AdminPort
-	if adminPort == 0 {
-		adminPort = defaultAdminPort
+	adminPort, err := p.effectiveAdminPort()
+	if err != nil {
+		return nil, err
 	}
 	image := fmt.Sprintf("%s/%s:%s", registry, envoyImagePath, tag)
 	ctr := dag.Container().From(image).
@@ -656,11 +656,27 @@ func (p *Proxy) AdminEndpoint(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	adminPort := p.AdminPort
-	if adminPort == 0 {
-		adminPort = defaultAdminPort
+	adminPort, err := p.effectiveAdminPort()
+	if err != nil {
+		return "", err
 	}
 	return fmt.Sprintf("%s:%d", host, adminPort), nil
+}
+
+// effectiveAdminPort returns the admin port that ConfigFile, Service,
+// and AdminEndpoint all agree on: defaults a zero AdminPort to
+// defaultAdminPort, then enforces the 1..65535 range so an
+// out-of-range value fails fast with a clear error instead of
+// surfacing as a confusing Envoy/container startup failure.
+func (p *Proxy) effectiveAdminPort() (int, error) {
+	port := p.AdminPort
+	if port == 0 {
+		port = defaultAdminPort
+	}
+	if err := validatePort("adminPort", port); err != nil {
+		return 0, err
+	}
+	return port, nil
 }
 
 // ListenerEndpoint returns host:port for the named listener on the

@@ -330,6 +330,7 @@ func (t *Tests) ServiceWithoutConfigFails(
 ) error {
 	svc := dag.Envoy().Proxy(proxyOpts(envoyTag)).Service()
 	_, err := dag.Container().From(probeImage).
+		WithExec([]string{"apk", "add", "--no-cache", "busybox-extras"}).
 		WithServiceBinding("envoy", svc).
 		WithExec([]string{"sh", "-c", `
 set -eu
