@@ -29,6 +29,9 @@ func (c *Ci) Test(ctx context.Context) error {
 	jobs = jobs.WithJob("go", func(ctx context.Context) error {
 		return dag.GoTests().All(ctx)
 	})
+	jobs = jobs.WithJob("envoy", func(ctx context.Context) error {
+		return dag.EnvoyTests().All(ctx)
+	})
 
 	return jobs.Run(ctx)
 }

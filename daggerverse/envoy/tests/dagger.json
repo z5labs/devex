@@ -1,0 +1,17 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "envoy",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    }
+  ]
+}

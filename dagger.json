@@ -28,6 +28,10 @@
     {
       "name": "go-tests",
       "source": "daggerverse/go/tests"
+    },
+    {
+      "name": "envoy-tests",
+      "source": "daggerverse/envoy/tests"
     }
   ],
   "source": "ci"
