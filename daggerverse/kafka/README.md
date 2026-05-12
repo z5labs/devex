@@ -131,7 +131,7 @@ the Apache variants' startup behavior.
 ```go
 serverSec := dag.Kafka().RedpandaPlaintextServerSecurity()
 // or, for TLS termination on the external Kafka listener:
-serverSec := dag.Kafka().RedpandaTLSServerSecurity(caKeystore, caKeystorePwd)
+serverSec = dag.Kafka().RedpandaTLSServerSecurity(caKeystore, caKeystorePwd)
 
 cluster := dag.Kafka().RedpandaCluster(
     clusterId,
@@ -168,17 +168,18 @@ this story; mTLS lands in a follow-up.
 
 ### Cert format: PEM, not PKCS#12
 
-Redpanda reads PEM (`server.crt`, `server.key`, `ca.crt`) from its
+Redpanda reads PEM (`server.crt`, `server.key`) from its
 `redpanda.yaml` rather than the PKCS#12 keystores the Apache
 constructors hand to the JVM. The API surface still accepts the same
 PKCS#12 CA you'd hand to `TLSServerSecurity` — the constructor loads
 the CA via `certificate-management`'s existing PKCS#12 loader, issues
-the per-cluster server leaf, then writes its PEM cert/key pair (plus
-the CA cert) into the rendered `redpanda.yaml`. Callers don't have to
-convert between formats. The server private key crosses into the
-broker container as a `*dagger.Secret` (mounted via
-`WithMountedSecret`) so its plaintext never lands in the module
-workdir.
+the per-cluster server leaf, then writes its PEM cert/key pair into
+the rendered `redpanda.yaml`. Callers don't have to convert between
+formats. The server private key crosses into the broker container as
+a `*dagger.Secret` (mounted via `WithMountedSecret`) so its plaintext
+never lands in the module workdir. mTLS (truststore + client-auth) is
+a follow-up; this story is server-side TLS only, so no CA cert is
+mounted into the broker.
 
 ### Client
 

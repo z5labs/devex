@@ -162,7 +162,6 @@ func buildRedpandaCluster(
 		ctr = ctr.
 			WithFile("/etc/redpanda/certs/server.crt", assets.ServerCert, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"}).
 			WithMountedSecret("/etc/redpanda/certs/server.key", assets.ServerKey, dagger.ContainerWithMountedSecretOpts{Owner: "redpanda:redpanda", Mode: 0o400}).
-			WithFile("/etc/redpanda/certs/ca.crt", assets.CaCert, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"}).
 			WithFile("/etc/redpanda/redpanda.yaml", assets.ConfigFile, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"})
 	} else {
 		// PLAINTEXT: no YAML needed — pass listener flags directly.
@@ -199,7 +198,6 @@ func buildRedpandaCluster(
 type redpandaTlsAssets struct {
 	ServerCert *dagger.File   // PEM, mounted at /etc/redpanda/certs/server.crt
 	ServerKey  *dagger.Secret // PEM PKCS#8, mounted at /etc/redpanda/certs/server.key
-	CaCert     *dagger.File   // PEM, mounted at /etc/redpanda/certs/ca.crt
 	ConfigFile *dagger.File   // rendered redpanda.yaml, mounted at /etc/redpanda/redpanda.yaml
 }
 
@@ -249,15 +247,6 @@ func mintRedpandaTlsAssets(
 	if err != nil {
 		return nil, fmt.Errorf("stage redpanda server cert: %w", err)
 	}
-	caCertBytes, err := dagFileBytes(ctx, ca.CertPemFile())
-	if err != nil {
-		return nil, fmt.Errorf("materialize redpanda ca cert: %w", err)
-	}
-	caCertFile, err := writeWorkdirBytes("redpanda-ca-cert-"+brokerHost, "ca.crt", caCertBytes)
-	if err != nil {
-		return nil, fmt.Errorf("stage redpanda ca cert: %w", err)
-	}
-
 	yamlBytes, err := renderRedpandaYaml(brokerHost, true)
 	if err != nil {
 		return nil, fmt.Errorf("render redpanda.yaml: %w", err)
@@ -270,7 +259,6 @@ func mintRedpandaTlsAssets(
 	return &redpandaTlsAssets{
 		ServerCert: certFile,
 		ServerKey:  issued.PrivateKeyPem(),
-		CaCert:     caCertFile,
 		ConfigFile: yamlFile,
 	}, nil
 }
