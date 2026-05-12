@@ -49,6 +49,82 @@ and CLI names become kebab-case (`Sha256ShouldNotBeCached` → `sha-256-should-n
 - `dagger develop` — regenerate SDK bindings after source changes.
 - `dagger version` — engine and CLI version.
 
+## Common pitfalls
+
+These have all bitten this repo at least once. They live here so the
+next module author doesn't lose an hour to them.
+
+### Long-running service commands go in `AsService(opts.Args)`, not `WithExec`
+
+`Container.WithExec` is a *build step*: Dagger runs the command
+synchronously and waits for it to exit before continuing the chain. A
+long-running server (HTTP server, `nc -l`, daemon loop) never exits,
+so `WithExec(server).AsService()` deadlocks — `AsService` is never
+reached and any consumer container with a `WithServiceBinding` to it
+hangs.
+
+Wrong:
+```go
+dag.Container().From("python:3-alpine").
+    WithExposedPort(8080).
+    WithExec([]string{"python", "-u", "-c", script}).  // blocks forever
+    AsService()
+```
+
+Right:
+```go
+dag.Container().From("python:3-alpine").
+    WithExposedPort(8080).
+    AsService(dagger.ContainerAsServiceOpts{
+        Args: []string{"python", "-u", "-c", script},
+    })
+```
+
+`WithExec` is still correct for *finite* build steps before
+`AsService` (e.g. `apk add`, `pip install`). Once you reach the
+actual service process, switch to `AsService(opts.Args)` — or
+`opts{UseEntrypoint: true, Args:...}` if the image's entrypoint
+already runs the server. The otel and grafana-stack modules use the
+Args form throughout: see `daggerverse/otel/main.go:82` and
+`daggerverse/grafana-stack/main.go:118`.
+
+### Struct fields named `Type` break downstream codegen
+
+An exported field literally named `Type` on a Dagger module struct
+makes the own-module `dagger develop` succeed but breaks dependency
+binding generation in any consumer module with:
+
+```
+Error: generate code: generate dependency files: render dependency file for "<dep>":
+error formatting generated code: NNN:9: expected '}', found 'type' (and 2 more errors)
+```
+
+The generator camelCases struct fields into schema names; `Type` →
+`type` collides with the Go (and GraphQL) keyword and emits
+unparseable Go in the consumer's `tests/internal/dagger/<dep>.gen.go`.
+
+Use `Kind`, `Mode`, `Format`, or any other descriptive name. The same
+applies to other Go/GraphQL keywords on exported fields: avoid
+`Query`, `Mutation`, `Schema`, `On`, `Fragment`, and the scalar names
+(`Int`, `Float`, `String`, `Boolean`, `ID`). Run `dagger develop` in
+a *consumer* module after adding a new exported field to surface
+this early.
+
+### Method parameters named `r` collide with the generated receiver
+
+The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,
+hardcoding the receiver to `r`. A parameter named `r` compiles fine
+in the source module but produces:
+
+```
+internal/dagger/<dep>.gen.go:NNN: r redeclared in this block
+```
+
+in any consumer module. Use descriptive parameter names (`route`,
+`recv`, `ep`, `cfg`) — single-letter `r` is the one that bites. Most
+likely to surface on chained `WithR(r *R)` builders; otel avoids it
+with `WithReceiver(recv *Receiver)`.
+
 ## TDD loop for module implementation
 
 When building or extending a `daggerverse/<module>` package, drive
