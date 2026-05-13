@@ -63,6 +63,11 @@ func (t *Tests) RedpandaClusterProduceListTopicsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create redpanda cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return redpandaClusterProduceListTopicsRoundTripOn(ctx, cluster)
+}
+
+func redpandaClusterProduceListTopicsRoundTripOn(ctx context.Context, cluster *dagger.KafkaRedpandaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -107,6 +112,16 @@ func (t *Tests) RedpandaClusterTlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create redpanda tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return redpandaClusterTlsRoundTripOn(ctx, cluster, ts, tsPwd)
+}
+
+func redpandaClusterTlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaRedpandaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)

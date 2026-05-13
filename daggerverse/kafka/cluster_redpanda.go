@@ -348,3 +348,19 @@ func (r *RedpandaCluster) Client(ctx context.Context, security *ClientSecurity) 
 	}
 	return clientFrom(r.BootstrapServers(), security), nil
 }
+
+// Stop tears down the broker container backing this Redpanda cluster.
+// Tests should call this in a defer so the broker `Container.asService`
+// span closes when the test work is done. Kill is set so Service.Stop
+// skips graceful shutdown — see Cluster.Stop for the rationale.
+//
+// +cache="never"
+func (r *RedpandaCluster) Stop(ctx context.Context) error {
+	if r == nil || r.BrokerSvc == nil {
+		return nil
+	}
+	if _, err := r.BrokerSvc.Stop(ctx, dagger.ServiceStopOpts{Kill: true}); err != nil {
+		return fmt.Errorf("stop redpanda broker: %w", err)
+	}
+	return nil
+}

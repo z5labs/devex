@@ -122,6 +122,11 @@ func (t *Tests) ApacheClusterProduceListTopicsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create apache cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return apacheClusterProduceListTopicsRoundTripOn(ctx, cluster)
+}
+
+func apacheClusterProduceListTopicsRoundTripOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -165,6 +170,16 @@ func (t *Tests) ApacheClusterTlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create apache tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return apacheClusterTlsRoundTripOn(ctx, cluster, ts, tsPwd)
+}
+
+func apacheClusterTlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
@@ -225,6 +240,18 @@ func (t *Tests) ApacheClusterMtlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create apache mtls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return apacheClusterMtlsRoundTripOn(ctx, cluster, ts, tsPwd, ks, ksPwd)
+}
+
+func apacheClusterMtlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+	ks *dagger.File,
+	ksPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)

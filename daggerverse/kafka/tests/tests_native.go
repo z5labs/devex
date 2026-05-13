@@ -129,6 +129,16 @@ func (t *Tests) PropertiesFileContainsTlsSettings(
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return propertiesFileContainsTlsSettingsOn(ctx, cluster, ts, tsPwd)
+}
+
+func propertiesFileContainsTlsSettingsOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	props, err := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd)).
 		PropertiesFile().
 		Contents(ctx)
@@ -158,6 +168,18 @@ func (t *Tests) PropertiesFileContainsMtlsSettings(
 	if err != nil {
 		return fmt.Errorf("create mtls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return propertiesFileContainsMtlsSettingsOn(ctx, cluster, ts, tsPwd, ks, ksPwd)
+}
+
+func propertiesFileContainsMtlsSettingsOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+	ks *dagger.File,
+	ksPwd *dagger.Secret,
+) error {
 	props, err := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd)).
 		PropertiesFile().
 		Contents(ctx)
@@ -190,6 +212,16 @@ func (t *Tests) MtlsRequiresClientCert(
 	if err != nil {
 		return fmt.Errorf("create mtls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return mtlsRequiresClientCertOn(ctx, cluster, ts, tsPwd)
+}
+
+func mtlsRequiresClientCertOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 	if _, err := client.ListTopics(ctx); err == nil {
 		return fmt.Errorf("expected ListTopics to fail without a client cert against MTLS broker, got nil error")
@@ -210,6 +242,18 @@ func (t *Tests) MtlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create mtls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return mtlsRoundTripOn(ctx, cluster, ts, tsPwd, ks, ksPwd)
+}
+
+func mtlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+	ks *dagger.File,
+	ksPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
@@ -270,6 +314,11 @@ func (t *Tests) TlsClientWithWrongCaFails(
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return tlsClientWithWrongCaFailsOn(ctx, cluster)
+}
+
+func tlsClientWithWrongCaFailsOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	wrongCa, err := freshCa(ctx, "wrong")
 	if err != nil {
 		return fmt.Errorf("create unrelated ca: %w", err)
@@ -297,6 +346,16 @@ func (t *Tests) InternalListenersAreEncrypted(
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return internalListenersAreEncryptedOn(ctx, cluster, ts, tsPwd)
+}
+
+func internalListenersAreEncryptedOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
@@ -357,6 +416,16 @@ func (t *Tests) TlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return tlsRoundTripOn(ctx, cluster, ts, tsPwd)
+}
+
+func tlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
@@ -421,6 +490,11 @@ func (t *Tests) TlsClusterStarts(
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return tlsClusterStartsOn(ctx, cluster)
+}
+
+func tlsClusterStartsOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	bs, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap servers: %w", err)
@@ -462,6 +536,11 @@ func (t *Tests) SingleNodeClusterStarts(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return singleNodeClusterStartsOn(ctx, cluster)
+}
+
+func singleNodeClusterStartsOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	bs, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("get bootstrap servers: %w", err)
@@ -491,6 +570,11 @@ func (t *Tests) ClusterClientCanListTopicsOnFreshCluster(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return clusterClientCanListTopicsOnFreshClusterOn(ctx, cluster)
+}
+
+func clusterClientCanListTopicsOnFreshClusterOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 	topics, err := client.ListTopics(ctx)
 	if err != nil {
@@ -514,6 +598,11 @@ func (t *Tests) CreateAndDeleteTopicRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return createAndDeleteTopicRoundTripOn(ctx, cluster)
+}
+
+func createAndDeleteTopicRoundTripOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -563,6 +652,11 @@ func (t *Tests) ProduceConsumeRoundTripRaw(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return produceConsumeRoundTripRawOn(ctx, cluster)
+}
+
+func produceConsumeRoundTripRawOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -621,7 +715,12 @@ func (t *Tests) ProduceConsumeRoundTripHex(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	return roundTripBinary(ctx, kafkaImageTag, "hex", "deadbeef", "00010203fffefdfc")
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return roundTripBinaryOn(ctx, cluster, "hex", "deadbeef", "00010203fffefdfc")
 }
 
 // ProduceConsumeRoundTripBase64 round-trips the same kind of binary payload
@@ -631,7 +730,12 @@ func (t *Tests) ProduceConsumeRoundTripBase64(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	return roundTripBinary(ctx, kafkaImageTag, "base64", "3q2+7w==", "AAECA//+/fw=")
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return roundTripBinaryOn(ctx, cluster, "base64", "3q2+7w==", "AAECA//+/fw=")
 }
 
 // ProduceRejectsUnknownEncoding verifies that a Produce call with a bogus
@@ -645,6 +749,11 @@ func (t *Tests) ProduceRejectsUnknownEncoding(
 	if err != nil {
 		return err
 	}
+	defer cluster.Stop(ctx)
+	return produceRejectsUnknownEncodingOn(ctx, cluster)
+}
+
+func produceRejectsUnknownEncodingOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -681,6 +790,11 @@ func (t *Tests) PropertiesFileContainsBootstrapAndSecurityProtocol(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return propertiesFileContainsBootstrapAndSecurityProtocolOn(ctx, cluster)
+}
+
+func propertiesFileContainsBootstrapAndSecurityProtocolOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	bs, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("get bootstrap servers: %w", err)
@@ -736,17 +850,32 @@ func (t *Tests) OneControllerTwoBrokersReplicationFactorTwo(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
+	cluster, err := freshNativeClusterMultiBroker(ctx, kafkaImageTag, 2)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return oneControllerTwoBrokersReplicationFactorTwoOn(ctx, cluster)
+}
+
+// freshNativeClusterMultiBroker builds a PLAINTEXT ApacheNativeCluster with a
+// caller-controlled broker count. Used by tests whose topology differs from
+// freshCluster's 1+1 default.
+func freshNativeClusterMultiBroker(ctx context.Context, kafkaImageTag string, brokers int) (*dagger.KafkaCluster, error) {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	k := dag.Kafka()
-	cluster := k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
+	return k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
 		Tag:         kafkaImageTag,
 		Controllers: 1,
-		Brokers:     2,
-	})
-	client := cluster.Client(k.PlaintextClientSecurity())
+		Brokers:     brokers,
+	}), nil
+}
+
+func oneControllerTwoBrokersReplicationFactorTwoOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
 	if err != nil {
@@ -805,7 +934,12 @@ func (t *Tests) DedicatedControllerAndBrokerProduceConsume(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	return roundTripBinary(ctx, kafkaImageTag, "raw", "k", "v")
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return roundTripBinaryOn(ctx, cluster, "raw", "k", "v")
 }
 
 // BindBrokersExposesBothListeners binds the cluster's brokers into a
@@ -822,6 +956,11 @@ func (t *Tests) BindBrokersExposesBothListeners(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return bindBrokersExposesBothListenersOn(ctx, cluster)
+}
+
+func bindBrokersExposesBothListenersOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	bs, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap servers: %w", err)
@@ -861,6 +1000,11 @@ func (t *Tests) AutoCreateTopicsDisabled(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return autoCreateTopicsDisabledOn(ctx, cluster)
+}
+
+func autoCreateTopicsDisabledOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -894,6 +1038,11 @@ func (t *Tests) ConsumerGroupOnSingleBrokerWorks(
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return consumerGroupOnSingleBrokerWorksOn(ctx, cluster)
+}
+
+func consumerGroupOnSingleBrokerWorksOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -949,14 +1098,10 @@ func (t *Tests) ConsumerGroupOnSingleBrokerWorks(
 	return nil
 }
 
-// roundTripBinary is shared helper for hex/base64 tests: produce one record
-// with the given encoding and assert the consumed key/value strings are
-// identical to the produced ones.
-func roundTripBinary(ctx context.Context, kafkaImageTag, encoding, key, value string) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
-	if err != nil {
-		return fmt.Errorf("create cluster: %w", err)
-	}
+// roundTripBinaryOn is shared helper for hex/base64 tests: produce one
+// record with the given encoding on the supplied cluster and assert the
+// consumed key/value strings are identical to the produced ones.
+func roundTripBinaryOn(ctx context.Context, cluster *dagger.KafkaCluster, encoding, key, value string) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)

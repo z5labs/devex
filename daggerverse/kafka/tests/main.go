@@ -12,7 +12,7 @@
 //                          helpers (freshCluster / freshTlsCluster /
 //                          freshMtlsCluster) + every test that drives the
 //                          GraalVM image (the bulk of the suite, including
-//                          shared roundTripBinary).
+//                          shared roundTripBinaryOn).
 //   - tests_apache.go    — ApacheCluster (apache/kafka JVM) cluster helpers
 //                          + the three Apache-JVM round-trip tests.
 //   - tests_confluent.go — ConfluentCluster (confluentinc/cp-kafka) cluster
@@ -29,9 +29,14 @@ import (
 
 type Tests struct{}
 
-// All runs every kafka round-trip test, capped at two concurrent jobs so
-// the engine doesn't have dozens of cluster containers (controller +
-// brokers per test) in flight at once on smaller CI runners.
+// All runs every kafka round-trip test in parallel. Each test owns its own
+// cluster lifecycle: it builds a cluster on entry and tears it down via
+// `defer cluster.Stop(ctx)` so the broker `Container.asService` spans close
+// the moment the test work is done rather than running out to the parent
+// parallel group's lifetime. Reusing clusters across tests within a parallel
+// run is a follow-up — early attempts amplified Dagger's service-binding
+// propagation race into intermittent "lookup broker-... no such host"
+// failures, so this PR keeps the per-test isolation that's already proven.
 //
 // kafkaImageTag picks the tag every spawned Apache cluster runs against —
 // applied to both the apache/kafka-native image (ApacheNativeCluster) and
@@ -61,7 +66,6 @@ func (t *Tests) All(
 	redpandaImageTag string,
 ) error {
 	jobs := parallel.New().
-		WithLimit(2).
 		WithRollupLogs(true).
 		WithRollupSpans(true)
 

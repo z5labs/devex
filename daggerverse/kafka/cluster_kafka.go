@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"dagger/kafka/internal/dagger"
@@ -14,6 +15,8 @@ import (
 type Cluster struct {
 	// +private
 	ClusterID string
+	// +private
+	ControllerSvc *dagger.Service
 	// +private
 	BrokerSvcs []*dagger.Service
 	// +private
@@ -284,10 +287,42 @@ func buildKafkaCluster(
 
 	return &Cluster{
 		ClusterID:          clusterId,
+		ControllerSvc:      ctrlSvc,
 		BrokerSvcs:         brokerSvcs,
 		BrokerHosts:        brokerHosts,
 		ClientSecurityMode: clientListenerSecurity.Mode,
 	}, nil
+}
+
+// Stop tears down every service container backing this cluster (the
+// controller plus every broker). Tests should call this in a defer so each
+// broker `Container.asService` span closes when the test work is done,
+// rather than running out to the parent parallel group's lifetime.
+//
+// Kill is set so Service.Stop skips graceful shutdown — Kafka's broker
+// shutdown path waits on replica-drain timeouts that on a torn-down test
+// cluster just run out the clock (~5 min observed in Dagger trace
+// `972bc311bf374f817b7c88481229a10c`). SIGKILL returns immediately, which
+// is all a test needs.
+//
+// +cache="never"
+func (c *Cluster) Stop(ctx context.Context) error {
+	opts := dagger.ServiceStopOpts{Kill: true}
+	var errs []error
+	if c.ControllerSvc != nil {
+		if _, err := c.ControllerSvc.Stop(ctx, opts); err != nil {
+			errs = append(errs, fmt.Errorf("stop controller: %w", err))
+		}
+	}
+	for i, svc := range c.BrokerSvcs {
+		if svc == nil {
+			continue
+		}
+		if _, err := svc.Stop(ctx, opts); err != nil {
+			errs = append(errs, fmt.Errorf("stop broker %d: %w", i, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // BootstrapServers returns the host:port pairs each broker advertises on its

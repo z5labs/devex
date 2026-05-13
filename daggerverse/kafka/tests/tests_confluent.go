@@ -121,6 +121,11 @@ func (t *Tests) ConfluentClusterProduceListTopicsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create confluent cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return confluentClusterProduceListTopicsRoundTripOn(ctx, cluster)
+}
+
+func confluentClusterProduceListTopicsRoundTripOn(ctx context.Context, cluster *dagger.KafkaCluster) error {
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
 
 	topic, err := randomTopicName(ctx)
@@ -164,6 +169,16 @@ func (t *Tests) ConfluentClusterTlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create confluent tls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return confluentClusterTlsRoundTripOn(ctx, cluster, ts, tsPwd)
+}
+
+func confluentClusterTlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().TLSClientSecurity(ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
@@ -224,6 +239,18 @@ func (t *Tests) ConfluentClusterMtlsRoundTrip(
 	if err != nil {
 		return fmt.Errorf("create confluent mtls cluster: %w", err)
 	}
+	defer cluster.Stop(ctx)
+	return confluentClusterMtlsRoundTripOn(ctx, cluster, ts, tsPwd, ks, ksPwd)
+}
+
+func confluentClusterMtlsRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	ts *dagger.File,
+	tsPwd *dagger.Secret,
+	ks *dagger.File,
+	ksPwd *dagger.Secret,
+) error {
 	client := cluster.Client(dag.Kafka().MtlsClientSecurity(ks, ksPwd, ts, tsPwd))
 
 	topic, err := randomTopicName(ctx)
