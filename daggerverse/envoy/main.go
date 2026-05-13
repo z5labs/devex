@@ -2,11 +2,11 @@
 // (envoyproxy/envoy) as a service for local development and testing,
 // with a builder API for composing L7 (HTTP) and L4 (TCP) listeners
 // and their referenced clusters into a static-resources Envoy
-// bootstrap without writing the YAML by hand.
-//
-// Plaintext is the only supported transport on every listener and
-// upstream in this story. TLS / mTLS lands in a follow-up. Dynamic
-// configuration (xDS) lands in a separate follow-up.
+// bootstrap without writing the YAML by hand. TLS / mTLS terminates
+// on listeners (downstream) and authenticates clusters (upstream)
+// via per-listener / per-cluster *ServerSecurity / *UpstreamSecurity
+// profiles. Dynamic configuration (xDS) lands in a separate
+// follow-up.
 package main
 
 import (
@@ -89,19 +89,34 @@ func (e *Envoy) Endpoint(host string, port int) (*Endpoint, error) {
 	return &Endpoint{Host: host, Port: port}, nil
 }
 
-// Cluster is a named upstream cluster of Endpoints.
+// Cluster is a named upstream cluster of Endpoints, optionally
+// configured with TLS / mTLS to the upstream side.
 type Cluster struct {
 	Name      string
 	Kind      string
 	Endpoints []*Endpoint
+
+	// +private
+	UpstreamMode string // "" | "TLS" | "MTLS" — drives transport_socket rendering and Service() mounts
+	// +private
+	UpstreamTrustPem *dagger.File // PEM of the upstream TrustStore's CA cert(s) (TLS + MTLS)
+	// +private
+	UpstreamLeafCertPem *dagger.File // PEM cert chain of Envoy's client leaf for the upstream (MTLS only)
+	// +private
+	UpstreamLeafKeyPem *dagger.File // PEM PKCS#8 private key for the upstream client leaf (MTLS only)
 }
 
-// Cluster builds an empty Cluster. clusterType defaults to
-// "STRICT_DNS"; unknown values return a non-nil error.
+// Cluster builds a Cluster optionally configured with upstream
+// TLS / mTLS via an UpstreamSecurity profile. clusterType defaults
+// to "STRICT_DNS"; unknown values return a non-nil error. A nil or
+// plaintext upstream produces the same plaintext cluster as before.
 func (e *Envoy) Cluster(
+	ctx context.Context,
 	name string,
 	// +default="STRICT_DNS"
 	clusterType string,
+	// +optional
+	upstream *UpstreamSecurity,
 ) (*Cluster, error) {
 	if err := validateName("name", name); err != nil {
 		return nil, err
@@ -109,7 +124,31 @@ func (e *Envoy) Cluster(
 	if err := validateClusterType(clusterType); err != nil {
 		return nil, err
 	}
-	return &Cluster{Name: name, Kind: clusterType}, nil
+	c := &Cluster{Name: name, Kind: clusterType}
+	mode := effectiveUpstreamMode(upstream)
+	if mode == "TLS" || mode == "MTLS" {
+		if upstream.TrustStore == nil || upstream.TrustStorePassword == nil {
+			return nil, fmt.Errorf("cluster %q: %s upstream requires TrustStore + TrustStorePassword", name, mode)
+		}
+		trustPem, err := extractCaPemFromPkcs12(ctx, "upstream-"+name+"-trust", upstream.TrustStore, upstream.TrustStorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("cluster %q: %w", name, err)
+		}
+		c.UpstreamMode = mode
+		c.UpstreamTrustPem = trustPem
+	}
+	if mode == "MTLS" {
+		if upstream.KeyStore == nil || upstream.KeyStorePassword == nil {
+			return nil, fmt.Errorf("cluster %q: MTLS upstream requires KeyStore + KeyStorePassword", name)
+		}
+		certPem, keyPem, err := extractUpstreamLeafPemFromPkcs12(ctx, "upstream-"+name+"-leaf", upstream.KeyStore, upstream.KeyStorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("cluster %q: %w", name, err)
+		}
+		c.UpstreamLeafCertPem = certPem
+		c.UpstreamLeafKeyPem = keyPem
+	}
+	return c, nil
 }
 
 // WithEndpoint appends an Endpoint to the cluster and returns a new
@@ -260,13 +299,20 @@ func (h *HttpConnectionManager) WithHttpFilter(f *HttpFilter) *HttpConnectionMan
 }
 
 // HttpListener builds an L7 listener bound at address:port whose
-// filter chain delegates to hcm.
+// filter chain delegates to hcm. A nil or plaintext security profile
+// renders the existing plaintext listener; TLS / MTLS mints a
+// per-listener server leaf certificate from the supplied CA at
+// factory time and embeds the transport_socket block in the filter
+// chain.
 func (e *Envoy) HttpListener(
+	ctx context.Context,
 	name string,
 	// +default="0.0.0.0"
 	address string,
 	port int,
 	hcm *HttpConnectionManager,
+	// +optional
+	security *ServerSecurity,
 ) (*Listener, error) {
 	if err := validateName("name", name); err != nil {
 		return nil, err
@@ -284,6 +330,18 @@ func (e *Envoy) HttpListener(
 	if err != nil {
 		return nil, fmt.Errorf("http listener %q: %w", name, err)
 	}
+	mode := effectiveServerMode(security)
+	fc0 := map[string]any{
+		"filters": []any{
+			map[string]any{
+				"name":         hcmFilterName,
+				"typed_config": hcmTyped,
+			},
+		},
+	}
+	if ts := renderDownstreamTransportSocket(name, mode); ts != nil {
+		fc0["transport_socket"] = ts
+	}
 	body := map[string]any{
 		"address": map[string]any{
 			"socket_address": map[string]any{
@@ -291,26 +349,21 @@ func (e *Envoy) HttpListener(
 				"port_value": port,
 			},
 		},
-		"filter_chains": []any{
-			map[string]any{
-				"filters": []any{
-					map[string]any{
-						"name":         hcmFilterName,
-						"typed_config": hcmTyped,
-					},
-				},
-			},
-		},
+		"filter_chains": []any{fc0},
 	}
 	bodyYAML, err := yaml.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("http listener %q: marshal body: %w", name, err)
 	}
-	return &Listener{
+	l := &Listener{
 		Name:        name,
 		Body:        string(bodyYAML),
 		ClusterRefs: collectHcmClusterRefs(hcm),
-	}, nil
+	}
+	if err := bakeListenerSecurity(ctx, l, name, security); err != nil {
+		return nil, fmt.Errorf("http listener %q: %w", name, err)
+	}
+	return l, nil
 }
 
 func renderHttpConnectionManager(h *HttpConnectionManager) (map[string]any, error) {
@@ -416,13 +469,19 @@ func (e *Envoy) TcpProxy(statPrefix, cluster string) (*TcpProxy, error) {
 }
 
 // TcpListener builds an L4 listener bound at address:port whose
-// filter chain delegates to proxy.
+// filter chain delegates to proxy. Accepts the same *ServerSecurity
+// union as HttpListener — TLS / mTLS terminates on the listener and
+// the resulting transport_socket lives on the filter chain alongside
+// the tcp_proxy filter.
 func (e *Envoy) TcpListener(
+	ctx context.Context,
 	name string,
 	// +default="0.0.0.0"
 	address string,
 	port int,
 	proxy *TcpProxy,
+	// +optional
+	security *ServerSecurity,
 ) (*Listener, error) {
 	if err := validateName("name", name); err != nil {
 		return nil, err
@@ -436,6 +495,22 @@ func (e *Envoy) TcpListener(
 	if proxy == nil {
 		return nil, fmt.Errorf("proxy: must be non-nil")
 	}
+	mode := effectiveServerMode(security)
+	fc0 := map[string]any{
+		"filters": []any{
+			map[string]any{
+				"name": "envoy.filters.network.tcp_proxy",
+				"typed_config": map[string]any{
+					"@type":       "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
+					"stat_prefix": proxy.StatPrefix,
+					"cluster":     proxy.Cluster,
+				},
+			},
+		},
+	}
+	if ts := renderDownstreamTransportSocket(name, mode); ts != nil {
+		fc0["transport_socket"] = ts
+	}
 	body := map[string]any{
 		"address": map[string]any{
 			"socket_address": map[string]any{
@@ -443,30 +518,21 @@ func (e *Envoy) TcpListener(
 				"port_value": port,
 			},
 		},
-		"filter_chains": []any{
-			map[string]any{
-				"filters": []any{
-					map[string]any{
-						"name": "envoy.filters.network.tcp_proxy",
-						"typed_config": map[string]any{
-							"@type":       "type.googleapis.com/envoy.extensions.filters.network.tcp_proxy.v3.TcpProxy",
-							"stat_prefix": proxy.StatPrefix,
-							"cluster":     proxy.Cluster,
-						},
-					},
-				},
-			},
-		},
+		"filter_chains": []any{fc0},
 	}
 	bodyYAML, err := yaml.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("tcp listener %q: marshal body: %w", name, err)
 	}
-	return &Listener{
+	l := &Listener{
 		Name:        name,
 		Body:        string(bodyYAML),
 		ClusterRefs: []string{proxy.Cluster},
-	}, nil
+	}
+	if err := bakeListenerSecurity(ctx, l, name, security); err != nil {
+		return nil, fmt.Errorf("tcp listener %q: %w", name, err)
+	}
+	return l, nil
 }
 
 // Listener is a single Envoy listener — either typed
@@ -481,6 +547,44 @@ type Listener struct {
 	Name        string
 	Body        string
 	ClusterRefs []string
+
+	// +private
+	SecurityMode string // "" | "TLS" | "MTLS" — drives Service() mount fan-out
+	// +private
+	LeafCertPem *dagger.File // PEM cert chain of the per-listener server leaf (TLS + MTLS)
+	// +private
+	LeafKeyPem *dagger.File // PEM-encoded PKCS#8 private key for the leaf (TLS + MTLS)
+	// +private
+	ClientTrustPem *dagger.File // PEM of the clientTrustStore's CA cert(s) (MTLS only)
+}
+
+// bakeListenerSecurity mints the per-listener server leaf certificate
+// (TLS + MTLS) and extracts the client trust PEM (MTLS only),
+// stashing them on the Listener for Service() to mount. No-op for
+// PLAINTEXT mode.
+func bakeListenerSecurity(ctx context.Context, l *Listener, name string, sec *ServerSecurity) error {
+	mode := effectiveServerMode(sec)
+	if mode == "PLAINTEXT" {
+		return nil
+	}
+	certPem, keyPem, err := mintListenerLeaf(ctx, name, sec)
+	if err != nil {
+		return err
+	}
+	l.SecurityMode = mode
+	l.LeafCertPem = certPem
+	l.LeafKeyPem = keyPem
+	if mode == "MTLS" {
+		if sec.ClientTrustStore == nil || sec.ClientTrustStorePassword == nil {
+			return fmt.Errorf("MTLS requires ClientTrustStore + ClientTrustStorePassword")
+		}
+		trustPem, err := extractCaPemFromPkcs12(ctx, "listener-"+name+"-trust", sec.ClientTrustStore, sec.ClientTrustStorePassword)
+		if err != nil {
+			return err
+		}
+		l.ClientTrustPem = trustPem
+	}
+	return nil
 }
 
 // CustomListener builds a Listener whose body is the caller-supplied
@@ -629,13 +733,31 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 		if port, ok := extractListenerPort(l.Body); ok {
 			ctr = ctr.WithExposedPort(port)
 		}
+		if l.SecurityMode == "TLS" || l.SecurityMode == "MTLS" {
+			ctr = ctr.
+				WithFile(listenerCertPath(l.Name), l.LeafCertPem, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+				WithFile(listenerKeyPath(l.Name), l.LeafKeyPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+		}
+		if l.SecurityMode == "MTLS" {
+			ctr = ctr.WithFile(listenerTrustPath(l.Name), l.ClientTrustPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+		}
+	}
+	for _, c := range p.Clusters {
+		if c.UpstreamMode == "TLS" || c.UpstreamMode == "MTLS" {
+			ctr = ctr.WithFile(upstreamTrustPath(c.Name), c.UpstreamTrustPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+		}
+		if c.UpstreamMode == "MTLS" {
+			ctr = ctr.
+				WithFile(upstreamCertPath(c.Name), c.UpstreamLeafCertPem, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+				WithFile(upstreamKeyPath(c.Name), c.UpstreamLeafKeyPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+		}
 	}
 	for i, host := range p.BindingHosts {
 		ctr = ctr.WithServiceBinding(host, p.BindingSvcs[i])
 	}
 	var args []string
 	if cfg != nil {
-		ctr = ctr.WithMountedFile(configMountPath, cfg)
+		ctr = ctr.WithFile(configMountPath, cfg)
 		args = []string{"-c", configMountPath}
 	}
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
@@ -815,6 +937,9 @@ func renderCluster(c *Cluster) map[string]any {
 	out := map[string]any{
 		"name": c.Name,
 		"type": c.Kind,
+	}
+	if ts := renderUpstreamTransportSocket(c.Name, c.UpstreamMode); ts != nil {
+		out["transport_socket"] = ts
 	}
 	if len(c.Endpoints) > 0 {
 		lbEndpoints := make([]any, 0, len(c.Endpoints))
