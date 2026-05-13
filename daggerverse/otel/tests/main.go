@@ -8,19 +8,24 @@ import (
 
 	"dagger/tests/internal/dagger"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 	"gopkg.in/yaml.v3"
 )
 
 type Tests struct{}
 
-// All runs every otel test in parallel.
+// All runs every otel test inside this suite.
 //
 // collectorTag picks the otel/opentelemetry-collector{,-contrib} tag
 // every spawned collector runs against; lokiTag/tempoTag/mimirTag
 // pick the grafana/{loki,tempo,mimir} tags for the round-trip
 // backends. Each default matches the upstream module's own default,
 // so the no-arg invocation stays a smooth path.
+//
+// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
+// to mirror `go test` package-level semantics; pass 0 to fan out every test
+// with no limit, or any positive integer to opt into a specific level of
+// concurrency.
 //
 // +check
 // +cache="session"
@@ -34,10 +39,15 @@ func (t *Tests) All(
 	tempoTag string,
 	// +default="2.15.1"
 	mimirTag string,
+	// +default=1
+	parallel int,
 ) error {
-	jobs := parallel.New().
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 	jobs = jobs.WithJob("RejectsInvalidComponentName", t.RejectsInvalidComponentName)
 	jobs = jobs.WithJob("RejectsUnknownPipelineSignal", t.RejectsUnknownPipelineSignal)
 	jobs = jobs.WithJob("SharedReceiverIsDedupedInRenderedYaml", func(ctx context.Context) error {

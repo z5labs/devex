@@ -1,10 +1,17 @@
 # kafka
 
-A Dagger module that spins up a KRaft Kafka cluster from one of three
-upstream images — `apache/kafka-native` (GraalVM), `apache/kafka` (JVM),
-or `confluentinc/cp-kafka` (Confluent Platform) — and exposes a pure-Go
-franz-go client that targets either the local cluster or any reachable
-remote cluster (AWS MSK, Confluent Cloud, etc.).
+A Dagger module that spins up a Kafka-wire-compatible cluster from one
+of four upstream images — `apache/kafka-native` (GraalVM),
+`apache/kafka` (JVM), `confluentinc/cp-kafka` (Confluent Platform), or
+`redpandadata/redpanda` (Redpanda, a from-scratch C++ implementation)
+— and exposes a pure-Go franz-go client that targets either the local
+cluster or any reachable remote cluster (AWS MSK, Confluent Cloud, etc.).
+
+The first three share the `KAFKA_*` Scala-wrapper env-var contract and
+return the same `*Cluster`. Redpanda's configuration layer is disjoint
+(`rpk redpanda start`, a `redpanda.yaml` config, PEM keys instead of
+PKCS#12), so `RedpandaCluster` returns its own type and accepts its own
+security profile — see the dedicated section below.
 
 The module supports plaintext, TLS, and mTLS on the external client-facing
 listener. The internal listeners (inter-broker and controller-quorum) are
@@ -119,6 +126,71 @@ The constructor silently sets `KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`
 on each broker to disable Confluent's phone-home telemetry, matching
 the Apache variants' startup behavior.
 
+## RedpandaCluster
+
+```go
+serverSec := dag.Kafka().RedpandaPlaintextServerSecurity()
+// or, for TLS termination on the external Kafka listener:
+serverSec = dag.Kafka().RedpandaTLSServerSecurity(caKeystore, caKeystorePwd)
+
+cluster := dag.Kafka().RedpandaCluster(
+    clusterId,
+    serverSec,
+    dagger.KafkaRedpandaClusterOpts{
+        Tag:      "v26.1.7",
+        Registry: "docker.io",
+    },
+)
+client := cluster.Client(dag.Kafka().PlaintextClientSecurity()) // or TLSClientSecurity(...)
+```
+
+`RedpandaCluster` is single-node only — `controllers != 1` or `brokers
+!= 1` are rejected. Redpanda runs broker and Raft roles in the same
+process, so there is no separate controller container. The broker is
+started via `rpk redpanda start --mode dev-container` (which bundles
+`--overprovisioned`, `--reserve-memory 0M`, `--check=false`, and
+`--unsafe-bypass-fsync`).
+
+- `RedpandaCluster.BootstrapServers(ctx) ([]string, error)` —
+  `[host:9092]`.
+- `RedpandaCluster.BindBrokers(c *dagger.Container) *dagger.Container`
+  — same shape as `Cluster.BindBrokers`.
+- `RedpandaCluster.Client(ctx, security *KafkaClientSecurity)
+  (*KafkaClient, error)` — returns the same `*Client` the Apache
+  constructors return. The Kafka wire protocol matches, so
+  producer/consumer code is shared.
+
+### Security profile
+
+`*RedpandaServerSecurity` is a separate type from `*ServerSecurity` so
+the Go compiler stops a caller from accidentally handing an Apache
+profile (e.g. `MtlsServerSecurity`, not supported here yet) to
+`RedpandaCluster`. Only `Plaintext` and `TLS` constructors exist in
+this story; mTLS lands in a follow-up.
+
+### Cert format: PEM, not PKCS#12
+
+Redpanda reads PEM (`server.crt`, `server.key`) from its
+`redpanda.yaml` rather than the PKCS#12 keystores the Apache
+constructors hand to the JVM. The API surface still accepts the same
+PKCS#12 CA you'd hand to `TLSServerSecurity` — the constructor loads
+the CA via `certificate-management`'s existing PKCS#12 loader, issues
+the per-cluster server leaf, then mounts the PEM cert/key files into
+the broker container at `/etc/redpanda/certs/server.{crt,key}` and
+points the rendered `redpanda.yaml` at those paths (the YAML never
+embeds PEM material itself). Callers don't have to convert between
+formats. The server private key crosses into the broker container as
+a `*dagger.Secret` (mounted via `WithMountedSecret`) so its plaintext
+never lands in the module workdir. mTLS (truststore + client-auth) is
+a follow-up; this story is server-side TLS only, so no CA cert is
+mounted into the broker.
+
+### Client
+
+The `*KafkaClient` returned by `RedpandaCluster.Client()` is the same
+type the Apache constructors return — bring whichever
+`*ClientSecurity` you already use. PKCS#12 truststores work as-is.
+
 ## Client
 
 `dag.Kafka().Client(bootstrapServers, security)` constructs a franz-go-backed
@@ -178,10 +250,10 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
 
 ## Image source
 
-The module exposes three cluster constructors, one per upstream image.
-All three speak the same `KAFKA_*` env-var contract and return the same
-`*Cluster`, so downstream code is identical regardless of which one
-you pick:
+The module exposes four cluster constructors. The first three speak
+the same `KAFKA_*` env-var contract and return the same `*Cluster`;
+`RedpandaCluster` returns its own `*RedpandaCluster` type with the
+same trio of methods but a different config layer underneath:
 
 - `ApacheNativeCluster` → `<registry>/apache/kafka-native:<tag>`
   (default `docker.io/apache/kafka-native:4.2.0`). GraalVM-compiled;
@@ -198,7 +270,12 @@ you pick:
   bundles Apache Kafka 4.x at the same minor version, so CP 8.2.0
   ships Kafka 4.2.0. The constructor silently disables Confluent's
   phone-home telemetry (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`).
+- `RedpandaCluster` → `<registry>/redpandadata/redpanda:<tag>` (default
+  `docker.io/redpandadata/redpanda:v26.1.7`). Single-node only;
+  separate `*RedpandaCluster` / `*RedpandaServerSecurity` types
+  because the config layer doesn't share the `KAFKA_*` env-var
+  contract — see the "RedpandaCluster" section.
 
 `registry` (default `docker.io`) and `tag` are the only caller-
-overridable parts; the `apache/kafka{-native,}` or `confluentinc/cp-kafka`
-portion is fixed per constructor.
+overridable parts; the `apache/kafka{-native,}`, `confluentinc/cp-kafka`,
+or `redpandadata/redpanda` portion is fixed per constructor.

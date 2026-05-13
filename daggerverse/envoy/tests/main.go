@@ -8,13 +8,18 @@ import (
 
 	"dagger/tests/internal/dagger"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 	"gopkg.in/yaml.v3"
 )
 
 type Tests struct{}
 
-// All runs every envoy test in parallel.
+// All runs every envoy test inside this suite.
+//
+// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
+// to mirror `go test` package-level semantics; pass 0 to fan out every test
+// with no limit, or any positive integer to opt into a specific level of
+// concurrency.
 //
 // +check
 // +cache="session"
@@ -22,10 +27,15 @@ func (t *Tests) All(
 	ctx context.Context,
 	// +default="v1.32.1"
 	envoyTag string,
+	// +default=1
+	parallel int,
 ) error {
-	jobs := parallel.New().
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 	jobs = jobs.WithJob("RejectsInvalidComponentName", t.RejectsInvalidComponentName)
 	jobs = jobs.WithJob("RejectsUnknownClusterType", t.RejectsUnknownClusterType)
 	jobs = jobs.WithJob("DefaultClusterTypeIsStrictDns", t.DefaultClusterTypeIsStrictDns)

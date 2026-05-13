@@ -4,17 +4,31 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 )
 
 type Tests struct{}
 
+// All runs every random test inside this suite.
+//
+// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
+// to mirror `go test` package-level semantics; pass 0 to fan out every test
+// with no limit, or any positive integer to opt into a specific level of
+// concurrency.
+//
 // +check
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
-	jobs := parallel.New().
+func (t *Tests) All(
+	ctx context.Context,
+	// +default=1
+	parallel int,
+) error {
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 
 	jobs = jobs.WithJob("UuidV4ShouldNotBeCached", t.UuidV4ShouldNotBeCached)
 	jobs = jobs.WithJob("UuidV7ShouldNotBeCached", t.UuidV7ShouldNotBeCached)
