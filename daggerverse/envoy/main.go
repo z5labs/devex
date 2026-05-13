@@ -103,7 +103,13 @@ type Cluster struct {
 	// +private
 	UpstreamLeafCertPem *dagger.File // PEM cert chain of Envoy's client leaf for the upstream (MTLS only)
 	// +private
-	UpstreamLeafKeyPem *dagger.File // PEM PKCS#1 ("RSA PRIVATE KEY") private key for the upstream client leaf (MTLS only)
+	// UpstreamLeafKeyPem is the PKCS#1 ("RSA PRIVATE KEY") PEM
+	// private key for the upstream client leaf (MTLS only). Held as
+	// a *dagger.Secret so Service() can mount it via
+	// WithMountedSecret with restricted Mode/Owner instead of
+	// snapshotting world-readable key material into the container
+	// filesystem via WithFile.
+	UpstreamLeafKeyPem *dagger.Secret
 }
 
 // Cluster builds a Cluster optionally configured with upstream
@@ -557,7 +563,13 @@ type Listener struct {
 	// +private
 	LeafCertPem *dagger.File // PEM cert chain of the per-listener server leaf (TLS + MTLS)
 	// +private
-	LeafKeyPem *dagger.File // PEM-encoded PKCS#1 ("RSA PRIVATE KEY") private key for the leaf (TLS + MTLS)
+	// LeafKeyPem is the PKCS#1 ("RSA PRIVATE KEY") PEM private key
+	// for the per-listener server leaf (TLS + MTLS). Held as a
+	// *dagger.Secret so Service() can mount it via WithMountedSecret
+	// with restricted Mode/Owner instead of snapshotting
+	// world-readable key material into the container filesystem via
+	// WithFile.
+	LeafKeyPem *dagger.Secret
 	// +private
 	ClientTrustPem *dagger.File // PEM of the clientTrustStore's CA cert(s) (MTLS only)
 }
@@ -740,7 +752,10 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 		if l.SecurityMode == "TLS" || l.SecurityMode == "MTLS" {
 			ctr = ctr.
 				WithFile(listenerCertPath(l.Name), l.LeafCertPem, dagger.ContainerWithFileOpts{Permissions: 0o644}).
-				WithFile(listenerKeyPath(l.Name), l.LeafKeyPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+				WithMountedSecret(listenerKeyPath(l.Name), l.LeafKeyPem, dagger.ContainerWithMountedSecretOpts{
+					Mode:  0o400,
+					Owner: envoyOwner,
+				})
 		}
 		if l.SecurityMode == "MTLS" {
 			ctr = ctr.WithFile(listenerTrustPath(l.Name), l.ClientTrustPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
@@ -753,7 +768,10 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 		if c.UpstreamMode == "MTLS" {
 			ctr = ctr.
 				WithFile(upstreamCertPath(c.Name), c.UpstreamLeafCertPem, dagger.ContainerWithFileOpts{Permissions: 0o644}).
-				WithFile(upstreamKeyPath(c.Name), c.UpstreamLeafKeyPem, dagger.ContainerWithFileOpts{Permissions: 0o644})
+				WithMountedSecret(upstreamKeyPath(c.Name), c.UpstreamLeafKeyPem, dagger.ContainerWithMountedSecretOpts{
+					Mode:  0o400,
+					Owner: envoyOwner,
+				})
 		}
 	}
 	for i, host := range p.BindingHosts {
