@@ -24,7 +24,7 @@ package main
 import (
 	"context"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 )
 
 type Tests struct{}
@@ -54,6 +54,11 @@ type Tests struct{}
 // alignment to Apache or Confluent numbering, so it gets its own argument
 // and its own default.
 //
+// parallel caps how many tests run concurrently inside this suite. Defaults
+// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
+// fan out every test with no limit, or any positive integer to opt into a
+// specific level of concurrency.
+//
 // +check
 // +cache="session"
 func (t *Tests) All(
@@ -64,10 +69,15 @@ func (t *Tests) All(
 	confluentImageTag string,
 	// +default="v26.1.7"
 	redpandaImageTag string,
+	// +default=1
+	parallel int,
 ) error {
-	jobs := parallel.New().
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 
 	jobs = jobs.WithJob("PlaintextSecurityProfilesAreNonNil", t.PlaintextSecurityProfilesAreNonNil)
 	jobs = jobs.WithJob("SingleNodeClusterStarts", func(ctx context.Context) error {

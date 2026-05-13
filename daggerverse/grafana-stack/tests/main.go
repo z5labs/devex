@@ -11,7 +11,7 @@ import (
 
 	"dagger/tests/internal/dagger"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 )
 
 const curlImage = "curlimages/curl:8.10.1"
@@ -30,6 +30,11 @@ type Tests struct{}
 // Defaults match the parent module's pinned defaults so the bare
 // `call all` keeps working.
 //
+// parallel caps how many tests run concurrently inside this suite. Defaults
+// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
+// fan out every test with no limit, or any positive integer to opt into a
+// specific level of concurrency.
+//
 // +check
 // +cache="session"
 func (t *Tests) All(
@@ -46,10 +51,15 @@ func (t *Tests) All(
 	// grafana/grafana image tag.
 	// +default="12.0.0"
 	grafanaTag string,
+	// +default=1
+	parallel int,
 ) error {
-	jobs := parallel.New().
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 
 	jobs = jobs.WithJob("LokiAcceptsOtlpLogs", func(ctx context.Context) error {
 		return t.LokiAcceptsOtlpLogs(ctx, lokiTag)

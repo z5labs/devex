@@ -8,19 +8,31 @@ import (
 
 	"dagger/tests/internal/dagger"
 
-	"github.com/dagger/dagger/util/parallel"
+	par "github.com/dagger/dagger/util/parallel"
 )
 
 type Tests struct{}
 
-// All runs every crypto test in parallel.
+// All runs every crypto test inside this suite.
+//
+// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
+// to mirror `go test` package-level semantics; pass 0 to fan out every test
+// with no limit, or any positive integer to opt into a specific level of
+// concurrency.
 //
 // +check
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
-	jobs := parallel.New().
+func (t *Tests) All(
+	ctx context.Context,
+	// +default=1
+	parallel int,
+) error {
+	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 
 	jobs = jobs.WithJob("Sha256MatchesKnownDigest", t.Sha256MatchesKnownDigest)
 	jobs = jobs.WithJob("Sha384MatchesKnownDigest", t.Sha384MatchesKnownDigest)
