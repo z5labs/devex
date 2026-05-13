@@ -10,6 +10,14 @@
       "source": ".."
     },
     {
+      "name": "certificate-management",
+      "source": "../../certificate-management"
+    },
+    {
+      "name": "crypto",
+      "source": "../../crypto"
+    },
+    {
       "name": "random",
       "source": "../../random"
     }

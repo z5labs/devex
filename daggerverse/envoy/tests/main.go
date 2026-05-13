@@ -46,6 +46,30 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("L4TcpRoundTrip", func(ctx context.Context) error {
 		return t.L4TcpRoundTrip(ctx, envoyTag)
 	})
+	jobs = jobs.WithJob("TlsServerSecurityRendersDownstreamTlsContext", t.TlsServerSecurityRendersDownstreamTlsContext)
+	jobs = jobs.WithJob("MtlsServerSecurityRequiresClientCert", t.MtlsServerSecurityRequiresClientCert)
+	jobs = jobs.WithJob("PlaintextServerSecurityRendersNoTransportSocket", t.PlaintextServerSecurityRendersNoTransportSocket)
+	jobs = jobs.WithJob("TlsUpstreamSecurityRendersUpstreamTlsContext", t.TlsUpstreamSecurityRendersUpstreamTlsContext)
+	jobs = jobs.WithJob("MtlsUpstreamSecurityIncludesClientLeaf", t.MtlsUpstreamSecurityIncludesClientLeaf)
+	jobs = jobs.WithJob("PlaintextUpstreamSecurityRendersNoTransportSocket", t.PlaintextUpstreamSecurityRendersNoTransportSocket)
+	jobs = jobs.WithJob("L7HttpsRoundTrip", func(ctx context.Context) error {
+		return t.L7HttpsRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L7HttpsMtlsRejectsAnonymousClient", func(ctx context.Context) error {
+		return t.L7HttpsMtlsRejectsAnonymousClient(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L7HttpsMtlsAcceptsAuthorizedClient", func(ctx context.Context) error {
+		return t.L7HttpsMtlsAcceptsAuthorizedClient(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("UpstreamTlsRoundTrip", func(ctx context.Context) error {
+		return t.UpstreamTlsRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("UpstreamMtlsRoundTrip", func(ctx context.Context) error {
+		return t.UpstreamMtlsRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L4TcpTlsRoundTrip", func(ctx context.Context) error {
+		return t.L4TcpTlsRoundTrip(ctx, envoyTag)
+	})
 	return jobs.Run(ctx)
 }
 
