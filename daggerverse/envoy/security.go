@@ -152,6 +152,18 @@ func effectiveUpstreamMode(up *UpstreamSecurity) string {
 // mounted inside the running envoy container.
 const envoySecretsDir = "/etc/envoy/secrets"
 
+// envoyOwner is the uid:gid the default `envoyproxy/envoy:v1.32.1`
+// image runs the envoy process as (the upstream image's `envoy`
+// user). Private-key mounts are Chown'd to this owner with Mode
+// 0o400 so the non-root envoy process can read them; without the
+// Chown, default WithMountedSecret perms are root-owned 0o400 and
+// envoy cannot open the key. This is empirically verified for the
+// default Proxy() image tag only — callers that override the image
+// to one whose envoy user has a different uid:gid will see TLS
+// startup fail with EACCES on the key, and will need this constant
+// (and the matching mount) updated to track the new image.
+const envoyOwner = "101:101"
+
 func listenerCertPath(name string) string {
 	return filepath.Join(envoySecretsDir, "listener-"+name+".crt")
 }
@@ -250,11 +262,15 @@ func renderUpstreamTransportSocket(clusterName, mode string) map[string]any {
 }
 
 // mintListenerLeaf signs a per-listener server leaf certificate from
-// the caller-supplied CA, extracts the cert + chain as a single PEM
-// file and the private key as a plain PEM file (suitable for Envoy's
+// the caller-supplied CA, returning the cert + chain as a single
+// PEM *dagger.File and the PKCS#1 private key as a *dagger.Secret.
+// The cert PEM is mounted via WithFile and the key Secret via
+// WithMountedSecret, so both still feed Envoy's
 // `certificate_chain.filename` + `private_key.filename` data
-// sources). Returns (nil, nil, nil) for PLAINTEXT mode.
-func mintListenerLeaf(ctx context.Context, listenerName string, sec *ServerSecurity) (*dagger.File, *dagger.File, error) {
+// sources at the in-container paths returned by listenerCertPath /
+// listenerKeyPath — only the key avoids being snapshotted into the
+// container filesystem. Returns (nil, nil, nil) for PLAINTEXT mode.
+func mintListenerLeaf(ctx context.Context, listenerName string, sec *ServerSecurity) (*dagger.File, *dagger.Secret, error) {
 	if sec == nil || sec.Mode == "PLAINTEXT" {
 		return nil, nil, nil
 	}
@@ -296,18 +312,20 @@ func mintListenerLeaf(ctx context.Context, listenerName string, sec *ServerSecur
 	if err != nil {
 		return nil, nil, fmt.Errorf("listener %q: %w", listenerName, err)
 	}
-	keyPem, err := pkcs8SecretToPkcs1File(ctx, "listener-"+listenerName+"-key", issued.PrivateKeyPem())
+	keySecret, err := pkcs8SecretToPkcs1Secret(ctx, "listener-"+listenerName+"-key", issued.PrivateKeyPem())
 	if err != nil {
 		return nil, nil, fmt.Errorf("listener %q: %w", listenerName, err)
 	}
-	return certPem, keyPem, nil
+	return certPem, keySecret, nil
 }
 
-// pkcs8SecretToPkcs1File reads a PKCS#8 PEM private key out of a
+// pkcs8SecretToPkcs1Secret reads a PKCS#8 PEM private key out of a
 // Dagger Secret and rewrites it as a PKCS#1 ("RSA PRIVATE KEY") PEM
-// file. Envoy's BoringSSL build is finicky about PKCS#8 PEM
-// envelopes and reliably reads PKCS#1.
-func pkcs8SecretToPkcs1File(ctx context.Context, label string, sec *dagger.Secret) (*dagger.File, error) {
+// inside a new Dagger Secret. Envoy's BoringSSL build is finicky
+// about PKCS#8 PEM envelopes and reliably reads PKCS#1; staying in
+// secret form keeps the rewritten key off the container filesystem
+// snapshot — it lands at mount time via WithMountedSecret.
+func pkcs8SecretToPkcs1Secret(ctx context.Context, label string, sec *dagger.Secret) (*dagger.Secret, error) {
 	plaintext, err := sec.Plaintext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read %s secret: %w", label, err)
@@ -325,7 +343,7 @@ func pkcs8SecretToPkcs1File(ctx context.Context, label string, sec *dagger.Secre
 		return nil, fmt.Errorf("%s: unexpected key type %T (expected *rsa.PrivateKey)", label, priv)
 	}
 	out := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsa)})
-	return writeBinaryWorkdirFile(label, "leaf.key", out)
+	return dag.SetSecret(label+"-"+randSuffix(), string(out)), nil
 }
 
 // buildCertChainPem concatenates the leaf cert and issuer cert PEM
@@ -345,11 +363,13 @@ func buildCertChainPem(ctx context.Context, label string, leaf, issuer *dagger.F
 }
 
 // extractUpstreamLeafPemFromPkcs12 unseals a caller-supplied PKCS#12
-// client keystore and emits a PEM cert chain (leaf + chain) and a
-// PKCS#1 ("RSA PRIVATE KEY") PEM private key for Envoy's upstream
-// tls_certificates data sources — BoringSSL reads PKCS#1 reliably
-// where PKCS#8 envelopes sometimes fail.
-func extractUpstreamLeafPemFromPkcs12(ctx context.Context, label string, p12 *dagger.File, password *dagger.Secret) (*dagger.File, *dagger.File, error) {
+// client keystore and emits a PEM cert chain (leaf + chain) as a
+// file plus a PKCS#1 ("RSA PRIVATE KEY") PEM private key wrapped in
+// a Dagger Secret. Envoy's BoringSSL build reads PKCS#1 reliably
+// where PKCS#8 envelopes sometimes fail; staging the key as a Secret
+// keeps it off the container filesystem snapshot — it lands at mount
+// time via WithMountedSecret.
+func extractUpstreamLeafPemFromPkcs12(ctx context.Context, label string, p12 *dagger.File, password *dagger.Secret) (*dagger.File, *dagger.Secret, error) {
 	data, err := dagFileBytes(ctx, p12)
 	if err != nil {
 		return nil, nil, fmt.Errorf("export %s pkcs12: %w", label, err)
@@ -376,11 +396,8 @@ func extractUpstreamLeafPemFromPkcs12(ctx context.Context, label string, p12 *da
 		return nil, nil, fmt.Errorf("%s: unexpected key type %T (expected *rsa.PrivateKey)", label, priv)
 	}
 	keyPem := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(rsaKey)})
-	keyFile, err := writeBinaryWorkdirFile(label+"-key", "leaf.key", keyPem)
-	if err != nil {
-		return nil, nil, fmt.Errorf("stage %s key pem: %w", label, err)
-	}
-	return certFile, keyFile, nil
+	keySecret := dag.SetSecret(label+"-key-"+randSuffix(), string(keyPem))
+	return certFile, keySecret, nil
 }
 
 // extractCaPemFromPkcs12 unseals the given PKCS#12 truststore and
