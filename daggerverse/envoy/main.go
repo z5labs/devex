@@ -580,7 +580,7 @@ func bakeListenerSecurity(ctx context.Context, l *Listener, name string, sec *Se
 	l.LeafKeyPem = keyPem
 	if mode == "MTLS" {
 		if sec.ClientTrustStore == nil || sec.ClientTrustStorePassword == nil {
-			return fmt.Errorf("MTLS requires ClientTrustStore + ClientTrustStorePassword")
+			return fmt.Errorf("listener %q: MTLS requires ClientTrustStore + ClientTrustStorePassword", name)
 		}
 		trustPem, err := extractCaPemFromPkcs12(ctx, "listener-"+name+"-trust", sec.ClientTrustStore, sec.ClientTrustStorePassword)
 		if err != nil {

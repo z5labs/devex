@@ -344,19 +344,6 @@ func buildCertChainPem(ctx context.Context, label string, leaf, issuer *dagger.F
 	return writeBinaryWorkdirFile(label+"-cert", "leaf.crt", combined)
 }
 
-// secretToFile materializes a Dagger Secret's plaintext into a file
-// in the envoy module workdir. Used for private keys: cert-mgmt
-// returns them as *dagger.Secret, but Envoy's `private_key.filename`
-// data source needs a real file.
-func secretToFile(ctx context.Context, label, name string, sec *dagger.Secret) (*dagger.File, error) {
-	plaintext, err := sec.Plaintext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read %s secret: %w", label, err)
-	}
-	return writeBinaryWorkdirFile(label, name, []byte(plaintext))
-}
-
-
 // extractUpstreamLeafPemFromPkcs12 unseals a caller-supplied PKCS#12
 // client keystore and emits a PEM cert chain (leaf + chain) and a
 // PKCS#1 ("RSA PRIVATE KEY") PEM private key for Envoy's upstream
