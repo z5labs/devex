@@ -359,8 +359,9 @@ func secretToFile(ctx context.Context, label, name string, sec *dagger.Secret) (
 
 // extractUpstreamLeafPemFromPkcs12 unseals a caller-supplied PKCS#12
 // client keystore and emits a PEM cert chain (leaf + chain) and a
-// PKCS#8 PEM private key for Envoy's upstream tls_certificates data
-// sources.
+// PKCS#1 ("RSA PRIVATE KEY") PEM private key for Envoy's upstream
+// tls_certificates data sources — BoringSSL reads PKCS#1 reliably
+// where PKCS#8 envelopes sometimes fail.
 func extractUpstreamLeafPemFromPkcs12(ctx context.Context, label string, p12 *dagger.File, password *dagger.Secret) (*dagger.File, *dagger.File, error) {
 	data, err := dagFileBytes(ctx, p12)
 	if err != nil {

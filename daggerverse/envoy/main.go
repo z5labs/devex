@@ -103,7 +103,7 @@ type Cluster struct {
 	// +private
 	UpstreamLeafCertPem *dagger.File // PEM cert chain of Envoy's client leaf for the upstream (MTLS only)
 	// +private
-	UpstreamLeafKeyPem *dagger.File // PEM PKCS#8 private key for the upstream client leaf (MTLS only)
+	UpstreamLeafKeyPem *dagger.File // PEM PKCS#1 ("RSA PRIVATE KEY") private key for the upstream client leaf (MTLS only)
 }
 
 // Cluster builds a Cluster optionally configured with upstream
@@ -304,6 +304,8 @@ func (h *HttpConnectionManager) WithHttpFilter(f *HttpFilter) *HttpConnectionMan
 // per-listener server leaf certificate from the supplied CA at
 // factory time and embeds the transport_socket block in the filter
 // chain.
+//
+// +cache="session"
 func (e *Envoy) HttpListener(
 	ctx context.Context,
 	name string,
@@ -473,6 +475,8 @@ func (e *Envoy) TcpProxy(statPrefix, cluster string) (*TcpProxy, error) {
 // union as HttpListener — TLS / mTLS terminates on the listener and
 // the resulting transport_socket lives on the filter chain alongside
 // the tcp_proxy filter.
+//
+// +cache="session"
 func (e *Envoy) TcpListener(
 	ctx context.Context,
 	name string,
@@ -553,7 +557,7 @@ type Listener struct {
 	// +private
 	LeafCertPem *dagger.File // PEM cert chain of the per-listener server leaf (TLS + MTLS)
 	// +private
-	LeafKeyPem *dagger.File // PEM-encoded PKCS#8 private key for the leaf (TLS + MTLS)
+	LeafKeyPem *dagger.File // PEM-encoded PKCS#1 ("RSA PRIVATE KEY") private key for the leaf (TLS + MTLS)
 	// +private
 	ClientTrustPem *dagger.File // PEM of the clientTrustStore's CA cert(s) (MTLS only)
 }
