@@ -152,12 +152,16 @@ func effectiveUpstreamMode(up *UpstreamSecurity) string {
 // mounted inside the running envoy container.
 const envoySecretsDir = "/etc/envoy/secrets"
 
-// envoyOwner is the uid:gid the envoyproxy/envoy image runs the
-// envoy process as (the upstream image's `envoy` user). Private-key
-// mounts must be Chown'd to this owner (with Mode 0o400) so envoy
-// can read them while every other process in the container cannot.
-// Default WithMountedSecret perms are root-owned 0o400, which the
-// non-root envoy process cannot read.
+// envoyOwner is the uid:gid the default `envoyproxy/envoy:v1.32.1`
+// image runs the envoy process as (the upstream image's `envoy`
+// user). Private-key mounts are Chown'd to this owner with Mode
+// 0o400 so the non-root envoy process can read them; without the
+// Chown, default WithMountedSecret perms are root-owned 0o400 and
+// envoy cannot open the key. This is empirically verified for the
+// default Proxy() image tag only — callers that override the image
+// to one whose envoy user has a different uid:gid will see TLS
+// startup fail with EACCES on the key, and will need this constant
+// (and the matching mount) updated to track the new image.
 const envoyOwner = "101:101"
 
 func listenerCertPath(name string) string {
@@ -258,10 +262,14 @@ func renderUpstreamTransportSocket(clusterName, mode string) map[string]any {
 }
 
 // mintListenerLeaf signs a per-listener server leaf certificate from
-// the caller-supplied CA, extracts the cert + chain as a single PEM
-// file and the private key as a plain PEM file (suitable for Envoy's
+// the caller-supplied CA, returning the cert + chain as a single
+// PEM *dagger.File and the PKCS#1 private key as a *dagger.Secret.
+// The cert PEM is mounted via WithFile and the key Secret via
+// WithMountedSecret, so both still feed Envoy's
 // `certificate_chain.filename` + `private_key.filename` data
-// sources). Returns (nil, nil, nil) for PLAINTEXT mode.
+// sources at the in-container paths returned by listenerCertPath /
+// listenerKeyPath — only the key avoids being snapshotted into the
+// container filesystem. Returns (nil, nil, nil) for PLAINTEXT mode.
 func mintListenerLeaf(ctx context.Context, listenerName string, sec *ServerSecurity) (*dagger.File, *dagger.Secret, error) {
 	if sec == nil || sec.Mode == "PLAINTEXT" {
 		return nil, nil, nil
