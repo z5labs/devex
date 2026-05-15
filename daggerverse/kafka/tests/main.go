@@ -23,20 +23,28 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	par "github.com/dagger/dagger/util/parallel"
 )
 
 type Tests struct{}
 
-// All runs every kafka round-trip test in parallel. Each test owns its own
-// cluster lifecycle: it builds a cluster on entry and tears it down via
-// `defer cluster.Stop(ctx)` so the broker `Container.asService` spans close
-// the moment the test work is done rather than running out to the parent
-// parallel group's lifetime. Reusing clusters across tests within a parallel
-// run is a follow-up — early attempts amplified Dagger's service-binding
-// propagation race into intermittent "lookup broker-... no such host"
-// failures, so this PR keeps the per-test isolation that's already proven.
+// All runs every kafka round-trip test in parallel. Tests are grouped by
+// security shape: shared-cluster eligible tests (read-only or topic-scoped
+// writes that don't disturb other tests) reuse one ApacheNativeCluster per
+// shape — sharedPlaintext / sharedTls / sharedMtls — constructed eagerly at
+// the top of All and torn down via deferred Stop. Topology-divergent or
+// state-mutating tests (multi-broker, multi-controller, RF=2 TLS) keep
+// owning their own cluster via the freshCluster* helpers. The per-distro
+// tests (Apache JVM, Confluent, Redpanda) likewise keep their own fresh
+// clusters since they exist to exercise a distinct distro image.
+//
+// Sequencing: a single flat par.New() pool. Same-shape shared-cluster tests
+// share the same *dagger.KafkaCluster pointer so the engine collapses their
+// boots to one. Fresh-cluster tests of any shape spawn distinct clusterIds —
+// distinct services, no lifetime race with shared instances. The no-broker
+// test runs concurrently with anything.
 //
 // kafkaImageTag picks the tag every spawned Apache cluster runs against —
 // applied to both the apache/kafka-native image (ApacheNativeCluster) and
@@ -55,9 +63,9 @@ type Tests struct{}
 // and its own default.
 //
 // parallel caps how many tests run concurrently inside this suite. Defaults
-// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
-// fan out every test with no limit, or any positive integer to opt into a
-// specific level of concurrency.
+// to 4 — the AC's stability minimum on the trace-recording host once cluster
+// sharing reduces the number of concurrent broker services. Pass 0 to fan
+// out every test with no limit, or any positive integer for a specific cap.
 //
 // +check
 // +cache="session"
@@ -69,9 +77,27 @@ func (t *Tests) All(
 	confluentImageTag string,
 	// +default="v26.1.7"
 	redpandaImageTag string,
-	// +default=1
+	// +default=4
 	parallel int,
 ) error {
+	sharedPlaintext, err := sharedPlaintextCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared plaintext cluster: %w", err)
+	}
+	defer sharedPlaintext.Stop(ctx)
+
+	sharedTls, sharedTlsTs, sharedTlsTsPwd, err := sharedTlsCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared tls cluster: %w", err)
+	}
+	defer sharedTls.Stop(ctx)
+
+	sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd, err := sharedMtlsCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared mtls cluster: %w", err)
+	}
+	defer sharedMtls.Stop(ctx)
+
 	jobs := par.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
@@ -81,34 +107,34 @@ func (t *Tests) All(
 
 	jobs = jobs.WithJob("PlaintextSecurityProfilesAreNonNil", t.PlaintextSecurityProfilesAreNonNil)
 	jobs = jobs.WithJob("SingleNodeClusterStarts", func(ctx context.Context) error {
-		return t.SingleNodeClusterStarts(ctx, kafkaImageTag)
+		return singleNodeClusterStartsOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ClusterClientCanListTopicsOnFreshCluster", func(ctx context.Context) error {
-		return t.ClusterClientCanListTopicsOnFreshCluster(ctx, kafkaImageTag)
+		return clusterClientCanListTopicsOnFreshClusterOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("CreateAndDeleteTopicRoundTrip", func(ctx context.Context) error {
-		return t.CreateAndDeleteTopicRoundTrip(ctx, kafkaImageTag)
+		return createAndDeleteTopicRoundTripOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripRaw", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripRaw(ctx, kafkaImageTag)
+		return produceConsumeRoundTripRawOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripHex", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripHex(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "hex", "deadbeef", "00010203fffefdfc")
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripBase64", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripBase64(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "base64", "3q2+7w==", "AAECA//+/fw=")
 	})
 	jobs = jobs.WithJob("ProduceRejectsUnknownEncoding", func(ctx context.Context) error {
-		return t.ProduceRejectsUnknownEncoding(ctx, kafkaImageTag)
+		return produceRejectsUnknownEncodingOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsBootstrapAndSecurityProtocol", func(ctx context.Context) error {
-		return t.PropertiesFileContainsBootstrapAndSecurityProtocol(ctx, kafkaImageTag)
+		return propertiesFileContainsBootstrapAndSecurityProtocolOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("BindBrokersExposesBothListeners", func(ctx context.Context) error {
 		return t.BindBrokersExposesBothListeners(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("DedicatedControllerAndBrokerProduceConsume", func(ctx context.Context) error {
-		return t.DedicatedControllerAndBrokerProduceConsume(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "raw", "k", "v")
 	})
 	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", func(ctx context.Context) error {
 		return t.OneControllerTwoBrokersReplicationFactorTwo(ctx, kafkaImageTag)
@@ -117,34 +143,34 @@ func (t *Tests) All(
 		return t.MultiControllerIsRejected(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("AutoCreateTopicsDisabled", func(ctx context.Context) error {
-		return t.AutoCreateTopicsDisabled(ctx, kafkaImageTag)
+		return autoCreateTopicsDisabledOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", func(ctx context.Context) error {
-		return t.ConsumerGroupOnSingleBrokerWorks(ctx, kafkaImageTag)
+		return consumerGroupOnSingleBrokerWorksOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("TlsClusterStarts", func(ctx context.Context) error {
-		return t.TlsClusterStarts(ctx, kafkaImageTag)
+		return tlsClusterStartsOn(ctx, sharedTls)
 	})
 	jobs = jobs.WithJob("TlsRoundTrip", func(ctx context.Context) error {
-		return t.TlsRoundTrip(ctx, kafkaImageTag)
+		return tlsRoundTripOn(ctx, sharedTls, sharedTlsTs, sharedTlsTsPwd)
 	})
 	jobs = jobs.WithJob("TlsClientWithWrongCaFails", func(ctx context.Context) error {
-		return t.TlsClientWithWrongCaFails(ctx, kafkaImageTag)
+		return tlsClientWithWrongCaFailsOn(ctx, sharedTls)
 	})
 	jobs = jobs.WithJob("InternalListenersAreEncrypted", func(ctx context.Context) error {
 		return t.InternalListenersAreEncrypted(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("MtlsRoundTrip", func(ctx context.Context) error {
-		return t.MtlsRoundTrip(ctx, kafkaImageTag)
+		return mtlsRoundTripOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd)
 	})
 	jobs = jobs.WithJob("MtlsRequiresClientCert", func(ctx context.Context) error {
-		return t.MtlsRequiresClientCert(ctx, kafkaImageTag)
+		return mtlsRequiresClientCertOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsTlsSettings", func(ctx context.Context) error {
-		return t.PropertiesFileContainsTlsSettings(ctx, kafkaImageTag)
+		return propertiesFileContainsTlsSettingsOn(ctx, sharedTls, sharedTlsTs, sharedTlsTsPwd)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsMtlsSettings", func(ctx context.Context) error {
-		return t.PropertiesFileContainsMtlsSettings(ctx, kafkaImageTag)
+		return propertiesFileContainsMtlsSettingsOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd)
 	})
 	jobs = jobs.WithJob("ApacheClusterProduceListTopicsRoundTrip", func(ctx context.Context) error {
 		return t.ApacheClusterProduceListTopicsRoundTrip(ctx, kafkaImageTag)
