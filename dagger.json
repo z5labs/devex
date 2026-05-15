@@ -32,6 +32,10 @@
     {
       "name": "envoy-tests",
       "source": "daggerverse/envoy/tests"
+    },
+    {
+      "name": "otel-tests",
+      "source": "daggerverse/otel/tests"
     }
   ],
   "source": "ci"
