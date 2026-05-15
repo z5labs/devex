@@ -1,10 +1,12 @@
 // Tests for the kafka daggerverse module. Each test is exposed as a standalone
 // dagger function so it can be invoked individually during TDD; All wires them
-// up for parallel execution under `dagger call all`.
+// up for grouped, parallel execution under `dagger call all`.
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
-//   - main.go            — Tests struct + the All() orchestrator.
+//   - main.go            — Tests struct, the All() orchestrator, and the four
+//                          per-distro group functions (nativeTests,
+//                          apacheJVMTests, confluentTests, redpandaTests).
 //   - helpers.go         — cross-cutting scaffolding shared across distros:
 //                          newClusterId, freshCa, randHex, randomTopicName,
 //                          contains.
@@ -23,20 +25,38 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	par "github.com/dagger/dagger/util/parallel"
 )
 
 type Tests struct{}
 
-// All runs every kafka round-trip test in parallel. Each test owns its own
-// cluster lifecycle: it builds a cluster on entry and tears it down via
-// `defer cluster.Stop(ctx)` so the broker `Container.asService` spans close
-// the moment the test work is done rather than running out to the parent
-// parallel group's lifetime. Reusing clusters across tests within a parallel
-// run is a follow-up — early attempts amplified Dagger's service-binding
-// propagation race into intermittent "lookup broker-... no such host"
-// failures, so this PR keeps the per-test isolation that's already proven.
+// All runs every kafka round-trip test, grouped by cluster distro. The
+// suite is split into four intermediate group functions — nativeTests,
+// apacheJVMTests, confluentTests, redpandaTests — and parallelised at
+// two levels: All fans the four groups out across one par pool, and each
+// group in turn fans its own tests out across a nested par pool. Both
+// pools use the same parallel cap, so peak concurrency is bounded by
+// parallel groups each running up to parallel tests.
+//
+// Every group still boots only its own clusters and tears them down on
+// return, so cluster lifetime stays bounded to the group — the fast
+// Redpanda cluster is gone the moment redpandaTests returns rather than
+// idling under a deferred Stop. All four groups run regardless of
+// earlier failures — the par pool aggregates their errors — so one red
+// group never hides another's results.
+//
+// nativeTests carries the bulk of the suite. It owns the three shared
+// ApacheNativeClusters — sharedPlaintext / sharedTls / sharedMtls, one
+// per security shape — plus the topology-divergent native tests that
+// still spawn their own fresh clusters (multi-broker, multi-controller,
+// RF=2 TLS, encrypted internal listeners). Same-shape shared-cluster
+// tests share one *dagger.KafkaCluster pointer so the engine collapses
+// their boots to a single service.
+//
+// apacheJVMTests, confluentTests and redpandaTests each exercise a
+// distinct distro image and keep their own per-test fresh clusters.
 //
 // kafkaImageTag picks the tag every spawned Apache cluster runs against —
 // applied to both the apache/kafka-native image (ApacheNativeCluster) and
@@ -54,10 +74,10 @@ type Tests struct{}
 // alignment to Apache or Confluent numbering, so it gets its own argument
 // and its own default.
 //
-// parallel caps how many tests run concurrently inside this suite. Defaults
-// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
-// fan out every test with no limit, or any positive integer to opt into a
-// specific level of concurrency.
+// parallel is the concurrency cap applied at both levels — how many
+// groups run at once and how many tests run at once within each group.
+// Defaults to 4. Pass 0 to fan out with no limit at either level, or any
+// positive integer for a specific cap.
 //
 // +check
 // +cache="session"
@@ -69,7 +89,7 @@ func (t *Tests) All(
 	confluentImageTag string,
 	// +default="v26.1.7"
 	redpandaImageTag string,
-	// +default=1
+	// +default=4
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -79,36 +99,83 @@ func (t *Tests) All(
 		jobs = jobs.WithLimit(parallel)
 	}
 
+	jobs = jobs.WithJob("nativeTests", func(ctx context.Context) error {
+		return t.nativeTests(ctx, kafkaImageTag, parallel)
+	})
+	jobs = jobs.WithJob("apacheJVMTests", func(ctx context.Context) error {
+		return t.apacheJVMTests(ctx, kafkaImageTag, parallel)
+	})
+	jobs = jobs.WithJob("confluentTests", func(ctx context.Context) error {
+		return t.confluentTests(ctx, confluentImageTag, parallel)
+	})
+	jobs = jobs.WithJob("redpandaTests", func(ctx context.Context) error {
+		return t.redpandaTests(ctx, redpandaImageTag, parallel)
+	})
+
+	return jobs.Run(ctx)
+}
+
+// nativeTests runs every apache/kafka-native test as one group. It boots
+// the three shared ApacheNativeClusters up front, fans the shared-cluster
+// and fresh-cluster native tests across a par pool capped at parallel,
+// and tears the shared clusters down on return — before All advances to
+// the per-distro groups.
+func (t *Tests) nativeTests(ctx context.Context, kafkaImageTag string, parallel int) error {
+	sharedPlaintext, err := sharedPlaintextCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared plaintext cluster: %w", err)
+	}
+	defer sharedPlaintext.Stop(ctx)
+
+	sharedTls, sharedTlsTs, sharedTlsTsPwd, err := sharedTlsCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared tls cluster: %w", err)
+	}
+	defer sharedTls.Stop(ctx)
+
+	sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd, err := sharedMtlsCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create shared mtls cluster: %w", err)
+	}
+	defer sharedMtls.Stop(ctx)
+
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+
 	jobs = jobs.WithJob("PlaintextSecurityProfilesAreNonNil", t.PlaintextSecurityProfilesAreNonNil)
 	jobs = jobs.WithJob("SingleNodeClusterStarts", func(ctx context.Context) error {
-		return t.SingleNodeClusterStarts(ctx, kafkaImageTag)
+		return singleNodeClusterStartsOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ClusterClientCanListTopicsOnFreshCluster", func(ctx context.Context) error {
-		return t.ClusterClientCanListTopicsOnFreshCluster(ctx, kafkaImageTag)
+		return clusterClientCanListTopicsOnFreshClusterOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("CreateAndDeleteTopicRoundTrip", func(ctx context.Context) error {
-		return t.CreateAndDeleteTopicRoundTrip(ctx, kafkaImageTag)
+		return createAndDeleteTopicRoundTripOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripRaw", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripRaw(ctx, kafkaImageTag)
+		return produceConsumeRoundTripRawOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripHex", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripHex(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "hex", "deadbeef", "00010203fffefdfc")
 	})
 	jobs = jobs.WithJob("ProduceConsumeRoundTripBase64", func(ctx context.Context) error {
-		return t.ProduceConsumeRoundTripBase64(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "base64", "3q2+7w==", "AAECA//+/fw=")
 	})
 	jobs = jobs.WithJob("ProduceRejectsUnknownEncoding", func(ctx context.Context) error {
-		return t.ProduceRejectsUnknownEncoding(ctx, kafkaImageTag)
+		return produceRejectsUnknownEncodingOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsBootstrapAndSecurityProtocol", func(ctx context.Context) error {
-		return t.PropertiesFileContainsBootstrapAndSecurityProtocol(ctx, kafkaImageTag)
+		return propertiesFileContainsBootstrapAndSecurityProtocolOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("BindBrokersExposesBothListeners", func(ctx context.Context) error {
 		return t.BindBrokersExposesBothListeners(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("DedicatedControllerAndBrokerProduceConsume", func(ctx context.Context) error {
-		return t.DedicatedControllerAndBrokerProduceConsume(ctx, kafkaImageTag)
+		return roundTripBinaryOn(ctx, sharedPlaintext, "raw", "k", "v")
 	})
 	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", func(ctx context.Context) error {
 		return t.OneControllerTwoBrokersReplicationFactorTwo(ctx, kafkaImageTag)
@@ -117,35 +184,51 @@ func (t *Tests) All(
 		return t.MultiControllerIsRejected(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("AutoCreateTopicsDisabled", func(ctx context.Context) error {
-		return t.AutoCreateTopicsDisabled(ctx, kafkaImageTag)
+		return autoCreateTopicsDisabledOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", func(ctx context.Context) error {
-		return t.ConsumerGroupOnSingleBrokerWorks(ctx, kafkaImageTag)
+		return consumerGroupOnSingleBrokerWorksOn(ctx, sharedPlaintext)
 	})
 	jobs = jobs.WithJob("TlsClusterStarts", func(ctx context.Context) error {
-		return t.TlsClusterStarts(ctx, kafkaImageTag)
+		return tlsClusterStartsOn(ctx, sharedTls)
 	})
 	jobs = jobs.WithJob("TlsRoundTrip", func(ctx context.Context) error {
-		return t.TlsRoundTrip(ctx, kafkaImageTag)
+		return tlsRoundTripOn(ctx, sharedTls, sharedTlsTs, sharedTlsTsPwd)
 	})
 	jobs = jobs.WithJob("TlsClientWithWrongCaFails", func(ctx context.Context) error {
-		return t.TlsClientWithWrongCaFails(ctx, kafkaImageTag)
+		return tlsClientWithWrongCaFailsOn(ctx, sharedTls)
 	})
 	jobs = jobs.WithJob("InternalListenersAreEncrypted", func(ctx context.Context) error {
 		return t.InternalListenersAreEncrypted(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("MtlsRoundTrip", func(ctx context.Context) error {
-		return t.MtlsRoundTrip(ctx, kafkaImageTag)
+		return mtlsRoundTripOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd)
 	})
 	jobs = jobs.WithJob("MtlsRequiresClientCert", func(ctx context.Context) error {
-		return t.MtlsRequiresClientCert(ctx, kafkaImageTag)
+		return mtlsRequiresClientCertOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsTlsSettings", func(ctx context.Context) error {
-		return t.PropertiesFileContainsTlsSettings(ctx, kafkaImageTag)
+		return propertiesFileContainsTlsSettingsOn(ctx, sharedTls, sharedTlsTs, sharedTlsTsPwd)
 	})
 	jobs = jobs.WithJob("PropertiesFileContainsMtlsSettings", func(ctx context.Context) error {
-		return t.PropertiesFileContainsMtlsSettings(ctx, kafkaImageTag)
+		return propertiesFileContainsMtlsSettingsOn(ctx, sharedMtls, sharedMtlsTs, sharedMtlsTsPwd, sharedMtlsKs, sharedMtlsKsPwd)
 	})
+
+	return jobs.Run(ctx)
+}
+
+// apacheJVMTests runs the three apache/kafka JVM-image round-trip tests.
+// Each test owns a fresh ApacheCluster, so the group holds no shared
+// clusters of its own — its only lifetime guarantee is that all three
+// JVM clusters are gone once it returns.
+func (t *Tests) apacheJVMTests(ctx context.Context, kafkaImageTag string, parallel int) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+
 	jobs = jobs.WithJob("ApacheClusterProduceListTopicsRoundTrip", func(ctx context.Context) error {
 		return t.ApacheClusterProduceListTopicsRoundTrip(ctx, kafkaImageTag)
 	})
@@ -155,6 +238,21 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ApacheClusterMtlsRoundTrip", func(ctx context.Context) error {
 		return t.ApacheClusterMtlsRoundTrip(ctx, kafkaImageTag)
 	})
+
+	return jobs.Run(ctx)
+}
+
+// confluentTests runs the three confluentinc/cp-kafka round-trip tests.
+// Each test owns a fresh ConfluentCluster; the group exists so cp-kafka's
+// (slow) clusters are all torn down before redpandaTests starts.
+func (t *Tests) confluentTests(ctx context.Context, confluentImageTag string, parallel int) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+
 	jobs = jobs.WithJob("ConfluentClusterProduceListTopicsRoundTrip", func(ctx context.Context) error {
 		return t.ConfluentClusterProduceListTopicsRoundTrip(ctx, confluentImageTag)
 	})
@@ -164,6 +262,22 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ConfluentClusterMtlsRoundTrip", func(ctx context.Context) error {
 		return t.ConfluentClusterMtlsRoundTrip(ctx, confluentImageTag)
 	})
+
+	return jobs.Run(ctx)
+}
+
+// redpandaTests runs the two redpandadata/redpanda round-trip tests.
+// Redpanda boots and tears down far faster than the JVM-based distros,
+// so running it as its own group means its clusters never linger past
+// this function's return.
+func (t *Tests) redpandaTests(ctx context.Context, redpandaImageTag string, parallel int) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+
 	jobs = jobs.WithJob("RedpandaClusterProduceListTopicsRoundTrip", func(ctx context.Context) error {
 		return t.RedpandaClusterProduceListTopicsRoundTrip(ctx, redpandaImageTag)
 	})

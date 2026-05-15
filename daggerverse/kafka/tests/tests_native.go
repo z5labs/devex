@@ -117,6 +117,111 @@ func freshMtlsCluster(ctx context.Context, kafkaImageTag string, brokers int) (
 	return cluster, serverTrust.Pkcs12(), serverTrust.Password(), leafKs.Pkcs12(), leafKs.Password(), nil
 }
 
+// sharedPlaintextCluster mints the single-broker plaintext ApacheNativeCluster
+// that backs every shared-cluster eligible plaintext test inside Tests.All.
+// Returns a lazy chain; the underlying broker boot is triggered on the first
+// leaf op resolution (e.g. BootstrapServers) and then collapsed to one boot
+// across every test that references the returned pointer.
+func sharedPlaintextCluster(ctx context.Context, kafkaImageTag string) (*dagger.KafkaCluster, error) {
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	k := dag.Kafka()
+	return k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
+		Tag: kafkaImageTag,
+	}), nil
+}
+
+// sharedTlsCluster is the single-broker TLS sibling of sharedPlaintextCluster.
+// One CA is minted for the suite; its truststore (file + password) is returned
+// alongside the cluster so every shared-TLS test can build a matching
+// TlsClientSecurity off the same trust path.
+func sharedTlsCluster(ctx context.Context, kafkaImageTag string) (
+	*dagger.KafkaCluster, *dagger.File, *dagger.Secret, error,
+) {
+	ca, err := freshCa(ctx, "shared-tls-server")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	serverSec := dag.Kafka().TLSServerSecurity(caKs.Pkcs12(), caKs.Password())
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cluster := dag.Kafka().ApacheNativeCluster(clusterId, serverSec, dagger.KafkaApacheNativeClusterOpts{
+		Tag:     kafkaImageTag,
+		Brokers: 1,
+	})
+	return cluster, ts.Pkcs12(), ts.Password(), nil
+}
+
+// sharedMtlsCluster is the single-broker mTLS sibling of sharedPlaintextCluster.
+// Two CAs are minted (server + client) once for the suite and a single client
+// leaf is issued; the returned client keystore + server truststore back every
+// shared-mTLS test so they all reuse the same handshake material.
+func sharedMtlsCluster(ctx context.Context, kafkaImageTag string) (
+	cluster *dagger.KafkaCluster,
+	serverTs *dagger.File, serverTsPwd *dagger.Secret,
+	clientKs *dagger.File, clientKsPwd *dagger.Secret,
+	err error,
+) {
+	serverCa, err := freshCa(ctx, "shared-mtls-server")
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	clientCa, err := freshCa(ctx, "shared-mtls-client")
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	serverCaKs := serverCa.KeyStore()
+	clientCaTs := clientCa.TrustStore()
+	serverSec := dag.Kafka().MtlsServerSecurity(
+		serverCaKs.Pkcs12(), serverCaKs.Password(),
+		clientCaTs.Pkcs12(), clientCaTs.Password(),
+	)
+
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	leafKeyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate shared client leaf key: %w", err)
+	}
+	leafKey := dag.SetSecret("shared-mtls-client-leaf-key-"+suffix, leafKeyPem)
+
+	leafPwdHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate shared client leaf password: %w", err)
+	}
+	leafPwd := dag.SetSecret("shared-mtls-client-leaf-pwd-"+suffix, leafPwdHex)
+
+	leafSerial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("generate shared client leaf serial: %w", err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	clientLeaf := clientCa.IssueClientCertificate("test-client", nb, leafSerial, leafPwd, leafKey)
+	leafKs := clientLeaf.KeyStore()
+
+	serverTrust := serverCa.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	cluster = dag.Kafka().ApacheNativeCluster(clusterId, serverSec, dagger.KafkaApacheNativeClusterOpts{
+		Tag:     kafkaImageTag,
+		Brokers: 1,
+	})
+	return cluster, serverTrust.Pkcs12(), serverTrust.Password(), leafKs.Pkcs12(), leafKs.Password(), nil
+}
+
 // PropertiesFileContainsTlsSettings verifies the rendered Java
 // client.properties carries security.protocol=SSL plus an ssl.truststore.*
 // triple referencing a sidecar PKCS#12 file by basename.
