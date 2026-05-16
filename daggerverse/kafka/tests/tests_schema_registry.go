@@ -14,8 +14,9 @@ const avroTestSchema = `{"type":"record","name":"R","fields":[{"name":"x","type"
 
 // SchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path test
 // for Kafka.ConfluentSchemaRegistry: stand a cp-schema-registry up next to
-// a fresh cluster, then exercise register → lookup-by-id → list-subjects →
-// delete against it.
+// a fresh cluster, then exercise register → lookup-by-id →
+// lookup-latest-by-subject → list-subjects → set/get-compatibility →
+// delete against it — covering every SchemaRegistryClient operation.
 func (t *Tests) SchemaRegistryRegisterLookupRoundTrip(
 	ctx context.Context,
 	// +default="4.2.0"
@@ -71,12 +72,60 @@ func (t *Tests) SchemaRegistryRegisterLookupRoundTrip(
 		return fmt.Errorf("lookup-by-id schemaID mismatch: want %d, got %d", id, gotID)
 	}
 
+	latest := client.LookupLatestBySubject(subject)
+	latestSubject, err := latest.Subject(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup latest by subject: %w", err)
+	}
+	if latestSubject != subject {
+		return fmt.Errorf("lookup-latest subject mismatch: want %q, got %q", subject, latestSubject)
+	}
+	latestVersion, err := latest.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("read latest version: %w", err)
+	}
+	if latestVersion != 1 {
+		return fmt.Errorf("lookup-latest version mismatch: want 1, got %d", latestVersion)
+	}
+	latestID, err := latest.SchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read latest schema id: %w", err)
+	}
+	if latestID != id {
+		return fmt.Errorf("lookup-latest schemaID mismatch: want %d, got %d", id, latestID)
+	}
+	latestDef, err := latest.Definition(ctx)
+	if err != nil {
+		return fmt.Errorf("read latest definition: %w", err)
+	}
+	if latestDef == "" {
+		return fmt.Errorf("expected lookup-latest to return a non-empty schema definition")
+	}
+	latestType, err := latest.SchemaType(ctx)
+	if err != nil {
+		return fmt.Errorf("read latest schema type: %w", err)
+	}
+	if latestType != "AVRO" {
+		return fmt.Errorf("lookup-latest schemaType mismatch: want AVRO, got %q", latestType)
+	}
+
 	subjects, err := client.ListSubjects(ctx)
 	if err != nil {
 		return fmt.Errorf("list subjects: %w", err)
 	}
 	if !contains(subjects, subject) {
 		return fmt.Errorf("expected subject %q in %v after register", subject, subjects)
+	}
+
+	if err := client.SetCompatibility(ctx, subject, "BACKWARD"); err != nil {
+		return fmt.Errorf("set compatibility: %w", err)
+	}
+	level, err := client.GetCompatibility(ctx, subject)
+	if err != nil {
+		return fmt.Errorf("get compatibility: %w", err)
+	}
+	if level != "BACKWARD" {
+		return fmt.Errorf("compatibility round-trip mismatch: want BACKWARD, got %q", level)
 	}
 
 	deleted, err := client.DeleteSubject(ctx, subject)
