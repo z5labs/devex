@@ -175,7 +175,8 @@ func redpandaClusterTlsRoundTripOn(
 // against cluster.SchemaRegistry() and asserts the lookup-by-id round-trip —
 // proving the bundled SR is reachable and interchangeable with the
 // separate-container ConfluentSchemaRegistry. The SR service is the broker
-// itself, so cluster.Stop tears it down — there is no separate sr.Stop.
+// itself, so cluster.Stop tears it down — sr.Stop is a no-op for a bundled
+// registry.
 func (t *Tests) RedpandaSchemaRegistryRegisterLookupRoundTrip(
 	ctx context.Context,
 	// +default="v26.1.7"
@@ -219,6 +220,60 @@ func (t *Tests) RedpandaSchemaRegistryRegisterLookupRoundTrip(
 	}
 	if gotType != "AVRO" {
 		return fmt.Errorf("lookup-by-id schemaType mismatch: want AVRO, got %q", gotType)
+	}
+	gotID, err := got.SchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema id: %w", err)
+	}
+	if gotID != id {
+		return fmt.Errorf("lookup-by-id schemaID mismatch: want %d, got %d", id, gotID)
+	}
+	return nil
+}
+
+// RedpandaSchemaRegistryTlsRegisterLookupRoundTrip is the TLS-cluster
+// counterpart of RedpandaSchemaRegistryRegisterLookupRoundTrip. A TLS
+// Redpanda cluster configures its bundled Schema Registry through a
+// separately-rendered redpanda.yaml (the schema_registry_api block) rather
+// than the PLAINTEXT path's --schema-registry-addr flag, so this exercises
+// that YAML path end-to-end. The SR REST endpoint is plain HTTP regardless
+// of the Kafka listener's TLS mode, so the truststore is unused here.
+func (t *Tests) RedpandaSchemaRegistryTlsRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, _, _, err := freshTlsRedpandaCluster(ctx, redpandaImageTag)
+	if err != nil {
+		return fmt.Errorf("create redpanda tls cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	client := cluster.SchemaRegistry().Client()
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	subject += "-value"
+
+	id, err := client.RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	got := client.LookupSchemaByID(id)
+	gotSubject, err := got.Subject(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup schema by id: %w", err)
+	}
+	if gotSubject != subject {
+		return fmt.Errorf("lookup-by-id subject mismatch: want %q, got %q", subject, gotSubject)
 	}
 	gotID, err := got.SchemaID(ctx)
 	if err != nil {

@@ -162,6 +162,7 @@ func buildRedpandaCluster(
 		ctr = ctr.
 			WithFile("/etc/redpanda/certs/server.crt", assets.ServerCert, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"}).
 			WithMountedSecret("/etc/redpanda/certs/server.key", assets.ServerKey, dagger.ContainerWithMountedSecretOpts{Owner: "redpanda:redpanda", Mode: 0o400}).
+			WithFile("/etc/redpanda/certs/ca.crt", assets.CaCert, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"}).
 			WithFile("/etc/redpanda/redpanda.yaml", assets.ConfigFile, dagger.ContainerWithFileOpts{Permissions: 0o644, Owner: "redpanda:redpanda"})
 	} else {
 		// PLAINTEXT: no YAML needed — pass listener flags directly.
@@ -200,6 +201,7 @@ func buildRedpandaCluster(
 type redpandaTlsAssets struct {
 	ServerCert *dagger.File   // PEM, mounted at /etc/redpanda/certs/server.crt
 	ServerKey  *dagger.Secret // PEM PKCS#8, mounted at /etc/redpanda/certs/server.key
+	CaCert     *dagger.File   // CA PEM, mounted at /etc/redpanda/certs/ca.crt — truststore for the bundled SR's broker client
 	ConfigFile *dagger.File   // rendered redpanda.yaml, mounted at /etc/redpanda/redpanda.yaml
 }
 
@@ -249,6 +251,17 @@ func mintRedpandaTlsAssets(
 	if err != nil {
 		return nil, fmt.Errorf("stage redpanda server cert: %w", err)
 	}
+	// The bundled Schema Registry talks to the broker over the Kafka wire
+	// protocol; with a TLS-only external listener it must dial over TLS and
+	// trust the cluster CA, so the CA cert is mounted as its truststore.
+	caCertBytes, err := dagFileBytes(ctx, ca.CertPemFile())
+	if err != nil {
+		return nil, fmt.Errorf("materialize redpanda ca cert: %w", err)
+	}
+	caCertFile, err := writeWorkdirBytes("redpanda-ca-cert-"+brokerHost, "ca.crt", caCertBytes)
+	if err != nil {
+		return nil, fmt.Errorf("stage redpanda ca cert: %w", err)
+	}
 	yamlBytes, err := renderRedpandaYaml(brokerHost, true)
 	if err != nil {
 		return nil, fmt.Errorf("render redpanda.yaml: %w", err)
@@ -261,6 +274,7 @@ func mintRedpandaTlsAssets(
 	return &redpandaTlsAssets{
 		ServerCert: certFile,
 		ServerKey:  issued.PrivateKeyPem(),
+		CaCert:     caCertFile,
 		ConfigFile: yamlFile,
 	}, nil
 }
@@ -281,6 +295,18 @@ func renderRedpandaYaml(brokerHost string, withTls bool) ([]byte, error) {
 		KeyFile           string `yaml:"key_file"`
 		TruststoreFile    string `yaml:"truststore_file,omitempty"`
 		RequireClientAuth bool   `yaml:"require_client_auth"`
+	}
+	// brokerTLS / kafkaClientCfg configure the internal Kafka clients the
+	// bundled Schema Registry and pandaproxy use to reach the broker. On a
+	// TLS cluster the only Kafka listener is TLS, so these clients must dial
+	// it over TLS and trust the cluster CA.
+	type brokerTLS struct {
+		Enabled        bool   `yaml:"enabled"`
+		TruststoreFile string `yaml:"truststore_file"`
+	}
+	type kafkaClientCfg struct {
+		Brokers   []addr    `yaml:"brokers"`
+		BrokerTLS brokerTLS `yaml:"broker_tls"`
 	}
 	rpCfg := map[string]any{
 		"data_directory":            "/var/lib/redpanda/data",
@@ -324,6 +350,17 @@ func renderRedpandaYaml(brokerHost string, withTls bool) ([]byte, error) {
 			"coredump_dir": "/var/lib/redpanda/coredump",
 		},
 	}
+	if withTls {
+		clientCfg := kafkaClientCfg{
+			Brokers: []addr{{Address: brokerHost, Port: 9092}},
+			BrokerTLS: brokerTLS{
+				Enabled:        true,
+				TruststoreFile: "/etc/redpanda/certs/ca.crt",
+			},
+		}
+		full["schema_registry_client"] = clientCfg
+		full["pandaproxy_client"] = clientCfg
+	}
 	return yaml.Marshal(full)
 }
 
@@ -346,12 +383,18 @@ func (r *RedpandaCluster) BootstrapServers() []string {
 // REST endpoint is plain HTTP regardless of the cluster's Kafka-listener
 // security mode, so this never fails.
 //
+// The returned registry is Bundled: its service is the broker itself, so
+// Stop is a no-op on it — call cluster.Stop to tear the registry down with
+// the cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
+// *SchemaRegistry type therefore can't accidentally kill the cluster.
+//
 // +cache="never"
 func (r *RedpandaCluster) SchemaRegistry(ctx context.Context) *SchemaRegistry {
 	return &SchemaRegistry{
 		SchemaRegistrySvc: r.BrokerSvc,
 		AdvertisedHost:    r.BrokerHost,
 		AdvertisedPort:    schemaRegistryPort,
+		Bundled:           true,
 	}
 }
 

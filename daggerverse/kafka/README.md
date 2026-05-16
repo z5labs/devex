@@ -274,8 +274,16 @@ client := sr.Client()
 
 id, err := client.RegisterSchema(ctx, "my-subject-value", avroSchema,
     dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{SchemaType: "AVRO"})
-schema, err := client.LookupSchemaByID(ctx, id)
+
+// LookupSchemaByID returns a lazy RegisteredSchema object; its fields
+// resolve with context.
+schema := client.LookupSchemaByID(id)
+subject, err := schema.Subject(ctx)
 ```
+
+`sr.Stop()` is a safe no-op on the bundled registry — its service is the
+broker itself, so `cluster.Stop()` owns teardown. Calling `Stop()` uniformly
+over the shared `*SchemaRegistry` type therefore never kills the cluster.
 
 Unlike `ConfluentSchemaRegistry` — which boots a separate
 `confluentinc/cp-schema-registry` service alongside the brokers —

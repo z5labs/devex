@@ -40,6 +40,13 @@ type SchemaRegistry struct {
 	AdvertisedHost string
 	// +private
 	AdvertisedPort int
+	// Bundled marks a registry whose service is shared with the owning
+	// cluster (e.g. Redpanda's in-broker Schema Registry). The cluster owns
+	// that service's lifecycle, so Stop is a no-op for a bundled registry —
+	// stopping it would otherwise tear the whole cluster down.
+	//
+	// +private
+	Bundled bool
 }
 
 // SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's
@@ -186,9 +193,14 @@ func (s *SchemaRegistry) Client() *SchemaRegistryClient {
 // returns immediately rather than waiting on graceful shutdown, mirroring
 // Cluster.Stop — tests should call this in a defer.
 //
+// For a bundled registry (Bundled == true) the service is shared with the
+// owning cluster, so Stop is a no-op: the cluster owns that lifecycle and
+// stopping it here would tear the whole cluster down. Callers that uniformly
+// `defer sr.Stop(ctx)` stay safe regardless of which registry they hold.
+//
 // +cache="never"
 func (s *SchemaRegistry) Stop(ctx context.Context) error {
-	if s == nil || s.SchemaRegistrySvc == nil {
+	if s == nil || s.SchemaRegistrySvc == nil || s.Bundled {
 		return nil
 	}
 	if _, err := s.SchemaRegistrySvc.Stop(ctx, dagger.ServiceStopOpts{Kill: true}); err != nil {
