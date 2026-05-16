@@ -22,6 +22,10 @@
 //                          PKCS#12 → *tls.Config, PropertiesFile, and the
 //                          admin / produce / consume / list-topics
 //                          method set.
+//   - schema_registry.go — *SchemaRegistry / *SchemaRegistryClient /
+//                          RegisteredSchema, the ConfluentSchemaRegistry
+//                          constructor, and the pure-Go net/http admin
+//                          client for the Schema Registry REST API.
 //   - util.go            — shared helpers (writeWorkdirBytes,
 //                          clusterHostSuffix, randSuffix, dagFileBytes).
 package main
