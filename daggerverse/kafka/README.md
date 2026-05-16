@@ -126,6 +126,74 @@ The constructor silently sets `KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`
 on each broker to disable Confluent's phone-home telemetry, matching
 the Apache variants' startup behavior.
 
+## Schema Registry
+
+A schema registry sits alongside the brokers as a separate service: it
+stores schemas in the cluster's `_schemas` Kafka topic and exposes a REST
+API for registering and looking up Avro / JSON Schema / Protobuf schemas by
+subject. `ConfluentSchemaRegistry` runs the `confluentinc/cp-schema-registry`
+image.
+
+```go
+cluster := dag.Kafka().ConfluentCluster(clusterId, dag.Kafka().PlaintextServerSecurity())
+
+sr := dag.Kafka().ConfluentSchemaRegistry(
+    cluster,
+    dagger.KafkaConfluentSchemaRegistryOpts{
+        Tag:      "8.2.0",
+        Registry: "docker.io",
+    },
+)
+client := sr.Client()
+```
+
+The registry composes on top of **any** `*Cluster` — it talks the Kafka
+wire protocol to the brokers for its `_schemas` topic and exposes its own
+REST API on top, so the cluster distro is orthogonal. `cp-schema-registry`
+simply pairs most naturally with a `cp-kafka` `ConfluentCluster`.
+
+`ConfluentSchemaRegistry` is session-cached, so chained client calls all
+observe the same underlying service. It binds every broker via
+`cluster.BindBrokers` and wires `SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS`
+from `cluster.BootstrapServers()`.
+
+**PLAINTEXT only** in this story — the constructor rejects a cluster whose
+client listener runs TLS or mTLS. TLS / mTLS Schema Registry is a follow-up.
+
+- `SchemaRegistry.Endpoint(ctx) (string, error)` — the `host:port` other
+  containers (and the module runtime) reach the REST API on.
+- `SchemaRegistry.BindTo(c *dagger.Container) *dagger.Container` —
+  `WithServiceBinding` so a caller's container resolves the registry at the
+  same hostname `Endpoint` reports.
+- `SchemaRegistry.Client() *SchemaRegistryClient` — a pure-Go `net/http`
+  admin client; no helper containers.
+- `SchemaRegistry.Stop(ctx) error` — tears the registry service down.
+
+### SchemaRegistryClient
+
+```go
+id, err := client.RegisterSchema(ctx, "my-subject-value", avroSchema,
+    dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{SchemaType: "AVRO"})
+
+schema, err := client.LookupSchemaByID(ctx, id)        // RegisteredSchema
+latest, err := client.LookupLatestBySubject(ctx, "my-subject-value")
+subjects, err := client.ListSubjects(ctx)              // []string
+deleted, err := client.DeleteSubject(ctx, "my-subject-value") // []int versions
+
+err = client.SetCompatibility(ctx, "my-subject-value", "BACKWARD")
+level, err := client.GetCompatibility(ctx, "my-subject-value")
+```
+
+`schemaType` accepts `AVRO`, `JSON`, or `PROTOBUF`. Compatibility `level`
+accepts `NONE`, `BACKWARD`, `BACKWARD_TRANSITIVE`, `FORWARD`,
+`FORWARD_TRANSITIVE`, `FULL`, or `FULL_TRANSITIVE`.
+
+`RegisteredSchema` carries `Subject`, `Version`, `SchemaID`, `Definition`
+(the schema text), and `SchemaType`. The `SchemaID` / `Definition` names
+diverge from the REST API's `id` / `schema` JSON keys: a Dagger object
+already has a synthetic `id` field and `schema` is a GraphQL keyword, so
+both would break consumer-module codegen.
+
 ## RedpandaCluster
 
 ```go

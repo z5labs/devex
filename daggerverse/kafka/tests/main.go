@@ -21,6 +21,9 @@
 //                          helpers + the three cp-kafka round-trip tests.
 //   - tests_redpanda.go  — RedpandaCluster (redpandadata/redpanda) cluster
 //                          helpers + the two Redpanda round-trip tests.
+//   - tests_schema_registry.go — ConfluentSchemaRegistry tests: the
+//                          register/lookup/delete round-trip and the
+//                          non-PLAINTEXT-cluster rejection.
 package main
 
 import (
@@ -110,6 +113,31 @@ func (t *Tests) All(
 	})
 	jobs = jobs.WithJob("redpandaTests", func(ctx context.Context) error {
 		return t.redpandaTests(ctx, redpandaImageTag, parallel)
+	})
+	jobs = jobs.WithJob("schemaRegistryTests", func(ctx context.Context) error {
+		return t.schemaRegistryTests(ctx, kafkaImageTag, parallel)
+	})
+
+	return jobs.Run(ctx)
+}
+
+// schemaRegistryTests runs the Kafka.ConfluentSchemaRegistry tests as one
+// group. Each test owns the cluster (and, for the round-trip, the
+// cp-schema-registry service) it boots, so the group's only lifetime
+// guarantee is that both are torn down once it returns.
+func (t *Tests) schemaRegistryTests(ctx context.Context, kafkaImageTag string, parallel int) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+
+	jobs = jobs.WithJob("SchemaRegistryRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.SchemaRegistryRegisterLookupRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("SchemaRegistryRejectsNonPlaintextCluster", func(ctx context.Context) error {
+		return t.SchemaRegistryRejectsNonPlaintextCluster(ctx, kafkaImageTag)
 	})
 
 	return jobs.Run(ctx)
