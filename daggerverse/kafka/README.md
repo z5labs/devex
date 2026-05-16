@@ -259,6 +259,38 @@ The `*KafkaClient` returned by `RedpandaCluster.Client()` is the same
 type the Apache constructors return — bring whichever
 `*ClientSecurity` you already use. PKCS#12 truststores work as-is.
 
+### Bundled Schema Registry
+
+`rpk redpanda start` already runs a Schema Registry inside the broker
+process on `:8081` — there is no separate container. `cluster.SchemaRegistry()`
+surfaces it as the **same** `*SchemaRegistry` type
+`Kafka.ConfluentSchemaRegistry` returns, so the bundled and
+separate-container registries are interchangeable from a caller's
+perspective:
+
+```go
+sr := cluster.SchemaRegistry()
+client := sr.Client()
+
+id, err := client.RegisterSchema(ctx, "my-subject-value", avroSchema,
+    dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{SchemaType: "AVRO"})
+schema, err := client.LookupSchemaByID(ctx, id)
+```
+
+Unlike `ConfluentSchemaRegistry` — which boots a separate
+`confluentinc/cp-schema-registry` service alongside the brokers —
+Redpanda's registry needs no extra image: the constructor exposes port
+8081 on the broker container and passes `--schema-registry-addr` (TLS
+mode renders the equivalent `schema_registry` directive in
+`redpanda.yaml`). It speaks the Confluent Schema Registry REST API, so
+the `*SchemaRegistryClient` from `Client()`, `Endpoint()` and `BindTo()`
+all behave identically to the `ConfluentSchemaRegistry` variant.
+
+The registry's REST endpoint is plain HTTP regardless of the cluster's
+Kafka-listener security mode, so `SchemaRegistry()` works on both
+PLAINTEXT and TLS Redpanda clusters. (Securing the SR endpoint itself
+with TLS is a follow-up, matching `ConfluentSchemaRegistry`.)
+
 ## Client
 
 `dag.Kafka().Client(bootstrapServers, security)` constructs a franz-go-backed

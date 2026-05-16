@@ -168,3 +168,64 @@ func redpandaClusterTlsRoundTripOn(
 	}
 	return nil
 }
+
+// RedpandaSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path
+// test for RedpandaCluster.SchemaRegistry: `rpk redpanda start` runs a Schema
+// Registry inside the broker process on :8081, so this registers a schema
+// against cluster.SchemaRegistry() and asserts the lookup-by-id round-trip —
+// proving the bundled SR is reachable and interchangeable with the
+// separate-container ConfluentSchemaRegistry. The SR service is the broker
+// itself, so cluster.Stop tears it down — there is no separate sr.Stop.
+func (t *Tests) RedpandaSchemaRegistryRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, err := freshRedpandaCluster(ctx, redpandaImageTag)
+	if err != nil {
+		return fmt.Errorf("create redpanda cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	client := cluster.SchemaRegistry().Client()
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	subject += "-value"
+
+	id, err := client.RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	got := client.LookupSchemaByID(id)
+	gotSubject, err := got.Subject(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup schema by id: %w", err)
+	}
+	if gotSubject != subject {
+		return fmt.Errorf("lookup-by-id subject mismatch: want %q, got %q", subject, gotSubject)
+	}
+	gotType, err := got.SchemaType(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema type: %w", err)
+	}
+	if gotType != "AVRO" {
+		return fmt.Errorf("lookup-by-id schemaType mismatch: want AVRO, got %q", gotType)
+	}
+	gotID, err := got.SchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read schema id: %w", err)
+	}
+	if gotID != id {
+		return fmt.Errorf("lookup-by-id schemaID mismatch: want %d, got %d", id, gotID)
+	}
+	return nil
+}

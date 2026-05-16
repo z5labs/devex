@@ -171,6 +171,7 @@ func buildRedpandaCluster(
 			"--advertise-kafka-addr", "PLAINTEXT://"+brokerHost+":9092",
 			"--rpc-addr", "0.0.0.0:33145",
 			"--advertise-rpc-addr", brokerHost+":33145",
+			"--schema-registry-addr", fmt.Sprintf("0.0.0.0:%d", schemaRegistryPort),
 			"--set", "redpanda.empty_seed_starts_cluster=true",
 		)
 	}
@@ -178,6 +179,7 @@ func buildRedpandaCluster(
 	svc := ctr.
 		WithExposedPort(9092).
 		WithExposedPort(33145).
+		WithExposedPort(schemaRegistryPort).
 		AsService(dagger.ContainerAsServiceOpts{
 			Args:          args,
 			UseEntrypoint: true,
@@ -308,9 +310,16 @@ func renderRedpandaYaml(brokerHost string, withTls bool) ([]byte, error) {
 		}}
 	}
 	full := map[string]any{
-		"redpanda":        rpCfg,
-		"pandaproxy":      map[string]any{},
-		"schema_registry": map[string]any{},
+		"redpanda":   rpCfg,
+		"pandaproxy": map[string]any{},
+		// Bundle the Schema Registry on a plain-HTTP listener — parallels
+		// the PLAINTEXT path's --schema-registry-addr flag. The SR REST
+		// API stays HTTP regardless of the Kafka listener's TLS mode.
+		"schema_registry": map[string]any{
+			"schema_registry_api": []addr{
+				{Address: "0.0.0.0", Port: schemaRegistryPort},
+			},
+		},
 		"rpk": map[string]any{
 			"coredump_dir": "/var/lib/redpanda/coredump",
 		},
@@ -324,6 +333,26 @@ func renderRedpandaYaml(brokerHost string, withTls bool) ([]byte, error) {
 // +cache="never"
 func (r *RedpandaCluster) BootstrapServers() []string {
 	return []string{r.BrokerHost + ":9092"}
+}
+
+// SchemaRegistry exposes Redpanda's bundled Schema Registry as the same
+// *SchemaRegistry type Kafka.ConfluentSchemaRegistry returns, so callers can
+// treat the bundled and separate-container registries uniformly.
+//
+// `rpk redpanda start` runs a Schema Registry inside the broker process on
+// :8081 — no extra container — so the returned *SchemaRegistry points at the
+// broker service itself. Redpanda's SR speaks the Confluent Schema Registry
+// REST API, so the *SchemaRegistryClient from Client() works unchanged. The
+// REST endpoint is plain HTTP regardless of the cluster's Kafka-listener
+// security mode, so this never fails.
+//
+// +cache="never"
+func (r *RedpandaCluster) SchemaRegistry(ctx context.Context) *SchemaRegistry {
+	return &SchemaRegistry{
+		SchemaRegistrySvc: r.BrokerSvc,
+		AdvertisedHost:    r.BrokerHost,
+		AdvertisedPort:    schemaRegistryPort,
+	}
 }
 
 // BindBrokers binds the single Redpanda broker service into the given
