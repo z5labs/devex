@@ -142,6 +142,9 @@ func (t *Tests) schemaRegistryTests(ctx context.Context, kafkaImageTag string, p
 	jobs = jobs.WithJob("SchemaRegistryRejectsNonPlaintextCluster", func(ctx context.Context) error {
 		return t.SchemaRegistryRejectsNonPlaintextCluster(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("ApicurioSchemaRegistryRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.ApicurioSchemaRegistryRegisterLookupRoundTrip(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }
