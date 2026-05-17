@@ -53,6 +53,15 @@ type SchemaRegistry struct {
 	//
 	// +private
 	Bundled bool
+	// BasePath is the URL path the registry's Confluent-Schema-Registry REST
+	// surface is rooted at. Confluent (cp-schema-registry) and Redpanda serve
+	// it at the root, so they leave this empty; Apicurio exposes it under a
+	// CSR-compat prefix (`/apis/ccompat/v7`). Client() folds it into the
+	// client BaseURL so every SchemaRegistryClient method composes the same
+	// `/subjects/...` paths regardless of backend.
+	//
+	// +private
+	BasePath string
 }
 
 // SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's
@@ -164,6 +173,83 @@ func (k *Kafka) ConfluentSchemaRegistry(
 	}, nil
 }
 
+// ApicurioSchemaRegistry spins up an Apicurio Registry service
+// (`apicurio/apicurio-registry-kafkasql`) alongside the given Kafka cluster.
+// Apicurio stores its data in a Kafka topic of its own and exposes a
+// Confluent-Schema-Registry-compatible REST API under `/apis/ccompat/v7`, so
+// the same *SchemaRegistryClient that drives ConfluentSchemaRegistry works
+// against it unchanged — the CSR-compat prefix is folded into BasePath.
+//
+// Apicurio is a more permissively licensed alternative to cp-schema-registry
+// with a broader native artifact-type catalogue (Avro, JSON Schema,
+// Protobuf, OpenAPI, AsyncAPI, GraphQL, WSDL, XSD); over the CSR-compat
+// surface only the AVRO / JSON / PROTOBUF subset is reachable.
+//
+// Only PLAINTEXT clusters are supported in this story: the constructor
+// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+//
+// Session-cached for the same reason ConfluentSchemaRegistry is — a
+// `+cache="never"` directive here would mint a brand-new registry service
+// for every chained client call.
+//
+// +cache="session"
+func (k *Kafka) ApicurioSchemaRegistry(
+	ctx context.Context,
+	cluster *Cluster,
+	// +default="docker.io"
+	registry string,
+	// +default="2.6.13.Final"
+	tag string,
+) (*SchemaRegistry, error) {
+	if cluster == nil {
+		return nil, fmt.Errorf("Kafka.ApicurioSchemaRegistry: cluster must not be nil")
+	}
+	if len(cluster.BrokerSvcs) == 0 {
+		return nil, fmt.Errorf("Kafka.ApicurioSchemaRegistry: cluster has no brokers")
+	}
+	if cluster.ClientSecurityMode != "PLAINTEXT" {
+		return nil, fmt.Errorf(
+			"Kafka.ApicurioSchemaRegistry: cluster client listener is %q; only PLAINTEXT "+
+				"is supported in this story. TLS / mTLS Schema Registry "+
+				"(KAFKA_SSL_* / REGISTRY_KAFKASQL_SECURITY_PROTOCOL plus keystore mounts) "+
+				"is a follow-up story.",
+			cluster.ClientSecurityMode,
+		)
+	}
+
+	image := fmt.Sprintf("%s/apicurio/apicurio-registry-kafkasql:%s", registry, tag)
+	// `asr-` (apicurio schema registry) keeps the hostname short — a longer
+	// alias trips runc's sethostname on startup — and stays distinct from
+	// the `csr-` prefix ConfluentSchemaRegistry uses on the same cluster.
+	srHost := "asr-" + clusterHostSuffix(cluster.ClusterID)
+
+	// Apicurio's kafkasql storage wants bare host:port bootstrap servers
+	// (no scheme prefix, unlike cp-schema-registry). It auto-creates its
+	// own journal topic at replication factor 1, so no broker-count RF
+	// capping is needed here.
+	ctr := dag.Container().
+		From(image).
+		WithEnvVariable("KAFKA_BOOTSTRAP_SERVERS", strings.Join(cluster.BootstrapServers(), ",")).
+		// Apicurio is a Quarkus app listening on 8080 by default; pin it to
+		// schemaRegistryPort so the advertised port matches cp-schema-registry.
+		WithEnvVariable("QUARKUS_HTTP_PORT", strconv.Itoa(schemaRegistryPort)).
+		WithExposedPort(schemaRegistryPort)
+	ctr = cluster.BindBrokers(ctr)
+
+	srSvc := ctr.
+		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}).
+		WithHostname(srHost)
+
+	return &SchemaRegistry{
+		SchemaRegistrySvc: srSvc,
+		AdvertisedHost:    srHost,
+		AdvertisedPort:    schemaRegistryPort,
+		// Apicurio serves the Confluent-compatible REST API under this
+		// prefix rather than at the root.
+		BasePath: "/apis/ccompat/v7",
+	}, nil
+}
+
 // Endpoint returns the host:port other containers (and the module runtime)
 // can reach the Schema Registry REST API on.
 //
@@ -191,7 +277,7 @@ func (s *SchemaRegistry) BindTo(ctr *dagger.Container) *dagger.Container {
 func (s *SchemaRegistry) Client() *SchemaRegistryClient {
 	return &SchemaRegistryClient{
 		Svc:     s.SchemaRegistrySvc,
-		BaseURL: fmt.Sprintf("http://%s:%d", s.AdvertisedHost, s.AdvertisedPort),
+		BaseURL: fmt.Sprintf("http://%s:%d%s", s.AdvertisedHost, s.AdvertisedPort, s.BasePath),
 	}
 }
 

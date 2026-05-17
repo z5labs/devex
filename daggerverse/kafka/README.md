@@ -169,6 +169,43 @@ client listener runs TLS or mTLS. TLS / mTLS Schema Registry is a follow-up.
   admin client; no helper containers.
 - `SchemaRegistry.Stop(ctx) error` — tears the registry service down.
 
+### ApicurioSchemaRegistry
+
+`ApicurioSchemaRegistry` is a sibling constructor backed by the
+`apicurio/apicurio-registry-kafkasql` image — Apicurio Registry's
+Kafka-storage build. It takes the **same parameters** as
+`ConfluentSchemaRegistry` (`cluster`, plus optional `registry` /  `tag`) and
+returns the **same `*SchemaRegistry` type**, so `Client()`, `Endpoint()`,
+`BindTo()`, and `Stop()` are all shared code.
+
+```go
+cluster := dag.Kafka().ConfluentCluster(clusterId, dag.Kafka().PlaintextServerSecurity())
+
+sr := dag.Kafka().ApicurioSchemaRegistry(
+    cluster,
+    dagger.KafkaApicurioSchemaRegistryOpts{
+        Tag:      "2.6.13.Final",
+        Registry: "docker.io",
+    },
+)
+client := sr.Client()
+```
+
+Apicurio is a more permissively licensed alternative to `cp-schema-registry`.
+It stores schemas in its own Kafka topic (`KAFKA_BOOTSTRAP_SERVERS` is wired
+from `cluster.BootstrapServers()`) and exposes a **Confluent-Schema-Registry-
+compatible** REST API under `/apis/ccompat/v7`, so the same
+`SchemaRegistryClient` drives it unchanged.
+
+**CSR-compat caveat.** Apicurio's native catalogue spans Avro, JSON Schema,
+Protobuf, OpenAPI, AsyncAPI, GraphQL, WSDL, and XSD, but the
+Confluent-compatible surface only speaks `AVRO`, `JSON`, and `PROTOBUF` (the
+`schemaType` values `SchemaRegistryClient` already accepts). Apicurio's other
+artifact types are not reachable through this constructor.
+
+**PLAINTEXT only** in this story, matching `ConfluentSchemaRegistry` — the
+constructor rejects a cluster whose client listener runs TLS or mTLS.
+
 ### SchemaRegistryClient
 
 ```go

@@ -24,8 +24,9 @@
 //                          method set.
 //   - schema_registry.go — *SchemaRegistry / *SchemaRegistryClient /
 //                          RegisteredSchema, the ConfluentSchemaRegistry
-//                          constructor, and the pure-Go net/http admin
-//                          client for the Schema Registry REST API.
+//                          and ApicurioSchemaRegistry constructors, and the
+//                          pure-Go net/http admin client for the Schema
+//                          Registry REST API.
 //   - util.go            — shared helpers (writeWorkdirBytes,
 //                          clusterHostSuffix, randSuffix, dagFileBytes).
 package main
