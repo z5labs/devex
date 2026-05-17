@@ -25,10 +25,16 @@ const schemaRegistryPort = 8081
 // expects on requests and returns on responses.
 const srContentType = "application/vnd.schemaregistry.v1+json"
 
-// SchemaRegistry is a running Confluent Schema Registry service bound to a
-// Kafka cluster's brokers. Schema Registry stores schemas in the cluster's
-// `_schemas` topic and exposes a REST API for registering and looking up
-// Avro / JSON Schema / Protobuf schemas by subject.
+// SchemaRegistry is the module's shared Schema Registry abstraction, bound
+// to a Kafka cluster's brokers. It stores schemas in the cluster's `_schemas`
+// topic and exposes a REST API for registering and looking up Avro / JSON
+// Schema / Protobuf schemas by subject.
+//
+// The same type is returned both by Kafka.ConfluentSchemaRegistry — a
+// separate `cp-schema-registry` container — and by
+// RedpandaCluster.SchemaRegistry, which surfaces the Schema Registry bundled
+// inside the Redpanda broker process. Callers treat the two uniformly; the
+// Bundled field records which kind this is so Stop behaves correctly.
 //
 // The constructor is session-cached so chained calls
 // (Client().RegisterSchema(...) → LookupSchemaByID(...)) all observe the

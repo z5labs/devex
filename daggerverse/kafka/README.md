@@ -227,6 +227,9 @@ started via `rpk redpanda start --mode dev-container` (which bundles
   (*KafkaClient, error)` — returns the same `*Client` the Apache
   constructors return. The Kafka wire protocol matches, so
   producer/consumer code is shared.
+- `RedpandaCluster.SchemaRegistry(ctx) *SchemaRegistry` — the bundled
+  in-broker Schema Registry as the shared `*SchemaRegistry` type — see
+  "Bundled Schema Registry" below.
 
 ### Security profile
 
@@ -249,9 +252,12 @@ points the rendered `redpanda.yaml` at those paths (the YAML never
 embeds PEM material itself). Callers don't have to convert between
 formats. The server private key crosses into the broker container as
 a `*dagger.Secret` (mounted via `WithMountedSecret`) so its plaintext
-never lands in the module workdir. mTLS (truststore + client-auth) is
-a follow-up; this story is server-side TLS only, so no CA cert is
-mounted into the broker.
+never lands in the module workdir. The CA cert *is* mounted, at
+`/etc/redpanda/certs/ca.crt` — it is the truststore for the bundled
+Schema Registry's internal broker client, which must dial the TLS-only
+Kafka listener to persist `_schemas` (see "Bundled Schema Registry"
+below). mTLS on the external listener (client-auth) is a follow-up;
+this story is server-side TLS only.
 
 ### Client
 
@@ -291,8 +297,10 @@ Redpanda's registry needs no extra image: the constructor exposes port
 8081 on the broker container and passes `--schema-registry-addr` (TLS
 mode renders the equivalent `schema_registry` directive in
 `redpanda.yaml`). It speaks the Confluent Schema Registry REST API, so
-the `*SchemaRegistryClient` from `Client()`, `Endpoint()` and `BindTo()`
-all behave identically to the `ConfluentSchemaRegistry` variant.
+the whole `*SchemaRegistry` surface behaves identically to the
+`ConfluentSchemaRegistry` variant: `Endpoint()` and `BindTo()` on the
+`*SchemaRegistry`, and the `*SchemaRegistryClient` returned by
+`Client()`.
 
 The registry's REST endpoint is plain HTTP regardless of the cluster's
 Kafka-listener security mode, so `SchemaRegistry()` works on both
@@ -360,8 +368,10 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
 
 The module exposes four cluster constructors. The first three speak
 the same `KAFKA_*` env-var contract and return the same `*Cluster`;
-`RedpandaCluster` returns its own `*RedpandaCluster` type with the
-same trio of methods but a different config layer underneath:
+`RedpandaCluster` returns its own `*RedpandaCluster` type — with
+`BootstrapServers`, `BindBrokers`, and `Client` mirroring `*Cluster`,
+plus its own `SchemaRegistry` — but a different config layer
+underneath:
 
 - `ApacheNativeCluster` → `<registry>/apache/kafka-native:<tag>`
   (default `docker.io/apache/kafka-native:4.2.0`). GraalVM-compiled;

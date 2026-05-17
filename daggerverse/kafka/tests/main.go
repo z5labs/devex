@@ -21,8 +21,9 @@
 //                          helpers + the three cp-kafka round-trip tests.
 //   - tests_redpanda.go  — RedpandaCluster (redpandadata/redpanda) cluster
 //                          helpers + the two Redpanda Kafka-wire round-trip
-//                          tests and the PLAINTEXT + TLS bundled-Schema-
-//                          Registry round-trips.
+//                          tests, the PLAINTEXT + TLS bundled-Schema-
+//                          Registry round-trips, and the bundled-registry
+//                          Stop-is-a-no-op lifecycle test.
 //   - tests_schema_registry.go — ConfluentSchemaRegistry tests: the
 //                          register/lookup/delete round-trip and the
 //                          non-PLAINTEXT-cluster rejection.
@@ -297,8 +298,8 @@ func (t *Tests) confluentTests(ctx context.Context, confluentImageTag string, pa
 }
 
 // redpandaTests runs the redpandadata/redpanda round-trip tests — the two
-// Kafka-wire round-trips plus the PLAINTEXT and TLS bundled-Schema-Registry
-// round-trips.
+// Kafka-wire round-trips, the PLAINTEXT and TLS bundled-Schema-Registry
+// round-trips, and the bundled-registry Stop-is-a-no-op lifecycle test.
 // Redpanda boots and tears down far faster than the JVM-based distros,
 // so running it as its own group means its clusters never linger past
 // this function's return.
@@ -321,6 +322,9 @@ func (t *Tests) redpandaTests(ctx context.Context, redpandaImageTag string, para
 	})
 	jobs = jobs.WithJob("RedpandaSchemaRegistryTlsRegisterLookupRoundTrip", func(ctx context.Context) error {
 		return t.RedpandaSchemaRegistryTlsRegisterLookupRoundTrip(ctx, redpandaImageTag)
+	})
+	jobs = jobs.WithJob("RedpandaSchemaRegistryBundledStopIsNoOp", func(ctx context.Context) error {
+		return t.RedpandaSchemaRegistryBundledStopIsNoOp(ctx, redpandaImageTag)
 	})
 
 	return jobs.Run(ctx)
