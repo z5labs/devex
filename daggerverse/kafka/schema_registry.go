@@ -250,6 +250,92 @@ func (k *Kafka) ApicurioSchemaRegistry(
 	}, nil
 }
 
+// KarapaceSchemaRegistry spins up a Karapace service
+// (`ghcr.io/aiven-open/karapace`) alongside the given Kafka cluster. Karapace
+// is Aiven's drop-in Python reimplementation of the Confluent Schema Registry:
+// it talks the Kafka wire protocol to the cluster's brokers for its `_schemas`
+// topic and serves a Confluent-Schema-Registry-compatible REST API at the
+// root, so the same *SchemaRegistryClient that drives ConfluentSchemaRegistry
+// works against it unchanged (BasePath stays empty).
+//
+// Unlike the other registry constructors, `registry` defaults to `ghcr.io`:
+// Karapace publishes to GitHub Container Registry rather than Docker Hub,
+// which also keeps CI clear of Docker Hub rate limits and Confluent's image
+// licensing.
+//
+// Only PLAINTEXT clusters are supported in this story: the constructor
+// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+//
+// Session-cached for the same reason ConfluentSchemaRegistry is — a
+// `+cache="never"` directive here would mint a brand-new registry service
+// for every chained client call.
+//
+// +cache="session"
+func (k *Kafka) KarapaceSchemaRegistry(
+	ctx context.Context,
+	cluster *Cluster,
+	// +default="ghcr.io"
+	registry string,
+	// +default="6.1.4"
+	tag string,
+) (*SchemaRegistry, error) {
+	if cluster == nil {
+		return nil, fmt.Errorf("Kafka.KarapaceSchemaRegistry: cluster must not be nil")
+	}
+	if len(cluster.BrokerSvcs) == 0 {
+		return nil, fmt.Errorf("Kafka.KarapaceSchemaRegistry: cluster has no brokers")
+	}
+	if cluster.ClientSecurityMode != "PLAINTEXT" {
+		return nil, fmt.Errorf(
+			"Kafka.KarapaceSchemaRegistry: cluster client listener is %q; only PLAINTEXT "+
+				"is supported in this story. TLS / mTLS Schema Registry "+
+				"(KARAPACE_SECURITY_PROTOCOL=SSL plus keystore mounts) "+
+				"is a follow-up story.",
+			cluster.ClientSecurityMode,
+		)
+	}
+
+	image := fmt.Sprintf("%s/aiven-open/karapace:%s", registry, tag)
+	// `ksr-` (karapace schema registry) keeps the hostname short — a longer
+	// alias trips runc's sethostname on startup — and stays distinct from the
+	// `csr-` / `asr-` prefixes the sibling registry constructors use on the
+	// same cluster.
+	srHost := "ksr-" + clusterHostSuffix(cluster.ClusterID)
+
+	// Karapace creates the `_schemas` topic itself on first boot; its default
+	// replication factor would fail on the single-broker clusters tests use —
+	// pin it to the broker count, capped at 3, mirroring the cp-schema-registry
+	// handling above and buildKafkaCluster's system-topic RF handling.
+	rf := len(cluster.BrokerSvcs)
+	if rf > 3 {
+		rf = 3
+	}
+
+	// Karapace wants bare host:port bootstrap servers (no scheme prefix,
+	// unlike cp-schema-registry).
+	ctr := dag.Container().
+		From(image).
+		WithEnvVariable("KARAPACE_BOOTSTRAP_URI", strings.Join(cluster.BootstrapServers(), ",")).
+		WithEnvVariable("KARAPACE_HOST", "0.0.0.0").
+		WithEnvVariable("KARAPACE_PORT", strconv.Itoa(schemaRegistryPort)).
+		WithEnvVariable("KARAPACE_ADVERTISED_HOSTNAME", srHost).
+		WithEnvVariable("KARAPACE_REPLICATION_FACTOR", strconv.Itoa(rf)).
+		WithExposedPort(schemaRegistryPort)
+	ctr = cluster.BindBrokers(ctr)
+
+	// The image bundles both Karapace roles; `karapace_schema_registry` is the
+	// registry-mode entrypoint.
+	srSvc := ctr.
+		AsService(dagger.ContainerAsServiceOpts{Args: []string{"karapace_schema_registry"}}).
+		WithHostname(srHost)
+
+	return &SchemaRegistry{
+		SchemaRegistrySvc: srSvc,
+		AdvertisedHost:    srHost,
+		AdvertisedPort:    schemaRegistryPort,
+	}, nil
+}
+
 // Endpoint returns the host:port other containers (and the module runtime)
 // can reach the Schema Registry REST API on.
 //

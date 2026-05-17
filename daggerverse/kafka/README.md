@@ -206,6 +206,40 @@ artifact types are not reachable through this constructor.
 **PLAINTEXT only** in this story, matching `ConfluentSchemaRegistry` — the
 constructor rejects a cluster whose client listener runs TLS or mTLS.
 
+### KarapaceSchemaRegistry
+
+`KarapaceSchemaRegistry` is a sibling constructor backed by the
+`ghcr.io/aiven-open/karapace` image. Karapace is Aiven's drop-in Python
+reimplementation of the Confluent Schema Registry — identical wire surface,
+different runtime. It takes the **same parameters** as `ConfluentSchemaRegistry`
+(`cluster`, plus optional `registry` / `tag`) and returns the **same
+`*SchemaRegistry` type**, so `Client()`, `Endpoint()`, `BindTo()`, and `Stop()`
+are all shared code.
+
+```go
+cluster := dag.Kafka().ConfluentCluster(clusterId, dag.Kafka().PlaintextServerSecurity())
+
+sr := dag.Kafka().KarapaceSchemaRegistry(
+    cluster,
+    dagger.KafkaKarapaceSchemaRegistryOpts{
+        Tag:      "6.1.4",
+        Registry: "ghcr.io",
+    },
+)
+client := sr.Client()
+```
+
+Unlike `ConfluentSchemaRegistry` and `ApicurioSchemaRegistry`, `registry`
+**defaults to `ghcr.io`** — Karapace publishes to GitHub Container Registry, not
+Docker Hub. This also keeps CI clear of Docker Hub rate limits and Confluent's
+image licensing. Karapace stores schemas in the cluster's `_schemas` topic
+(`KARAPACE_BOOTSTRAP_URI` is wired from `cluster.BootstrapServers()`) and serves
+its Confluent-compatible REST API **at the root**, so the same
+`SchemaRegistryClient` drives it unchanged.
+
+**PLAINTEXT only** in this story, matching `ConfluentSchemaRegistry` — the
+constructor rejects a cluster whose client listener runs TLS or mTLS.
+
 ### SchemaRegistryClient
 
 ```go
