@@ -316,6 +316,9 @@ func (k *Kafka) KarapaceSchemaRegistry(
 	ctr := dag.Container().
 		From(image).
 		WithEnvVariable("KARAPACE_BOOTSTRAP_URI", strings.Join(cluster.BootstrapServers(), ",")).
+		// Select the schema-registry role explicitly, mirroring Karapace's
+		// own container/compose.yml (the REST proxy is the other role).
+		WithEnvVariable("KARAPACE_KARAPACE_REGISTRY", "true").
 		WithEnvVariable("KARAPACE_HOST", "0.0.0.0").
 		WithEnvVariable("KARAPACE_PORT", strconv.Itoa(schemaRegistryPort)).
 		WithEnvVariable("KARAPACE_ADVERTISED_HOSTNAME", srHost).
@@ -323,10 +326,13 @@ func (k *Kafka) KarapaceSchemaRegistry(
 		WithExposedPort(schemaRegistryPort)
 	ctr = cluster.BindBrokers(ctr)
 
-	// The image bundles both Karapace roles; `karapace_schema_registry` is the
-	// registry-mode entrypoint.
+	// Karapace's production image ships no ENTRYPOINT/CMD. The schema
+	// registry role runs as `python3 -m karapace`; the REST proxy is the
+	// other role. Set it as the container entrypoint so AsService boots it
+	// via UseEntrypoint, consistent with the sibling registry constructors.
 	srSvc := ctr.
-		AsService(dagger.ContainerAsServiceOpts{Args: []string{"karapace_schema_registry"}}).
+		WithEntrypoint([]string{"python3", "-m", "karapace"}).
+		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}).
 		WithHostname(srHost)
 
 	return &SchemaRegistry{

@@ -124,10 +124,11 @@ func (t *Tests) All(
 	return jobs.Run(ctx)
 }
 
-// schemaRegistryTests runs the Kafka.ConfluentSchemaRegistry tests as one
-// group. Each test owns the cluster (and, for the round-trip, the
-// cp-schema-registry service) it boots, so the group's only lifetime
-// guarantee is that both are torn down once it returns.
+// schemaRegistryTests runs the Schema Registry tests — ConfluentSchemaRegistry,
+// ApicurioSchemaRegistry, and KarapaceSchemaRegistry — as one group. Each test
+// owns the cluster (and, for the round-trips, the registry service) it boots,
+// so the group's only lifetime guarantee is that both are torn down once it
+// returns.
 func (t *Tests) schemaRegistryTests(ctx context.Context, kafkaImageTag string, parallel int) error {
 	jobs := par.New().
 		WithRollupLogs(true).
