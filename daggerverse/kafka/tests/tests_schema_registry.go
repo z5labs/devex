@@ -394,6 +394,175 @@ func (t *Tests) KarapaceSchemaRegistryRegisterLookupRoundTrip(
 	return nil
 }
 
+// SchemaRegistryFramedProduceConsumeRoundTrip exercises the data path of the
+// Client with Confluent wire-format framing: register a schema to get an ID,
+// produce a record whose value is framed with that ID, then consume with
+// schemaRegistryAware=true and assert the parsed ID matches and the value
+// bytes are stripped back to the original payload.
+func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	defer sr.Stop(ctx)
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	topic := subject
+	subject += "-value"
+
+	id, err := sr.Client().RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "hello-world"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+		ValueSchemaID: id,
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:         1,
+		Timeout:             "10s",
+		KeyEncoding:         "raw",
+		ValueEncoding:       "raw",
+		SchemaRegistryAware: true,
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	gotValID, err := records[0].ValueSchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read value schema id: %w", err)
+	}
+	gotKeyID, err := records[0].KeySchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read key schema id: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantVal {
+		return fmt.Errorf("value mismatch: want %q, got %q", wantVal, gotVal)
+	}
+	if gotValID != id {
+		return fmt.Errorf("value schema id mismatch: want %d, got %d", id, gotValID)
+	}
+	if gotKeyID != 0 {
+		return fmt.Errorf("expected key schema id 0 (unframed), got %d", gotKeyID)
+	}
+	return nil
+}
+
+// SchemaRegistryPlaintextConsumeUnframed verifies the negative path: a record
+// produced without framing, consumed with schemaRegistryAware=true, must
+// surface ValueSchemaID=0 and pass the value bytes through unchanged.
+func (t *Tests) SchemaRegistryPlaintextConsumeUnframed(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	const wantKey, wantVal = "k", "plain"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:         1,
+		Timeout:             "10s",
+		KeyEncoding:         "raw",
+		ValueEncoding:       "raw",
+		SchemaRegistryAware: true,
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	gotValID, err := records[0].ValueSchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read value schema id: %w", err)
+	}
+	gotKeyID, err := records[0].KeySchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read key schema id: %w", err)
+	}
+	if gotVal != wantVal {
+		return fmt.Errorf("value mismatch: want %q, got %q", wantVal, gotVal)
+	}
+	if gotValID != 0 {
+		return fmt.Errorf("expected ValueSchemaID=0 for unframed record, got %d", gotValID)
+	}
+	if gotKeyID != 0 {
+		return fmt.Errorf("expected KeySchemaID=0 for unframed record, got %d", gotKeyID)
+	}
+	return nil
+}
+
 // SchemaRegistryRejectsNonPlaintextCluster pins the PLAINTEXT-only contract
 // of this story: ConfluentSchemaRegistry must reject a cluster whose client
 // listener runs TLS rather than silently producing a broken registry. The

@@ -404,6 +404,25 @@ records, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     Group: "", // group-less direct consume; pass "my-group" to consume as a group member
 })
 
+// Schema-Registry-framed data: register a schema via the Confluent /
+// Apicurio / Karapace SR client to get an id, then produce / consume
+// with the Confluent wire format (0x00 || uint32be(id) || payload).
+id, err := srClient.RegisterSchema(ctx, "my-topic-value", schema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+    SchemaType: "AVRO",
+})
+err = client.Produce(ctx, "my-topic", "k", "v", dagger.KafkaClientProduceOpts{
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    ValueSchemaID: id, // optional KeySchemaID does the same for the key
+})
+framed, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
+    MaxMessages: 1, Timeout: "10s",
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    SchemaRegistryAware: true,
+})
+// framed[0].ValueSchemaID == id; framed[0].Value is the original payload
+// with the 5-byte header stripped. Records without 0x00 framing surface
+// ValueSchemaID == 0 and pass through unchanged.
+
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
 // truststore.p12 / keystore.p12 references resolve.

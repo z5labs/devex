@@ -149,6 +149,12 @@ func (t *Tests) schemaRegistryTests(ctx context.Context, kafkaImageTag string, p
 	jobs = jobs.WithJob("KarapaceSchemaRegistryRegisterLookupRoundTrip", func(ctx context.Context) error {
 		return t.KarapaceSchemaRegistryRegisterLookupRoundTrip(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("SchemaRegistryFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.SchemaRegistryFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("SchemaRegistryPlaintextConsumeUnframed", func(ctx context.Context) error {
+		return t.SchemaRegistryPlaintextConsumeUnframed(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }

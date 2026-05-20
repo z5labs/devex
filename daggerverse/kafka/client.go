@@ -20,6 +20,7 @@ import (
 
 	"github.com/twmb/franz-go/pkg/kadm"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"github.com/twmb/franz-go/pkg/sr"
 	"software.sslmate.com/src/go-pkcs12"
 )
 
@@ -41,10 +42,16 @@ type Client struct {
 }
 
 // ConsumedRecord is a single record returned by Client.Consume, with key and
-// value already encoded into the requested string representation.
+// value already encoded into the requested string representation. KeySchemaID
+// and ValueSchemaID are populated when Consume runs with schemaRegistryAware
+// and the corresponding record bytes carry the Confluent wire-format header
+// (`0x00 || uint32be(schemaID) || payload`); otherwise they are 0 and the
+// key/value bytes pass through untouched.
 type ConsumedRecord struct {
-	Key   string
-	Value string
+	Key           string
+	Value         string
+	KeySchemaID   int
+	ValueSchemaID int
 }
 
 // Client constructs a franz-go-backed Kafka client that targets the given
@@ -358,6 +365,13 @@ func (c *Client) DeleteTopic(ctx context.Context, name string) error {
 // Produce synchronously writes one record to the topic. Key and value are
 // decoded from their named encodings into raw bytes before being sent.
 //
+// keySchemaId / valueSchemaId, when non-zero, prepend the Confluent
+// Schema Registry wire-format header to the corresponding field:
+// `0x00 || uint32be(schemaID) || payload`. The header is laid down via
+// franz-go's sr.ConfluentHeader so the byte layout matches what
+// Schema-Registry-aware consumers expect. Default 0 means no framing
+// (the field is sent verbatim).
+//
 // +cache="never"
 func (c *Client) Produce(
 	ctx context.Context,
@@ -368,6 +382,10 @@ func (c *Client) Produce(
 	keyEncoding string,
 	// +default="raw"
 	valueEncoding string,
+	// +default=0
+	keySchemaId int,
+	// +default=0
+	valueSchemaId int,
 ) error {
 	keyBytes, err := decodeString(key, keyEncoding)
 	if err != nil {
@@ -376,6 +394,16 @@ func (c *Client) Produce(
 	valBytes, err := decodeString(value, valueEncoding)
 	if err != nil {
 		return fmt.Errorf("decode value: %w", err)
+	}
+
+	var hdr sr.ConfluentHeader
+	if keySchemaId != 0 {
+		framed, _ := hdr.AppendEncode(nil, keySchemaId, nil)
+		keyBytes = append(framed, keyBytes...)
+	}
+	if valueSchemaId != 0 {
+		framed, _ := hdr.AppendEncode(nil, valueSchemaId, nil)
+		valBytes = append(framed, valBytes...)
 	}
 
 	cl, err := c.newKgoClient(ctx)
@@ -416,6 +444,8 @@ func (c *Client) Consume(
 	valueEncoding string,
 	// +default=""
 	group string,
+	// +default=false
+	schemaRegistryAware bool,
 ) ([]ConsumedRecord, error) {
 	if maxMessages <= 0 {
 		return nil, fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
@@ -465,15 +495,31 @@ func (c *Client) Consume(
 		iter := fetches.RecordIter()
 		for !iter.Done() && len(out) < maxMessages {
 			r := iter.Next()
-			keyStr, err := encodeBytes(r.Key, keyEncoding)
+			keyRaw, valRaw := r.Key, r.Value
+			var keyID, valID int
+			if schemaRegistryAware {
+				var hdr sr.ConfluentHeader
+				if id, payload, err := hdr.DecodeID(keyRaw); err == nil {
+					keyID, keyRaw = id, payload
+				}
+				if id, payload, err := hdr.DecodeID(valRaw); err == nil {
+					valID, valRaw = id, payload
+				}
+			}
+			keyStr, err := encodeBytes(keyRaw, keyEncoding)
 			if err != nil {
 				return nil, fmt.Errorf("encode key: %w", err)
 			}
-			valStr, err := encodeBytes(r.Value, valueEncoding)
+			valStr, err := encodeBytes(valRaw, valueEncoding)
 			if err != nil {
 				return nil, fmt.Errorf("encode value: %w", err)
 			}
-			out = append(out, ConsumedRecord{Key: keyStr, Value: valStr})
+			out = append(out, ConsumedRecord{
+				Key:           keyStr,
+				Value:         valStr,
+				KeySchemaID:   keyID,
+				ValueSchemaID: valID,
+			})
 		}
 	}
 	return out, nil
