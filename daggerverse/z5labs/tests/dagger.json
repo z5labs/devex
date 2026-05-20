@@ -1,0 +1,21 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "z5labs",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    },
+    {
+      "name": "go",
+      "source": "../../go"
+    }
+  ]
+}

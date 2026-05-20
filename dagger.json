@@ -36,6 +36,10 @@
     {
       "name": "otel-tests",
       "source": "daggerverse/otel/tests"
+    },
+    {
+      "name": "z5labs-tests",
+      "source": "daggerverse/z5labs/tests"
     }
   ],
   "source": "ci"
