@@ -155,6 +155,12 @@ func (t *Tests) schemaRegistryTests(ctx context.Context, kafkaImageTag string, p
 	jobs = jobs.WithJob("SchemaRegistryPlaintextConsumeUnframed", func(ctx context.Context) error {
 		return t.SchemaRegistryPlaintextConsumeUnframed(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("SchemaRegistryJSONSerializeRejectsMalformedInput", func(ctx context.Context) error {
+		return t.SchemaRegistryJSONSerializeRejectsMalformedInput(ctx)
+	})
+	jobs = jobs.WithJob("SchemaRegistryJSONFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.SchemaRegistryJSONFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }
