@@ -123,8 +123,32 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiRunVetBadAggregates", func(ctx context.Context) error {
 		return t.CiRunVetBadAggregates(ctx, goImageTag)
 	})
+	jobs = jobs.WithJob("CiCheckRunsEnabledChecksAndSkipsBuild", func(ctx context.Context) error {
+		return t.CiCheckRunsEnabledChecksAndSkipsBuild(ctx, goImageTag)
+	})
 
 	return jobs.Run(ctx)
+}
+
+// CiCheckRunsEnabledChecksAndSkipsBuild configures every With* stage
+// against the clean hello fixture and calls Check (not Run), asserting
+// no error. To actively prove Check does not invoke the build stage
+// internally, WithBuild is configured with a non-existent package path:
+// if Check were to call runBuild, `go build ./does-not-exist` would
+// fail and surface here as an error. A nil return therefore proves
+// both (a) the checks passed and (b) the build was skipped.
+func (t *Tests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithFmt().
+		WithVet().
+		WithLint().
+		WithTest(dagger.GoCiWithTestOpts{Race: true}).
+		WithBuild(dagger.GoCiWithBuildOpts{Pkg: "./does-not-exist"}).
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Check on clean hello: %w", err)
+	}
+	return nil
 }
 
 // CiRunVetBadAggregates runs Ci against the vet-bad fixture with both Vet

@@ -17,7 +17,8 @@ const (
 )
 
 // Ci is a chained builder for a standardized Go CI pipeline. Construct via
-// Go.Ci(source); enable stages via the With* methods; call Run to execute.
+// Go.Ci(source); enable stages via the With* methods; call Run to execute
+// checks-then-build, or Check to run only the parallel checks.
 //
 // Stage 1 runs the enabled static checks in parallel (Fmt, Vet, Lint, Test);
 // errors are aggregated. Stage 2 builds the source and Run returns the
@@ -112,14 +113,15 @@ func (c *Ci) WithBuild(
 	return c
 }
 
-// Run executes the pipeline: stage 1 (parallel checks) → stage 2 (build).
-// Returns the built binary as a *dagger.File. Stage-1 errors are aggregated
-// via github.com/dagger/dagger/util/parallel; on stage-1 failure Run returns
-// the aggregated error and a nil file (stage 2 is skipped).
+// Check runs the enabled check stages (Fmt, Vet, Lint, Test) in
+// parallel via github.com/dagger/dagger/util/parallel and returns the
+// aggregated error. Use when callers want to run the checks
+// independently of the build (for example multi-platform pipelines
+// that share one check run across N platform builds).
 //
 // +check
 // +cache="session"
-func (c *Ci) Run(ctx context.Context) (*dagger.File, error) {
+func (c *Ci) Check(ctx context.Context) error {
 	jobs := parallel.New().
 		WithRollupLogs(true).
 		WithRollupSpans(true)
@@ -135,7 +137,17 @@ func (c *Ci) Run(ctx context.Context) (*dagger.File, error) {
 	if c.LintEnabled {
 		jobs = jobs.WithJob("lint", c.runLint)
 	}
-	if err := jobs.Run(ctx); err != nil {
+	return jobs.Run(ctx)
+}
+
+// Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns
+// the built binary as a *dagger.File. On stage-1 failure, returns the
+// aggregated error from Check and a nil file (stage 2 is skipped).
+//
+// +check
+// +cache="session"
+func (c *Ci) Run(ctx context.Context) (*dagger.File, error) {
+	if err := c.Check(ctx); err != nil {
 		return nil, err
 	}
 	return c.runBuild(ctx)
