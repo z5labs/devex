@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -121,14 +122,36 @@ func encodeBytes(b []byte, encoding string) (string, error) {
 // is "key" or "value" so the error message identifies which side failed.
 // Note: bare scalars (null, 42, "foo", true) are accepted — the contract is
 // "is this valid JSON?", not "is this a JSON object?".
+//
+// UseNumber preserves arbitrary-precision numeric tokens as json.Number
+// instead of float64, so integers above 2^53 and high-precision decimals
+// round-trip byte-for-byte rather than being silently coerced. Encoder
+// SetEscapeHTML(false) keeps "<", ">", and "&" in string values
+// verbatim rather than rewriting them as < / > / &, which
+// would otherwise mutate caller-supplied payloads.
 func canonicalJSON(b []byte, field string) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
 	var v any
-	if err := json.Unmarshal(b, &v); err != nil {
+	if err := dec.Decode(&v); err != nil {
 		return nil, fmt.Errorf("%s is not valid JSON: %w", field, err)
 	}
-	out, err := json.Marshal(v)
-	if err != nil {
+	// json.Decoder accepts a stream of values — reject trailing tokens
+	// so the caller can't smuggle extra documents through the validator.
+	if dec.More() {
+		return nil, fmt.Errorf("%s has trailing data after JSON value", field)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
 		return nil, fmt.Errorf("re-marshal %s as canonical JSON: %w", field, err)
+	}
+	// json.Encoder appends a trailing newline; strip it so the canonical
+	// form matches what json.Marshal would have produced.
+	out := buf.Bytes()
+	if n := len(out); n > 0 && out[n-1] == '\n' {
+		out = out[:n-1]
 	}
 	return out, nil
 }
