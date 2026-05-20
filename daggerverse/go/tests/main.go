@@ -131,17 +131,19 @@ func (t *Tests) All(
 }
 
 // CiCheckRunsEnabledChecksAndSkipsBuild configures every With* stage
-// including WithBuild, then calls Check (not Run) and asserts no error.
-// Check returns no *dagger.File by signature, so the "build did not run"
-// property is enforced at the type level; this test verifies the happy
-// path of the check-only terminal against a clean source.
+// against the clean hello fixture and calls Check (not Run), asserting
+// no error. To actively prove Check does not invoke the build stage
+// internally, WithBuild is configured with a non-existent package path:
+// if Check were to call runBuild, `go build ./does-not-exist` would
+// fail and surface here as an error. A nil return therefore proves
+// both (a) the checks passed and (b) the build was skipped.
 func (t *Tests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error {
 	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithFmt().
 		WithVet().
 		WithLint().
 		WithTest(dagger.GoCiWithTestOpts{Race: true}).
-		WithBuild().
+		WithBuild(dagger.GoCiWithBuildOpts{Pkg: "./does-not-exist"}).
 		Check(ctx)
 	if err != nil {
 		return fmt.Errorf("Ci.Check on clean hello: %w", err)
