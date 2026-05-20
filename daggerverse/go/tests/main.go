@@ -123,8 +123,30 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiRunVetBadAggregates", func(ctx context.Context) error {
 		return t.CiRunVetBadAggregates(ctx, goImageTag)
 	})
+	jobs = jobs.WithJob("CiCheckRunsEnabledChecksAndSkipsBuild", func(ctx context.Context) error {
+		return t.CiCheckRunsEnabledChecksAndSkipsBuild(ctx, goImageTag)
+	})
 
 	return jobs.Run(ctx)
+}
+
+// CiCheckRunsEnabledChecksAndSkipsBuild configures every With* stage
+// including WithBuild, then calls Check (not Run) and asserts no error.
+// Check returns no *dagger.File by signature, so the "build did not run"
+// property is enforced at the type level; this test verifies the happy
+// path of the check-only terminal against a clean source.
+func (t *Tests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithFmt().
+		WithVet().
+		WithLint().
+		WithTest(dagger.GoCiWithTestOpts{Race: true}).
+		WithBuild().
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Check on clean hello: %w", err)
+	}
+	return nil
 }
 
 // CiRunVetBadAggregates runs Ci against the vet-bad fixture with both Vet
