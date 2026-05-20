@@ -365,12 +365,12 @@ func (c *Client) DeleteTopic(ctx context.Context, name string) error {
 // Produce synchronously writes one record to the topic. Key and value are
 // decoded from their named encodings into raw bytes before being sent.
 //
-// keySchemaId / valueSchemaId, when non-zero, prepend the Confluent
+// keySchemaID / valueSchemaID, when positive, prepend the Confluent
 // Schema Registry wire-format header to the corresponding field:
 // `0x00 || uint32be(schemaID) || payload`. The header is laid down via
 // franz-go's sr.ConfluentHeader so the byte layout matches what
 // Schema-Registry-aware consumers expect. Default 0 means no framing
-// (the field is sent verbatim).
+// (the field is sent verbatim). Negative IDs are rejected.
 //
 // +cache="never"
 func (c *Client) Produce(
@@ -383,10 +383,17 @@ func (c *Client) Produce(
 	// +default="raw"
 	valueEncoding string,
 	// +default=0
-	keySchemaId int,
+	keySchemaID int,
 	// +default=0
-	valueSchemaId int,
+	valueSchemaID int,
 ) error {
+	if keySchemaID < 0 {
+		return fmt.Errorf("keySchemaID must be >= 0, got %d", keySchemaID)
+	}
+	if valueSchemaID < 0 {
+		return fmt.Errorf("valueSchemaID must be >= 0, got %d", valueSchemaID)
+	}
+
 	keyBytes, err := decodeString(key, keyEncoding)
 	if err != nil {
 		return fmt.Errorf("decode key: %w", err)
@@ -397,12 +404,18 @@ func (c *Client) Produce(
 	}
 
 	var hdr sr.ConfluentHeader
-	if keySchemaId != 0 {
-		framed, _ := hdr.AppendEncode(nil, keySchemaId, nil)
+	if keySchemaID > 0 {
+		framed, err := hdr.AppendEncode(nil, keySchemaID, nil)
+		if err != nil {
+			return fmt.Errorf("frame key with schema id %d: %w", keySchemaID, err)
+		}
 		keyBytes = append(framed, keyBytes...)
 	}
-	if valueSchemaId != 0 {
-		framed, _ := hdr.AppendEncode(nil, valueSchemaId, nil)
+	if valueSchemaID > 0 {
+		framed, err := hdr.AppendEncode(nil, valueSchemaID, nil)
+		if err != nil {
+			return fmt.Errorf("frame value with schema id %d: %w", valueSchemaID, err)
+		}
 		valBytes = append(framed, valBytes...)
 	}
 
@@ -429,6 +442,15 @@ func (c *Client) Produce(
 // metadata to __consumer_offsets (offsets are not committed — the function
 // stays idempotent under +cache="never"). When group is empty (the
 // default), partitions are consumed directly with no group state.
+//
+// When schemaRegistryAware is true, each record's key and value are
+// inspected for the Confluent Schema Registry wire-format header
+// (`0x00 || uint32be(schemaID) || payload`). When present, the 5-byte
+// header is stripped before encoding the payload and the extracted
+// schema ID is surfaced on ConsumedRecord.KeySchemaID /
+// ConsumedRecord.ValueSchemaID. Unframed fields pass through with a
+// zero schema ID. When false (the default), bytes are returned verbatim
+// and the schema ID fields are always zero.
 //
 // +cache="never"
 func (c *Client) Consume(
