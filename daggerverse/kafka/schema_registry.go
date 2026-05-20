@@ -323,6 +323,17 @@ func (k *Kafka) KarapaceSchemaRegistry(
 		WithEnvVariable("KARAPACE_PORT", strconv.Itoa(schemaRegistryPort)).
 		WithEnvVariable("KARAPACE_ADVERTISED_HOSTNAME", srHost).
 		WithEnvVariable("KARAPACE_REPLICATION_FACTOR", strconv.Itoa(rf)).
+		// The 6.1.4 image ships a HEALTHCHECK that runs
+		// `python3 healthcheck.py http://0.0.0.0:8081/_health` — the dial
+		// target is the wildcard bind address (KARAPACE_HOST), which the
+		// healthcheck script cannot connect to from inside the container,
+		// so Dagger marks asService failed after the 60s start-period +
+		// retries (≈90s) regardless of whether uvicorn is up. Dagger
+		// prefers a Dockerfile HEALTHCHECK over its port probe when both
+		// exist (see dagger v0.20.8 core/service.go:572-583), so drop the
+		// broken image healthcheck and let the port probe verify 8081
+		// instead.
+		WithoutDockerHealthcheck().
 		WithExposedPort(schemaRegistryPort)
 	ctr = cluster.BindBrokers(ctr)
 
