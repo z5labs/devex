@@ -419,9 +419,10 @@ framed, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     KeyEncoding: "raw", ValueEncoding: "raw",
     SchemaRegistryAware: true,
 })
-// framed[0].ValueSchemaID == id; framed[0].Value is the original payload
-// with the 5-byte header stripped. Records without 0x00 framing surface
-// ValueSchemaID == 0 and pass through unchanged.
+gotID, err := framed[0].ValueSchemaID(ctx)   // == id (the registered schema id)
+payload, err := framed[0].Value(ctx)         // original bytes, 5-byte header stripped
+// Records without 0x00 framing surface ValueSchemaID(ctx) == 0 and
+// Value(ctx) passes through unchanged.
 
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
