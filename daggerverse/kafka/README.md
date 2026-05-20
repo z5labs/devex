@@ -424,6 +424,22 @@ payload, err := framed[0].Value(ctx)         // original bytes, 5-byte header st
 // Records without 0x00 framing surface ValueSchemaID(ctx) == 0 and
 // Value(ctx) passes through unchanged.
 
+// JSON wire-format enforcement: parse-and-canonicalise on Produce,
+// json.Valid-check on Consume. Composes with the framing opts above —
+// a single Produce call can canonicalise then frame, a single Consume
+// call can unframe then validate.
+err = client.Produce(ctx, "my-topic", "k", `{"x":"hello"}`, dagger.KafkaClientProduceOpts{
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    ValueSchemaID:    id,
+    ValueSerializeAs: "JSON", // "" pass-through; "JSON" parses + re-marshals canonically
+})
+validated, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
+    MaxMessages: 1, Timeout: "10s",
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    SchemaRegistryAware: true,
+    ValueDeserializeAs:  "JSON", // "" pass-through; "JSON" rejects non-parseable payloads
+})
+
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
 // truststore.p12 / keystore.p12 references resolve.
@@ -432,6 +448,17 @@ props := client.PropertiesFile() // *dagger.File — resolve via .Contents(ctx) 
 
 `keyEncoding` / `valueEncoding` accept `"raw"` (literal UTF-8 bytes),
 `"hex"`, or `"base64"` (standard padding). Anything else is rejected.
+
+The serde opts (`keySerializeAs` / `valueSerializeAs` on `Produce`,
+`keyDeserializeAs` / `valueDeserializeAs` on `Consume`) are wire-format
+enforcement only — they do not fetch or apply the registered schema's
+content rules. Defaults are `""` (pass-through); `"JSON"` is the only
+non-empty value accepted today. The producer side canonicalises (parse
++ re-marshal via `encoding/json`) so what hits the wire is independent
+of caller-side whitespace; the consumer side validates with
+`json.Valid` after any frame strip. Composition order is
+decode → serialize → frame on `Produce`, unframe → deserialize → encode
+on `Consume`.
 
 Topic auto-creation is disabled on the broker — call `CreateTopic` before
 `Produce` / `Consume`.

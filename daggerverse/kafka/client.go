@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -112,6 +114,78 @@ func encodeBytes(b []byte, encoding string) (string, error) {
 		return base64.StdEncoding.EncodeToString(b), nil
 	default:
 		return "", fmt.Errorf("unsupported encoding %q (want raw|hex|base64)", encoding)
+	}
+}
+
+// canonicalJSON parses b as a JSON value and returns the encoding/json
+// canonical re-marshal of it (compact, alphabetically-keyed objects). field
+// is "key" or "value" so the error message identifies which side failed.
+// Note: bare scalars (null, 42, "foo", true) are accepted — the contract is
+// "is this valid JSON?", not "is this a JSON object?".
+//
+// UseNumber preserves arbitrary-precision numeric tokens as json.Number
+// instead of float64, so integers above 2^53 and high-precision decimals
+// round-trip byte-for-byte rather than being silently coerced. Encoder
+// SetEscapeHTML(false) keeps "<", ">", and "&" in string values
+// verbatim rather than rewriting them as < / > / &, which
+// would otherwise mutate caller-supplied payloads.
+func canonicalJSON(b []byte, field string) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, fmt.Errorf("%s is not valid JSON: %w", field, err)
+	}
+	// json.Decoder accepts a stream of values — reject trailing tokens
+	// so the caller can't smuggle extra documents through the validator.
+	if dec.More() {
+		return nil, fmt.Errorf("%s has trailing data after JSON value", field)
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, fmt.Errorf("re-marshal %s as canonical JSON: %w", field, err)
+	}
+	// json.Encoder appends a trailing newline; strip it so the canonical
+	// form matches what json.Marshal would have produced.
+	out := buf.Bytes()
+	if n := len(out); n > 0 && out[n-1] == '\n' {
+		out = out[:n-1]
+	}
+	return out, nil
+}
+
+// applySerializeAs runs the named producer-side serializer. "" is
+// pass-through; "JSON" canonicalises via canonicalJSON; anything else is
+// rejected so a typo never silently degrades to pass-through.
+func applySerializeAs(b []byte, mode, field string) ([]byte, error) {
+	switch mode {
+	case "":
+		return b, nil
+	case "JSON":
+		return canonicalJSON(b, field)
+	default:
+		return nil, fmt.Errorf("unsupported %sSerializeAs %q (want \"\"|\"JSON\")", field, mode)
+	}
+}
+
+// applyDeserializeAs runs the named consumer-side deserializer against
+// payload bytes that have already had any Confluent frame stripped. "" is
+// pass-through; "JSON" validates with json.Valid. The bytes are returned
+// unchanged on success — consumers control rendering via keyEncoding /
+// valueEncoding, not via the deserialize step.
+func applyDeserializeAs(b []byte, mode, field string) ([]byte, error) {
+	switch mode {
+	case "":
+		return b, nil
+	case "JSON":
+		if !json.Valid(b) {
+			return nil, fmt.Errorf("%s is not valid JSON", field)
+		}
+		return b, nil
+	default:
+		return nil, fmt.Errorf("unsupported %sDeserializeAs %q (want \"\"|\"JSON\")", field, mode)
 	}
 }
 
@@ -372,6 +446,14 @@ func (c *Client) DeleteTopic(ctx context.Context, name string) error {
 // Schema-Registry-aware consumers expect. Default 0 means no framing
 // (the field is sent verbatim). Negative IDs are rejected.
 //
+// keySerializeAs / valueSerializeAs, when set to "JSON", parse the
+// corresponding decoded bytes with encoding/json and re-marshal to the
+// canonical form before any framing is applied. The pipeline order is
+// decode → serialize → frame, so a single call can both canonicalise a
+// JSON payload and prepend the Confluent header. Invalid JSON is
+// rejected before any broker I/O. Default "" is pass-through; "JSON"
+// is the only non-empty value accepted in this story.
+//
 // +cache="never"
 func (c *Client) Produce(
 	ctx context.Context,
@@ -386,6 +468,10 @@ func (c *Client) Produce(
 	keySchemaID int,
 	// +default=0
 	valueSchemaID int,
+	// +default=""
+	keySerializeAs string,
+	// +default=""
+	valueSerializeAs string,
 ) error {
 	if keySchemaID < 0 {
 		return fmt.Errorf("keySchemaID must be >= 0, got %d", keySchemaID)
@@ -401,6 +487,15 @@ func (c *Client) Produce(
 	valBytes, err := decodeString(value, valueEncoding)
 	if err != nil {
 		return fmt.Errorf("decode value: %w", err)
+	}
+
+	keyBytes, err = applySerializeAs(keyBytes, keySerializeAs, "key")
+	if err != nil {
+		return fmt.Errorf("serialize key: %w", err)
+	}
+	valBytes, err = applySerializeAs(valBytes, valueSerializeAs, "value")
+	if err != nil {
+		return fmt.Errorf("serialize value: %w", err)
 	}
 
 	var hdr sr.ConfluentHeader
@@ -452,6 +547,16 @@ func (c *Client) Produce(
 // zero schema ID. When false (the default), bytes are returned verbatim
 // and the schema ID fields are always zero.
 //
+// keyDeserializeAs / valueDeserializeAs, when set to "JSON", validate
+// each consumed record's post-frame-strip payload bytes via
+// encoding/json's json.Valid. The pipeline order is unframe →
+// deserialize → encode, so SchemaRegistryAware and a JSON deserializer
+// compose: framed bytes are stripped first and validation runs on the
+// payload alone. Records whose payloads fail to parse cause Consume to
+// error out and abandon the remaining poll. Default "" is
+// pass-through; "JSON" is the only non-empty value accepted in this
+// story.
+//
 // +cache="never"
 func (c *Client) Consume(
 	ctx context.Context,
@@ -468,6 +573,10 @@ func (c *Client) Consume(
 	group string,
 	// +default=false
 	schemaRegistryAware bool,
+	// +default=""
+	keyDeserializeAs string,
+	// +default=""
+	valueDeserializeAs string,
 ) ([]ConsumedRecord, error) {
 	if maxMessages <= 0 {
 		return nil, fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
@@ -527,6 +636,15 @@ func (c *Client) Consume(
 				if id, payload, err := hdr.DecodeID(valRaw); err == nil {
 					valID, valRaw = id, payload
 				}
+			}
+			var err error
+			keyRaw, err = applyDeserializeAs(keyRaw, keyDeserializeAs, "key")
+			if err != nil {
+				return nil, fmt.Errorf("deserialize key: %w", err)
+			}
+			valRaw, err = applyDeserializeAs(valRaw, valueDeserializeAs, "value")
+			if err != nil {
+				return nil, fmt.Errorf("deserialize value: %w", err)
 			}
 			keyStr, err := encodeBytes(keyRaw, keyEncoding)
 			if err != nil {

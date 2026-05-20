@@ -588,3 +588,130 @@ func (t *Tests) SchemaRegistryRejectsNonPlaintextCluster(
 	}
 	return nil
 }
+
+// SchemaRegistryJSONSerializeRejectsMalformedInput pins the up-front
+// validation contract of valueSerializeAs="JSON": Produce must reject a
+// malformed JSON payload before any broker I/O. dag.Kafka().Client(...)
+// builds without I/O, so no cluster boots — the failure is purely a
+// payload-validation failure on the canonicalising serializer.
+func (t *Tests) SchemaRegistryJSONSerializeRejectsMalformedInput(
+	ctx context.Context,
+) error {
+	client := dag.Kafka().Client(
+		[]string{"127.0.0.1:1"},
+		dag.Kafka().PlaintextClientSecurity(),
+	)
+	err := client.Produce(ctx, "any-topic", "k", "{not-json", dagger.KafkaClientProduceOpts{
+		KeyEncoding:      "raw",
+		ValueEncoding:    "raw",
+		ValueSerializeAs: "JSON",
+	})
+	if err == nil {
+		return fmt.Errorf("expected Produce to reject malformed JSON value, got nil error")
+	}
+	if !strings.Contains(err.Error(), "value is not valid JSON") {
+		return fmt.Errorf("expected error to mention JSON validation failure, got: %v", err)
+	}
+	return nil
+}
+
+// SchemaRegistryJSONFramedProduceConsumeRoundTrip composes the framing
+// primitive (valueSchemaID) with the JSON serde (valueSerializeAs /
+// valueDeserializeAs). A JSON document is registered as a JSON-schema-typed
+// subject, produced with both opts on, then consumed with both opts on; the
+// asserted invariant is byte-equality of the consumed value to the canonical
+// JSON form of the original input — proving frame strip and JSON validation
+// compose without corrupting the payload.
+func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	defer sr.Stop(ctx)
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	topic := subject
+	subject += "-value"
+
+	const jsonSchema = `{"type":"object","properties":{"x":{"type":"string"}},"required":["x"]}`
+	id, err := sr.Client().RegisterSchema(ctx, subject, jsonSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "JSON",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	// Whitespace and extra spacing chosen so canonicalisation visibly
+	// changes the bytes — catches a regression where Produce skips
+	// re-marshal and only does json.Valid.
+	const inputJSON = `{ "x" :  "hello-world" }`
+	const wantCanonical = `{"x":"hello-world"}`
+	const wantKey = "k"
+
+	if err := client.Produce(ctx, topic, wantKey, inputJSON, dagger.KafkaClientProduceOpts{
+		KeyEncoding:      "raw",
+		ValueEncoding:    "raw",
+		ValueSchemaID:    id,
+		ValueSerializeAs: "JSON",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:         1,
+		Timeout:             "10s",
+		KeyEncoding:         "raw",
+		ValueEncoding:       "raw",
+		SchemaRegistryAware: true,
+		ValueDeserializeAs:  "JSON",
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	gotValID, err := records[0].ValueSchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read value schema id: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantCanonical {
+		return fmt.Errorf("value mismatch: want canonical %q, got %q", wantCanonical, gotVal)
+	}
+	if gotValID != id {
+		return fmt.Errorf("value schema id mismatch: want %d, got %d", id, gotValID)
+	}
+	return nil
+}
