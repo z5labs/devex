@@ -16,7 +16,7 @@
 //                    Stop / GrpcEndpoints / HttpEndpoints / BindAlphas /
 //                    Client methods.
 //   - client.go    — *Client + Dgraph.Client, dgo wiring, and the
-//                    DropAll / AlterSchema / Mutate / Query /
+//                    DropAll / AlterSchema / Mutate / RunQuery /
 //                    QueryWithVars method set.
 package main
 

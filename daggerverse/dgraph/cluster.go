@@ -49,7 +49,7 @@ type Cluster struct {
 //     caller choice so a future TLS upgrade stays explicit.
 //
 // Session-cached so that repeated chained method calls on the returned
-// cluster (e.g. Client.Mutate → Client.Query in
+// cluster (e.g. Client.Mutate → Client.RunQuery in
 // `client-mutate-then-query-round-trip`) observe the SAME underlying
 // services — and therefore the same graph state. The acceptance
 // criteria suggest +cache="never" here, but with `never` the engine

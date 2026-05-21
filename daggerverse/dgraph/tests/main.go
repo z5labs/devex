@@ -85,7 +85,13 @@ func (t *Tests) All(
 }
 
 // freshCluster mints a Dgraph cluster sized as requested with a plaintext
-// listener. The caller must defer cluster.Stop(ctx).
+// listener. We deliberately do NOT defer Stop: Dgraph.Cluster is
+// +cache="session", so every freshCluster(a, r) call with the same shape
+// returns the SAME backing cluster, and the engine tears it down when
+// the session ends. Stopping mid-test would kill that shared cluster
+// for any peer test still running against it. The cache-directive tests
+// below intentionally violate this and Stop explicitly — they accept
+// the resulting re-bootstrap cost in exchange for proving start() ran.
 func freshCluster(_ context.Context, alphas, replicas int) *dagger.DgraphCluster {
 	return dag.Dgraph().Cluster(
 		dag.Dgraph().PlaintextServerSecurity(),
@@ -177,9 +183,11 @@ func (t *Tests) ClusterRejectsNilSecurity(ctx context.Context) (returnErr error)
 // on every call rather than returning a cached snapshot. We boot the
 // cluster, fetch endpoints (starts services), Stop the cluster (kills
 // services), and call GrpcEndpoints again — the second call must
-// re-start the services and return a fresh list. If GrpcEndpoints were
-// engine-cached, the second call would return stale endpoints pointing
-// at the stopped services.
+// re-start the services. A bare length check can't distinguish that
+// from cached strings, so we follow the second call with a real
+// AlterSchema against the cluster: if start() didn't run because
+// GrpcEndpoints returned a cached result, the alphas remain dead and
+// the alter dials a hung port.
 //
 // +cache="never"
 func (t *Tests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error {
@@ -191,18 +199,27 @@ func (t *Tests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error {
 	if len(eps1) == 0 {
 		return fmt.Errorf("empty endpoint list from first call")
 	}
+	if err := cluster.Stop(ctx); err != nil {
+		return fmt.Errorf("stop cluster: %w", err)
+	}
 	eps2, err := cluster.GrpcEndpoints(ctx)
 	if err != nil {
-		return fmt.Errorf("endpoints 2: %w", err)
+		return fmt.Errorf("endpoints 2 after restart: %w", err)
 	}
 	if len(eps2) != len(eps1) {
 		return fmt.Errorf("expected same endpoint count after restart (1=%v, 2=%v)", eps1, eps2)
+	}
+	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
+	if err := client.AlterSchema(ctx, "name: string ."); err != nil {
+		return fmt.Errorf("alter after restart (GrpcEndpoints likely cached, services never re-started): %w", err)
 	}
 	return nil
 }
 
 // HttpEndpointsShouldNotBeCached: same restart-after-stop check as Grpc
-// but for the HTTP listener.
+// but for the HTTP listener. The liveness probe is the same gRPC-based
+// AlterSchema — both endpoint methods share start(), so any restart
+// proves either +cache="never" directive fired.
 //
 // +cache="never"
 func (t *Tests) HttpEndpointsShouldNotBeCached(ctx context.Context) error {
@@ -214,19 +231,28 @@ func (t *Tests) HttpEndpointsShouldNotBeCached(ctx context.Context) error {
 	if len(eps1) == 0 {
 		return fmt.Errorf("empty endpoint list from first call")
 	}
+	if err := cluster.Stop(ctx); err != nil {
+		return fmt.Errorf("stop cluster: %w", err)
+	}
 	eps2, err := cluster.HTTPEndpoints(ctx)
 	if err != nil {
-		return fmt.Errorf("endpoints 2: %w", err)
+		return fmt.Errorf("endpoints 2 after restart: %w", err)
 	}
 	if len(eps2) != len(eps1) {
 		return fmt.Errorf("expected same endpoint count after restart (1=%v, 2=%v)", eps1, eps2)
+	}
+	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
+	if err := client.AlterSchema(ctx, "name: string ."); err != nil {
+		return fmt.Errorf("alter after restart (HTTPEndpoints likely cached, services never re-started): %w", err)
 	}
 	return nil
 }
 
 // MutateShouldNotBeCached calls Mutate twice with the same payload on
 // the same cluster and verifies each call assigns a fresh UID. If the
-// engine cached the call, both would return identical UID JSON.
+// engine cached the call, both would return identical UID JSON. The
+// payload value is randomised per-run so re-running the suite never
+// reuses a probe name across engine sessions.
 //
 // +cache="never"
 func (t *Tests) MutateShouldNotBeCached(ctx context.Context) error {
@@ -236,7 +262,11 @@ func (t *Tests) MutateShouldNotBeCached(ctx context.Context) error {
 		return fmt.Errorf("alter schema: %w", err)
 	}
 
-	payload := `{"name":"cache-probe"}`
+	probe, err := randName(ctx, "probe_")
+	if err != nil {
+		return err
+	}
+	payload := fmt.Sprintf(`{"name":%q}`, probe)
 	uids1, err := client.Mutate(ctx, payload, true)
 	if err != nil {
 		return fmt.Errorf("mutate 1: %w", err)
