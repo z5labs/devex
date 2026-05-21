@@ -38,11 +38,15 @@ type GoApp struct {
 // image per platform, then conditionally publish per the publishOn
 // filter.
 //
+// Publish is a side-effecting operation against an external registry, so
+// the whole pipeline is uncached — re-runs (e.g. after a retry, or after
+// a new ref appears within the same engine session) must actually push.
+//
 // +check
-// +cache="session"
+// +cache="never"
 func (a *GoApp) Ci(ctx context.Context) error {
-	if _, err := a.Source.Directory(".git").Sync(ctx); err != nil {
-		return fmt.Errorf("source must be a git working tree: no .git directory found")
+	if err := requireGitWorkingTree(ctx, a.Source); err != nil {
+		return err
 	}
 	binaryName, err := a.resolvedBinaryName(ctx)
 	if err != nil {
@@ -88,19 +92,24 @@ func (a *GoApp) Ci(ctx context.Context) error {
 		username = "ci"
 	}
 	// Materialize the multi-platform image as an OCI tarball, then push
-	// it via crane inside a sidecar container. Container.Publish runs in
-	// the engine's BuildKit context, which does not see session service
-	// bindings — so we cannot use it to reach a Dagger-hosted registry.
-	// Crane in a service-bound container CAN reach it.
+	// it via skopeo inside a sidecar container. Container.Publish runs
+	// in the engine's BuildKit context, which does not see session
+	// service bindings — so we cannot use it to reach a Dagger-hosted
+	// registry. Skopeo in a service-bound container CAN reach it.
 	tarball := primary.AsTarball(dagger.ContainerAsTarballOpts{
 		PlatformVariants: others,
 	})
-	pusher := dag.Container().From("quay.io/skopeo/stable:latest").
+	pusher := dag.Container().From(skopeoImage).
 		WithFile("/img.tar", tarball).
 		WithEnvVariable("REGISTRY_USERNAME", username).
 		WithSecretVariable("REGISTRY_PASSWORD", a.Auth)
+	// TLS verification stays on for real registries; disable it only
+	// when the caller wired in a registryService (a Dagger-hosted
+	// registry:2 over plain HTTP for tests).
+	tlsFlag := "--dest-tls-verify=true"
 	if a.RegistryService != nil {
 		pusher = pusher.WithServiceBinding(registryServiceAlias, a.RegistryService)
+		tlsFlag = "--dest-tls-verify=false"
 	}
 	for _, ref := range matches {
 		tag, ok := imageTagFor(ref, shortSha, commitISO)
@@ -112,8 +121,8 @@ func (a *GoApp) Ci(ctx context.Context) error {
 		// images carry all variants in the OCI archive (--all copies
 		// every manifest in the source).
 		cmd := fmt.Sprintf(
-			`skopeo copy --all --dest-tls-verify=false --dest-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" oci-archive:/img.tar docker://%s`,
-			image,
+			`skopeo copy --all %s --dest-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" oci-archive:/img.tar docker://%s`,
+			tlsFlag, image,
 		)
 		if _, err := pusher.WithExec([]string{"sh", "-c", cmd}).Sync(ctx); err != nil {
 			return fmt.Errorf("publish %s: %v", image, err)
@@ -126,6 +135,28 @@ func (a *GoApp) Ci(ctx context.Context) error {
 // caller supplies a registryService. Tests bind their local registry:2
 // under this same alias and use it as the registry hostname.
 const registryServiceAlias = "registry"
+
+// skopeoImage is pinned to a specific stable tag; ":latest" produces
+// non-reproducible builds and can break unexpectedly on upstream
+// rebuilds.
+const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
+
+// requireGitWorkingTree confirms source is a git working tree by
+// accepting either a `.git` directory (normal clone) or a `.git` file
+// (worktrees / submodules — where `.git` is a "gitdir: ..." pointer).
+// Detection errors are wrapped so unrelated I/O failures surface.
+func requireGitWorkingTree(ctx context.Context, source *dagger.Directory) error {
+	entries, err := source.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("source must be a git working tree: list entries: %w", err)
+	}
+	for _, e := range entries {
+		if e == ".git" || e == ".git/" {
+			return nil
+		}
+	}
+	return fmt.Errorf("source must be a git working tree: no .git directory or file found")
+}
 
 // matchingRefs collects refs at HEAD, normalizes them, and filters by
 // the publishOn regex.
@@ -290,11 +321,16 @@ func (a *GoApp) imageForPlatform(platform, binaryName string, binary *dagger.Fil
 		WithEntrypoint([]string{"/app/" + binaryName})
 }
 
-// parsePlatform splits a "goos/goarch" platform string.
+// parsePlatform splits a Dagger platform string ("goos/goarch" or
+// "goos/goarch/variant", e.g. "linux/arm/v7") into GOOS and GOARCH.
+// Variant segments past the first two are accepted and ignored —
+// they're carried into the image manifest by dagger.Platform, but the
+// Go toolchain only takes GOOS/GOARCH (GOARM/GOAMD64 are unset here;
+// callers needing those can extend the API later).
 func parsePlatform(p string) (goos, goarch string, err error) {
-	parts := strings.SplitN(p, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", fmt.Errorf("invalid platform %q (expected GOOS/GOARCH)", p)
+	parts := strings.Split(p, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("invalid platform %q (expected GOOS/GOARCH[/variant])", p)
 	}
 	return parts[0], parts[1], nil
 }

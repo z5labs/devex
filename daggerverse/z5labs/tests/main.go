@@ -19,6 +19,10 @@ import (
 // containerized client needs to reach the local registry:2 service.
 const registryAlias = "registry"
 
+// curlImage matches the pin used by the other test modules in this
+// repo (envoy, otel, grafana-stack). ":latest" is a moving target.
+const curlImage = "curlimages/curl:8.10.1"
+
 type Tests struct{}
 
 // All runs every z5labs test. parallel caps concurrency; defaults to 1
@@ -80,7 +84,7 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 // manifest endpoint and returns the HTTP status code. host is the
 // registry hostname reachable from this session (use Service.Hostname).
 func curlProbeManifest(ctx context.Context, svc *dagger.Service, host, user, pwd, image, tag string) (int, error) {
-	out, err := dag.Container().From("curlimages/curl:latest").
+	out, err := dag.Container().From(curlImage).
 		WithServiceBinding(host, svc).
 		WithExec([]string{"sh", "-c", fmt.Sprintf(
 			`curl -s -o /dev/null -w "%%{http_code}" -H 'Accept: application/vnd.oci.image.index.v1+json' -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
@@ -328,7 +332,7 @@ func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
 // returns the parsed tag list. host is the registry hostname reachable
 // from this session.
 func listTags(ctx context.Context, svc *dagger.Service, host, user, pwd, image string) ([]string, error) {
-	out, err := dag.Container().From("curlimages/curl:latest").
+	out, err := dag.Container().From(curlImage).
 		WithServiceBinding(host, svc).
 		WithExec([]string{"sh", "-c", fmt.Sprintf(
 			`curl -fs -u %s:%s http://%s:5000/v2/%s/tags/list`,
