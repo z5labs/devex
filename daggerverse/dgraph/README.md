@@ -40,7 +40,7 @@ Dgraph.Cluster(
 
 Cluster.GrpcEndpoints(ctx) ([]string, error)
 Cluster.HttpEndpoints(ctx) ([]string, error)
-Cluster.AlphaHostNames(ctx) ([]string, error)
+Cluster.AlphaHostNames() []string
 Cluster.BindAlphas(*dagger.Container) *dagger.Container
 Cluster.Client(ctx, security *ClientSecurity) (*Client, error)
 Cluster.Stop(ctx) error

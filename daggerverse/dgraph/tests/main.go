@@ -102,8 +102,10 @@ func freshCluster(_ context.Context, alphas, replicas int) *dagger.DgraphCluster
 	)
 }
 
-// randName returns a short, DNS- and DQL-safe random identifier suitable
-// for use as a schema-indexed value, blank-node name, or query fixture.
+// randName returns a short hex-suffixed identifier suitable for use as
+// a DQL predicate name, schema-indexed value, blank-node name, or query
+// fixture. Callers can pass any prefix (including ones with `_`); the
+// result is not constrained to DNS-safe characters.
 func randName(ctx context.Context, prefix string) (string, error) {
 	h, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 16})
 	if err != nil {

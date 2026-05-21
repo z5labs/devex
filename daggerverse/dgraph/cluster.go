@@ -23,8 +23,6 @@ type Cluster struct {
 	AlphaSvcs []*dagger.Service
 	// +private
 	AlphaHosts []string
-	// +private
-	ClientSecurityMode string
 }
 
 // Cluster spins up a Dgraph cluster of one Zero coordinator and `alphas`
@@ -109,10 +107,11 @@ func (d *Dgraph) Cluster(
 
 	// Stable hostnames are scoped per-cluster so parallel test
 	// invocations don't collide on `zero-1` / `alpha-100`. The suffix is
-	// derived from random material at construction time so distinct
-	// Cluster() calls within one engine session also get distinct
-	// service DNS, even though +cache="session" lets identical args
-	// share one service.
+	// derived from random material at construction time so that
+	// Cluster() calls with *different* args (e.g. (1,1) vs (3,3)) get
+	// distinct service DNS within one engine session. Identical-arg
+	// calls hit the +cache="session" entry without re-executing this
+	// path and therefore share the cached cluster (and its hostnames).
 	suffix, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 8})
 	if err != nil {
 		return nil, fmt.Errorf("mint cluster suffix: %w", err)
@@ -160,10 +159,9 @@ func (d *Dgraph) Cluster(
 	}
 
 	return &Cluster{
-		ZeroSvc:            zeroSvc,
-		AlphaSvcs:          alphaSvcs,
-		AlphaHosts:         alphaHosts,
-		ClientSecurityMode: clientListenerSecurity.Mode,
+		ZeroSvc:    zeroSvc,
+		AlphaSvcs:  alphaSvcs,
+		AlphaHosts: alphaHosts,
 	}, nil
 }
 
@@ -220,8 +218,10 @@ func (c *Cluster) start(ctx context.Context) error {
 }
 
 // waitForAlphaReady polls http://endpoint/health until it returns 200
-// OK or the deadline passes. endpoint is the host:port pair returned
-// by Service.Endpoint(ctx, port=8080).
+// OK or the deadline passes. endpoint is a `<alpha-host>:8080` string
+// — the hostname is the per-cluster Dagger WithHostname alias, which
+// resolves over the engine's session DNS from any container in the
+// same session.
 func waitForAlphaReady(ctx context.Context, endpoint string) error {
 	url := fmt.Sprintf("http://%s/health", endpoint)
 	client := &http.Client{Timeout: 3 * time.Second}
