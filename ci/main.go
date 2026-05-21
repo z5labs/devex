@@ -47,6 +47,9 @@ func (c *Ci) Test(
 	jobs = jobs.WithJob("certificate-management", func(ctx context.Context) error {
 		return dag.CertificateManagementTests().All(ctx)
 	})
+	jobs = jobs.WithJob("dgraph", func(ctx context.Context) error {
+		return dag.DgraphTests().All(ctx)
+	})
 	jobs = jobs.WithJob("grafana-stack", func(ctx context.Context) error {
 		return dag.GrafanaStackTests().All(ctx)
 	})

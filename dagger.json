@@ -10,12 +10,20 @@
       "source": "daggerverse/certificate-management/tests"
     },
     {
-      "name": "random-tests",
-      "source": "daggerverse/random/tests"
-    },
-    {
       "name": "crypto-tests",
       "source": "daggerverse/crypto/tests"
+    },
+    {
+      "name": "dgraph-tests",
+      "source": "daggerverse/dgraph/tests"
+    },
+    {
+      "name": "envoy-tests",
+      "source": "daggerverse/envoy/tests"
+    },
+    {
+      "name": "go-tests",
+      "source": "daggerverse/go/tests"
     },
     {
       "name": "grafana-stack-tests",
@@ -26,16 +34,12 @@
       "source": "daggerverse/kafka/tests"
     },
     {
-      "name": "go-tests",
-      "source": "daggerverse/go/tests"
-    },
-    {
-      "name": "envoy-tests",
-      "source": "daggerverse/envoy/tests"
-    },
-    {
       "name": "otel-tests",
       "source": "daggerverse/otel/tests"
+    },
+    {
+      "name": "random-tests",
+      "source": "daggerverse/random/tests"
     },
     {
       "name": "z5labs-tests",
