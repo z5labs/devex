@@ -47,6 +47,12 @@ func clientFrom(endpoints []string, security *ClientSecurity) *Client {
 // *dgo.Dgraph, and returns a cleanup func that closes every conn.
 // The dgo client load-balances among the supplied stubs.
 func (c *Client) dial() (*dgo.Dgraph, func(), error) {
+	if c.SecurityMode != "PLAINTEXT" {
+		return nil, nil, fmt.Errorf(
+			"only PLAINTEXT client security is supported in this story, got %q; TLS / mTLS land in a follow-up",
+			c.SecurityMode,
+		)
+	}
 	if len(c.GrpcEndpoints) == 0 {
 		return nil, nil, fmt.Errorf("client has no gRPC endpoints configured")
 	}

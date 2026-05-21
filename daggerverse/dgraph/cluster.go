@@ -42,6 +42,9 @@ type Cluster struct {
 //     model can't express without an unresolvable cycle. Multi-Zero HA
 //     lands in a follow-up.
 //   - `alphas < 1` or `replicas < 1`.
+//   - `replicas > 1 && replicas % 2 == 0` — Dgraph's Raft consensus
+//     needs an odd replica count per group (or `replicas == 1` for no
+//     replication).
 //   - `alphas % replicas != 0` — every Dgraph group must be full.
 //   - `clientListenerSecurity == nil` — plaintext must be a deliberate
 //     caller choice so a future TLS upgrade stays explicit.

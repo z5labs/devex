@@ -56,6 +56,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("cluster-rejects-invalid-alphas-replicas-ratio", func(ctx context.Context) error {
 		return t.ClusterRejectsInvalidAlphasReplicasRatio(ctx)
 	})
+	jobs = jobs.WithJob("cluster-rejects-even-replicas", func(ctx context.Context) error {
+		return t.ClusterRejectsEvenReplicas(ctx)
+	})
 	jobs = jobs.WithJob("cluster-rejects-nil-security", func(ctx context.Context) error {
 		return t.ClusterRejectsNilSecurity(ctx)
 	})
@@ -150,6 +153,27 @@ func (t *Tests) ClusterRejectsInvalidAlphasReplicasRatio(ctx context.Context) er
 	}
 	if !strings.Contains(err.Error(), "multiple of replicas") {
 		return fmt.Errorf("expected error to mention 'multiple of replicas', got: %v", err)
+	}
+	return nil
+}
+
+// ClusterRejectsEvenReplicas verifies that an even replicas value > 1
+// is rejected — Dgraph's Raft consensus needs an odd replica count per
+// group (or replicas=1 for no replication). Alphas=2 keeps
+// alphas%replicas==0 so only the odd-replicas rule can trip.
+//
+// +cache="never"
+func (t *Tests) ClusterRejectsEvenReplicas(ctx context.Context) error {
+	cluster := dag.Dgraph().Cluster(
+		dag.Dgraph().PlaintextServerSecurity(),
+		dagger.DgraphClusterOpts{Alphas: 2, Replicas: 2},
+	)
+	_, err := cluster.GrpcEndpoints(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Cluster(replicas=2) to fail, got nil error")
+	}
+	if !strings.Contains(err.Error(), "must be odd") {
+		return fmt.Errorf("expected error to mention 'must be odd', got: %v", err)
 	}
 	return nil
 }
