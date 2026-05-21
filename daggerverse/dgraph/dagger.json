@@ -1,0 +1,13 @@
+{
+  "name": "dgraph",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "random",
+      "source": "../random"
+    }
+  ]
+}
