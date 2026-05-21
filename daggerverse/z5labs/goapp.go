@@ -119,12 +119,15 @@ func (a *GoApp) Ci(ctx context.Context) error {
 		image := fmt.Sprintf("%s/%s:%s", a.Registry, binaryName, tag)
 		// --dest-creds reads from env via shell expansion; multi-arch
 		// images carry all variants in the OCI archive (--all copies
-		// every manifest in the source).
+		// every manifest in the source). The image destination is
+		// passed as positional $1 — interpolating it into the script
+		// string would allow shell injection via caller-supplied
+		// registry/binary/ref values.
 		cmd := fmt.Sprintf(
-			`skopeo copy --all %s --dest-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" oci-archive:/img.tar docker://%s`,
-			tlsFlag, image,
+			`skopeo copy --all %s --dest-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" oci-archive:/img.tar "docker://$1"`,
+			tlsFlag,
 		)
-		if _, err := pusher.WithExec([]string{"sh", "-c", cmd}).Sync(ctx); err != nil {
+		if _, err := pusher.WithExec([]string{"sh", "-c", cmd, "sh", image}).Sync(ctx); err != nil {
 			return fmt.Errorf("publish %s: %v", image, err)
 		}
 	}
@@ -216,11 +219,34 @@ func (a *GoApp) shortShaAndCommitTime(ctx context.Context) (string, string, erro
 	return strings.TrimSpace(sha), sanitizeDockerTag(strings.TrimSpace(iso)), nil
 }
 
-// sanitizeDockerTag replaces characters disallowed in docker tags
-// (":" and "+") with "-".
+// sanitizeDockerTag maps a git ref name to a docker-tag-safe string.
+// Docker's tag charset is [A-Za-z0-9_.-]; the first character may not
+// be '.' or '-', and total length is capped at 128. Any character
+// outside the charset is replaced with '-', a leading '.' or '-' is
+// replaced with '_', and the result is truncated to 128 characters.
+// Common git tag schemes like "release/v1.2.3" therefore map to
+// "release-v1.2.3" rather than failing the publish.
 func sanitizeDockerTag(s string) string {
-	r := strings.NewReplacer(":", "-", "+", "-")
-	return r.Replace(s)
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'A' && c <= 'Z',
+			c >= 'a' && c <= 'z',
+			c >= '0' && c <= '9',
+			c == '_', c == '.', c == '-':
+			b = append(b, c)
+		default:
+			b = append(b, '-')
+		}
+	}
+	if len(b) > 0 && (b[0] == '.' || b[0] == '-') {
+		b[0] = '_'
+	}
+	if len(b) > 128 {
+		b = b[:128]
+	}
+	return string(b)
 }
 
 // imageTagFor maps a single ref to its image tag. Tags map to the

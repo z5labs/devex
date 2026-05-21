@@ -72,8 +72,17 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("random sha256 (secret name): %v", err)
 	}
+	secret := dag.SetSecret("z5labs-registry-pwd-"+nameHex[:16], pwdHex)
+	// Password is fed to htpasswd via a secret env var so it does not
+	// appear in container args (which surface in traces/logs). NONCE
+	// is a separate per-call random — Dagger intentionally excludes
+	// secret values from cache keys, so without a non-secret nonce
+	// the WithExec would return a cached htpasswd file from an
+	// earlier session's password.
 	htpasswdFile := dag.Container().From("httpd:2.4-alpine").
-		WithExec([]string{"sh", "-c", "htpasswd -Bbn ci " + pwdHex + " > /tmp/htpasswd"}).
+		WithEnvVariable("NONCE", nameHex).
+		WithSecretVariable("REGISTRY_PASSWORD", secret).
+		WithExec([]string{"sh", "-c", `htpasswd -Bbn ci "$REGISTRY_PASSWORD" > /tmp/htpasswd`}).
 		File("/tmp/htpasswd")
 	svc := dag.Container().From("registry:2").
 		WithMountedFile("/auth/htpasswd", htpasswdFile).
@@ -82,7 +91,6 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_PATH", "/auth/htpasswd").
 		WithExposedPort(5000).
 		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
-	secret := dag.SetSecret("z5labs-registry-pwd-"+nameHex[:16], pwdHex)
 	return svc, pwdHex, secret, nil
 }
 
