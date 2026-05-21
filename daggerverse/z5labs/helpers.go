@@ -73,17 +73,22 @@ func sharedCheck(ctx context.Context, source *dagger.Directory, lintOverride *da
 }
 
 // parseModuleDirective scans go.mod for the top-level `module <path>`
-// directive and returns the path. Returns "" if absent.
-func parseModuleDirective(content string) string {
+// directive and returns the path. Returns "" with a nil error if the
+// directive is absent; surfaces scanner.Err() so I/O / long-line
+// failures don't masquerade as a missing directive.
+func parseModuleDirective(content string) (string, error) {
 	scanner := bufio.NewScanner(strings.NewReader(content))
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		fields := strings.Fields(scanner.Text())
 		if len(fields) >= 2 && fields[0] == "module" {
-			return fields[1]
+			return fields[1], nil
 		}
 	}
-	return ""
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", nil
 }
 
 // basenameAfterSlash returns everything after the final "/" in s.

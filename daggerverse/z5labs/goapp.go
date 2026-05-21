@@ -274,7 +274,10 @@ func (a *GoApp) resolvedBinaryName(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read go.mod to derive binary name: %w", err)
 	}
-	modulePath := parseModuleDirective(contents)
+	modulePath, err := parseModuleDirective(contents)
+	if err != nil {
+		return "", fmt.Errorf("scan go.mod for module directive: %w", err)
+	}
 	if modulePath == "" {
 		return "", fmt.Errorf("could not derive binary name: missing module directive in go.mod")
 	}

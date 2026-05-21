@@ -64,7 +64,13 @@ func (t *Tests) All(
 func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret, error) {
 	pwdHex, err := dag.Random().Sha256(ctx)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("random sha256: %v", err)
+		return nil, "", nil, fmt.Errorf("random sha256 (password): %v", err)
+	}
+	// Secret names appear in trace UIs and logs, so derive the name
+	// from an independent random — never from the password value.
+	nameHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("random sha256 (secret name): %v", err)
 	}
 	htpasswdFile := dag.Container().From("httpd:2.4-alpine").
 		WithExec([]string{"sh", "-c", "htpasswd -Bbn ci " + pwdHex + " > /tmp/htpasswd"}).
@@ -76,7 +82,7 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_PATH", "/auth/htpasswd").
 		WithExposedPort(5000).
 		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true})
-	secret := dag.SetSecret("z5labs-registry-pwd-"+pwdHex[:16], pwdHex)
+	secret := dag.SetSecret("z5labs-registry-pwd-"+nameHex[:16], pwdHex)
 	return svc, pwdHex, secret, nil
 }
 
