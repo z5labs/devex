@@ -20,12 +20,9 @@ type Tests struct{}
 // All runs every dgraph test. Default parallelism is 1 (serial)
 // because the +cache="session" generator on Dgraph.Cluster collapses
 // every same-shape freshCluster call to a single backing service —
-// running tests in parallel causes them to read the same graph state
-// (and a `bind-zeros` test that needs the lazy-binding flow conflicts
-// with another test that has already called the cluster's explicit
-// startup path via Client). Pass --parallel=N to opt back in for tests
-// that don't share a shape (e.g. running just multi-alpha-* alongside
-// validation tests).
+// running tests in parallel causes them to read the same graph state.
+// Pass --parallel=N to opt back in for tests that don't share a shape
+// (e.g. running just multi-alpha-* alongside validation tests).
 //
 // +check
 // +cache="session"
@@ -61,9 +58,6 @@ func (t *Tests) All(
 	})
 	jobs = jobs.WithJob("cluster-rejects-nil-security", func(ctx context.Context) error {
 		return t.ClusterRejectsNilSecurity(ctx)
-	})
-	jobs = jobs.WithJob("bind-zeros-resolves-from-user-container", func(ctx context.Context) error {
-		return t.BindZerosResolvesFromUserContainer(ctx)
 	})
 	jobs = jobs.WithJob("multi-alpha-single-group-all-reachable", func(ctx context.Context) error {
 		return t.MultiAlphaSingleGroupAllReachable(ctx)
@@ -271,40 +265,6 @@ func (t *Tests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Context) err
 	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
 	if err := client.AlterSchema(ctx, "name: string ."); err != nil {
 		return fmt.Errorf("alter schema on defaults cluster: %w", err)
-	}
-	return nil
-}
-
-// BindZerosResolvesFromUserContainer attaches the Zero service to a
-// fresh alpine container via BindZeros and confirms the cluster's Zero
-// port is reachable from inside the container — proving the binding
-// alias the cluster registers matches what ZeroHosts reports.
-//
-// +cache="never"
-func (t *Tests) BindZerosResolvesFromUserContainer(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
-	zeroHosts, err := cluster.ZeroHosts(ctx)
-	if err != nil {
-		return fmt.Errorf("get zero hosts: %w", err)
-	}
-	if len(zeroHosts) == 0 {
-		return fmt.Errorf("expected at least one zero host, got none")
-	}
-
-	// Skip explicit cluster.GrpcEndpoints / Start: explicit pre-start
-	// session-registers the service under the engine's generated name
-	// and the WithServiceBinding alias on the user container then fails
-	// to resolve. Letting the engine lazily start the Zero on the first
-	// nc dial uses the binding alias instead (verified during impl).
-	out, err := cluster.BindZeros(dag.Container().From("alpine:3.22")).
-		WithExec([]string{"nc", "-z", "-w", "30", zeroHosts[0], "6080"}).
-		WithExec([]string{"echo", "OK"}).
-		Stdout(ctx)
-	if err != nil {
-		return fmt.Errorf("dial zero via binding: %w (stdout=%s)", err, out)
-	}
-	if !strings.Contains(out, "OK") {
-		return fmt.Errorf("expected stdout to contain OK, got: %q", out)
 	}
 	return nil
 }

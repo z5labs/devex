@@ -20,8 +20,6 @@ type Cluster struct {
 	// +private
 	ZeroSvc *dagger.Service
 	// +private
-	ZeroHost string
-	// +private
 	AlphaSvcs []*dagger.Service
 	// +private
 	AlphaHosts []string
@@ -163,7 +161,6 @@ func (d *Dgraph) Cluster(
 
 	return &Cluster{
 		ZeroSvc:            zeroSvc,
-		ZeroHost:           zeroHost,
 		AlphaSvcs:          alphaSvcs,
 		AlphaHosts:         alphaHosts,
 		ClientSecurityMode: clientListenerSecurity.Mode,
@@ -260,20 +257,6 @@ func waitForAlphaReady(ctx context.Context, endpoint string) error {
 	return lastErr
 }
 
-// ZeroHosts returns the cluster's Zero hostnames (plural to keep the
-// signature stable when multi-Zero HA lands). Callers use these as the
-// DNS names to dial inside a container that has been wired up by
-// BindZeros — neither the hostname nor the suffix is otherwise
-// reachable from a test.
-//
-// +cache="never"
-func (c *Cluster) ZeroHosts() []string {
-	if c.ZeroHost == "" {
-		return nil
-	}
-	return []string{c.ZeroHost}
-}
-
 // AlphaHostNames returns the cluster's Alpha hostnames (no port), for
 // callers that need to reference an Alpha by name from a container
 // attached via BindAlphas.
@@ -294,19 +277,6 @@ func (c *Cluster) AlphaHostNames() []string {
 func (c *Cluster) BindAlphas(ctr *dagger.Container) *dagger.Container {
 	for i, svc := range c.AlphaSvcs {
 		ctr = ctr.WithServiceBinding(c.AlphaHosts[i], svc)
-	}
-	return ctr
-}
-
-// BindZeros attaches the cluster's Zero service(s) to the given
-// container under the same hostnames the cluster uses internally.
-// Plural in name to keep the signature stable when multi-Zero HA
-// lands.
-//
-// +cache="never"
-func (c *Cluster) BindZeros(ctr *dagger.Container) *dagger.Container {
-	if c.ZeroSvc != nil {
-		ctr = ctr.WithServiceBinding(c.ZeroHost, c.ZeroSvc)
 	}
 	return ctr
 }

@@ -14,7 +14,7 @@
 //   - cluster.go   — *Cluster + Dgraph.Cluster, input validation, the
 //                    topology builder (one Zero + N Alphas), and the
 //                    Stop / GrpcEndpoints / HttpEndpoints / BindAlphas /
-//                    BindZeros / Client methods.
+//                    Client methods.
 //   - client.go    — *Client + Dgraph.Client, dgo wiring, and the
 //                    DropAll / AlterSchema / Mutate / Query /
 //                    QueryWithVars method set.
