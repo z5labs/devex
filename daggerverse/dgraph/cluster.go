@@ -198,12 +198,22 @@ func (c *Cluster) HttpEndpoints(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-// start explicitly Starts every Alpha service so the WithHostname alias
-// becomes session-reachable from the dgraph module runtime, then polls
-// /health on each Alpha until ready. Dgraph Alphas accept gRPC
-// connections before they have a Raft leader, so dialing too early
-// returns "server is not ready to accept requests".
+// start explicitly Starts Zero and every Alpha so the WithHostname
+// aliases become session-reachable from the dgraph module runtime,
+// then polls /health on each Alpha until ready. Dgraph Alphas accept
+// gRPC connections before they have a Raft leader, so dialing too
+// early returns "server is not ready to accept requests".
+//
+// Zero is started explicitly so a Stop+start sequence (used by the
+// `*ShouldNotBeCached` tests) fully heals the cluster: without an
+// explicit Zero restart, alphas come back but can't reach the dead
+// Zero and stay in /health=503 forever.
 func (c *Cluster) start(ctx context.Context) error {
+	if c.ZeroSvc != nil {
+		if _, err := c.ZeroSvc.Start(ctx); err != nil {
+			return fmt.Errorf("start zero: %w", err)
+		}
+	}
 	for i, svc := range c.AlphaSvcs {
 		if _, err := svc.Start(ctx); err != nil {
 			return fmt.Errorf("start alpha %d: %w", i, err)
