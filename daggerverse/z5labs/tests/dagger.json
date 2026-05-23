@@ -17,5 +17,8 @@
       "name": "go",
       "source": "../../go"
     }
-  ]
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

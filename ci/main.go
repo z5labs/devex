@@ -1,73 +1,37 @@
+// Ci is the root module that aggregates each daggerverse module's tests
+// suite as a toolchain. With toolchains, `dagger check -l` enumerates
+// every dep's +check functions directly (e.g. kafka-tests:all), so no
+// wrapper methods are needed here.
 package main
 
 import (
 	"context"
-	"runtime"
+	"errors"
+	"fmt"
+	"os"
 
-	par "github.com/dagger/dagger/util/parallel"
+	"dagger/ci/internal/dagger"
 )
 
 type Ci struct{}
 
-// Test runs every daggerverse module's tests/All() check across the suite.
-//
-// Concurrency mirrors `go test`: at most `parallel` module suites run
-// concurrently (analog of `-p`), and each suite runs its own tests
-// sequentially by default. To opt into more inner parallelism, call a
-// single suite directly, e.g.
-//
-//	dagger call kafka-tests all --parallel=8
-//
-// parallel defaults to 0, which is interpreted as runtime.NumCPU() — the
-// number of CPUs visible to the module runtime container. Pass an explicit
-// positive integer to override the auto-detected value.
+// Verify that committed dagger.gen.go and internal/dagger/*.gen.go files
+// match what `dagger develop` would produce at the pinned engineVersion.
 //
 // +check
-// +cache="session"
-func (c *Ci) Test(
-	ctx context.Context,
-	// +default=0
-	parallel int,
-) error {
-	if parallel <= 0 {
-		parallel = runtime.NumCPU()
+func (ci *Ci) Generated(ctx context.Context, ws *dagger.Workspace) error {
+	generated := ws.Generators().Run()
+	empty, err := generated.IsEmpty(ctx)
+	if err != nil {
+		return err
 	}
-
-	jobs := par.New().
-		WithRollupLogs(true).
-		WithRollupSpans(true).
-		WithLimit(parallel)
-
-	jobs = jobs.WithJob("random", func(ctx context.Context) error {
-		return dag.RandomTests().All(ctx)
-	})
-	jobs = jobs.WithJob("crypto", func(ctx context.Context) error {
-		return dag.CryptoTests().All(ctx)
-	})
-	jobs = jobs.WithJob("certificate-management", func(ctx context.Context) error {
-		return dag.CertificateManagementTests().All(ctx)
-	})
-	jobs = jobs.WithJob("dgraph", func(ctx context.Context) error {
-		return dag.DgraphTests().All(ctx)
-	})
-	jobs = jobs.WithJob("grafana-stack", func(ctx context.Context) error {
-		return dag.GrafanaStackTests().All(ctx)
-	})
-	jobs = jobs.WithJob("kafka", func(ctx context.Context) error {
-		return dag.KafkaTests().All(ctx)
-	})
-	jobs = jobs.WithJob("go", func(ctx context.Context) error {
-		return dag.GoTests().All(ctx)
-	})
-	jobs = jobs.WithJob("envoy", func(ctx context.Context) error {
-		return dag.EnvoyTests().All(ctx)
-	})
-	jobs = jobs.WithJob("otel", func(ctx context.Context) error {
-		return dag.OtelTests().All(ctx)
-	})
-	jobs = jobs.WithJob("z5labs", func(ctx context.Context) error {
-		return dag.Z5LabsTests().All(ctx)
-	})
-
-	return jobs.Run(ctx)
+	if empty {
+		return nil
+	}
+	patch, err := generated.Changes().AsPatch().Contents(ctx)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, patch)
+	return errors.New("generated files are not up-to-date; run `dagger develop` in the affected module(s)")
 }

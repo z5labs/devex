@@ -13,5 +13,8 @@
       "name": "random",
       "source": "../../random"
     }
-  ]
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"dagger/dgraph/internal/dagger"
@@ -59,9 +60,21 @@ type Cluster struct {
 // method on *Cluster and *Client still carries +cache="never" on its
 // own line so any data-returning call re-executes per invocation.
 //
+// `name` is a caller-supplied discriminator that folds into the session
+// cache key. Parallel test suites should pass a unique value per test
+// (e.g. the test function name) so each test gets its own backing
+// services — without it, every same-shape call collapses to one cached
+// cluster and concurrent tests race on shared schema and storage. Same
+// name + same shape still cache-hits, which is what a single test's
+// chained Client.Mutate → Client.RunQuery sequence needs. Leaving the
+// default empty is fine for ad-hoc `dagger call` use where only one
+// cluster is in play.
+//
 // +cache="session"
 func (d *Dgraph) Cluster(
 	ctx context.Context,
+	// +default=""
+	name string,
 	// +default=1
 	zeros int,
 	// +default=1
@@ -108,20 +121,19 @@ func (d *Dgraph) Cluster(
 		)
 	}
 
+	image := fmt.Sprintf("%s/dgraph/dgraph:%s", registry, tag)
+
 	// Stable hostnames are scoped per-cluster so parallel test
 	// invocations don't collide on `zero-1` / `alpha-100`. The suffix is
-	// derived from random material at construction time so that
-	// Cluster() calls with *different* args (e.g. (1,1) vs (3,3)) get
-	// distinct service DNS within one engine session. Identical-arg
+	// derived deterministically from every arg that distinguishes one
+	// cache entry from another, so two cache entries can never produce
+	// the same hostnames within one engine session — and identical-arg
 	// calls hit the +cache="session" entry without re-executing this
-	// path and therefore share the cached cluster (and its hostnames).
-	suffix, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 8})
-	if err != nil {
-		return nil, fmt.Errorf("mint cluster suffix: %w", err)
-	}
-	hostSuffix := strings.ToLower(suffix[:12])
-
-	image := fmt.Sprintf("%s/dgraph/dgraph:%s", registry, tag)
+	// path at all.
+	keyBytes := sha256.Sum256(fmt.Appendf(nil, "%s|%d|%d|%d|%s",
+		name, zeros, alphas, replicas, image,
+	))
+	hostSuffix := hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
 
 	zeroHost := "zero-1-" + hostSuffix
 	zeroSvc := dag.Container().

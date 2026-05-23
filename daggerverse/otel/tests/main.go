@@ -14,20 +14,18 @@ import (
 
 type Tests struct{}
 
-// All runs every otel test inside this suite.
+// All runs every otel test inside this suite as a convenience for local
+// `dagger call all` invocations. CI does NOT call All: each of the three
+// sub-aggregators below (Validation, Core, Contrib) carries its own
+// `+check` directive, so GH Actions schedules each onto its own runner
+// in parallel — running All on top would double-bill the same work.
 //
 // collectorTag picks the otel/opentelemetry-collector{,-contrib} tag
-// every spawned collector runs against; lokiTag/tempoTag/mimirTag
-// pick the grafana/{loki,tempo,mimir} tags for the round-trip
-// backends. Each default matches the upstream module's own default,
-// so the no-arg invocation stays a smooth path.
+// every spawned collector runs against; lokiTag/tempoTag/mimirTag pick
+// the grafana/{loki,tempo,mimir} tags for the round-trip backends.
 //
-// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
-// to mirror `go test` package-level semantics; pass 0 to fan out every test
-// with no limit, or any positive integer to opt into a specific level of
-// concurrency.
+// parallel caps how many tests run concurrently. Defaults to 0 (unbounded).
 //
-// +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
@@ -39,7 +37,37 @@ func (t *Tests) All(
 	tempoTag string,
 	// +default="2.15.1"
 	mimirTag string,
-	// +default=1
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("Validation", func(ctx context.Context) error {
+		return t.Validation(ctx, collectorTag, parallel)
+	})
+	jobs = jobs.WithJob("Core", func(ctx context.Context) error {
+		return t.Core(ctx, collectorTag, lokiTag, tempoTag, mimirTag, parallel)
+	})
+	jobs = jobs.WithJob("Contrib", func(ctx context.Context) error {
+		return t.Contrib(ctx, collectorTag, lokiTag, parallel)
+	})
+	return jobs.Run(ctx)
+}
+
+// Validation runs the otel validation + rendering tests that don't need
+// a backend service stood up. Pure-unit + collector-only spin-ups.
+//
+// +check
+// +cache="session"
+func (t *Tests) Validation(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -65,6 +93,34 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ServiceWithoutPipelinesOrConfigFails", func(ctx context.Context) error {
 		return t.ServiceWithoutPipelinesOrConfigFails(ctx, collectorTag)
 	})
+	return jobs.Run(ctx)
+}
+
+// Core runs the otel-collector core-image round-trip tests. Each test
+// boots one Loki/Tempo/Mimir alongside the collector, so this group's
+// per-runner footprint is the heaviest in the suite.
+//
+// +check
+// +cache="session"
+func (t *Tests) Core(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="3.4.1"
+	lokiTag string,
+	// +default="2.7.1"
+	tempoTag string,
+	// +default="2.15.1"
+	mimirTag string,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 	jobs = jobs.WithJob("DebugPipelineAcceptsOtlpPush", func(ctx context.Context) error {
 		return t.DebugPipelineAcceptsOtlpPush(ctx, collectorTag)
 	})
@@ -77,6 +133,28 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CoreForwardsMetricsToMimir", func(ctx context.Context) error {
 		return t.CoreForwardsMetricsToMimir(ctx, collectorTag, mimirTag)
 	})
+	return jobs.Run(ctx)
+}
+
+// Contrib runs the otel-collector-contrib-image round-trip tests.
+//
+// +check
+// +cache="session"
+func (t *Tests) Contrib(
+	ctx context.Context,
+	// +default="0.130.1"
+	collectorTag string,
+	// +default="3.4.1"
+	lokiTag string,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
 	jobs = jobs.WithJob("ContribForwardsLogsToLoki", func(ctx context.Context) error {
 		return t.ContribForwardsLogsToLoki(ctx, collectorTag, lokiTag)
 	})

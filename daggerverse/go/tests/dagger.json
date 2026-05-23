@@ -9,5 +9,8 @@
       "name": "go",
       "source": ".."
     }
-  ]
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

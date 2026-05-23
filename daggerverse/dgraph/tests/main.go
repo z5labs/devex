@@ -17,18 +17,16 @@ import (
 
 type Tests struct{}
 
-// All runs every dgraph test. Default parallelism is 1 (serial)
-// because the +cache="session" generator on Dgraph.Cluster collapses
-// every same-shape freshCluster call to a single backing service —
-// running tests in parallel causes them to read the same graph state.
-// Pass --parallel=N to opt back in for tests that don't share a shape
-// (e.g. running just multi-alpha-* alongside validation tests).
+// All runs every dgraph test as a convenience for local `dagger call
+// all` invocations. CI does NOT call All: each of the two
+// sub-aggregators below (Validation, Cluster) carries its own `+check`
+// directive, so GH Actions schedules each onto its own runner in
+// parallel — running All on top would double-bill the same work.
 //
-// +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -37,68 +35,87 @@ func (t *Tests) All(
 	if parallel > 0 {
 		jobs = jobs.WithLimit(parallel)
 	}
+	jobs = jobs.WithJob("Validation", func(ctx context.Context) error {
+		return t.Validation(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
+		return t.Cluster(ctx, parallel)
+	})
+	return jobs.Run(ctx)
+}
 
-	jobs = jobs.WithJob("defaults-produce-working-single-node-cluster", func(ctx context.Context) error {
-		return t.DefaultsProduceWorkingSingleNodeCluster(ctx)
-	})
-	jobs = jobs.WithJob("grpc-endpoints-should-not-be-cached", func(ctx context.Context) error {
-		return t.GrpcEndpointsShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("http-endpoints-should-not-be-cached", func(ctx context.Context) error {
-		return t.HttpEndpointsShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("mutate-should-not-be-cached", func(ctx context.Context) error {
-		return t.MutateShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-multiple-zeros", func(ctx context.Context) error {
-		return t.ClusterRejectsMultipleZeros(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-invalid-alphas-replicas-ratio", func(ctx context.Context) error {
-		return t.ClusterRejectsInvalidAlphasReplicasRatio(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-even-replicas", func(ctx context.Context) error {
-		return t.ClusterRejectsEvenReplicas(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-nil-security", func(ctx context.Context) error {
-		return t.ClusterRejectsNilSecurity(ctx)
-	})
-	jobs = jobs.WithJob("multi-alpha-single-group-all-reachable", func(ctx context.Context) error {
-		return t.MultiAlphaSingleGroupAllReachable(ctx)
-	})
-	jobs = jobs.WithJob("multi-alpha-sharded-topology", func(ctx context.Context) error {
-		return t.MultiAlphaShardedTopology(ctx)
-	})
-	jobs = jobs.WithJob("client-alter-schema-round-trip", func(ctx context.Context) error {
-		return t.ClientAlterSchemaRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("client-mutate-then-query-round-trip", func(ctx context.Context) error {
-		return t.ClientMutateThenQueryRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("client-mutate-without-commit-does-not-persist", func(ctx context.Context) error {
-		return t.ClientMutateWithoutCommitDoesNotPersist(ctx)
-	})
-	jobs = jobs.WithJob("client-query-with-vars-round-trip", func(ctx context.Context) error {
-		return t.ClientQueryWithVarsRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("remote-client-can-target-existing-cluster", func(ctx context.Context) error {
-		return t.RemoteClientCanTargetExistingCluster(ctx)
-	})
+// Validation runs the pure-validation tests (ClusterRejects*) plus the
+// cache-directive tests (*ShouldNotBeCached) that explicitly Stop their
+// cluster after use. These don't share session-cached cluster state, so
+// they're safe to fan out unbounded.
+//
+// +check
+// +cache="session"
+func (t *Tests) Validation(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("cluster-rejects-multiple-zeros", t.ClusterRejectsMultipleZeros)
+	jobs = jobs.WithJob("cluster-rejects-invalid-alphas-replicas-ratio", t.ClusterRejectsInvalidAlphasReplicasRatio)
+	jobs = jobs.WithJob("cluster-rejects-even-replicas", t.ClusterRejectsEvenReplicas)
+	jobs = jobs.WithJob("cluster-rejects-nil-security", t.ClusterRejectsNilSecurity)
+	jobs = jobs.WithJob("grpc-endpoints-should-not-be-cached", t.GrpcEndpointsShouldNotBeCached)
+	jobs = jobs.WithJob("http-endpoints-should-not-be-cached", t.HttpEndpointsShouldNotBeCached)
+	jobs = jobs.WithJob("mutate-should-not-be-cached", t.MutateShouldNotBeCached)
+	return jobs.Run(ctx)
+}
 
+// Cluster runs the topology and client round-trip tests. Each test
+// passes its own name to `freshCluster`, which folds into Dgraph.Cluster's
+// session-cache key so concurrent tests boot independent backing
+// services and never share schema or storage.
+//
+// +check
+// +cache="session"
+func (t *Tests) Cluster(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("defaults-produce-working-single-node-cluster", t.DefaultsProduceWorkingSingleNodeCluster)
+	jobs = jobs.WithJob("multi-alpha-single-group-all-reachable", t.MultiAlphaSingleGroupAllReachable)
+	jobs = jobs.WithJob("multi-alpha-sharded-topology", t.MultiAlphaShardedTopology)
+	jobs = jobs.WithJob("client-alter-schema-round-trip", t.ClientAlterSchemaRoundTrip)
+	jobs = jobs.WithJob("client-mutate-then-query-round-trip", t.ClientMutateThenQueryRoundTrip)
+	jobs = jobs.WithJob("client-mutate-without-commit-does-not-persist", t.ClientMutateWithoutCommitDoesNotPersist)
+	jobs = jobs.WithJob("client-query-with-vars-round-trip", t.ClientQueryWithVarsRoundTrip)
+	jobs = jobs.WithJob("remote-client-can-target-existing-cluster", t.RemoteClientCanTargetExistingCluster)
 	return jobs.Run(ctx)
 }
 
 // freshCluster mints a Dgraph cluster sized as requested with a plaintext
-// listener. We deliberately do NOT defer Stop: Dgraph.Cluster is
-// +cache="session", so every freshCluster(a, r) call with the same shape
-// returns the SAME backing cluster, and the engine tears it down when
-// the session ends. Stopping mid-test would kill that shared cluster
-// for any peer test still running against it. The cache-directive tests
-// below intentionally violate this and Stop explicitly — they accept
-// the resulting re-bootstrap cost in exchange for proving start() ran.
-func freshCluster(_ context.Context, alphas, replicas int) *dagger.DgraphCluster {
+// listener. The name folds into Dgraph.Cluster's +cache="session" key:
+// pass a unique per-test value so parallel tests don't collapse onto
+// one shared cluster (which would race on the global `name` predicate
+// and let `*ShouldNotBeCached` tests Stop the cluster underneath their
+// peers). Same name + same shape is still cache-coherent — the right
+// behaviour for a single test's chained Client.Mutate → Client.RunQuery.
+// We deliberately do NOT defer Stop: the cache-directive tests Stop
+// their own cluster as part of the test invariant; everyone else lets
+// the session teardown handle it.
+func freshCluster(_ context.Context, name string, alphas, replicas int) *dagger.DgraphCluster {
 	return dag.Dgraph().Cluster(
 		dag.Dgraph().PlaintextServerSecurity(),
 		dagger.DgraphClusterOpts{
+			Name:     name,
 			Alphas:   alphas,
 			Replicas: replicas,
 		},
@@ -217,7 +234,7 @@ func (t *Tests) ClusterRejectsNilSecurity(ctx context.Context) (returnErr error)
 //
 // +cache="never"
 func (t *Tests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "grpc-endpoints-should-not-be-cached", 1, 1)
 	eps1, err := cluster.GrpcEndpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("endpoints 1: %w", err)
@@ -249,7 +266,7 @@ func (t *Tests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) HttpEndpointsShouldNotBeCached(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "http-endpoints-should-not-be-cached", 1, 1)
 	eps1, err := cluster.HTTPEndpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("endpoints 1: %w", err)
@@ -282,7 +299,7 @@ func (t *Tests) HttpEndpointsShouldNotBeCached(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) MutateShouldNotBeCached(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "mutate-should-not-be-cached", 1, 1)
 	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
 	if err := client.AlterSchema(ctx, "name: string @index(exact) ."); err != nil {
 		return fmt.Errorf("alter schema: %w", err)
@@ -317,7 +334,7 @@ func (t *Tests) MutateShouldNotBeCached(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "defaults-produce-working-single-node-cluster", 1, 1)
 	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
 	if err := client.AlterSchema(ctx, "name: string ."); err != nil {
 		return fmt.Errorf("alter schema on defaults cluster: %w", err)
@@ -331,7 +348,7 @@ func (t *Tests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Context) err
 //
 // +cache="never"
 func (t *Tests) MultiAlphaSingleGroupAllReachable(ctx context.Context) error {
-	cluster := freshCluster(ctx, 3, 3)
+	cluster := freshCluster(ctx, "multi-alpha-single-group-all-reachable", 3, 3)
 	eps, err := cluster.GrpcEndpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("get endpoints: %w", err)
@@ -358,7 +375,7 @@ func (t *Tests) MultiAlphaSingleGroupAllReachable(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) MultiAlphaShardedTopology(ctx context.Context) error {
-	cluster := freshCluster(ctx, 2, 1)
+	cluster := freshCluster(ctx, "multi-alpha-sharded-topology", 2, 1)
 	client := cluster.Client(dag.Dgraph().PlaintextClientSecurity())
 	if err := client.AlterSchema(ctx, "name: string ."); err != nil {
 		return fmt.Errorf("alter schema on sharded cluster: %w", err)
@@ -375,7 +392,7 @@ func (t *Tests) MultiAlphaShardedTopology(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) ClientAlterSchemaRoundTrip(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "client-alter-schema-round-trip", 1, 1)
 	pred, err := randName(ctx, "pred_")
 	if err != nil {
 		return err
@@ -402,7 +419,7 @@ func (t *Tests) ClientAlterSchemaRoundTrip(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) ClientMutateThenQueryRoundTrip(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "client-mutate-then-query-round-trip", 1, 1)
 	val, err := randName(ctx, "v")
 	if err != nil {
 		return err
@@ -442,7 +459,7 @@ func (t *Tests) ClientMutateThenQueryRoundTrip(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) ClientMutateWithoutCommitDoesNotPersist(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "client-mutate-without-commit-does-not-persist", 1, 1)
 	val, err := randName(ctx, "dry")
 	if err != nil {
 		return err
@@ -475,7 +492,7 @@ func (t *Tests) ClientMutateWithoutCommitDoesNotPersist(ctx context.Context) err
 //
 // +cache="never"
 func (t *Tests) ClientQueryWithVarsRoundTrip(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "client-query-with-vars-round-trip", 1, 1)
 	val, err := randName(ctx, "v")
 	if err != nil {
 		return err
@@ -511,7 +528,7 @@ func (t *Tests) ClientQueryWithVarsRoundTrip(ctx context.Context) error {
 //
 // +cache="never"
 func (t *Tests) RemoteClientCanTargetExistingCluster(ctx context.Context) error {
-	cluster := freshCluster(ctx, 1, 1)
+	cluster := freshCluster(ctx, "remote-client-can-target-existing-cluster", 1, 1)
 	eps, err := cluster.GrpcEndpoints(ctx)
 	if err != nil {
 		return fmt.Errorf("get endpoints: %w", err)

@@ -9,5 +9,8 @@
       "name": "crypto",
       "source": ".."
     }
-  ]
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

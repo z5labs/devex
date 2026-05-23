@@ -15,16 +15,16 @@ type Tests struct{}
 
 // All runs every crypto test inside this suite.
 //
-// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
-// to mirror `go test` package-level semantics; pass 0 to fan out every test
-// with no limit, or any positive integer to opt into a specific level of
-// concurrency.
+// parallel caps how many tests run concurrently. Defaults to 0 (unbounded
+// fan-out) — each `dagger check` job runs on its own GH Actions runner, so
+// in-runner parallelism is bounded by the VM's CPU/memory, not by the
+// scheduler. Pass any positive integer to opt into a specific cap.
 //
 // +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().

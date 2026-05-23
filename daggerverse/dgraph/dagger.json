@@ -4,10 +4,7 @@
   "sdk": {
     "source": "go"
   },
-  "dependencies": [
-    {
-      "name": "random",
-      "source": "../random"
-    }
-  ]
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

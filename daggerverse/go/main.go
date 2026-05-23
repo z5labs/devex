@@ -74,17 +74,37 @@ func (g *Go) Container(
 // returned filename is the basename of pkg (with any @version suffix
 // stripped), matching `go install`'s naming rules.
 //
-// Callers should pin pkg to a specific version (e.g. `pkg@v1.2.3`) for
-// reproducible builds; `@latest` or unpinned paths will resolve against
-// the proxy at call time. Result caching is disabled so unpinned callers
-// don't get silently stale binaries.
+// pkg MUST be pinned to an explicit version (e.g. `pkg@v1.2.3` or a
+// commit-hash pseudo-version); `@latest` and bare paths are rejected.
+// The pin is what makes the result safe to cache across calls within a
+// session — without it, the proxy could resolve different versions on
+// successive invocations.
 //
-// +cache="never"
-func (g *Go) Install(pkg string) *dagger.File {
+// +cache="session"
+func (g *Go) Install(pkg string) (*dagger.File, error) {
+	if err := validatePinnedPkg(pkg); err != nil {
+		return nil, err
+	}
 	return g.bareContainer().
 		WithEnvVariable("GOBIN", "/out").
 		WithExec([]string{"go", "install", pkg}).
-		File("/out/" + pkgBinName(pkg))
+		File("/out/" + pkgBinName(pkg)), nil
+}
+
+// validatePinnedPkg returns an error unless pkg has an `@<version>` suffix
+// where the version is non-empty and not `latest`. This forces callers to
+// pin so Install's session cache cannot return a stale binary when the
+// upstream module's `@latest` advances.
+func validatePinnedPkg(pkg string) error {
+	i := strings.IndexByte(pkg, '@')
+	if i < 0 {
+		return fmt.Errorf("Install: pkg %q must be pinned (use pkg@v1.2.3)", pkg)
+	}
+	v := pkg[i+1:]
+	if v == "" || v == "latest" {
+		return fmt.Errorf("Install: pkg %q must pin an explicit version (got %q)", pkg, v)
+	}
+	return nil
 }
 
 // pkgBinName returns the binary name `go install` produces for pkg: the last

@@ -31,11 +31,13 @@ type Tests struct{}
 // `call all` keeps working.
 //
 // parallel caps how many tests run concurrently inside this suite. Defaults
-// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
-// fan out every test with no limit, or any positive integer to opt into a
-// specific level of concurrency.
+// to 0 (unbounded fan-out).
 //
-// +check
+// All exists as a convenience for local `dagger call all` invocations.
+// CI does NOT call All: each of the four round-trips below carries its
+// own `+check` directive, so GH Actions schedules each onto its own
+// runner in parallel.
+//
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
@@ -51,7 +53,7 @@ func (t *Tests) All(
 	// grafana/grafana image tag.
 	// +default="12.0.0"
 	grafanaTag string,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -104,6 +106,9 @@ func randomIDPair(n int) (hexEnc, b64Enc string, err error) {
 // the OTLP/HTTP receiver carrying a unique marker UUID, then queries Loki
 // LogQL until the marker reappears in the query response. Verifies the
 // default config wires up the OTLP HTTP ingester end-to-end.
+//
+// +check
+// +cache="session"
 func (t *Tests) LokiAcceptsOtlpLogs(
 	ctx context.Context,
 	// +default="3.4.1"
@@ -243,6 +248,9 @@ exit 1
 // /api/traces/<trace_id> until Tempo returns the trace. Verifies the
 // default config wires up the OTLP HTTP receiver and the local trace
 // store end-to-end.
+//
+// +check
+// +cache="session"
 func (t *Tests) TempoAcceptsOtlpTraces(
 	ctx context.Context,
 	// +default="2.7.1"
@@ -380,6 +388,9 @@ exit 1
 // queries Mimir's Prometheus-compatible API until that metric appears.
 // Verifies the default config wires up the OTLP HTTP ingester and the
 // filesystem block store end-to-end.
+//
+// +check
+// +cache="session"
 func (t *Tests) MimirAcceptsOtlpMetrics(
 	ctx context.Context,
 	// +default="2.15.1"
@@ -518,6 +529,9 @@ exit 1
 //
 // lokiTag and grafanaTag override their respective image tags at the
 // CLI; both default to the parent module's pinned defaults.
+//
+// +check
+// +cache="session"
 func (t *Tests) GrafanaProxiesLokiQuery(
 	ctx context.Context,
 	// +default="3.4.1"

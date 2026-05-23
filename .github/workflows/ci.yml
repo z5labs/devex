@@ -13,17 +13,70 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  checks:
-    name: Daggerverse checks
+  list:
+    name: List checks
     runs-on: ubuntu-latest
+    outputs:
+      jobs: ${{ steps.route.outputs.jobs }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run ci/Test
-        uses: dagger/dagger-for-github@v7
+      - id: list
+        uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
           version: "0.20.8"
-          verb: "call"
-          call: "test"
+          list: "true"
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+
+      - id: route
+        # Re-shape the bare check list into {name, module, filter} objects so
+        # each run job can load only its own tests module instead of the whole
+        # ci/ aggregator (10 toolchains → 2 modules per job). ci:* checks stay
+        # on the root module.
+        env:
+          CHECKS: ${{ steps.list.outputs.checks }}
+        run: |
+          jobs=$(jq -nc \
+            --argjson checks "$CHECKS" \
+            --slurpfile tcs <(jq -c '.toolchains' dagger.json) '
+            ($tcs[0] // []) as $toolchains |
+            # Dagger kebab-cases toolchain names and splits on letter↔digit
+            # boundaries (z5labs → z-5-labs), so apply the same rule when
+            # mapping the filter prefix back to its source path.
+            ($toolchains | map({
+              key: (.name
+                | gsub("(?<a>[a-z])(?<d>[0-9])"; "\(.a)-\(.d)")
+                | gsub("(?<d>[0-9])(?<a>[a-z])"; "\(.d)-\(.a)")
+              ),
+              value: .source
+            }) | from_entries) as $module_for |
+            $checks | map(
+              (split(":")[0]) as $prefix |
+              if $prefix == "ci" then
+                { name: ., module: ".", filter: . }
+              else
+                { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])) }
+              end
+            )
+          ')
+          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+
+  run:
+    name: ${{ matrix.job.name }}
+    needs: [list]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        job: ${{ fromJSON(needs.list.outputs.jobs) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
+        with:
+          version: "0.20.8"
+          module: ${{ matrix.job.module }}
+          filter: ${{ matrix.job.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}

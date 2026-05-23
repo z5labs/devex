@@ -172,14 +172,19 @@ func (c *Ci) runLint(ctx context.Context) error {
 	if version == "" {
 		version = defaultGolangciLintVersion
 	}
+	// Build golangci-lint in a source-less container so the install
+	// dedupes across fixtures. Mounting it into the lint container as
+	// a file keeps the source mount (and per-fixture cache key) off
+	// the install span — see plan for the trace that motivated this.
+	lintBin, err := c.Go.Install("github.com/golangci/golangci-lint/cmd/golangci-lint@" + version)
+	if err != nil {
+		return err
+	}
 	ctr, err := c.Go.Container(ctx, c.Source)
 	if err != nil {
 		return err
 	}
-	ctr = ctr.
-		WithEnvVariable("GOBIN", "/usr/local/bin").
-		WithExec([]string{"go", "install",
-			"github.com/golangci/golangci-lint/cmd/golangci-lint@" + version})
+	ctr = ctr.WithFile("/usr/local/bin/golangci-lint", lintBin)
 	args := []string{"golangci-lint", "run"}
 	if c.LintConfig != nil {
 		ctr = ctr.WithMountedFile(golangciLintConfigMountPath, c.LintConfig)

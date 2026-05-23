@@ -14,20 +14,47 @@ import (
 
 type Tests struct{}
 
-// All runs every envoy test inside this suite.
+// All runs every envoy test as a convenience for local `dagger call all`
+// invocations. CI does NOT call All: each of the three sub-aggregators
+// below (Validation, Admin, RoundTrips) carries its own `+check`
+// directive, so GH Actions schedules each onto its own runner in
+// parallel — running All on top would double-bill the same work.
 //
-// parallel caps how many tests run concurrently. Defaults to 1 (sequential)
-// to mirror `go test` package-level semantics; pass 0 to fan out every test
-// with no limit, or any positive integer to opt into a specific level of
-// concurrency.
-//
-// +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
 	// +default="v1.32.1"
 	envoyTag string,
-	// +default=1
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("Validation", func(ctx context.Context) error {
+		return t.Validation(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Admin", func(ctx context.Context) error {
+		return t.Admin(ctx, envoyTag, parallel)
+	})
+	jobs = jobs.WithJob("RoundTrips", func(ctx context.Context) error {
+		return t.RoundTrips(ctx, envoyTag, parallel)
+	})
+	return jobs.Run(ctx)
+}
+
+// Validation runs the pure-render and config-validation tests — no
+// Envoy service is booted, just the proxy config-rendering paths and
+// the security renderers. The fastest of the three groups.
+//
+// +check
+// +cache="session"
+func (t *Tests) Validation(
+	ctx context.Context,
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -44,24 +71,68 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CustomListenerBodyIsSpliced", t.CustomListenerBodyIsSpliced)
 	jobs = jobs.WithJob("CustomHttpFilterBodyIsSpliced", t.CustomHttpFilterBodyIsSpliced)
 	jobs = jobs.WithJob("ConfigFileOverridesRendered", t.ConfigFileOverridesRendered)
-	jobs = jobs.WithJob("ServiceWithoutConfigFails", func(ctx context.Context) error {
-		return t.ServiceWithoutConfigFails(ctx, envoyTag)
-	})
-	jobs = jobs.WithJob("AdminEndpointServesReady", func(ctx context.Context) error {
-		return t.AdminEndpointServesReady(ctx, envoyTag)
-	})
-	jobs = jobs.WithJob("L7HttpRoundTrip", func(ctx context.Context) error {
-		return t.L7HttpRoundTrip(ctx, envoyTag)
-	})
-	jobs = jobs.WithJob("L4TcpRoundTrip", func(ctx context.Context) error {
-		return t.L4TcpRoundTrip(ctx, envoyTag)
-	})
 	jobs = jobs.WithJob("TlsServerSecurityRendersDownstreamTlsContext", t.TlsServerSecurityRendersDownstreamTlsContext)
 	jobs = jobs.WithJob("MtlsServerSecurityRequiresClientCert", t.MtlsServerSecurityRequiresClientCert)
 	jobs = jobs.WithJob("PlaintextServerSecurityRendersNoTransportSocket", t.PlaintextServerSecurityRendersNoTransportSocket)
 	jobs = jobs.WithJob("TlsUpstreamSecurityRendersUpstreamTlsContext", t.TlsUpstreamSecurityRendersUpstreamTlsContext)
 	jobs = jobs.WithJob("MtlsUpstreamSecurityIncludesClientLeaf", t.MtlsUpstreamSecurityIncludesClientLeaf)
 	jobs = jobs.WithJob("PlaintextUpstreamSecurityRendersNoTransportSocket", t.PlaintextUpstreamSecurityRendersNoTransportSocket)
+	return jobs.Run(ctx)
+}
+
+// Admin runs the boot-and-probe tests — Envoy comes up, we hit the
+// admin endpoint or assert misconfigurations fail at boot, no upstream
+// traffic.
+//
+// +check
+// +cache="session"
+func (t *Tests) Admin(
+	ctx context.Context,
+	// +default="v1.32.1"
+	envoyTag string,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("ServiceWithoutConfigFails", func(ctx context.Context) error {
+		return t.ServiceWithoutConfigFails(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("AdminEndpointServesReady", func(ctx context.Context) error {
+		return t.AdminEndpointServesReady(ctx, envoyTag)
+	})
+	return jobs.Run(ctx)
+}
+
+// RoundTrips runs every L7/L4 + TLS/mTLS round-trip — each spins an
+// Envoy proxy plus an upstream service plus a curl client. The
+// heaviest of the three groups.
+//
+// +check
+// +cache="session"
+func (t *Tests) RoundTrips(
+	ctx context.Context,
+	// +default="v1.32.1"
+	envoyTag string,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("L7HttpRoundTrip", func(ctx context.Context) error {
+		return t.L7HttpRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L4TcpRoundTrip", func(ctx context.Context) error {
+		return t.L4TcpRoundTrip(ctx, envoyTag)
+	})
 	jobs = jobs.WithJob("L7HttpsRoundTrip", func(ctx context.Context) error {
 		return t.L7HttpsRoundTrip(ctx, envoyTag)
 	})
