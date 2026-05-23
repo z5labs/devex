@@ -111,119 +111,17 @@ The practical consequences:
 
 ## The caching model
 
-### Operation cache
-
-The unit of caching is the LLB operation. Before executing a vertex the
-solver computes a **cache map** — a content-addressed key over the op
-and its inputs —
-[`engine/buildkit/op.go` `CacheMap` L103-L120](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/engine/buildkit/op.go#L103-L120).
-If a result already exists for that key, the op is skipped entirely.
-
-**Experiment — an exec is cached by its inputs, not re-run.** Running
-the *same* exec twice: `date` would print a different time if it
-actually ran, but the second run returns the first run's output:
-
-```
-$ dagger --progress=plain -c 'container | from alpine:3 | with-exec date | stdout'
-24 : withExec date
-24 : [0.1s] | Thu May 21 22:30:45 UTC 2026
-24 : Container.withExec DONE [0.2s]
-Thu May 21 22:30:45 UTC 2026
-
-$ # identical command again:
-24 : withExec date
-24 : Container.withExec CACHED [0.0s]
-Thu May 21 22:30:45 UTC 2026
-```
-
-`CACHED` and the *identical* timestamp prove the second exec did not
-run — the engine returned the cached snapshot. Pulled base-image layers
-(`from`) are cached the same way.
-
-### Cache mounts
-
-A cache mount (`withMountedCache`) is a *mutable* directory that is
-**deliberately excluded** from the content-addressed result — it
-persists across execs and across `dagger` invocations, scoped by a
-cache-volume key. It is the escape hatch for things you want to reuse
-but not bake into the immutable result (package caches, build caches).
-
-**Experiment — a cache mount survives across separate invocations.**
-
-```
-$ dagger -c 'container | from alpine:3 |
-             with-mounted-cache /data $(cache-volume devex-exec-demo) |
-             with-exec touch /data/written-by-run-1 |
-             with-exec ls /data | stdout'
-written-by-run-1
-
-$ # a separate dagger invocation, same cache-volume key, no touch:
-$ dagger -c 'container | from alpine:3 |
-             with-mounted-cache /data $(cache-volume devex-exec-demo) |
-             with-exec ls /data | stdout'
-written-by-run-1
-```
-
-The file written by the first invocation is still present in the
-second — the cache volume is shared engine state, not part of any
-container's snapshot.
-
-### Prune and GC — reclaiming disk
-
-Cached snapshots accumulate. The engine exposes its on-disk cache and a
-garbage-collection policy through `dagger core engine local-cache`.
-
-**Experiment — the GC policy.** Each policy field is a queryable value
-(bytes; the CLI prints them in scientific notation):
-
-```
-$ dagger core engine local-cache max-used-space    # max bytes kept before pruning
-6.98e+11                                           # ~698 GB
-
-$ dagger core engine local-cache reserved-space    # min bytes always retained
-1e+10                                              # ~10 GB
-
-$ dagger core engine local-cache min-free-space    # free-space target for GC
-1.86e+11                                           # ~186 GB
-
-$ dagger core engine local-cache target-space
-0
-```
-
-**Experiment — the live cache.** `entry-set` reports what is currently
-cached on disk:
-
-```
-$ dagger core engine local-cache entry-set entry-count
-180379
-$ dagger core engine local-cache entry-set disk-space-bytes
-3.3531539275e+10                                    # ~33.5 GB
-```
-
-**Experiment — the prune command.** `prune` runs the GC pass on demand
-and accepts overrides so a reader can prune harder or softer than the
-standing policy:
-
-```
-$ dagger core engine local-cache prune --help
-Prune the cache of releaseable entries
-
-USAGE
-  dagger core engine local-cache prune [arguments]
-
-ARGUMENTS
-      --max-used-space string   Override the maximum disk space to keep
-                                before pruning (e.g. "200GB" or "80%").
-      --min-free-space string   Override the minimum free disk space
-                                target during pruning (e.g. "20GB" or "20%").
-      --reserved-space string   Override the minimum disk space to retain
-                                during pruning (e.g. "500GB" or "10%").
-```
-
-`prune` only releases entries that are not pinned by something still in
-use — cache mounts and in-use snapshots survive. Run with no arguments
-it applies the standing policy (the `*-space` values above); the
-override flags let CI reclaim disk more aggressively on demand.
+The cache story has its own page —
+[caching-and-evaluation.md](./caching-and-evaluation.md) — covering both
+the dagql per-session call cache and the BuildKit operation cache that
+makes exec results survive across `dagger` invocations, along with cache
+mounts and the prune/GC story for disk reclamation. The short version
+for this page: an exec is cached by a content-addressed key over the op
+and its inputs
+([`engine/buildkit/op.go` `CacheMap` L95-L111](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/engine/buildkit/op.go#L95-L111)),
+the snapshot is retained in the engine's local cache after the exec
+finishes, and that snapshot — not a re-run — is what a later identical
+exec gets back.
 
 ## Concurrency and this repo's CI
 
@@ -285,16 +183,8 @@ Practical guidance that follows from the resource model:
 - **`parallelismSem` default.** The semaphore exists and is engine-wide;
   its default weight / how it is configured was not traced to a config
   value.
-- **GC policy origin.** The `max-used-space` / `reserved-space` /
-  `min-free-space` numbers above are this engine's live values; whether
-  they are hard defaults or derived from host disk size at engine
-  startup was not verified.
-- **`target-space` meaning.** `target-space` reported `0`; its exact
-  role relative to `max-used-space` was not determined from source.
-- **Prune reclaim figure.** A full `dagger core engine local-cache
-  prune` over this engine's live cache (~180k entries / ~33.5 GB) did
-  not complete within a bounded time on the test machine, so a concrete
-  before/after reclaimed-bytes number is not captured here — only the
-  pre-prune `entry-set` and the `prune` command surface are shown.
-- **Cache-mount concurrency.** Whether two concurrent execs sharing one
-  cache volume serialize or race on it was not tested.
+
+Cache- and GC-related open questions (`target-space` semantics, GC
+policy origin, prune reclaim figures, cache-mount concurrency) live with
+the cache documentation in
+[caching-and-evaluation.md → Open questions](./caching-and-evaluation.md#open-questions--unverified).

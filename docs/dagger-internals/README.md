@@ -55,5 +55,11 @@ made explicit rather than glossed over.
   — there is one flat network, scoped by DNS).
 - **[container-execution.md](./container-execution.md)** — what a
   container exec does inside the engine, how it maps onto BuildKit LLB,
-  what it costs in CPU/memory/disk, the caching and prune/GC model, and
-  what all of that means for this repo's CI.
+  what it costs in CPU/memory/disk, and what all of that means for this
+  repo's CI.
+- **[caching-and-evaluation.md](./caching-and-evaluation.md)** — when a
+  pipeline actually runs (terminal vs. non-terminal selections, parallel
+  branch resolution) and the two caches that decide whether work
+  repeats: the dagql per-session call cache and the BuildKit
+  content-addressed operation cache, plus cache mounts and the prune/GC
+  story for disk reclamation.
