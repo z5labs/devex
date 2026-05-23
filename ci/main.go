@@ -1,73 +1,61 @@
+// Ci re-exposes each daggerverse module's tests.All() check on this root
+// module. Discovery via `dagger check -l` only surfaces +check functions
+// defined directly on the module being loaded; it does not transitively
+// enumerate +check on dependencies. So each per-module suite gets a thin
+// wrapper here, annotated +check, which the CI matrix can fan out one
+// engine per row.
 package main
 
-import (
-	"context"
-	"runtime"
-
-	par "github.com/dagger/dagger/util/parallel"
-)
+import "context"
 
 type Ci struct{}
 
-// Test runs every daggerverse module's tests/All() check across the suite.
-//
-// Concurrency mirrors `go test`: at most `parallel` module suites run
-// concurrently (analog of `-p`), and each suite runs its own tests
-// sequentially by default. To opt into more inner parallelism, call a
-// single suite directly, e.g.
-//
-//	dagger call kafka-tests all --parallel=8
-//
-// parallel defaults to 0, which is interpreted as runtime.NumCPU() — the
-// number of CPUs visible to the module runtime container. Pass an explicit
-// positive integer to override the auto-detected value.
-//
 // +check
-// +cache="session"
-func (c *Ci) Test(
-	ctx context.Context,
-	// +default=0
-	parallel int,
-) error {
-	if parallel <= 0 {
-		parallel = runtime.NumCPU()
-	}
+func (c *Ci) CertificateManagementTestsAll(ctx context.Context) error {
+	return dag.CertificateManagementTests().All(ctx)
+}
 
-	jobs := par.New().
-		WithRollupLogs(true).
-		WithRollupSpans(true).
-		WithLimit(parallel)
+// +check
+func (c *Ci) CryptoTestsAll(ctx context.Context) error {
+	return dag.CryptoTests().All(ctx)
+}
 
-	jobs = jobs.WithJob("random", func(ctx context.Context) error {
-		return dag.RandomTests().All(ctx)
-	})
-	jobs = jobs.WithJob("crypto", func(ctx context.Context) error {
-		return dag.CryptoTests().All(ctx)
-	})
-	jobs = jobs.WithJob("certificate-management", func(ctx context.Context) error {
-		return dag.CertificateManagementTests().All(ctx)
-	})
-	jobs = jobs.WithJob("dgraph", func(ctx context.Context) error {
-		return dag.DgraphTests().All(ctx)
-	})
-	jobs = jobs.WithJob("grafana-stack", func(ctx context.Context) error {
-		return dag.GrafanaStackTests().All(ctx)
-	})
-	jobs = jobs.WithJob("kafka", func(ctx context.Context) error {
-		return dag.KafkaTests().All(ctx)
-	})
-	jobs = jobs.WithJob("go", func(ctx context.Context) error {
-		return dag.GoTests().All(ctx)
-	})
-	jobs = jobs.WithJob("envoy", func(ctx context.Context) error {
-		return dag.EnvoyTests().All(ctx)
-	})
-	jobs = jobs.WithJob("otel", func(ctx context.Context) error {
-		return dag.OtelTests().All(ctx)
-	})
-	jobs = jobs.WithJob("z5labs", func(ctx context.Context) error {
-		return dag.Z5LabsTests().All(ctx)
-	})
+// +check
+func (c *Ci) DgraphTestsAll(ctx context.Context) error {
+	return dag.DgraphTests().All(ctx)
+}
 
-	return jobs.Run(ctx)
+// +check
+func (c *Ci) EnvoyTestsAll(ctx context.Context) error {
+	return dag.EnvoyTests().All(ctx)
+}
+
+// +check
+func (c *Ci) GoTestsAll(ctx context.Context) error {
+	return dag.GoTests().All(ctx)
+}
+
+// +check
+func (c *Ci) GrafanaStackTestsAll(ctx context.Context) error {
+	return dag.GrafanaStackTests().All(ctx)
+}
+
+// +check
+func (c *Ci) KafkaTestsAll(ctx context.Context) error {
+	return dag.KafkaTests().All(ctx)
+}
+
+// +check
+func (c *Ci) OtelTestsAll(ctx context.Context) error {
+	return dag.OtelTests().All(ctx)
+}
+
+// +check
+func (c *Ci) RandomTestsAll(ctx context.Context) error {
+	return dag.RandomTests().All(ctx)
+}
+
+// +check
+func (c *Ci) Z5LabsTestsAll(ctx context.Context) error {
+	return dag.Z5LabsTests().All(ctx)
 }

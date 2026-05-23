@@ -13,17 +13,36 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  checks:
-    name: Daggerverse checks
+  list:
+    name: List checks
     runs-on: ubuntu-latest
+    outputs:
+      checks: ${{ steps.list.outputs.checks }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run ci/Test
-        uses: dagger/dagger-for-github@v7
+      - id: list
+        uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
           version: "0.20.8"
-          verb: "call"
-          call: "test"
+          list: "true"
+          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+
+  run:
+    name: ${{ matrix.filter }}
+    needs: [list]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        filter: ${{ fromJSON(needs.list.outputs.checks) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
+        with:
+          version: "0.20.8"
+          filter: ${{ matrix.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
