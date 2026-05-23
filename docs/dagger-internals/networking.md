@@ -144,6 +144,47 @@ is resolved by reuse rather than a second bind. Frontend ports for host
 tunnels default to OS-chosen (`frontend = 0`) when unspecified —
 [`startTunnel`, L827-L833](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/core/service.go#L827-L833).
 
+### Same port, many containers — worked example
+
+Multiple containers in a single function call can all `WithExposedPort`
+the *same* port number without serializing. The reason is that
+`WithExposedPort` writes OCI `ExposedPorts` metadata on **that specific
+container's** config —
+[`core/container.go` L2228-L2254](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/core/container.go#L2228-L2254)
+— and each `Service` gets its own content-addressed hostname via
+`network.HostHash(id.Digest())` —
+[`Service.Hostname`, L114-L142](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/core/service.go#L114-L142).
+A unique hostname means a unique IP on the `10.87.0.0/16` bridge, so
+`<broker-A>:9092` and `<broker-B>:9092` are different sockets — same
+port number, different addresses.
+
+Take the kafka module's brokers as a concrete case. Inside one cluster,
+`daggerverse/kafka/cluster_kafka.go` boots multiple brokers that all
+expose `9092`, `9093`, and `19092` — they do not fight for those ports
+because each broker has its own hostname (`broker-100-<suffix>`,
+`broker-101-<suffix>`, …) and therefore its own IP. The same logic
+extends across clusters: spinning up *two* Kafka clusters in one
+function gives you 2×N brokers, each a distinct `Service` (distinct
+`id.Digest()` because their cluster IDs / CAs / configs differ),
+each on its own IP, all listening on `:9092` simultaneously. Nothing
+runs serially; nothing waits its turn for a port.
+
+There are two situations where this picture changes:
+
+- **Identical content digests dedup.** If two clusters happen to
+  produce *exactly* the same content digest — same image, same args,
+  same env, same security material — the engine reuses one
+  `RunningService` for both and increments its binding count
+  ([`StartWithIO` L176-L180](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/core/services.go#L176-L180)).
+  That is *deduplication*, not port sharing. The kafka module keeps
+  clusters distinct (per-cluster CA / random suffixes) when isolation
+  matters, and deliberately reuses the same cluster pointer when it
+  doesn't (see `daggerverse/kafka/tests/main.go`).
+- **Host tunnels can collide.** With `dagger up` you bind a port on
+  the *real* host (`0.0.0.0:<frontend>`), so two `up` calls trying to
+  take the same frontend port on the same host machine will collide.
+  Inside the engine network there is no such restriction.
+
 ## One network, or many?
 
 **There is a single, flat network per engine — not per-container
