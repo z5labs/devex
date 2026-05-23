@@ -110,18 +110,18 @@ func (r *Go) WithGraphQLQuery(q *querybuilder.Selection) *Go {
 type GoBuildOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:210:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:230:2)
 
-	Output string // go (../../../../../daggerverse/go/main.go:212:2)
+	Output string // go (../../../../../daggerverse/go/main.go:232:2)
 
-	Flags []string // go (../../../../../daggerverse/go/main.go:214:2)
+	Flags []string // go (../../../../../daggerverse/go/main.go:234:2)
 }
 
 // Build runs `go build -o /out/[output] [flags] pkg` against the supplied
 // source and returns /out as a *dagger.Directory. pkg defaults to `./...`;
 // when output is empty, `-o /out/` is used so go build picks names per its
 // own rules (one binary per main package).
-func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:206:1)
+func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:226:1)
 	assertNotNil("source", source)
 	q := r.query.Select("build")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -176,7 +176,7 @@ func (r *Go) Container(source *Directory) *Container { // go (../../../../../dag
 }
 
 // Env runs `go env` in a source-less base container and returns its stdout.
-func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:299:1)
+func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:319:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -191,7 +191,7 @@ func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../da
 // Fmt runs `gofmt -l -d .` against the supplied source. Returns the diff
 // of any unformatted files; non-empty output is also returned as an error so
 // CI fails fast on formatting violations.
-func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:263:1)
+func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:283:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return *r.fmt, nil
@@ -209,12 +209,12 @@ func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go
 type GoGenerateOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:171:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:191:2)
 }
 
 // Generate runs `go generate pkg` against the supplied source and returns
 // /src after generation. pkg defaults to `./...`.
-func (r *Go) Generate(source *Directory, opts ...GoGenerateOpts) *Directory { // go (../../../../../daggerverse/go/main.go:167:1)
+func (r *Go) Generate(source *Directory, opts ...GoGenerateOpts) *Directory { // go (../../../../../daggerverse/go/main.go:187:1)
 	assertNotNil("source", source)
 	q := r.query.Select("generate")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -284,11 +284,12 @@ func (r *Go) UnmarshalJSON(bs []byte) error {
 // returned filename is the basename of pkg (with any @version suffix
 // stripped), matching `go install`'s naming rules.
 //
-// Callers should pin pkg to a specific version (e.g. `pkg@v1.2.3`) for
-// reproducible builds; `@latest` or unpinned paths will resolve against
-// the proxy at call time. Result caching is disabled so unpinned callers
-// don't get silently stale binaries.
-func (r *Go) Install(pkg string) *File { // go (../../../../../daggerverse/go/main.go:83:1)
+// pkg MUST be pinned to an explicit version (e.g. `pkg@v1.2.3` or a
+// commit-hash pseudo-version); `@latest` and bare paths are rejected.
+// The pin is what makes the result safe to cache across calls within a
+// session — without it, the proxy could resolve different versions on
+// successive invocations.
+func (r *Go) Install(pkg string) *File { // go (../../../../../daggerverse/go/main.go:84:1)
 	q := r.query.Select("install")
 	q = q.Arg("pkg", pkg)
 
@@ -298,7 +299,7 @@ func (r *Go) Install(pkg string) *File { // go (../../../../../daggerverse/go/ma
 }
 
 // ModDownload runs `go mod download` against the supplied source.
-func (r *Go) ModDownload(ctx context.Context, source *Directory) error { // go (../../../../../daggerverse/go/main.go:142:1)
+func (r *Go) ModDownload(ctx context.Context, source *Directory) error { // go (../../../../../daggerverse/go/main.go:162:1)
 	assertNotNil("source", source)
 	if r.modDownload != nil {
 		return nil
@@ -311,7 +312,7 @@ func (r *Go) ModDownload(ctx context.Context, source *Directory) error { // go (
 
 // ModTidy runs `go mod tidy` against the supplied source and returns the
 // updated /src directory.
-func (r *Go) ModTidy(source *Directory) *Directory { // go (../../../../../daggerverse/go/main.go:128:1)
+func (r *Go) ModTidy(source *Directory) *Directory { // go (../../../../../daggerverse/go/main.go:148:1)
 	assertNotNil("source", source)
 	q := r.query.Select("modTidy")
 	q = q.Arg("source", source)
@@ -322,7 +323,7 @@ func (r *Go) ModTidy(source *Directory) *Directory { // go (../../../../../dagge
 }
 
 // ModVerify runs `go mod verify` against the supplied source.
-func (r *Go) ModVerify(ctx context.Context, source *Directory) error { // go (../../../../../daggerverse/go/main.go:154:1)
+func (r *Go) ModVerify(ctx context.Context, source *Directory) error { // go (../../../../../daggerverse/go/main.go:174:1)
 	assertNotNil("source", source)
 	if r.modVerify != nil {
 		return nil
@@ -335,12 +336,12 @@ func (r *Go) ModVerify(ctx context.Context, source *Directory) error { // go (..
 
 // GoRunOpts contains options for Go.Run
 type GoRunOpts struct {
-	Args []string // go (../../../../../daggerverse/go/main.go:189:2)
+	Args []string // go (../../../../../daggerverse/go/main.go:209:2)
 }
 
 // Run runs `go run pkg [args...]` against the supplied source and returns
 // the program's stdout. pkg is required (a single runnable main package).
-func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoRunOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:184:1)
+func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoRunOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:204:1)
 	assertNotNil("source", source)
 	if r.run != nil {
 		return *r.run, nil
@@ -365,17 +366,17 @@ func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoR
 type GoTestOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:239:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:259:2)
 
-	Race bool // go (../../../../../daggerverse/go/main.go:241:2)
+	Race bool // go (../../../../../daggerverse/go/main.go:261:2)
 
-	Flags []string // go (../../../../../daggerverse/go/main.go:243:2)
+	Flags []string // go (../../../../../daggerverse/go/main.go:263:2)
 }
 
 // Test runs `go test -count=1 [-race] [flags] pkg` against the supplied
 // source and returns the combined stdout. -count=1 is always passed to
 // bypass Go's internal test cache.
-func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:235:1)
+func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:255:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -405,7 +406,7 @@ func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (s
 
 // ToolVersion runs `go version` in a source-less base container and returns
 // the trimmed output (e.g. "go version go1.23.0 linux/amd64").
-func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:307:1)
+func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:327:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}
@@ -436,12 +437,12 @@ func (r *Go) Version(ctx context.Context) (string, error) { // go (../../../../.
 type GoVetOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:286:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:306:2)
 }
 
 // Vet runs `go vet pkg` against the supplied source. pkg defaults to
 // `./...`. Returns a non-nil error when vet reports any issue.
-func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:282:1)
+func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:302:1)
 	assertNotNil("source", source)
 	if r.vet != nil {
 		return nil
@@ -460,13 +461,13 @@ func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) erro
 
 // GoWorkOpts contains options for Go.Work
 type GoWorkOpts struct {
-	Args []string // go (../../../../../daggerverse/go/main.go:113:2)
+	Args []string // go (../../../../../daggerverse/go/main.go:133:2)
 }
 
 // Work runs `go work <subcommand> [args...]` against the supplied source
 // and returns stdout. subcommand is required (e.g. "init", "use", "sync",
 // "version").
-func (r *Go) Work(ctx context.Context, source *Directory, subcommand string, opts ...GoWorkOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:108:1)
+func (r *Go) Work(ctx context.Context, source *Directory, subcommand string, opts ...GoWorkOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:128:1)
 	assertNotNil("source", source)
 	if r.work != nil {
 		return *r.work, nil

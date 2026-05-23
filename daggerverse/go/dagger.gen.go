@@ -462,7 +462,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pkg", err))
 				}
 			}
-			return (*Go).Install(&parent, pkg), nil
+			return (*Go).Install(&parent, pkg)
 		case "ModDownload":
 			var parent Go
 			err = json.Unmarshal(parentJSON, &parent)
