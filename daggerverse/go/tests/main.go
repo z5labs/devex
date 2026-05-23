@@ -25,9 +25,10 @@ type Tests struct{}
 // caller-supplied override would defeat what the test is verifying.
 //
 // parallel caps how many tests run concurrently inside this suite. Defaults
-// to 1 (sequential) to mirror `go test` package-level semantics; pass 0 to
-// fan out every test with no limit, or any positive integer to opt into a
-// specific level of concurrency.
+// to 0 (unbounded fan-out) — each `dagger check` job runs on its own GH
+// Actions runner, so in-runner parallelism is bounded by the VM's
+// CPU/memory, not by the scheduler. Pass any positive integer to opt into
+// a specific cap.
 //
 // +check
 // +cache="session"
@@ -35,7 +36,7 @@ func (t *Tests) All(
 	ctx context.Context,
 	// +default=""
 	goImageTag string,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().

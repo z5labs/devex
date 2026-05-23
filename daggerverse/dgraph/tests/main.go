@@ -17,18 +17,16 @@ import (
 
 type Tests struct{}
 
-// All runs every dgraph test. Default parallelism is 1 (serial)
-// because the +cache="session" generator on Dgraph.Cluster collapses
-// every same-shape freshCluster call to a single backing service —
-// running tests in parallel causes them to read the same graph state.
-// Pass --parallel=N to opt back in for tests that don't share a shape
-// (e.g. running just multi-alpha-* alongside validation tests).
+// All runs every dgraph test as a convenience for local `dagger call
+// all` invocations. CI does NOT call All: each of the two
+// sub-aggregators below (Validation, Cluster) carries its own `+check`
+// directive, so GH Actions schedules each onto its own runner in
+// parallel — running All on top would double-bill the same work.
 //
-// +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
@@ -37,53 +35,70 @@ func (t *Tests) All(
 	if parallel > 0 {
 		jobs = jobs.WithLimit(parallel)
 	}
+	jobs = jobs.WithJob("Validation", func(ctx context.Context) error {
+		return t.Validation(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
+		return t.Cluster(ctx, parallel)
+	})
+	return jobs.Run(ctx)
+}
 
-	jobs = jobs.WithJob("defaults-produce-working-single-node-cluster", func(ctx context.Context) error {
-		return t.DefaultsProduceWorkingSingleNodeCluster(ctx)
-	})
-	jobs = jobs.WithJob("grpc-endpoints-should-not-be-cached", func(ctx context.Context) error {
-		return t.GrpcEndpointsShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("http-endpoints-should-not-be-cached", func(ctx context.Context) error {
-		return t.HttpEndpointsShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("mutate-should-not-be-cached", func(ctx context.Context) error {
-		return t.MutateShouldNotBeCached(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-multiple-zeros", func(ctx context.Context) error {
-		return t.ClusterRejectsMultipleZeros(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-invalid-alphas-replicas-ratio", func(ctx context.Context) error {
-		return t.ClusterRejectsInvalidAlphasReplicasRatio(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-even-replicas", func(ctx context.Context) error {
-		return t.ClusterRejectsEvenReplicas(ctx)
-	})
-	jobs = jobs.WithJob("cluster-rejects-nil-security", func(ctx context.Context) error {
-		return t.ClusterRejectsNilSecurity(ctx)
-	})
-	jobs = jobs.WithJob("multi-alpha-single-group-all-reachable", func(ctx context.Context) error {
-		return t.MultiAlphaSingleGroupAllReachable(ctx)
-	})
-	jobs = jobs.WithJob("multi-alpha-sharded-topology", func(ctx context.Context) error {
-		return t.MultiAlphaShardedTopology(ctx)
-	})
-	jobs = jobs.WithJob("client-alter-schema-round-trip", func(ctx context.Context) error {
-		return t.ClientAlterSchemaRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("client-mutate-then-query-round-trip", func(ctx context.Context) error {
-		return t.ClientMutateThenQueryRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("client-mutate-without-commit-does-not-persist", func(ctx context.Context) error {
-		return t.ClientMutateWithoutCommitDoesNotPersist(ctx)
-	})
-	jobs = jobs.WithJob("client-query-with-vars-round-trip", func(ctx context.Context) error {
-		return t.ClientQueryWithVarsRoundTrip(ctx)
-	})
-	jobs = jobs.WithJob("remote-client-can-target-existing-cluster", func(ctx context.Context) error {
-		return t.RemoteClientCanTargetExistingCluster(ctx)
-	})
+// Validation runs the pure-validation tests (ClusterRejects*) plus the
+// cache-directive tests (*ShouldNotBeCached) that explicitly Stop their
+// cluster after use. These don't share session-cached cluster state, so
+// they're safe to fan out unbounded.
+//
+// +check
+// +cache="session"
+func (t *Tests) Validation(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("cluster-rejects-multiple-zeros", t.ClusterRejectsMultipleZeros)
+	jobs = jobs.WithJob("cluster-rejects-invalid-alphas-replicas-ratio", t.ClusterRejectsInvalidAlphasReplicasRatio)
+	jobs = jobs.WithJob("cluster-rejects-even-replicas", t.ClusterRejectsEvenReplicas)
+	jobs = jobs.WithJob("cluster-rejects-nil-security", t.ClusterRejectsNilSecurity)
+	jobs = jobs.WithJob("grpc-endpoints-should-not-be-cached", t.GrpcEndpointsShouldNotBeCached)
+	jobs = jobs.WithJob("http-endpoints-should-not-be-cached", t.HttpEndpointsShouldNotBeCached)
+	jobs = jobs.WithJob("mutate-should-not-be-cached", t.MutateShouldNotBeCached)
+	return jobs.Run(ctx)
+}
 
+// Cluster runs the topology and client round-trip tests. Same-shape
+// `freshCluster` calls collapse to the SAME backing service via
+// Dgraph.Cluster's `+cache="session"` directive; each test uses
+// randName-suffixed predicates so concurrent writes don't collide on
+// the shared graph.
+//
+// +check
+// +cache="session"
+func (t *Tests) Cluster(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("defaults-produce-working-single-node-cluster", t.DefaultsProduceWorkingSingleNodeCluster)
+	jobs = jobs.WithJob("multi-alpha-single-group-all-reachable", t.MultiAlphaSingleGroupAllReachable)
+	jobs = jobs.WithJob("multi-alpha-sharded-topology", t.MultiAlphaShardedTopology)
+	jobs = jobs.WithJob("client-alter-schema-round-trip", t.ClientAlterSchemaRoundTrip)
+	jobs = jobs.WithJob("client-mutate-then-query-round-trip", t.ClientMutateThenQueryRoundTrip)
+	jobs = jobs.WithJob("client-mutate-without-commit-does-not-persist", t.ClientMutateWithoutCommitDoesNotPersist)
+	jobs = jobs.WithJob("client-query-with-vars-round-trip", t.ClientQueryWithVarsRoundTrip)
+	jobs = jobs.WithJob("remote-client-can-target-existing-cluster", t.RemoteClientCanTargetExistingCluster)
 	return jobs.Run(ctx)
 }
 

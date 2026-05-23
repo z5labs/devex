@@ -25,14 +25,15 @@ const curlImage = "curlimages/curl:8.10.1"
 
 type Tests struct{}
 
-// All runs every z5labs test. parallel caps concurrency; defaults to 1
-// (sequential).
+// All runs every z5labs test. parallel caps concurrency; defaults to 0
+// (unbounded fan-out — GH Actions schedules each `dagger check` job onto
+// its own runner, so in-runner parallelism is bounded by the VM).
 //
 // +check
 // +cache="session"
 func (t *Tests) All(
 	ctx context.Context,
-	// +default=1
+	// +default=0
 	parallel int,
 ) error {
 	jobs := par.New().
