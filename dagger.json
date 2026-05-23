@@ -4,7 +4,7 @@
   "sdk": {
     "source": "go"
   },
-  "dependencies": [
+  "toolchains": [
     {
       "name": "certificate-management-tests",
       "source": "daggerverse/certificate-management/tests"
