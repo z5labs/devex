@@ -40,6 +40,29 @@ The two are independent: codegen produces source files on disk; call
 time spins up containers in the engine. Neither step ever links the
 dependency's compiled code into the consumer.
 
+## How a module gets run
+
+The engine is the only GraphQL server. An imported module is **not** a
+GraphQL service of its own — it is a container with an entrypoint that
+the engine execs in one of two modes
+([`core/sdk.go` `Runtime` interface doc, L304-L322](https://github.com/dagger/dagger/blob/74bff7d10fd78dd6935c60c4514558598f216451/core/sdk.go#L304-L322)):
+
+- **No object selected** — the entrypoint walks the module's own type
+  information (Go reflection, Python introspection, …) and calls back
+  into the engine's GraphQL API to register the module's typedefs.
+  Done once per load.
+- **Object/function selected** — the entrypoint executes that function
+  and writes the result to a meta file the engine reads.
+
+When this page refers to the engine calling a "GraphQL function" on an
+SDK (e.g. `codegen` in the next section), that field lives in the
+*engine's* schema; the engine resolves it by exec'ing the SDK's own
+runtime container — the same exec-the-entrypoint mechanism, applied to
+a meta-module (the SDK) rather than a user module. The detailed walk
+through this — including the `withExec` + meta-file dance — is in
+[Client codegen vs. server runtime](#client-codegen-vs-server-runtime)
+below.
+
 ## Declaring a dependency: codegen time vs. call time
 
 ### Codegen time (`dagger develop`)
