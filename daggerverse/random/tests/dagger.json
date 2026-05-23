@@ -9,5 +9,8 @@
       "name": "random",
       "source": ".."
     }
-  ]
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
 }

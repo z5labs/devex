@@ -46,5 +46,8 @@
       "source": "daggerverse/z5labs/tests"
     }
   ],
-  "source": "ci"
+  "source": "ci",
+  "codegen": {
+    "automaticGitignore": false
+  }
 }
