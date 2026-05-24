@@ -195,7 +195,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).All(&parent, ctx)
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).All(&parent, ctx, parallel)
 		case "BindAPIServerAllowsHealthz":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -251,7 +258,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).Cluster(&parent, ctx)
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Cluster(&parent, ctx, parallel)
 		case "ControlPlanesNotOneRejected":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -286,7 +300,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).Validation(&parent, ctx)
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Validation(&parent, ctx, parallel)
 		case "WorkersJoinAndListAsNodes":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

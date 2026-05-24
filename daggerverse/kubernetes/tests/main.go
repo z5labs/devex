@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	par "github.com/dagger/dagger/util/parallel"
+
 	"dagger/tests/internal/dagger"
 
 	"gopkg.in/yaml.v3"
@@ -24,14 +26,24 @@ type Tests struct{}
 // double-bill the same work.
 //
 // +cache="session"
-func (t *Tests) All(ctx context.Context) error {
-	if err := t.Validation(ctx); err != nil {
-		return fmt.Errorf("validation: %w", err)
+func (t *Tests) All(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
 	}
-	if err := t.Cluster(ctx); err != nil {
-		return fmt.Errorf("cluster: %w", err)
-	}
-	return nil
+	jobs = jobs.WithJob("Validation", func(ctx context.Context) error {
+		return t.Validation(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
+		return t.Cluster(ctx, parallel)
+	})
+	return jobs.Run(ctx)
 }
 
 // Validation runs the pure-validation tests (no service plumbing
@@ -40,20 +52,21 @@ func (t *Tests) All(ctx context.Context) error {
 //
 // +check
 // +cache="session"
-func (t *Tests) Validation(ctx context.Context) error {
-	for _, step := range []struct {
-		name string
-		fn   func(context.Context) error
-	}{
-		{"control-planes-not-one-rejected", t.ControlPlanesNotOneRejected},
-		{"client-apply-rejects-malformed-manifest", t.ClientApplyRejectsMalformedManifest},
-		{"client-get-unknown-gvr-rejected", t.ClientGetUnknownGVRRejected},
-	} {
-		if err := step.fn(ctx); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
-		}
+func (t *Tests) Validation(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
 	}
-	return nil
+	jobs = jobs.WithJob("control-planes-not-one-rejected", t.ControlPlanesNotOneRejected)
+	jobs = jobs.WithJob("client-apply-rejects-malformed-manifest", t.ClientApplyRejectsMalformedManifest)
+	jobs = jobs.WithJob("client-get-unknown-gvr-rejected", t.ClientGetUnknownGVRRejected)
+	return jobs.Run(ctx)
 }
 
 // Cluster runs the topology, kubeconfig, and client round-trip tests.
@@ -63,23 +76,27 @@ func (t *Tests) Validation(ctx context.Context) error {
 //
 // +check
 // +cache="session"
-func (t *Tests) Cluster(ctx context.Context) error {
-	for _, step := range []struct {
-		name string
-		fn   func(context.Context) error
-	}{
-		{"defaults-produce-working-cluster", t.DefaultsProduceWorkingCluster},
-		{"kubeconfig-yaml-server-url-matches-endpoint", t.KubeconfigYamlServerURLMatchesEndpoint},
-		{"client-list-namespaces-includes-defaults", t.ClientListNamespacesIncludesDefaults},
-		{"client-apply-get-delete-namespace-round-trip", t.ClientApplyGetDeleteNamespaceRoundTrip},
-		{"client-wait-for-ready-nonexistent-image-errors", t.ClientWaitForReadyNonexistentImageErrors},
-		{"remote-client-can-list-namespaces", t.RemoteClientCanListNamespaces},
-	} {
-		if err := step.fn(ctx); err != nil {
-			return fmt.Errorf("%s: %w", step.name, err)
-		}
+func (t *Tests) Cluster(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
 	}
-	return nil
+	jobs = jobs.WithJob("defaults-produce-working-cluster", t.DefaultsProduceWorkingCluster)
+	jobs = jobs.WithJob("kubeconfig-yaml-server-url-matches-endpoint", t.KubeconfigYamlServerURLMatchesEndpoint)
+	jobs = jobs.WithJob("client-list-namespaces-includes-defaults", t.ClientListNamespacesIncludesDefaults)
+	jobs = jobs.WithJob("client-apply-get-delete-namespace-round-trip", t.ClientApplyGetDeleteNamespaceRoundTrip)
+	jobs = jobs.WithJob("client-wait-for-ready-nonexistent-image-errors", t.ClientWaitForReadyNonexistentImageErrors)
+	jobs = jobs.WithJob("client-wait-for-ready-nginx-deployment", t.ClientWaitForReadyNginxDeployment)
+	jobs = jobs.WithJob("remote-client-can-list-namespaces", t.RemoteClientCanListNamespaces)
+	jobs = jobs.WithJob("bind-apiserver-allows-healthz", t.BindAPIServerAllowsHealthz)
+	jobs = jobs.WithJob("workers-join-and-list-as-nodes", t.WorkersJoinAndListAsNodes)
+	return jobs.Run(ctx)
 }
 
 // randName returns a short hex-suffixed identifier suitable for use
