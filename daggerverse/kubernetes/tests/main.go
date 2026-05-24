@@ -491,27 +491,18 @@ func (t *Tests) RemoteClientCanListNamespaces(ctx context.Context) error {
 	return nil
 }
 
-// BindAPIServerAllowsHealthz boots a cluster, attaches it via
-// BindAPIServer to a curl container, and verifies a GET to
-// /healthz over HTTPS returns the expected `ok` body — proving the
-// service hostname propagates and the auto-generated apiserver cert
-// is valid for the hostname (added to certSANs at kubeadm init).
+// BindAPIServerAllowsHealthz boots a cluster, calls HealthzResponse,
+// and verifies the body contains `ok` — proving the cluster's
+// WithHostname-registered apiserver alias resolves in-session and
+// the auto-generated apiserver cert is valid for that hostname
+// (added to certSANs at kubeadm init).
 //
 // +cache="never"
 func (t *Tests) BindAPIServerAllowsHealthz(ctx context.Context) error {
-	cluster := freshCluster(ctx, "bind-api-server-allows-healthz-v3", 0)
-	ep, err := cluster.ApiserverEndpoint(ctx)
+	cluster := freshCluster(ctx, "bind-api-server-allows-healthz-v4", 0)
+	out, err := cluster.HealthzResponse(ctx)
 	if err != nil {
-		return fmt.Errorf("api server endpoint: %w", err)
-	}
-	out, err := cluster.BindApiserver(
-		dag.Container().From("curlimages/curl:8.10.1")).
-		WithExec([]string{
-			"curl", "-sk", "--max-time", "10",
-			"https://" + ep + "/healthz",
-		}).Stdout(ctx)
-	if err != nil {
-		return fmt.Errorf("curl /healthz via BindAPIServer: %w", err)
+		return fmt.Errorf("healthz response: %w", err)
 	}
 	if !strings.Contains(out, "ok") {
 		return fmt.Errorf("expected /healthz to return 'ok', got %q", out)
