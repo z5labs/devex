@@ -147,8 +147,6 @@ func buildNodeService(image, role, nodeHost, cpHost string, bindSvc *dagger.Serv
 	unit := renderBootstrapUnit(role, nodeHost, cpHost)
 	ctr := dag.Container().
 		From(image).
-		WithExposedPort(6443).
-		WithExposedPort(adminConfPort).
 		// Force native snapshotter inside the node's containerd.
 		// Default selection switches to fuse-overlayfs when running
 		// in a user namespace, but /dev/fuse isn't propagated into
@@ -174,6 +172,16 @@ func buildNodeService(image, role, nodeHost, cpHost string, bindSvc *dagger.Serv
 		WithExec([]string{"ln", "-sf",
 			"/etc/systemd/system/kind-bootstrap.service",
 			"/etc/systemd/system/multi-user.target.wants/kind-bootstrap.service"})
+	// Only the control-plane listens on 6443 (kube-apiserver) and
+	// adminConfPort (the python http.server that exports admin.conf).
+	// Workers never bind either port; declaring them as exposed makes
+	// Service.Start block in the engine port-poller until the session
+	// is cancelled — observed as a 13m+ hang in CI.
+	if role == "control-plane" {
+		ctr = ctr.
+			WithExposedPort(6443).
+			WithExposedPort(adminConfPort)
+	}
 	if bindSvc != nil {
 		ctr = ctr.WithServiceBinding(bindHost, bindSvc)
 	}
@@ -356,6 +364,11 @@ localAPIEndpoint:
   bindPort: 6443
 nodeRegistration:
   criSocket: unix:///run/containerd/containerd.sock
+  # Pin the registered node name to the per-cluster hostname instead
+  # of the container's default 'debuerreotype'; otherwise every
+  # kindest/node in this engine reports the same name and worker
+  # joins collide with the control-plane node object.
+  name: $NODE_HOST
 ---
 apiVersion: kubeadm.k8s.io/v1beta3
 kind: ClusterConfiguration
@@ -433,6 +446,7 @@ else
     if ! kubeadm join $CP_HOST:6443 \
         --token $TOKEN \
         --discovery-token-unsafe-skip-ca-verification \
+        --node-name $NODE_HOST \
         --ignore-preflight-errors=all; then
         log "kubeadm join failed; dumping recent journal"
         journalctl -u kubelet --no-pager -n 200 || true
