@@ -476,6 +476,7 @@ type KubernetesCluster struct { // kubernetes (../../../../../daggerverse/kubern
 	query *querybuilder.Selection
 
 	apiserverEndpoint *string
+	healthzResponse   *string
 	id                *KubernetesClusterID
 	stop              *Void
 }
@@ -490,7 +491,7 @@ func (r *KubernetesCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kuberne
 // kube-apiserver advertises on its external HTTPS listener (port
 // 6443). The hostname is a per-cluster Dagger WithHostname alias,
 // reachable from any container in the same engine session.
-func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:193:1)
+func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:201:1)
 	if r.apiserverEndpoint != nil {
 		return *r.apiserverEndpoint, nil
 	}
@@ -502,23 +503,6 @@ func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, erro
 	return response, q.Execute(ctx)
 }
 
-// BindAPIServer attaches the control-plane Service to the given
-// container under the same hostname APIServerEndpoint reports, so
-// the container can dial the kube-apiserver at
-// `https://<host>:6443/healthz` over HTTPS using the kubeconfig
-// returned by Cluster.Kubeconfig. The caller must have triggered
-// the cluster to start first — Cluster.APIServerEndpoint or
-// Cluster.Kubeconfig both do this.
-func (r *KubernetesCluster) BindApiserver(ctr *Container) *Container { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:209:1)
-	assertNotNil("ctr", ctr)
-	q := r.query.Select("bindApiserver")
-	q = q.Arg("ctr", ctr)
-
-	return &Container{
-		query: q,
-	}
-}
-
 // Client returns a client-go Client that targets this cluster. Starts
 // the control-plane service if it isn't already running so the client's
 // first API call doesn't race with cluster readiness.
@@ -528,6 +512,32 @@ func (r *KubernetesCluster) Client() *KubernetesClient { // kubernetes (../../..
 	return &KubernetesClient{
 		query: q,
 	}
+}
+
+// HealthzResponse curls https://<APIServerEndpoint>/healthz from a
+// sidecar container bound to the control-plane service, and returns
+// the response body. Useful as an end-to-end probe that the cluster's
+// kube-apiserver is up, the WithHostname-registered alias resolves
+// in-session, and the auto-generated apiserver cert is valid for the
+// hostname (added to certSANs at kubeadm init).
+//
+// Returns the body (expected `ok`) on a 2xx; surfaces curl's error on
+// transport failure or non-2xx status.
+//
+// Lives inside the kubernetes module because Dagger Service handles
+// returned through GraphQL boundaries do not preserve the binding
+// state needed for cross-module WithServiceBinding — the binding
+// must be applied in the same chain that produces the exec.
+func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:224:1)
+	if r.healthzResponse != nil {
+		return *r.healthzResponse, nil
+	}
+	q := r.query.Select("healthzResponse")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this KubernetesCluster.
@@ -608,7 +618,7 @@ func (r *KubernetesCluster) Kubeconfig() *File { // kubernetes (../../../../../d
 // Stop tears down every service container backing this cluster (the
 // control-plane plus every worker). SIGKILL skips graceful shutdown
 // — kubeadm drain timeouts a torn-down test cluster doesn't need.
-func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:221:1)
+func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:243:1)
 	if r.stop != nil {
 		return nil
 	}

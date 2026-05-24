@@ -372,20 +372,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Cluster).APIServerEndpoint(&parent, ctx)
-		case "BindAPIServer":
-			var parent Cluster
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var ctr *dagger.Container
-			if inputArgs["ctr"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["ctr"]), &ctr)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ctr", err))
-				}
-			}
-			return (*Cluster).BindAPIServer(&parent, ctr), nil
 		case "Client":
 			var parent Cluster
 			err = json.Unmarshal(parentJSON, &parent)
@@ -393,6 +379,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Cluster).Client(&parent, ctx)
+		case "HealthzResponse":
+			var parent Cluster
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Cluster).HealthzResponse(&parent, ctx)
 		case "Kubeconfig":
 			var parent Cluster
 			err = json.Unmarshal(parentJSON, &parent)

@@ -205,20 +205,34 @@ func (c *Cluster) APIServerEndpoint(ctx context.Context) (string, error) {
 	return c.ControlPlaneHost + ":6443", nil
 }
 
-// BindAPIServer attaches the control-plane Service to the given
-// container under the same hostname APIServerEndpoint reports, so
-// the container can dial the kube-apiserver at
-// `https://<host>:6443/healthz` over HTTPS using the kubeconfig
-// returned by Cluster.Kubeconfig. The caller must have triggered
-// the cluster to start first — Cluster.APIServerEndpoint or
-// Cluster.Kubeconfig both do this.
+// HealthzResponse curls https://<APIServerEndpoint>/healthz from a
+// sidecar container bound to the control-plane service, and returns
+// the response body. Useful as an end-to-end probe that the cluster's
+// kube-apiserver is up, the WithHostname-registered alias resolves
+// in-session, and the auto-generated apiserver cert is valid for the
+// hostname (added to certSANs at kubeadm init).
+//
+// Returns the body (expected `ok`) on a 2xx; surfaces curl's error on
+// transport failure or non-2xx status.
+//
+// Lives inside the kubernetes module because Dagger Service handles
+// returned through GraphQL boundaries do not preserve the binding
+// state needed for cross-module WithServiceBinding — the binding
+// must be applied in the same chain that produces the exec.
 //
 // +cache="never"
-func (c *Cluster) BindAPIServer(ctr *dagger.Container) *dagger.Container {
-	if c.ControlPlaneSvc == nil {
-		return ctr
+func (c *Cluster) HealthzResponse(ctx context.Context) (string, error) {
+	if err := c.start(ctx); err != nil {
+		return "", err
 	}
-	return ctr.WithServiceBinding(c.ControlPlaneHost, c.ControlPlaneSvc)
+	return dag.Container().
+		From("curlimages/curl:8.10.1").
+		WithServiceBinding(c.ControlPlaneHost, c.ControlPlaneSvc).
+		WithEnvVariable("CACHEBUST", strconv.FormatInt(time.Now().UnixNano(), 10)).
+		WithExec([]string{
+			"curl", "-sk", "--max-time", "10",
+			fmt.Sprintf("https://%s:6443/healthz", c.ControlPlaneHost),
+		}).Stdout(ctx)
 }
 
 // Stop tears down every service container backing this cluster (the
@@ -406,15 +420,34 @@ EOF
         exit 1
     fi
 
-    if [[ -f /kind/manifests/default-cni.yaml ]]; then
-        log "templating + applying default CNI manifest"
-        # kind's default-cni.yaml ships with Go-template placeholders
-        # (e.g. {{.PodSubnet}}) that the kind CLI normally renders. We
-        # don't have the kind CLI; substitute the same value our
-        # kubeadm.conf declares.
-        sed "s|{{.PodSubnet}}|10.244.0.0/16|g" /kind/manifests/default-cni.yaml > /kind/manifests/default-cni.rendered.yaml
-        kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /kind/manifests/default-cni.rendered.yaml || log "CNI apply returned non-zero (continuing)"
+    if [[ ! -f /kind/manifests/default-cni.yaml ]]; then
+        log "FATAL: kindest/node image is missing /kind/manifests/default-cni.yaml"
+        exit 1
     fi
+    log "templating + applying default CNI manifest"
+    # kind's default-cni.yaml ships with Go-template placeholders
+    # (e.g. {{.PodSubnet}}) that the kind CLI normally renders. We
+    # don't have the kind CLI; substitute the same value our
+    # kubeadm.conf declares.
+    sed "s|{{.PodSubnet}}|10.244.0.0/16|g" /kind/manifests/default-cni.yaml > /kind/manifests/default-cni.rendered.yaml
+    if ! kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /kind/manifests/default-cni.rendered.yaml; then
+        log "FATAL: kubectl apply default-cni.yaml failed"
+        exit 1
+    fi
+
+    log "waiting for kindnet DaemonSet to report >=1 ready pod"
+    # kindnet pulls a container image after install; under a contended
+    # runner the pull can take 30-60s. Generous 2-minute ceiling so a
+    # slow pull doesn't mask a real install failure.
+    for i in $(seq 1 60); do
+        ready=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system \
+            get ds kindnet -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
+        if [[ "${ready:-0}" -ge 1 ]]; then
+            log "kindnet ready (numberReady=$ready)"
+            break
+        fi
+        sleep 2
+    done
 
     log "removing control-plane taint"
     kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true
