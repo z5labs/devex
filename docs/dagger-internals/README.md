@@ -63,3 +63,10 @@ made explicit rather than glossed over.
   repeats: the dagql per-session call cache and the BuildKit
   content-addressed operation cache, plus cache mounts and the prune/GC
   story for disk reclamation.
+- **[nesting.md](./nesting.md)** — what
+  `experimentalPrivilegedNesting: true` on a `withExec` actually wires
+  up (a per-exec loopback listener in the container's netns serving the
+  *same* engine), the `DAGGER_SESSION_PORT` / `DAGGER_SESSION_TOKEN`
+  env contract, what "nested client" means for session identity and
+  caching, and why this is neither Docker-in-Docker nor a Linux
+  capabilities flag.
