@@ -38,6 +38,10 @@
       "source": "daggerverse/otel/tests"
     },
     {
+      "name": "postgres-tests",
+      "source": "daggerverse/postgres/tests"
+    },
+    {
       "name": "random-tests",
       "source": "daggerverse/random/tests"
     },
