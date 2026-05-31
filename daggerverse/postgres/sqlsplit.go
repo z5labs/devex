@@ -13,23 +13,28 @@ import "strings"
 //   - block comments         /* ... */ (PostgreSQL nests these)
 //   - dollar-quoted strings  $$ ... $$ and $tag$ ... $tag$
 //
-// Empty statements (whitespace/comment-only) are dropped. The trailing
-// statement is emitted even without a closing `;`.
+// Comments attached to a real statement are preserved inline; a chunk
+// that is only whitespace and/or comments is dropped rather than emitted
+// as a bare statement. The trailing statement is emitted even without a
+// closing `;`.
 func splitSQL(script string) []string {
 	var (
 		stmts   []string
 		buf     strings.Builder
 		i       int
 		n       = len(script)
-		comment int // block-comment nesting depth
+		comment int  // block-comment nesting depth
+		hasCode bool // buffer holds non-comment, non-whitespace SQL
 	)
 
 	flush := func() {
-		s := strings.TrimSpace(buf.String())
-		if s != "" {
+		// Drop chunks that are only whitespace and/or comments: a bare
+		// comment is not a statement the server should see.
+		if s := strings.TrimSpace(buf.String()); s != "" && hasCode {
 			stmts = append(stmts, s)
 		}
 		buf.Reset()
+		hasCode = false
 	}
 
 	for i < n {
@@ -71,8 +76,10 @@ func splitSQL(script string) []string {
 			}
 		case ch == '\'':
 			i = consumeQuoted(script, i, '\'', &buf)
+			hasCode = true
 		case ch == '"':
 			i = consumeQuoted(script, i, '"', &buf)
+			hasCode = true
 		case ch == '$':
 			if tag, end, ok := dollarTag(script, i); ok {
 				i = consumeDollar(script, tag, end, &buf)
@@ -80,16 +87,32 @@ func splitSQL(script string) []string {
 				buf.WriteByte(ch)
 				i++
 			}
+			hasCode = true
 		case ch == ';':
 			flush()
 			i++
 		default:
 			buf.WriteByte(ch)
+			if !isSpace(ch) {
+				hasCode = true
+			}
 			i++
 		}
 	}
 	flush()
 	return stmts
+}
+
+// isSpace reports whether b is ASCII whitespace — the same set
+// strings.TrimSpace strips, so a chunk made only of comments plus these
+// bytes is treated as having no SQL code.
+func isSpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r', '\v', '\f':
+		return true
+	default:
+		return false
+	}
 }
 
 // consumeQuoted copies a quoted run starting at the opening quote

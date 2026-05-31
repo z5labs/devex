@@ -3,9 +3,9 @@
 // TDD; All wires them up for parallel execution under
 // `dagger call all`.
 //
-// Every password, cluster name, role, database, and table name is
-// minted at runtime via dag.Random().Sha256 — no literals leak into the
-// suite.
+// Every password, cluster name, and table name is minted at runtime via
+// dag.Random().Sha256. Role and database deliberately use the postgres
+// module's defaults ("postgres"), which a few tests assert against.
 package main
 
 import (
@@ -224,8 +224,8 @@ func (t *Tests) ClusterRejectsNilSecurity(ctx context.Context) (returnErr error)
 // -----------------------------------------------------------------------------
 
 // EndpointShouldNotBeCached verifies the chained cluster methods
-// re-execute under +cache="never" rather than freezing on a cached
-// result. Endpoint is a pure address getter, so we exercise the
+// re-execute on every call rather than freezing on a cached result.
+// Endpoint is a pure address getter, so we exercise the
 // re-execution that matters: Ping (which starts the service), Stop
 // (which kills it), then Ping again — the second Ping must re-start the
 // killed service. If Client/start were cached, the service would stay
@@ -496,7 +496,7 @@ func (t *Tests) ClientPingWrongPasswordFails(ctx context.Context) error {
 
 // ExecScalarRoundTrip runs a CREATE TABLE + INSERT + SELECT count(*)
 // sequence across chained Cluster.Client() calls, proving the
-// +cache="session" cluster preserves on-disk state between separate
+// session-cached cluster preserves on-disk state between separate
 // Client handles.
 //
 // +cache="never"

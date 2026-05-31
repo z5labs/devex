@@ -50,8 +50,8 @@ type Cluster struct {
 // cluster (e.g. Client.Exec → Client.Scalar across two Cluster.Client()
 // calls in `exec-scalar-round-trip`) observe the SAME underlying
 // service — and therefore the same on-disk state. Every method on
-// *Cluster and *Client still carries +cache="never" on its own line so
-// any data-returning call re-executes per invocation.
+// *Cluster and *Client is independently marked never-cache, so any
+// data-returning call re-executes per invocation.
 //
 // `name` is a caller-supplied discriminator that folds into the session
 // cache key. Parallel test suites should pass a unique value per test
@@ -99,14 +99,20 @@ func (p *Postgres) Cluster(
 
 	image := fmt.Sprintf("%s/library/postgres:%s", registry, tag)
 
-	// Stable hostname is scoped per-cluster so parallel test invocations
-	// don't collide on a single `postgres` alias. The suffix is derived
-	// deterministically from every arg that distinguishes one cache
-	// entry from another, so two cache entries can never produce the
-	// same hostname within one engine session — and identical-arg calls
-	// hit the +cache="session" entry without re-executing this path.
-	keyBytes := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s|%s",
-		name, registry, tag, user, db,
+	// Stable hostname is scoped per-cluster so parallel invocations don't
+	// collide on a single `postgres` alias. The suffix is a deterministic
+	// hash over every argument that distinguishes one session-cache entry
+	// from another — including the password secret's ID and the listener
+	// security mode, not just name/registry/tag/user/db — so two distinct
+	// cache entries can never share a hostname within one engine session,
+	// while identical-arg calls reuse the cached entry (and this value)
+	// without re-running this path.
+	passID, err := password.ID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve password secret id: %w", err)
+	}
+	keyBytes := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s|%s|%s|%s",
+		name, registry, tag, user, db, clientListenerSecurity.Mode, passID,
 	))
 	host := "postgres-" + hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
 

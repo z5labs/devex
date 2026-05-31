@@ -98,7 +98,7 @@ func (r *PostgresTests) All(ctx context.Context, opts ...PostgresTestsAllOpts) e
 
 // ApplyFileRoundTrip runs a multi-statement *dagger.File and confirms
 // the resulting rows are readable via Scalar.
-func (r *PostgresTests) ApplyFileRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:534:1)
+func (r *PostgresTests) ApplyFileRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:542:1)
 	if r.applyFileRoundTrip != nil {
 		return nil
 	}
@@ -110,7 +110,7 @@ func (r *PostgresTests) ApplyFileRoundTrip(ctx context.Context) error { // postg
 // BindPrimaryReachableFromAlpine verifies BindPrimary makes the primary
 // reachable at Cluster.Endpoint() from a fresh alpine container. Alpine
 // lacks pg_isready, so we prove TCP reachability with busybox nc.
-func (r *PostgresTests) BindPrimaryReachableFromAlpine(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:424:1)
+func (r *PostgresTests) BindPrimaryReachableFromAlpine(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:432:1)
 	if r.bindPrimaryReachableFromAlpine != nil {
 		return nil
 	}
@@ -121,7 +121,7 @@ func (r *PostgresTests) BindPrimaryReachableFromAlpine(ctx context.Context) erro
 
 // ClientPingWrongPasswordFails verifies a correct-password Ping succeeds
 // and a wrong-password Ping fails with an auth error.
-func (r *PostgresTests) ClientPingWrongPasswordFails(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:447:1)
+func (r *PostgresTests) ClientPingWrongPasswordFails(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:455:1)
 	if r.clientPingWrongPasswordFails != nil {
 		return nil
 	}
@@ -136,9 +136,9 @@ type PostgresTestsClusterOpts struct {
 }
 
 // Cluster runs the topology and client round-trip tests. Each test
-// passes its own name to bootCluster, which folds into Postgres.Cluster's
-// session-cache key so concurrent tests boot independent backing
-// services and never share storage.
+// boots its own cluster via bootCluster, whose runtime-random name folds
+// into Postgres.Cluster's session-cache key so concurrent tests boot
+// independent backing services and never share storage.
 func (r *PostgresTests) Cluster(ctx context.Context, opts ...PostgresTestsClusterOpts) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:82:1)
 	if r.cluster != nil {
 		return nil
@@ -155,7 +155,7 @@ func (r *PostgresTests) Cluster(ctx context.Context, opts ...PostgresTestsCluste
 }
 
 // ClusterRejectsNilPassword verifies a nil password is rejected.
-func (r *PostgresTests) ClusterRejectsNilPassword(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:173:1)
+func (r *PostgresTests) ClusterRejectsNilPassword(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:181:1)
 	if r.clusterRejectsNilPassword != nil {
 		return nil
 	}
@@ -165,7 +165,7 @@ func (r *PostgresTests) ClusterRejectsNilPassword(ctx context.Context) error { /
 }
 
 // ClusterRejectsNilSecurity verifies a nil clientListenerSecurity is rejected.
-func (r *PostgresTests) ClusterRejectsNilSecurity(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:192:1)
+func (r *PostgresTests) ClusterRejectsNilSecurity(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:200:1)
 	if r.clusterRejectsNilSecurity != nil {
 		return nil
 	}
@@ -178,7 +178,7 @@ func (r *PostgresTests) ClusterRejectsNilSecurity(ctx context.Context) error { /
 // a healthy primary by running `pg_isready` against it from a container
 // running the postgres image (which ships pg_isready), bound via
 // BindPrimary.
-func (r *PostgresTests) DefaultsProduceHealthyPrimary(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:307:1)
+func (r *PostgresTests) DefaultsProduceHealthyPrimary(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:315:1)
 	if r.defaultsProduceHealthyPrimary != nil {
 		return nil
 	}
@@ -188,13 +188,14 @@ func (r *PostgresTests) DefaultsProduceHealthyPrimary(ctx context.Context) error
 }
 
 // EndpointShouldNotBeCached verifies the chained cluster methods
-// re-execute underresult. Endpoint is a pure address getter, so we exercise the
+// re-execute on every call rather than freezing on a cached result.
+// Endpoint is a pure address getter, so we exercise the
 // re-execution that matters: Ping (which starts the service), Stop
 // (which kills it), then Ping again — the second Ping must re-start the
 // killed service. If Client/start were cached, the service would stay
 // dead and the second Ping would dial a hung port. We also assert the
 // Endpoint address is stable across the cycle.
-func (r *PostgresTests) EndpointShouldNotBeCached(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:228:1)
+func (r *PostgresTests) EndpointShouldNotBeCached(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:236:1)
 	if r.endpointShouldNotBeCached != nil {
 		return nil
 	}
@@ -205,8 +206,9 @@ func (r *PostgresTests) EndpointShouldNotBeCached(ctx context.Context) error { /
 
 // ExecScalarRoundTrip runs a CREATE TABLE + INSERT + SELECT count(*)
 // sequence across chained Cluster.Client() calls, proving the
+// session-cached cluster preserves on-disk state between separate
 // Client handles.
-func (r *PostgresTests) ExecScalarRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:495:1)
+func (r *PostgresTests) ExecScalarRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:503:1)
 	if r.execScalarRoundTrip != nil {
 		return nil
 	}
@@ -267,7 +269,7 @@ func (r *PostgresTests) UnmarshalJSON(bs []byte) error {
 // PasswordReusableViaClient verifies Cluster.Password() returns a secret
 // whose plaintext equals the provisioning password: re-using it via
 // Postgres.Client against the same endpoint authenticates successfully.
-func (r *PostgresTests) PasswordReusableViaClient(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:382:1)
+func (r *PostgresTests) PasswordReusableViaClient(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:390:1)
 	if r.passwordReusableViaClient != nil {
 		return nil
 	}
@@ -279,7 +281,7 @@ func (r *PostgresTests) PasswordReusableViaClient(ctx context.Context) error { /
 // QueryJSONReturnsRowObjects verifies QueryJSON returns a *dagger.File
 // whose contents parse as a JSON array of row objects keyed by column
 // name.
-func (r *PostgresTests) QueryJsonreturnsRowObjects(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:570:1)
+func (r *PostgresTests) QueryJsonreturnsRowObjects(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:578:1)
 	if r.queryJsonreturnsRowObjects != nil {
 		return nil
 	}
@@ -291,7 +293,7 @@ func (r *PostgresTests) QueryJsonreturnsRowObjects(ctx context.Context) error { 
 // ScalarShouldNotBeCached verifies Scalar re-executes on every call. We
 // insert one row, read count(*) == "1", insert a second row, then read
 // count(*) again: a cached Scalar would still report "1" instead of "2".
-func (r *PostgresTests) ScalarShouldNotBeCached(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:261:1)
+func (r *PostgresTests) ScalarShouldNotBeCached(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:269:1)
 	if r.scalarShouldNotBeCached != nil {
 		return nil
 	}
@@ -303,7 +305,7 @@ func (r *PostgresTests) ScalarShouldNotBeCached(ctx context.Context) error { // 
 // UserDatabaseRoundTrip verifies Cluster.User()/Database() echo the
 // inputs and a pgx round-trip confirms current_user / current_database
 // match.
-func (r *PostgresTests) UserDatabaseRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:342:1)
+func (r *PostgresTests) UserDatabaseRoundTrip(ctx context.Context) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:350:1)
 	if r.userDatabaseRoundTrip != nil {
 		return nil
 	}
@@ -350,9 +352,9 @@ func (r *Query) LoadPostgresTestsFromID(id PostgresTestsID) *PostgresTests { // 
 // TDD; All wires them up for parallel execution under
 // `dagger call all`.
 //
-// Every password, cluster name, role, database, and table name is
-// minted at runtime via dag.Random().Sha256 — no literals leak into the
-// suite.
+// Every password, cluster name, and table name is minted at runtime via
+// dag.Random().Sha256. Role and database deliberately use the postgres
+// module's defaults ("postgres"), which a few tests assert against.
 func (r *Query) PostgresTests() *PostgresTests { // postgres-tests (../../../daggerverse/postgres/tests/main.go:22:6)
 	q := r.query.Select("postgresTests")
 

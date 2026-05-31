@@ -78,7 +78,7 @@ Postgres.Client(
 ) *Client
 
 Client.Ping(ctx) error
-Client.Exec(ctx, sql string) (int64, error)        // affected-row count
+Client.Exec(ctx, sql string) (int, error)          // affected-row count (surfaced as GraphQL Int)
 Client.Scalar(ctx, sql string) (string, error)     // first column of first row; errors on zero rows
 Client.ApplyFile(ctx, file *dagger.File) error     // runs a .sql file's statements on one connection
 Client.QueryJSON(ctx, sql string) (*dagger.File, error) // JSON array of column-keyed row objects
