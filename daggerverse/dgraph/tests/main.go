@@ -262,7 +262,7 @@ func (t *Tests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error {
 // HttpEndpointsShouldNotBeCached: same restart-after-stop check as Grpc
 // but for the HTTP listener. The liveness probe is the same gRPC-based
 // AlterSchema — both endpoint methods share start(), so any restart
-// proves either +cache="never" directive fired.
+// proves either never-cache directive fired.
 //
 // +cache="never"
 func (t *Tests) HttpEndpointsShouldNotBeCached(ctx context.Context) error {
