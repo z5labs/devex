@@ -157,7 +157,9 @@ func (c *Client) Exec(ctx context.Context, sql string) (int64, error) {
 }
 
 // Scalar runs a query and returns the first column of the first row as
-// a string. Errors if the query returns zero rows.
+// a string. Errors if the query returns zero rows, or if that first
+// column is SQL NULL (rather than silently returning the string
+// "<nil>").
 //
 // +cache="never"
 func (c *Client) Scalar(ctx context.Context, sql string) (string, error) {
@@ -185,6 +187,9 @@ func (c *Client) Scalar(ctx context.Context, sql string) (string, error) {
 	}
 	if len(vals) == 0 {
 		return "", fmt.Errorf("scalar query returned a row with no columns")
+	}
+	if vals[0] == nil {
+		return "", fmt.Errorf("scalar query returned SQL NULL in the first column")
 	}
 	return fmt.Sprint(vals[0]), nil
 }

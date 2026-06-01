@@ -417,7 +417,7 @@ func (r *PostgresClient) WithGraphQLQuery(q *querybuilder.Selection) *PostgresCl
 // connection, in order. Statements are split on `;` outside of single-
 // and double-quoted strings, line (`--`) and block (`/* */`) comments,
 // and dollar-quoted strings (`$$ ... $$` / `$tag$ ... $tag$`).
-func (r *PostgresClient) ApplyFile(ctx context.Context, file *File) error { // postgres (../../../../../daggerverse/postgres/client.go:198:1)
+func (r *PostgresClient) ApplyFile(ctx context.Context, file *File) error { // postgres (../../../../../daggerverse/postgres/client.go:203:1)
 	assertNotNil("file", file)
 	if r.applyFile != nil {
 		return nil
@@ -506,7 +506,7 @@ func (r *PostgresClient) Ping(ctx context.Context) error { // postgres (../../..
 // QueryJSON runs a query and returns the result set as a *dagger.File
 // containing a JSON array of objects — one per row, keyed by column
 // name.
-func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../../daggerverse/postgres/client.go:223:1)
+func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../../daggerverse/postgres/client.go:228:1)
 	q := r.query.Select("queryJson")
 	q = q.Arg("sql", sql)
 
@@ -516,8 +516,10 @@ func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../
 }
 
 // Scalar runs a query and returns the first column of the first row as
-// a string. Errors if the query returns zero rows.
-func (r *PostgresClient) Scalar(ctx context.Context, sql string) (string, error) { // postgres (../../../../../daggerverse/postgres/client.go:163:1)
+// a string. Errors if the query returns zero rows, or if that first
+// column is SQL NULL (rather than silently returning the string
+// "<nil>").
+func (r *PostgresClient) Scalar(ctx context.Context, sql string) (string, error) { // postgres (../../../../../daggerverse/postgres/client.go:165:1)
 	if r.scalar != nil {
 		return *r.scalar, nil
 	}

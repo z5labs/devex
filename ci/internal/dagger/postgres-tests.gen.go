@@ -79,8 +79,9 @@ type PostgresTestsAllOpts struct {
 
 // All runs every postgres test as a convenience for local `dagger call
 // all` invocations. CI does NOT call All: each of the two
-// sub-aggregators below (Validation, Cluster) carries its own `directive, so GH Actions schedules each onto its own runner in
-// parallel — running All on top would double-bill the same work.
+// sub-aggregators below (Validation, Cluster) is registered as its own
+// check, so GH Actions schedules each onto its own runner in parallel —
+// running All on top would double-bill the same work.
 func (r *PostgresTests) All(ctx context.Context, opts ...PostgresTestsAllOpts) error { // postgres-tests (../../../daggerverse/postgres/tests/main.go:31:1)
 	if r.all != nil {
 		return nil
