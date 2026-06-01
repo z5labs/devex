@@ -62,6 +62,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CcCompilesHelloC", t.CcCompilesHelloC)
 	jobs = jobs.WithJob("CcCrossWindowsProducesExe", t.CcCrossWindowsProducesExe)
 	jobs = jobs.WithJob("CcRejectsEmptyFiles", t.CcRejectsEmptyFiles)
+	jobs = jobs.WithJob("CcRejectsPathOutputName", t.CcRejectsPathOutputName)
 	jobs = jobs.WithJob("CxxCompilesHelloCpp", t.CxxCompilesHelloCpp)
 
 	return jobs.Run(ctx)
@@ -353,6 +354,28 @@ func (t *Tests) CcRejectsEmptyFiles(ctx context.Context) error {
 	_, err := dag.Zig().Cc(cDir(), []string{}).Sync(ctx)
 	if err == nil {
 		return fmt.Errorf("expected error for empty files, got nil")
+	}
+	// Assert it's the validation error, not an incidental exec failure, so a
+	// regression that drops the up-front check (and instead fails inside zig)
+	// doesn't slip through.
+	if !strings.Contains(err.Error(), "files is required") {
+		return fmt.Errorf("expected files-required validation error, got: %v", err)
+	}
+	return nil
+}
+
+// CcRejectsPathOutputName asserts Cc rejects a path-like outputName (the
+// parameter is a bare filename, not a path). The validation error surfaces on
+// resolve, before any zig exec runs.
+func (t *Tests) CcRejectsPathOutputName(ctx context.Context) error {
+	_, err := dag.Zig().Cc(cDir(), []string{"hello.c"}, dagger.ZigCcOpts{
+		OutputName: "/tmp/a.out",
+	}).Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected error for path-like outputName, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be a bare filename") {
+		return fmt.Errorf("expected bare-filename validation error, got: %v", err)
 	}
 	return nil
 }

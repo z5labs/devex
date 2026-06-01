@@ -248,6 +248,13 @@ func (z *Zig) compileC(
 	if outputName == "" {
 		outputName = "a.out"
 	}
+	// outputName is a bare filename, not a path: the artifact is resolved at
+	// "/src/"+outputName below, so a path-like value (e.g. "/tmp/a.out" or
+	// "sub/a.out") would write outside /src yet resolve at the wrong location
+	// and fail with a confusing file-not-found error. Reject it up front.
+	if strings.ContainsRune(outputName, '/') {
+		return nil, fmt.Errorf("zig %s: outputName %q must be a bare filename, not a path", tool, outputName)
+	}
 	ctr, err := z.Container(ctx, source)
 	if err != nil {
 		return nil, err

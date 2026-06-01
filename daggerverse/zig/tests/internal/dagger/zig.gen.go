@@ -307,7 +307,7 @@ func (r *Zig) Cxx(source *Directory, files []string, opts ...ZigCxxOpts) *File {
 
 // Env runs `zig env` in a source-less base container and returns its stdout
 // (JSON).
-func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:369:1)
+func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:376:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -330,7 +330,7 @@ func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../
 // boundary whenever it also returns a non-nil error: a (string, error)
 // signature would leave the file list unreachable on exactly the failure path
 // that needs it.
-func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:326:1)
+func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:333:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return nil
@@ -392,12 +392,12 @@ func (r *Zig) UnmarshalJSON(bs []byte) error {
 
 // ZigRunOpts contains options for Zig.Run
 type ZigRunOpts struct {
-	Args []string // zig (../../../../../daggerverse/zig/main.go:273:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:280:2)
 }
 
 // Run runs `zig build run [-- args...]` against the supplied source and
 // returns the program's stdout.
-func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:269:1)
+func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:276:1)
 	assertNotNil("source", source)
 	if r.run != nil {
 		return *r.run, nil
@@ -419,7 +419,7 @@ func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (s
 
 // Targets runs `zig targets` in a source-less base container and returns its
 // stdout (the supported architecture/OS/ABI matrix).
-func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:381:1)
+func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:388:1)
 	if r.targets != nil {
 		return *r.targets, nil
 	}
@@ -433,14 +433,14 @@ func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../..
 
 // ZigTestOpts contains options for Zig.Test
 type ZigTestOpts struct {
-	Root string // zig (../../../../../daggerverse/zig/main.go:295:2)
+	Root string // zig (../../../../../daggerverse/zig/main.go:302:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:297:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:304:2)
 }
 
 // Test runs `zig build test` when root is empty, else `zig test <root>`,
 // against the supplied source and returns the combined stdout.
-func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:291:1)
+func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:298:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -466,7 +466,7 @@ func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) 
 
 // ToolVersion runs `zig version` in a source-less base container and returns
 // the trimmed output (e.g. "0.14.1").
-func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:353:1)
+func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:360:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}

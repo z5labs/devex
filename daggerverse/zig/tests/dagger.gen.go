@@ -266,6 +266,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CcRejectsEmptyFiles(&parent, ctx)
+		case "CcRejectsPathOutputName":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CcRejectsPathOutputName(&parent, ctx)
 		case "ContainerHasZigToolchain":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
