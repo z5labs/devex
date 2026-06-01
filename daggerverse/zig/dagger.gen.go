@@ -320,7 +320,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
 				}
 			}
-			return (*Zig).Fmt(&parent, ctx, source)
+			return nil, (*Zig).Fmt(&parent, ctx, source)
 		case "Run":
 			var parent Zig
 			err = json.Unmarshal(parentJSON, &parent)

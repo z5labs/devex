@@ -32,7 +32,7 @@ falling back to the same default. The selected version must exist in
 | `BuildExe(source, root, optimize, target, name, args)` | `zig build-exe <root> [-O ..] [-target ..] --name <name> args...`; returns the produced executable as a `*File`. `root` is required. |
 | `Run(source, args)` | `zig build run [-- args...]`; returns stdout. |
 | `Test(source, root, args)` | `zig build test` (empty `root`) or `zig test <root>`; returns stdout. |
-| `Fmt(source)` | `zig fmt --check .`; returns the unformatted-file list. A non-empty list is also returned as an error so CI fails fast. |
+| `Fmt(source)` | `zig fmt --check .`; returns a non-nil error listing the unformatted files (nil when clean) so CI fails fast. |
 | `ToolVersion()` | `zig version`. |
 | `Env()` | `zig env` (JSON). |
 | `Targets()` | `zig targets`. |

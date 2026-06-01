@@ -10,10 +10,10 @@ import (
 )
 
 // The `ZigID` scalar type represents an identifier for an object of type Zig.
-type ZigID string // zig (../../../../../daggerverse/zig/main.go:39:6)
+type ZigID string // zig (../../../../../daggerverse/zig/main.go:47:6)
 
 // Retrieve the binding value, as type Zig
-func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:39:6)
+func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:47:6)
 	q := r.query.Select("asZig")
 
 	return &Zig{
@@ -22,7 +22,7 @@ func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:
 }
 
 // Create or update a binding of type Zig in the environment
-func (r *Env) WithZigInput(name string, value *Zig, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:39:6)
+func (r *Env) WithZigInput(name string, value *Zig, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:47:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZigInput")
 	q = q.Arg("name", name)
@@ -35,7 +35,7 @@ func (r *Env) WithZigInput(name string, value *Zig, description string) *Env { /
 }
 
 // Declare a desired Zig output to be assigned in the environment
-func (r *Env) WithZigOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:39:6)
+func (r *Env) WithZigOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:47:6)
 	q := r.query.Select("withZigOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -46,7 +46,7 @@ func (r *Env) WithZigOutput(name string, description string) *Env { // zig (../.
 }
 
 // Load a Zig from its ID.
-func (r *Query) LoadZigFromID(id ZigID) *Zig { // zig (../../../../../daggerverse/zig/main.go:39:6)
+func (r *Query) LoadZigFromID(id ZigID) *Zig { // zig (../../../../../daggerverse/zig/main.go:47:6)
 	q := r.query.Select("loadZigFromID")
 	q = q.Arg("id", id)
 
@@ -57,14 +57,14 @@ func (r *Query) LoadZigFromID(id ZigID) *Zig { // zig (../../../../../daggervers
 
 // ZigOpts contains options for Query.Zig
 type ZigOpts struct {
-	Version string // zig (../../../../../daggerverse/zig/main.go:52:2)
+	Version string // zig (../../../../../daggerverse/zig/main.go:60:2)
 }
 
 // New returns a Zig module configured for the given toolchain version.
 // version is optional: empty means the version is inferred from the source's
 // build.zig.zon for source-bearing funcs, and the module-pinned default is
 // used for source-less funcs (ToolVersion, Env, Targets).
-func (r *Query) Zig(opts ...ZigOpts) *Zig { // zig (../../../../../daggerverse/zig/main.go:50:1)
+func (r *Query) Zig(opts ...ZigOpts) *Zig { // zig (../../../../../daggerverse/zig/main.go:58:1)
 	q := r.query.Select("zig")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -82,11 +82,11 @@ func (r *Query) Zig(opts ...ZigOpts) *Zig { // zig (../../../../../daggerverse/z
 // Container() for the prepared base container, or use the per-CLI helpers
 // (Build, BuildExe, Run, Test, Fmt, ...) which reuse the same backing
 // container.
-type Zig struct { // zig (../../../../../daggerverse/zig/main.go:39:6)
+type Zig struct { // zig (../../../../../daggerverse/zig/main.go:47:6)
 	query *querybuilder.Selection
 
 	env         *string
-	fmt         *string
+	fmt         *Void
 	id          *ZigID
 	run         *string
 	targets     *string
@@ -103,13 +103,13 @@ func (r *Zig) WithGraphQLQuery(q *querybuilder.Selection) *Zig {
 
 // ZigBuildOpts contains options for Zig.Build
 type ZigBuildOpts struct {
-	Optimize string // zig (../../../../../daggerverse/zig/main.go:98:2)
+	Optimize string // zig (../../../../../daggerverse/zig/main.go:112:2)
 
-	Target string // zig (../../../../../daggerverse/zig/main.go:100:2)
+	Target string // zig (../../../../../daggerverse/zig/main.go:114:2)
 
-	Steps []string // zig (../../../../../daggerverse/zig/main.go:102:2)
+	Steps []string // zig (../../../../../daggerverse/zig/main.go:116:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:104:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:118:2)
 }
 
 // Build runs `zig build [-Doptimize=<optimize>] [-Dtarget=<target>] [steps...]
@@ -119,7 +119,13 @@ type ZigBuildOpts struct {
 // optimize, when non-empty, must be one of Debug, ReleaseSafe, ReleaseFast,
 // ReleaseSmall and is rejected otherwise. Empty optimize and empty target
 // build for the host.
-func (r *Zig) Build(source *Directory, opts ...ZigBuildOpts) *Directory { // zig (../../../../../daggerverse/zig/main.go:94:1)
+//
+// steps and args are both appended to the `zig build` command line and are
+// interpreted by the build system (steps name build steps; args are additional
+// build-system arguments/options) — neither is forwarded to a built program. To
+// pass arguments to the program itself, use Run, which inserts the `--`
+// separator `zig build run` expects.
+func (r *Zig) Build(source *Directory, opts ...ZigBuildOpts) *Directory { // zig (../../../../../daggerverse/zig/main.go:108:1)
 	assertNotNil("source", source)
 	q := r.query.Select("build")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -149,13 +155,13 @@ func (r *Zig) Build(source *Directory, opts ...ZigBuildOpts) *Directory { // zig
 
 // ZigBuildExeOpts contains options for Zig.BuildExe
 type ZigBuildExeOpts struct {
-	Optimize string // zig (../../../../../daggerverse/zig/main.go:143:2)
+	Optimize string // zig (../../../../../daggerverse/zig/main.go:157:2)
 
-	Target string // zig (../../../../../daggerverse/zig/main.go:145:2)
+	Target string // zig (../../../../../daggerverse/zig/main.go:159:2)
 
-	Name string // zig (../../../../../daggerverse/zig/main.go:147:2)
+	Name string // zig (../../../../../daggerverse/zig/main.go:161:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:149:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:163:2)
 }
 
 // BuildExe runs `zig build-exe <root> [-O <optimize>] [-target <target>]
@@ -169,7 +175,7 @@ type ZigBuildExeOpts struct {
 // Note the flag spelling differs from Build: build-exe uses -O / -target /
 // --name (compiler flags), not the -Doptimize= / -Dtarget= build-system
 // options.
-func (r *Zig) BuildExe(source *Directory, root string, opts ...ZigBuildExeOpts) *File { // zig (../../../../../daggerverse/zig/main.go:138:1)
+func (r *Zig) BuildExe(source *Directory, root string, opts ...ZigBuildExeOpts) *File { // zig (../../../../../daggerverse/zig/main.go:152:1)
 	assertNotNil("source", source)
 	q := r.query.Select("buildExe")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -208,7 +214,7 @@ func (r *Zig) BuildExe(source *Directory, root string, opts ...ZigBuildExeOpts) 
 // (falling back to the module-pinned default). The signature takes ctx +
 // returns error because version inference and the tarball download require
 // async I/O.
-func (r *Zig) Container(source *Directory) *Container { // zig (../../../../../daggerverse/zig/main.go:69:1)
+func (r *Zig) Container(source *Directory) *Container { // zig (../../../../../daggerverse/zig/main.go:77:1)
 	assertNotNil("source", source)
 	q := r.query.Select("container")
 	q = q.Arg("source", source)
@@ -220,7 +226,7 @@ func (r *Zig) Container(source *Directory) *Container { // zig (../../../../../d
 
 // Env runs `zig env` in a source-less base container and returns its stdout
 // (JSON).
-func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:275:1)
+func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:295:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -232,23 +238,26 @@ func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../
 	return response, q.Execute(ctx)
 }
 
-// Fmt runs `zig fmt --check .` against the supplied source and returns the
-// list of unformatted files. `zig fmt --check` exits non-zero and prints the
-// offending paths to stdout, so the exec is run allowing any exit code; a
-// non-zero exit (or any reported file) is also returned as an error so CI
-// fails fast on formatting violations.
-func (r *Zig) Fmt(ctx context.Context, source *Directory) (string, error) { // zig (../../../../../daggerverse/zig/main.go:232:1)
+// Fmt runs `zig fmt --check .` against the supplied source, returning a non-nil
+// error that lists the offending files when any are unformatted, and nil when
+// the tree is clean — so CI fails fast on formatting violations.
+//
+// `zig fmt --check` exits non-zero and prints the offending paths to stdout, so
+// the exec is run allowing any exit code and the paths are surfaced in the
+// returned error. Fmt returns only error (not the file list as a string)
+// because a Dagger function's non-error return value is dropped at the GraphQL
+// boundary whenever it also returns a non-nil error: a (string, error)
+// signature would leave the file list unreachable on exactly the failure path
+// that needs it.
+func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:252:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
-		return *r.fmt, nil
+		return nil
 	}
 	q := r.query.Select("fmt")
 	q = q.Arg("source", source)
 
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this Zig.
@@ -302,12 +311,12 @@ func (r *Zig) UnmarshalJSON(bs []byte) error {
 
 // ZigRunOpts contains options for Zig.Run
 type ZigRunOpts struct {
-	Args []string // zig (../../../../../daggerverse/zig/main.go:185:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:199:2)
 }
 
 // Run runs `zig build run [-- args...]` against the supplied source and
 // returns the program's stdout.
-func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:181:1)
+func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:195:1)
 	assertNotNil("source", source)
 	if r.run != nil {
 		return *r.run, nil
@@ -329,7 +338,7 @@ func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (s
 
 // Targets runs `zig targets` in a source-less base container and returns its
 // stdout (the supported architecture/OS/ABI matrix).
-func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:287:1)
+func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:307:1)
 	if r.targets != nil {
 		return *r.targets, nil
 	}
@@ -343,14 +352,14 @@ func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../..
 
 // ZigTestOpts contains options for Zig.Test
 type ZigTestOpts struct {
-	Root string // zig (../../../../../daggerverse/zig/main.go:207:2)
+	Root string // zig (../../../../../daggerverse/zig/main.go:221:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:209:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:223:2)
 }
 
 // Test runs `zig build test` when root is empty, else `zig test <root>`,
 // against the supplied source and returns the combined stdout.
-func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:203:1)
+func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:217:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -376,7 +385,7 @@ func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) 
 
 // ToolVersion runs `zig version` in a source-less base container and returns
 // the trimmed output (e.g. "0.14.1").
-func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:259:1)
+func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:279:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}
@@ -391,7 +400,7 @@ func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../.
 // Version is the pinned Zig toolchain version (e.g. "0.14.1"). Empty
 // means infer from the supplied source's build.zig.zon
 // `minimum_zig_version`; falls back to a module-pinned default.
-func (r *Zig) Version(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:43:2)
+func (r *Zig) Version(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:51:2)
 	if r.version != nil {
 		return *r.version, nil
 	}

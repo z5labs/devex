@@ -276,32 +276,27 @@ func (t *Tests) RunHelloPrintsHello(ctx context.Context) error {
 	return nil
 }
 
-// FmtHelloIsClean runs Fmt against the fmt-clean hello fixture and asserts the
-// output is empty and no error is returned.
+// FmtHelloIsClean runs Fmt against the fmt-clean hello fixture and asserts no
+// error is returned.
 func (t *Tests) FmtHelloIsClean(ctx context.Context) error {
-	out, err := dag.Zig().Fmt(ctx, helloDir())
-	if err != nil {
-		return fmt.Errorf("Fmt hello: %w (output: %q)", err, out)
-	}
-	if strings.TrimSpace(out) != "" {
-		return fmt.Errorf("expected empty fmt output, got %q", out)
+	if err := dag.Zig().Fmt(ctx, helloDir()); err != nil {
+		return fmt.Errorf("Fmt hello: %w", err)
 	}
 	return nil
 }
 
 // FmtUnformattedReportsFile runs Fmt against the unformatted fixture and
-// asserts it returns an error naming the offending file. Fmt returns the file
-// list both as its string result and inside the error, but a Dagger function's
-// non-error return value is dropped at the GraphQL boundary when it also
-// returns a non-nil error — so the offending path is asserted against the
-// error message, which is what a caller actually receives.
+// asserts it returns an error naming the offending file. Fmt surfaces the
+// offending paths only via the error (it returns error alone, since a Dagger
+// function's non-error return value is dropped at the GraphQL boundary when it
+// also returns a non-nil error).
 func (t *Tests) FmtUnformattedReportsFile(ctx context.Context) error {
-	out, err := dag.Zig().Fmt(ctx, unformattedDir())
+	err := dag.Zig().Fmt(ctx, unformattedDir())
 	if err == nil {
-		return fmt.Errorf("expected Fmt error for unformatted fixture, got nil (out=%q)", out)
+		return fmt.Errorf("expected Fmt error for unformatted fixture, got nil")
 	}
 	if !strings.Contains(err.Error(), "bad.zig") {
-		return fmt.Errorf("expected 'bad.zig' in fmt error, got %q (out=%q)", err.Error(), out)
+		return fmt.Errorf("expected 'bad.zig' in fmt error, got %q", err.Error())
 	}
 	return nil
 }

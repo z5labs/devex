@@ -16,10 +16,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"dagger/zig/internal/dagger"
 )
+
+// shasumRE matches a SHA-256 hex digest (exactly 64 hex chars). The shasum
+// from download/index.json is interpolated into a shell `sha256sum -c` line, so
+// it is validated against this pattern before use: a value containing a single
+// quote would otherwise break out of the quoted string and run arbitrary shell
+// inside the build container.
+var shasumRE = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
 
 const (
 	// defaultZigVersion is used when New("") is called against a source with
@@ -89,6 +97,12 @@ func (z *Zig) Container(
 // optimize, when non-empty, must be one of Debug, ReleaseSafe, ReleaseFast,
 // ReleaseSmall and is rejected otherwise. Empty optimize and empty target
 // build for the host.
+//
+// steps and args are both appended to the `zig build` command line and are
+// interpreted by the build system (steps name build steps; args are additional
+// build-system arguments/options) — neither is forwarded to a built program. To
+// pass arguments to the program itself, use Run, which inserts the `--`
+// separator `zig build run` expects.
 //
 // +cache="session"
 func (z *Zig) Build(
@@ -222,17 +236,23 @@ func (z *Zig) Test(
 	return ctr.WithExec(cmd).Stdout(ctx)
 }
 
-// Fmt runs `zig fmt --check .` against the supplied source and returns the
-// list of unformatted files. `zig fmt --check` exits non-zero and prints the
-// offending paths to stdout, so the exec is run allowing any exit code; a
-// non-zero exit (or any reported file) is also returned as an error so CI
-// fails fast on formatting violations.
+// Fmt runs `zig fmt --check .` against the supplied source, returning a non-nil
+// error that lists the offending files when any are unformatted, and nil when
+// the tree is clean — so CI fails fast on formatting violations.
+//
+// `zig fmt --check` exits non-zero and prints the offending paths to stdout, so
+// the exec is run allowing any exit code and the paths are surfaced in the
+// returned error. Fmt returns only error (not the file list as a string)
+// because a Dagger function's non-error return value is dropped at the GraphQL
+// boundary whenever it also returns a non-nil error: a (string, error)
+// signature would leave the file list unreachable on exactly the failure path
+// that needs it.
 //
 // +cache="session"
-func (z *Zig) Fmt(ctx context.Context, source *dagger.Directory) (string, error) {
+func (z *Zig) Fmt(ctx context.Context, source *dagger.Directory) error {
 	ctr, err := z.Container(ctx, source)
 	if err != nil {
-		return "", err
+		return err
 	}
 	exec := ctr.WithExec(
 		[]string{"zig", "fmt", "--check", "."},
@@ -240,16 +260,16 @@ func (z *Zig) Fmt(ctx context.Context, source *dagger.Directory) (string, error)
 	)
 	out, err := exec.Stdout(ctx)
 	if err != nil {
-		return out, err
+		return err
 	}
 	code, err := exec.ExitCode(ctx)
 	if err != nil {
-		return out, err
+		return err
 	}
 	if code != 0 || strings.TrimSpace(out) != "" {
-		return out, fmt.Errorf("zig fmt found unformatted files:\n%s", out)
+		return fmt.Errorf("zig fmt found unformatted files:\n%s", out)
 	}
-	return out, nil
+	return nil
 }
 
 // ToolVersion runs `zig version` in a source-less base container and returns
@@ -365,30 +385,41 @@ func (z *Zig) resolveVersion(ctx context.Context, source *dagger.Directory) (str
 
 // parseMinimumZigVersion scans a build.zig.zon file (ZON, not JSON) for the
 // `.minimum_zig_version = "X.Y.Z"` field and returns the quoted value. Returns
-// "" when the field is absent. ZON permits arbitrary whitespace around `=`, so
-// the scan locates the key, then the next `=`, then the next quoted string.
+// "" when the field is absent.
+//
+// The scan is line-oriented and strips `//` line comments first, so a
+// commented-out or trailing-comment occurrence of the key is ignored rather
+// than matched (the field and its value are conventionally on one line in ZON).
+// On a matching line, ZON permits arbitrary whitespace around `=`, so it locates
+// the key, then the next `=`, then the next quoted string.
 func parseMinimumZigVersion(content string) string {
 	const key = ".minimum_zig_version"
-	i := strings.Index(content, key)
-	if i < 0 {
-		return ""
-	}
-	rest := content[i+len(key):]
-	if eq := strings.IndexByte(rest, '='); eq >= 0 {
+	for _, line := range strings.Split(content, "\n") {
+		if c := strings.Index(line, "//"); c >= 0 {
+			line = line[:c]
+		}
+		i := strings.Index(line, key)
+		if i < 0 {
+			continue
+		}
+		rest := line[i+len(key):]
+		eq := strings.IndexByte(rest, '=')
+		if eq < 0 {
+			continue
+		}
 		rest = rest[eq+1:]
-	} else {
-		return ""
+		open := strings.IndexByte(rest, '"')
+		if open < 0 {
+			continue
+		}
+		rest = rest[open+1:]
+		end := strings.IndexByte(rest, '"')
+		if end < 0 {
+			continue
+		}
+		return rest[:end]
 	}
-	open := strings.IndexByte(rest, '"')
-	if open < 0 {
-		return ""
-	}
-	rest = rest[open+1:]
-	end := strings.IndexByte(rest, '"')
-	if end < 0 {
-		return ""
-	}
-	return rest[:end]
+	return ""
 }
 
 // zigTargetKey maps the engine's default platform to the per-target key used
@@ -444,6 +475,9 @@ func zigDownload(ctx context.Context, version, targetKey string) (zigArtifact, e
 	}
 	if art.Tarball == "" || art.Shasum == "" {
 		return zigArtifact{}, fmt.Errorf("zig artifact for %s/%s missing tarball/shasum", version, targetKey)
+	}
+	if !shasumRE.MatchString(art.Shasum) {
+		return zigArtifact{}, fmt.Errorf("zig artifact for %s/%s has malformed shasum %q: want 64 hex chars", version, targetKey, art.Shasum)
 	}
 	return art, nil
 }
