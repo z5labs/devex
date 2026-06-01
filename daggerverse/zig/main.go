@@ -188,6 +188,87 @@ func (z *Zig) BuildExe(
 	return ctr.WithExec(cmd).File("/src/" + out), nil
 }
 
+// Cc cross-compiles C source with `zig cc`, a clang frontend that bundles libc
+// and headers for every supported target, so cross-compilation needs no sysroot
+// setup. files is required (the C source files, relative to source). target,
+// when non-empty, sets clang's -target triple (e.g. "x86_64-windows-gnu").
+// outputName names the produced artifact (default "a.out"); extra clang flags
+// pass through via args. Returns the artifact as a *dagger.File.
+//
+// outputName (CLI: --output-name) is named so to avoid colliding with the
+// Dagger CLI's top-level --output/-o flag — same precedent as go's Ci.WithBuild.
+//
+// +cache="session"
+func (z *Zig) Cc(
+	ctx context.Context,
+	source *dagger.Directory,
+	files []string,
+	// +optional
+	target string,
+	// +default="a.out"
+	outputName string,
+	// +optional
+	args []string,
+) (*dagger.File, error) {
+	return z.compileC(ctx, "cc", source, files, target, outputName, args)
+}
+
+// Cxx cross-compiles C++ source with `zig c++` (the C++ frontend; bundles
+// libc++). Same parameters and semantics as Cc.
+//
+// +cache="session"
+func (z *Zig) Cxx(
+	ctx context.Context,
+	source *dagger.Directory,
+	files []string,
+	// +optional
+	target string,
+	// +default="a.out"
+	outputName string,
+	// +optional
+	args []string,
+) (*dagger.File, error) {
+	return z.compileC(ctx, "c++", source, files, target, outputName, args)
+}
+
+// compileC runs `zig <tool> <files...> [-target <target>] -o <outputName>
+// [args...]` against source and returns the produced artifact. tool is "cc" or
+// "c++".
+func (z *Zig) compileC(
+	ctx context.Context,
+	tool string,
+	source *dagger.Directory,
+	files []string,
+	target, outputName string,
+	args []string,
+) (*dagger.File, error) {
+	if len(files) == 0 {
+		return nil, fmt.Errorf("zig %s: files is required (at least one source file)", tool)
+	}
+	if outputName == "" {
+		outputName = "a.out"
+	}
+	// outputName is a bare filename, not a path: the artifact is resolved at
+	// "/src/"+outputName below, so a path-like value (e.g. "/tmp/a.out" or
+	// "sub/a.out") would write outside /src yet resolve at the wrong location
+	// and fail with a confusing file-not-found error. Reject it up front.
+	if strings.ContainsRune(outputName, '/') {
+		return nil, fmt.Errorf("zig %s: outputName %q must be a bare filename, not a path", tool, outputName)
+	}
+	ctr, err := z.Container(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	cmd := []string{"zig", tool}
+	cmd = append(cmd, files...)
+	if target != "" {
+		cmd = append(cmd, "-target", target)
+	}
+	cmd = append(cmd, "-o", outputName)
+	cmd = append(cmd, args...)
+	return ctr.WithExec(cmd).File("/src/" + outputName), nil
+}
+
 // Run runs `zig build run [-- args...]` against the supplied source and
 // returns the program's stdout.
 //

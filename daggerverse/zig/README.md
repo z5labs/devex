@@ -30,6 +30,8 @@ falling back to the same default. The selected version must exist in
 | `Container(source)` | Prepared base container — escape hatch when a Zig command isn't covered by the typed helpers. Returns `*Container` lazily; the underlying constructor takes ctx + returns error so version inference and the toolchain download can run. |
 | `Build(source, optimize, target, steps, args)` | `zig build [-Doptimize=..] [-Dtarget=..] steps... args...`; returns the `zig-out` install directory. `optimize` ∈ {Debug, ReleaseSafe, ReleaseFast, ReleaseSmall} when set. |
 | `BuildExe(source, root, optimize, target, name, args)` | `zig build-exe <root> [-O ..] [-target ..] --name <name> args...`; returns the produced executable as a `*File`. `root` is required. |
+| `Cc(source, files, target, outputName, args)` | `zig cc <files...> [-target ..] -o <outputName> args...`; returns the compiled artifact as a `*File`. `files` is required; `outputName` defaults to `a.out`. |
+| `Cxx(source, files, target, outputName, args)` | `zig c++ <files...> [-target ..] -o <outputName> args...`; the C++ counterpart of `Cc`. |
 | `Run(source, args)` | `zig build run [-- args...]`; returns stdout. |
 | `Test(source, root, args)` | `zig build test` (empty `root`) or `zig test <root>`; returns stdout. |
 | `Fmt(source)` | `zig fmt --check .`; returns a non-nil error listing the unformatted files (nil when clean) so CI fails fast. |
@@ -39,6 +41,13 @@ falling back to the same default. The selected version must exist in
 
 `Build` uses Zig's build-system options (`-Doptimize=`, `-Dtarget=`), while
 `BuildExe` uses the compiler flags (`-O`, `-target`).
+
+`Cc`/`Cxx` expose Zig as a drop-in C/C++ cross-compiler: `zig cc` and `zig c++`
+are clang frontends that bundle libc and headers for every supported target, so
+cross-compilation needs no sysroot setup — pass a clang `-target` triple (e.g.
+`x86_64-windows-gnu`) and Zig supplies the rest. `outputName` is named so to
+avoid colliding with the Dagger CLI's top-level `--output`/`-o` flag (same
+precedent as `go`'s `Ci.WithBuild`).
 
 ## CLI quick reference
 
@@ -53,6 +62,10 @@ dagger -m daggerverse/zig call container \
 
 # Cross-compile a project for aarch64-linux
 dagger -m daggerverse/zig call build --source=. --target=aarch64-linux
+
+# Cross-compile a C file to a Windows .exe with `zig cc`
+dagger -m daggerverse/zig call cc --source=. --files=hello.c \
+    --target=x86_64-windows-gnu --output-name=hello.exe
 ```
 
 ## Zig SDK quick reference
@@ -68,6 +81,12 @@ exe := z.BuildExe(src, "main.zig", dagger.ZigBuildExeOpts{Name: "app"})
 
 // Run returns the program's stdout.
 stdout, err := z.Run(ctx, src)
+
+// Cc / Cxx compile C / C++ source, returning the artifact as a *File.
+exe := z.Cc(src, []string{"hello.c"}, dagger.ZigCcOpts{
+	Target:     "x86_64-windows-gnu",
+	OutputName: "hello.exe",
+})
 ```
 
 See `tests/main.go` for one example per function.
