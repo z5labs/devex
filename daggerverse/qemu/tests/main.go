@@ -39,6 +39,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Firmware", func(ctx context.Context) error { return t.Firmware(ctx, parallel) })
 	jobs = jobs.WithJob("Boot", func(ctx context.Context) error { return t.Boot(ctx, parallel) })
 	jobs = jobs.WithJob("Networking", func(ctx context.Context) error { return t.Networking(ctx, parallel) })
+	jobs = jobs.WithJob("BareMetal", func(ctx context.Context) error { return t.BareMetal(ctx, parallel) })
 	return jobs.Run(ctx)
 }
 

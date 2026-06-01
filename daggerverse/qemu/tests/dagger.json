@@ -12,6 +12,10 @@
     {
       "name": "random",
       "source": "../../random"
+    },
+    {
+      "name": "zig",
+      "source": "../../zig"
     }
   ],
   "codegen": {

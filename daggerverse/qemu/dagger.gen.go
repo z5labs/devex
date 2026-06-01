@@ -330,6 +330,30 @@ func (r *DiskInterface) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r RunResult) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Output   string
+		ExitCode int
+	}
+	concrete.Output = r.Output
+	concrete.ExitCode = r.ExitCode
+	return json.Marshal(&concrete)
+}
+
+func (r *RunResult) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Output   string
+		ExitCode int
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Output = concrete.Output
+	r.ExitCode = concrete.ExitCode
+	return nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -498,6 +522,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Machine).Run(&parent, ctx, timeoutSeconds)
+		case "RunStatus":
+			var parent Machine
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var timeoutSeconds int
+			if inputArgs["timeoutSeconds"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["timeoutSeconds"]), &timeoutSeconds)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg timeoutSeconds", err))
+				}
+			}
+			return (*Machine).RunStatus(&parent, ctx, timeoutSeconds)
 		case "SerialLog":
 			var parent Machine
 			err = json.Unmarshal(parentJSON, &parent)
@@ -552,6 +590,76 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Qemu":
 		switch fnName {
+		case "BareMetal":
+			var parent Qemu
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var firmware *dagger.File
+			if inputArgs["firmware"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["firmware"]), &firmware)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg firmware", err))
+				}
+			}
+			var arch Arch
+			if inputArgs["arch"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["arch"]), &arch)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg arch", err))
+				}
+			}
+			var machine string
+			if inputArgs["machine"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["machine"]), &machine)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg machine", err))
+				}
+			}
+			var cpu string
+			if inputArgs["cpu"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cpu"]), &cpu)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cpu", err))
+				}
+			}
+			var memoryMb int
+			if inputArgs["memoryMb"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["memoryMb"]), &memoryMb)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoryMb", err))
+				}
+			}
+			var disableSemihosting bool
+			if inputArgs["disableSemihosting"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["disableSemihosting"]), &disableSemihosting)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg disableSemihosting", err))
+				}
+			}
+			var cmdline string
+			if inputArgs["cmdline"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cmdline"]), &cmdline)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cmdline", err))
+				}
+			}
+			var registry string
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			return (*Qemu).BareMetal(&parent, ctx, firmware, arch, machine, cpu, memoryMb, disableSemihosting, cmdline, registry, name)
 		case "Disk":
 			var parent Qemu
 			err = json.Unmarshal(parentJSON, &parent)

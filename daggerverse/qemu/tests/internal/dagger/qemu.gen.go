@@ -14,7 +14,10 @@ import (
 type QemuID string // qemu (../../../../../daggerverse/qemu/main.go:29:6)
 
 // The `QemuMachineID` scalar type represents an identifier for an object of type QemuMachine.
-type QemuMachineID string // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+type QemuMachineID string // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
+
+// The `QemuRunResultID` scalar type represents an identifier for an object of type QemuRunResult.
+type QemuRunResultID string // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
 
 // Retrieve the binding value, as type Qemu
 func (r *Binding) AsQemu() *Qemu { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
@@ -26,10 +29,19 @@ func (r *Binding) AsQemu() *Qemu { // qemu (../../../../../daggerverse/qemu/main
 }
 
 // Retrieve the binding value, as type QemuMachine
-func (r *Binding) AsQemuMachine() *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+func (r *Binding) AsQemuMachine() *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
 	q := r.query.Select("asQemuMachine")
 
 	return &QemuMachine{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type QemuRunResult
+func (r *Binding) AsQemuRunResult() *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
+	q := r.query.Select("asQemuRunResult")
+
+	return &QemuRunResult{
 		query: q,
 	}
 }
@@ -48,7 +60,7 @@ func (r *Env) WithQemuInput(name string, value *Qemu, description string) *Env {
 }
 
 // Create or update a binding of type QemuMachine in the environment
-func (r *Env) WithQemuMachineInput(name string, value *QemuMachine, description string) *Env { // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+func (r *Env) WithQemuMachineInput(name string, value *QemuMachine, description string) *Env { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withQemuMachineInput")
 	q = q.Arg("name", name)
@@ -61,7 +73,7 @@ func (r *Env) WithQemuMachineInput(name string, value *QemuMachine, description 
 }
 
 // Declare a desired QemuMachine output to be assigned in the environment
-func (r *Env) WithQemuMachineOutput(name string, description string) *Env { // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+func (r *Env) WithQemuMachineOutput(name string, description string) *Env { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
 	q := r.query.Select("withQemuMachineOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -74,6 +86,30 @@ func (r *Env) WithQemuMachineOutput(name string, description string) *Env { // q
 // Declare a desired Qemu output to be assigned in the environment
 func (r *Env) WithQemuOutput(name string, description string) *Env { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
 	q := r.query.Select("withQemuOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type QemuRunResult in the environment
+func (r *Env) WithQemuRunResultInput(name string, value *QemuRunResult, description string) *Env { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withQemuRunResultInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired QemuRunResult output to be assigned in the environment
+func (r *Env) WithQemuRunResultOutput(name string, description string) *Env { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
+	q := r.query.Select("withQemuRunResultOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -97,45 +133,134 @@ func (r *Qemu) WithGraphQLQuery(q *querybuilder.Selection) *Qemu {
 	}
 }
 
+// QemuBareMetalOpts contains options for Qemu.BareMetal
+type QemuBareMetalOpts struct {
+
+	// Default: ARM
+	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:206:2)
+
+	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:208:2)
+
+	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:210:2)
+
+	// Default: 16
+	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:212:2)
+
+	DisableSemihosting bool // qemu (../../../../../daggerverse/qemu/machine.go:214:2)
+
+	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:216:2)
+
+	// Default: "docker.io"
+	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:218:2)
+
+	Name string // qemu (../../../../../daggerverse/qemu/machine.go:220:2)
+}
+
+// BareMetal boots a bare-metal microcontroller firmware directly — no Linux
+// kernel, initrd, rootfs, or device tree — on an MCU-class machine, with
+// ARM/RISC-V semihosting enabled. This is the off-device unit-test path for
+// embedded firmware: a test build can write to the host console (semihosting
+// SYS_WRITE0) and report pass/fail as a process exit code (semihosting
+// SYS_EXIT) via Machine.RunStatus — neither of which the kernel-oriented Linux
+// path can surface (it captures serial text only).
+//
+// `arch` selects the qemu-system-<arch> binary and an MCU-class machine
+// default distinct from the SoC defaults Linux/Disk use (ARM => lm3s6965evb +
+// cortex-m3, RISC-V => virt); an explicit `machine` / `cpu` overrides it.
+// Acceleration is always TCG — MCU targets have no KVM analog. Semihosting is
+// on by default (`-semihosting-config enable=on,target=native` lets the guest's
+// semihosting calls reach the host so SYS_EXIT maps to the QEMU process exit
+// code); pass `disableSemihosting` for firmware that drives a real UART instead
+// and wants neither the host console route nor SYS_EXIT wiring. The option is
+// inverted so the Go SDK can actually turn semihosting off — a `bool can't be set false through the generated bindings (false is the zero
+// value and is dropped). Rejects a nil firmware and an arch with no bare-metal
+// profile.
+//
+// Session-cached on `name` like Linux/Disk; every *Machine method is
+// never-cached so each Run / RunStatus re-executes.
+func (r *Qemu) BareMetal(firmware *File, opts ...QemuBareMetalOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:202:1)
+	assertNotNil("firmware", firmware)
+	q := r.query.Select("bareMetal")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `arch` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Arch) {
+			q = q.Arg("arch", opts[i].Arch)
+		}
+		// `machine` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Machine) {
+			q = q.Arg("machine", opts[i].Machine)
+		}
+		// `cpu` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CPU) {
+			q = q.Arg("cpu", opts[i].CPU)
+		}
+		// `memoryMb` optional argument
+		if !querybuilder.IsZeroValue(opts[i].MemoryMb) {
+			q = q.Arg("memoryMb", opts[i].MemoryMb)
+		}
+		// `disableSemihosting` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DisableSemihosting) {
+			q = q.Arg("disableSemihosting", opts[i].DisableSemihosting)
+		}
+		// `cmdline` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Cmdline) {
+			q = q.Arg("cmdline", opts[i].Cmdline)
+		}
+		// `registry` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Registry) {
+			q = q.Arg("registry", opts[i].Registry)
+		}
+		// `name` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Name) {
+			q = q.Arg("name", opts[i].Name)
+		}
+	}
+	q = q.Arg("firmware", firmware)
+
+	return &QemuMachine{
+		query: q,
+	}
+}
+
 // QemuDiskOpts contains options for Qemu.Disk
 type QemuDiskOpts struct {
 
 	// Default: AARCH_64
-	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:127:2)
+	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:131:2)
 
-	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:129:2)
+	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:133:2)
 
-	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:131:2)
+	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:135:2)
 
 	// Default: 1024
-	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:133:2)
+	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:137:2)
 
 	// Default: TCG
-	Accel QemuAccel // qemu (../../../../../daggerverse/qemu/machine.go:135:2)
+	Accel QemuAccel // qemu (../../../../../daggerverse/qemu/machine.go:139:2)
 
 	// Default: RAW
-	Format QemuDiskFormat // qemu (../../../../../daggerverse/qemu/machine.go:137:2)
+	Format QemuDiskFormat // qemu (../../../../../daggerverse/qemu/machine.go:141:2)
 
 	// Default: VIRTIO
-	Iface QemuDiskInterface // qemu (../../../../../daggerverse/qemu/machine.go:139:2)
+	Iface QemuDiskInterface // qemu (../../../../../daggerverse/qemu/machine.go:143:2)
 
-	Bios *File // qemu (../../../../../daggerverse/qemu/machine.go:141:2)
+	Bios *File // qemu (../../../../../daggerverse/qemu/machine.go:145:2)
 
-	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:143:2)
+	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:147:2)
 
-	TCPPorts []int // qemu (../../../../../daggerverse/qemu/machine.go:145:2)
+	TCPPorts []int // qemu (../../../../../daggerverse/qemu/machine.go:149:2)
 
 	// Default: "docker.io"
-	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:147:2)
+	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:151:2)
 
-	Name string // qemu (../../../../../daggerverse/qemu/machine.go:149:2)
+	Name string // qemu (../../../../../daggerverse/qemu/machine.go:153:2)
 }
 
 // Disk boots a guest from a bootable disk image as a long-running machine —
 // the full-OS path. `format` / `iface` map to `-drive format=`/`if=`; an
 // optional `bios` supplies firmware. Empty `machine` / `cpu` resolve to the
 // per-arch default. Rejects a nil image and an unknown arch.
-func (r *Qemu) Disk(image *File, opts ...QemuDiskOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:123:1)
+func (r *Qemu) Disk(image *File, opts ...QemuDiskOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:127:1)
 	assertNotNil("image", image)
 	q := r.query.Select("disk")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -246,33 +371,33 @@ func (r *Qemu) UnmarshalJSON(bs []byte) error {
 
 // QemuLinuxOpts contains options for Qemu.Linux
 type QemuLinuxOpts struct {
-	Dtb *File // qemu (../../../../../daggerverse/qemu/machine.go:60:2)
+	Dtb *File // qemu (../../../../../daggerverse/qemu/machine.go:64:2)
 
-	Initrd *File // qemu (../../../../../daggerverse/qemu/machine.go:62:2)
+	Initrd *File // qemu (../../../../../daggerverse/qemu/machine.go:66:2)
 
-	Rootfs *File // qemu (../../../../../daggerverse/qemu/machine.go:64:2)
+	Rootfs *File // qemu (../../../../../daggerverse/qemu/machine.go:68:2)
 
 	// Default: AARCH_64
-	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:66:2)
+	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:70:2)
 
-	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:68:2)
+	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:72:2)
 
-	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:70:2)
+	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:74:2)
 
 	// Default: 512
-	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:72:2)
+	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:76:2)
 
 	// Default: TCG
-	Accel QemuAccel // qemu (../../../../../daggerverse/qemu/machine.go:74:2)
+	Accel QemuAccel // qemu (../../../../../daggerverse/qemu/machine.go:78:2)
 
-	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:76:2)
+	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:80:2)
 
-	TCPPorts []int // qemu (../../../../../daggerverse/qemu/machine.go:78:2)
+	TCPPorts []int // qemu (../../../../../daggerverse/qemu/machine.go:82:2)
 
 	// Default: "docker.io"
-	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:80:2)
+	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:84:2)
 
-	Name string // qemu (../../../../../daggerverse/qemu/machine.go:82:2)
+	Name string // qemu (../../../../../daggerverse/qemu/machine.go:86:2)
 }
 
 // Linux boots a guest from a raw kernel (plus optional dtb / initrd / rootfs)
@@ -284,7 +409,7 @@ type QemuLinuxOpts struct {
 // Session-cached on `name` so parallel callers get independent backing
 // services; every *Machine method is never-cached so each Run / Service
 // re-executes. Pass a unique `name` per parallel test for isolation.
-func (r *Qemu) Linux(kernel *File, opts ...QemuLinuxOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:56:1)
+func (r *Qemu) Linux(kernel *File, opts ...QemuLinuxOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:60:1)
 	assertNotNil("kernel", kernel)
 	q := r.query.Select("linux")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -348,7 +473,7 @@ func (r *Qemu) Linux(kernel *File, opts ...QemuLinuxOpts) *QemuMachine { // qemu
 // both drive modes: a long-running *dagger.Service (mode A, for OS images
 // reached over forwarded ports) and a finite run argv replayed per call (mode
 // B, for firmware that prints to serial and powers off). See drive.go.
-type QemuMachine struct { // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+type QemuMachine struct { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
 	query *querybuilder.Selection
 
 	endpoint    *string
@@ -483,6 +608,32 @@ func (r *QemuMachine) Run(ctx context.Context, opts ...QemuMachineRunOpts) (stri
 	return response, q.Execute(ctx)
 }
 
+// QemuMachineRunStatusOpts contains options for QemuMachine.RunStatus
+type QemuMachineRunStatusOpts struct {
+
+	// Default: 300
+	TimeoutSeconds int // qemu (../../../../../daggerverse/qemu/drive.go:144:2)
+}
+
+// RunStatus boots the guest to completion like Run, but returns both the
+// captured serial console and the guest exit code in a single boot — the
+// bare-metal counterpart to Run, where the semihosting SYS_EXIT code carries
+// pass/fail that serial text alone can't. Run / WaitForLine / SerialLog are
+// unchanged and still return serial only.
+func (r *QemuMachine) RunStatus(opts ...QemuMachineRunStatusOpts) *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:141:1)
+	q := r.query.Select("runStatus")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `timeoutSeconds` optional argument
+		if !querybuilder.IsZeroValue(opts[i].TimeoutSeconds) {
+			q = q.Arg("timeoutSeconds", opts[i].TimeoutSeconds)
+		}
+	}
+
+	return &QemuRunResult{
+		query: q,
+	}
+}
+
 // QemuMachineSerialLogOpts contains options for QemuMachine.SerialLog
 type QemuMachineSerialLogOpts struct {
 
@@ -555,6 +706,101 @@ func (r *QemuMachine) WaitForLine(ctx context.Context, substr string, opts ...Qe
 	return response, q.Execute(ctx)
 }
 
+// RunResult pairs the serial console output of a finite boot with the guest's
+// exit code. On the bare-metal path the exit code is the semihosting SYS_EXIT
+// value (0 = success); see Machine.RunStatus.
+type QemuRunResult struct { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
+	query *querybuilder.Selection
+
+	exitCode *int
+	id       *QemuRunResultID
+	output   *string
+}
+
+func (r *QemuRunResult) WithGraphQLQuery(q *querybuilder.Selection) *QemuRunResult {
+	return &QemuRunResult{
+		query: q,
+	}
+}
+
+// ExitCode is the guest exit code (semihosting SYS_EXIT; 0 = success). A
+// guest that doesn't power off before the deadline is killed and yields the
+// timeout code (124) — see runSerialStatus for why it isn't the raw SIGKILL
+// code (137).
+func (r *QemuRunResult) ExitCode(ctx context.Context) (int, error) { // qemu (../../../../../daggerverse/qemu/drive.go:131:2)
+	if r.exitCode != nil {
+		return *r.exitCode, nil
+	}
+	q := r.query.Select("exitCode")
+
+	var response int
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// A unique identifier for this QemuRunResult.
+func (r *QemuRunResult) ID(ctx context.Context) (QemuRunResultID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response QemuRunResultID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *QemuRunResult) XXX_GraphQLType() string {
+	return "QemuRunResult"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *QemuRunResult) XXX_GraphQLIDType() string {
+	return "QemuRunResultID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *QemuRunResult) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *QemuRunResult) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *QemuRunResult) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = *dag.LoadQemuRunResultFromID(QemuRunResultID(id))
+	return nil
+}
+
+// Output is the captured serial console output.
+func (r *QemuRunResult) Output(ctx context.Context) (string, error) { // qemu (../../../../../daggerverse/qemu/drive.go:126:2)
+	if r.output != nil {
+		return *r.output, nil
+	}
+	q := r.query.Select("output")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // Load a Qemu from its ID.
 func (r *Query) LoadQemuFromID(id QemuID) *Qemu { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
 	q := r.query.Select("loadQemuFromID")
@@ -566,11 +812,21 @@ func (r *Query) LoadQemuFromID(id QemuID) *Qemu { // qemu (../../../../../dagger
 }
 
 // Load a QemuMachine from its ID.
-func (r *Query) LoadQemuMachineFromID(id QemuMachineID) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:32:6)
+func (r *Query) LoadQemuMachineFromID(id QemuMachineID) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
 	q := r.query.Select("loadQemuMachineFromID")
 	q = q.Arg("id", id)
 
 	return &QemuMachine{
+		query: q,
+	}
+}
+
+// Load a QemuRunResult from its ID.
+func (r *Query) LoadQemuRunResultFromID(id QemuRunResultID) *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
+	q := r.query.Select("loadQemuRunResultFromID")
+	q = q.Arg("id", id)
+
+	return &QemuRunResult{
 		query: q,
 	}
 }
