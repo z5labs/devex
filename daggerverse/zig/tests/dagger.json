@@ -1,0 +1,16 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "zig",
+      "source": ".."
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
