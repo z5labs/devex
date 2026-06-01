@@ -118,31 +118,75 @@ func (m *Machine) SerialLog(
 	return writeWorkdirFile("serial.log", []byte(out))
 }
 
-// runSerial executes one finite QEMU boot and returns its serial console.
+// RunResult pairs the serial console output of a finite boot with the guest's
+// exit code. On the bare-metal path the exit code is the semihosting SYS_EXIT
+// value (0 = success); see Machine.RunStatus.
+type RunResult struct {
+	// Output is the captured serial console output.
+	Output string
+	// ExitCode is the guest exit code (semihosting SYS_EXIT; 0 = success). A
+	// guest killed at the timeout deadline yields the SIGKILL code (137).
+	ExitCode int
+}
+
+// RunStatus boots the guest to completion like Run, but returns both the
+// captured serial console and the guest exit code in a single boot — the
+// bare-metal counterpart to Run, where the semihosting SYS_EXIT code carries
+// pass/fail that serial text alone can't. Run / WaitForLine / SerialLog are
+// unchanged and still return serial only.
+//
+// +cache="never"
+func (m *Machine) RunStatus(
+	ctx context.Context,
+	// +default=300
+	timeoutSeconds int,
+) (*RunResult, error) {
+	out, code, err := m.runSerialStatus(ctx, timeoutSeconds)
+	if err != nil {
+		return nil, err
+	}
+	return &RunResult{Output: out, ExitCode: code}, nil
+}
+
+// runSerial executes one finite QEMU boot and returns its serial console,
+// discarding the exit code — the serial-only path behind Run / WaitForLine /
+// SerialLog.
+func (m *Machine) runSerial(ctx context.Context, timeoutSeconds int) (string, error) {
+	out, _, err := m.runSerialStatus(ctx, timeoutSeconds)
+	return out, err
+}
+
+// runSerialStatus executes one finite QEMU boot and returns both its serial
+// console and its exit code, read from the same exec.
 //
 // A per-call nonce env var busts Dagger's layer cache so each invocation
 // re-runs QEMU (without it, two identical Run calls would cache-hit and
 // return the same console — the `+cache="never"` on the function controls the
 // function result, not the inner WithExec). `timeout -s KILL N` bounds a
-// guest that never powers off, and Expect=Any tolerates the resulting SIGKILL
-// exit so the captured serial is still returned.
-func (m *Machine) runSerial(ctx context.Context, timeoutSeconds int) (string, error) {
+// guest that never powers off, and Expect=Any tolerates a non-zero exit (a
+// semihosting SYS_EXIT failure code, or the SIGKILL from the deadline) so the
+// captured serial and the exit code are both still returned.
+func (m *Machine) runSerialStatus(ctx context.Context, timeoutSeconds int) (string, int, error) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 300
 	}
 	nonce, err := randHex()
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	args := append([]string{"timeout", "-s", "KILL", strconv.Itoa(timeoutSeconds)}, m.RunArgv...)
-	out, err := m.Base.
+	ran := m.Base.
 		WithEnvVariable("QEMU_RUN_NONCE", nonce).
-		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny}).
-		Stdout(ctx)
+		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	out, err := ran.Stdout(ctx)
 	if err != nil {
-		return "", fmt.Errorf("run qemu: %w", err)
+		return "", 0, fmt.Errorf("run qemu: %w", err)
 	}
-	return out, nil
+	code, err := ran.ExitCode(ctx)
+	if err != nil {
+		return "", 0, fmt.Errorf("run qemu: read exit code: %w", err)
+	}
+	return out, code, nil
 }
 
 // randHex returns 32 hex chars of cryptographically-random data for use as a

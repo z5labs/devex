@@ -79,6 +79,18 @@ var archTable = map[Arch]archProfile{
 	ArchPpc64:   {defaultMachine: "pseries", defaultCPU: "", netDevice: "virtio-net-pci"},
 }
 
+// mcuTable holds the MCU-class machine/cpu defaults for the bare-metal path,
+// deliberately distinct from archTable's SoC defaults (virt/q35): a Cortex-M
+// firmware boots on a microcontroller board, not a virt machine. Membership
+// doubles as the "is this a supported bare-metal arch" check; an Arch absent
+// from this map is rejected by BareMetal. netDevice is unused here — the
+// bare-metal path has no networking — so it is left empty.
+var mcuTable = map[Arch]archProfile{
+	ArchArm:     {defaultMachine: "lm3s6965evb", defaultCPU: "cortex-m3"},
+	ArchRiscv64: {defaultMachine: "virt", defaultCPU: ""},
+	ArchRiscv32: {defaultMachine: "virt", defaultCPU: ""},
+}
+
 // qemuSystem returns the `qemu-system-<arch>` binary name (which is also the
 // apk package name) for this Arch — the uppercase enum value lowercased.
 func (a Arch) qemuSystem() string {

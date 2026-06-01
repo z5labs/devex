@@ -203,6 +203,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "BareMetal":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).BareMetal(&parent, ctx, parallel)
+		case "BareMetalBootsAndCapturesSerial":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BareMetalBootsAndCapturesSerial(&parent, ctx)
+		case "BareMetalExitCodeNonZeroOnFail":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BareMetalExitCodeNonZeroOnFail(&parent, ctx)
+		case "BareMetalExitCodeZeroOnPass":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BareMetalExitCodeZeroOnPass(&parent, ctx)
+		case "BareMetalRejectsNilFirmware":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BareMetalRejectsNilFirmware(&parent, ctx)
+		case "BareMetalRejectsUnknownArch":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BareMetalRejectsUnknownArch(&parent, ctx)
 		case "Boot":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

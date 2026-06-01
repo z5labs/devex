@@ -23,6 +23,10 @@ const (
 	rootfsPath = "/boot/qemu-rootfs.img"
 	diskPath   = "/disk/qemu-image.img"
 	biosPath   = "/fw/qemu-bios.bin"
+	// firmwarePath is where a bare-metal firmware ELF/bin is mounted for the
+	// BareMetal path; QEMU loads it via -kernel and boots it directly with no
+	// Linux kernel, initrd, rootfs, or device tree.
+	firmwarePath = "/fw/qemu-firmware.elf"
 )
 
 // Machine is a configured-but-not-necessarily-running QEMU guest. It carries
@@ -168,6 +172,76 @@ func (q *Qemu) Disk(
 
 	host := machineHost("disk", name, string(arch), machine, cpu, memoryMb, accel, cmdline, tcpPorts)
 	return assembleMachine(base, core, host, tcpPorts), nil
+}
+
+// BareMetal boots a bare-metal microcontroller firmware directly — no Linux
+// kernel, initrd, rootfs, or device tree — on an MCU-class machine, with
+// ARM/RISC-V semihosting enabled. This is the off-device unit-test path for
+// embedded firmware: a test build can write to the host console (semihosting
+// SYS_WRITE0) and report pass/fail as a process exit code (semihosting
+// SYS_EXIT) via Machine.RunStatus — neither of which the kernel-oriented Linux
+// path can surface (it captures serial text only).
+//
+// `arch` selects the qemu-system-<arch> binary and an MCU-class machine
+// default distinct from the SoC defaults Linux/Disk use (ARM => lm3s6965evb +
+// cortex-m3, RISC-V => virt); an explicit `machine` / `cpu` overrides it.
+// Acceleration is always TCG — MCU targets have no KVM analog. When
+// `semihosting` is true, `-semihosting-config enable=on,target=native` lets the
+// guest's semihosting calls reach the host so SYS_EXIT maps to the QEMU process
+// exit code. Rejects a nil firmware and an arch with no bare-metal profile.
+//
+// Session-cached on `name` like Linux/Disk; every *Machine method is
+// never-cached so each Run / RunStatus re-executes.
+//
+// +cache="session"
+func (q *Qemu) BareMetal(
+	ctx context.Context,
+	firmware *dagger.File,
+	// +default="ARM"
+	arch Arch,
+	// +default=""
+	machine string,
+	// +default=""
+	cpu string,
+	// +default=16
+	memoryMb int,
+	// +default=true
+	semihosting bool,
+	// +default=""
+	cmdline string,
+	// +default="docker.io"
+	registry string,
+	// +default=""
+	name string,
+) (*Machine, error) {
+	if firmware == nil {
+		return nil, fmt.Errorf("firmware must not be nil; pass a *dagger.File with the bare-metal firmware image")
+	}
+	profile, ok := mcuTable[arch]
+	if !ok {
+		return nil, fmt.Errorf("unsupported bare-metal arch %q: BareMetal supports ARM (lm3s6965evb) and RISCV64/RISCV32 (virt)", string(arch))
+	}
+	machine, cpu = resolveMachineCPU(profile, machine, cpu)
+
+	base := baseContainer(arch, registry).WithMountedFile(firmwarePath, firmware)
+	core := baseArgv(arch, machine, cpu, memoryMb, AccelTcg)
+	core = append(core, "-kernel", firmwarePath)
+	if semihosting {
+		// Route the semihosting console (SYS_WRITE0) to QEMU's own stdout via a
+		// /dev/stdout file chardev, not its default sink (stderr) — the
+		// run-to-completion path captures stdout, so without this the guest's
+		// semihosting output would be invisible to Run / RunStatus. target=native
+		// makes SYS_EXIT map to the QEMU process exit code that RunStatus reads.
+		core = append(core,
+			"-chardev", "file,id=semi0,path=/dev/stdout",
+			"-semihosting-config", "enable=on,target=native,chardev=semi0")
+	}
+	if cmdline != "" {
+		core = append(core, "-append", cmdline)
+	}
+
+	host := machineHost("baremetal", name, string(arch), machine, cpu, memoryMb, AccelTcg, cmdline, nil)
+	return assembleMachine(base, core, host, nil), nil
 }
 
 // baseContainer builds the module-pinned Alpine with the per-arch
