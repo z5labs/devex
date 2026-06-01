@@ -1,0 +1,10 @@
+{
+  "name": "qemu",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "codegen": {
+    "automaticGitignore": false
+  }
+}

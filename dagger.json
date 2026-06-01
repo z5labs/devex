@@ -42,6 +42,10 @@
       "source": "daggerverse/postgres/tests"
     },
     {
+      "name": "qemu-tests",
+      "source": "daggerverse/qemu/tests"
+    },
+    {
       "name": "random-tests",
       "source": "daggerverse/random/tests"
     },
