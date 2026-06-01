@@ -59,6 +59,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("RunHelloPrintsHello", t.RunHelloPrintsHello)
 	jobs = jobs.WithJob("FmtHelloIsClean", t.FmtHelloIsClean)
 	jobs = jobs.WithJob("FmtUnformattedReportsFile", t.FmtUnformattedReportsFile)
+	jobs = jobs.WithJob("CcCompilesHelloC", t.CcCompilesHelloC)
+	jobs = jobs.WithJob("CcCrossWindowsProducesExe", t.CcCrossWindowsProducesExe)
+	jobs = jobs.WithJob("CcRejectsEmptyFiles", t.CcRejectsEmptyFiles)
+	jobs = jobs.WithJob("CxxCompilesHelloCpp", t.CxxCompilesHelloCpp)
 
 	return jobs.Run(ctx)
 }
@@ -85,6 +89,16 @@ func singleDir() *dagger.Directory {
 // bad.zig that `zig fmt --check` must report.
 func unformattedDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/unformatted")
+}
+
+// cDir returns the C fixture (hello.c) for the Cc tests.
+func cDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/c")
+}
+
+// cppDir returns the C++ fixture (hello.cpp) for the Cxx tests.
+func cppDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/cpp")
 }
 
 // ContainerHasZigToolchain proves the base container is reachable, the
@@ -297,6 +311,61 @@ func (t *Tests) FmtUnformattedReportsFile(ctx context.Context) error {
 	}
 	if !strings.Contains(err.Error(), "bad.zig") {
 		return fmt.Errorf("expected 'bad.zig' in fmt error, got %q", err.Error())
+	}
+	return nil
+}
+
+// CcCompilesHelloC compiles the C fixture for the host with `zig cc` and
+// asserts the produced artifact is non-empty.
+func (t *Tests) CcCompilesHelloC(ctx context.Context) error {
+	size, err := dag.Zig().Cc(cDir(), []string{"hello.c"}).Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Cc hello.c: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty artifact, got size 0")
+	}
+	return nil
+}
+
+// CcCrossWindowsProducesExe cross-compiles the C fixture for
+// x86_64-windows-gnu and asserts the artifact carries the requested output
+// name. Resolving .Name runs the cross-compile, so a successful Name read also
+// proves the cross build succeeded.
+func (t *Tests) CcCrossWindowsProducesExe(ctx context.Context) error {
+	f := dag.Zig().Cc(cDir(), []string{"hello.c"}, dagger.ZigCcOpts{
+		Target:     "x86_64-windows-gnu",
+		OutputName: "hello.exe",
+	})
+	name, err := f.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("cross exe Name: %w", err)
+	}
+	if name != "hello.exe" {
+		return fmt.Errorf("expected exe name %q, got %q", "hello.exe", name)
+	}
+	return nil
+}
+
+// CcRejectsEmptyFiles asserts Cc rejects an empty files slice. Cc returns a
+// lazy file, so the validation error surfaces on resolve.
+func (t *Tests) CcRejectsEmptyFiles(ctx context.Context) error {
+	_, err := dag.Zig().Cc(cDir(), []string{}).Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected error for empty files, got nil")
+	}
+	return nil
+}
+
+// CxxCompilesHelloCpp compiles the C++ fixture for the host with `zig c++` and
+// asserts the produced artifact is non-empty.
+func (t *Tests) CxxCompilesHelloCpp(ctx context.Context) error {
+	size, err := dag.Zig().Cxx(cppDir(), []string{"hello.cpp"}).Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Cxx hello.cpp: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty artifact, got size 0")
 	}
 	return nil
 }

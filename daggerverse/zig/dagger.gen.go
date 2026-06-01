@@ -286,6 +286,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Zig).BuildExe(&parent, ctx, source, root, optimize, target, name, args)
+		case "Cc":
+			var parent Zig
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var files []string
+			if inputArgs["files"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["files"]), &files)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg files", err))
+				}
+			}
+			var target string
+			if inputArgs["target"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["target"]), &target)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg target", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Zig).Cc(&parent, ctx, source, files, target, outputName, args)
 		case "Container":
 			var parent Zig
 			err = json.Unmarshal(parentJSON, &parent)
@@ -300,6 +342,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Zig).Container(&parent, ctx, source)
+		case "Cxx":
+			var parent Zig
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var files []string
+			if inputArgs["files"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["files"]), &files)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg files", err))
+				}
+			}
+			var target string
+			if inputArgs["target"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["target"]), &target)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg target", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Zig).Cxx(&parent, ctx, source, files, target, outputName, args)
 		case "Env":
 			var parent Zig
 			err = json.Unmarshal(parentJSON, &parent)

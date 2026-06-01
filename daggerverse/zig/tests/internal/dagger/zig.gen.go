@@ -204,6 +204,50 @@ func (r *Zig) BuildExe(source *Directory, root string, opts ...ZigBuildExeOpts) 
 	}
 }
 
+// ZigCcOpts contains options for Zig.Cc
+type ZigCcOpts struct {
+	Target string // zig (../../../../../daggerverse/zig/main.go:207:2)
+
+	// Default: "a.out"
+	OutputName string // zig (../../../../../daggerverse/zig/main.go:209:2)
+
+	Args []string // zig (../../../../../daggerverse/zig/main.go:211:2)
+}
+
+// Cc cross-compiles C source with `zig cc`, a clang frontend that bundles libc
+// and headers for every supported target, so cross-compilation needs no sysroot
+// setup. files is required (the C source files, relative to source). target,
+// when non-empty, sets clang's -target triple (e.g. "x86_64-windows-gnu").
+// outputName names the produced artifact (default "a.out"); extra clang flags
+// pass through via args. Returns the artifact as a *dagger.File.
+//
+// outputName (CLI: --output-name) is named so to avoid colliding with the
+// Dagger CLI's top-level --output/-o flag — same precedent as go's Ci.WithBuild.
+func (r *Zig) Cc(source *Directory, files []string, opts ...ZigCcOpts) *File { // zig (../../../../../daggerverse/zig/main.go:202:1)
+	assertNotNil("source", source)
+	q := r.query.Select("cc")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `target` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Target) {
+			q = q.Arg("target", opts[i].Target)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+		// `args` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Args) {
+			q = q.Arg("args", opts[i].Args)
+		}
+	}
+	q = q.Arg("source", source)
+	q = q.Arg("files", files)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Container returns the prepared base container with the zig toolchain on
 // PATH, the shared zig-cache cache volume mounted, source mounted at /src, and
 // the working directory set to /src. Use this as an escape hatch when a Zig
@@ -224,9 +268,46 @@ func (r *Zig) Container(source *Directory) *Container { // zig (../../../../../d
 	}
 }
 
+// ZigCxxOpts contains options for Zig.Cxx
+type ZigCxxOpts struct {
+	Target string // zig (../../../../../daggerverse/zig/main.go:225:2)
+
+	// Default: "a.out"
+	OutputName string // zig (../../../../../daggerverse/zig/main.go:227:2)
+
+	Args []string // zig (../../../../../daggerverse/zig/main.go:229:2)
+}
+
+// Cxx cross-compiles C++ source with `zig c++` (the C++ frontend; bundles
+// libc++). Same parameters and semantics as Cc.
+func (r *Zig) Cxx(source *Directory, files []string, opts ...ZigCxxOpts) *File { // zig (../../../../../daggerverse/zig/main.go:220:1)
+	assertNotNil("source", source)
+	q := r.query.Select("cxx")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `target` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Target) {
+			q = q.Arg("target", opts[i].Target)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+		// `args` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Args) {
+			q = q.Arg("args", opts[i].Args)
+		}
+	}
+	q = q.Arg("source", source)
+	q = q.Arg("files", files)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Env runs `zig env` in a source-less base container and returns its stdout
 // (JSON).
-func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:295:1)
+func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:369:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -249,7 +330,7 @@ func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../
 // boundary whenever it also returns a non-nil error: a (string, error)
 // signature would leave the file list unreachable on exactly the failure path
 // that needs it.
-func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:252:1)
+func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:326:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return nil
@@ -311,12 +392,12 @@ func (r *Zig) UnmarshalJSON(bs []byte) error {
 
 // ZigRunOpts contains options for Zig.Run
 type ZigRunOpts struct {
-	Args []string // zig (../../../../../daggerverse/zig/main.go:199:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:273:2)
 }
 
 // Run runs `zig build run [-- args...]` against the supplied source and
 // returns the program's stdout.
-func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:195:1)
+func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:269:1)
 	assertNotNil("source", source)
 	if r.run != nil {
 		return *r.run, nil
@@ -338,7 +419,7 @@ func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (s
 
 // Targets runs `zig targets` in a source-less base container and returns its
 // stdout (the supported architecture/OS/ABI matrix).
-func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:307:1)
+func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:381:1)
 	if r.targets != nil {
 		return *r.targets, nil
 	}
@@ -352,14 +433,14 @@ func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../..
 
 // ZigTestOpts contains options for Zig.Test
 type ZigTestOpts struct {
-	Root string // zig (../../../../../daggerverse/zig/main.go:221:2)
+	Root string // zig (../../../../../daggerverse/zig/main.go:295:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:223:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:297:2)
 }
 
 // Test runs `zig build test` when root is empty, else `zig test <root>`,
 // against the supplied source and returns the combined stdout.
-func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:217:1)
+func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:291:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -385,7 +466,7 @@ func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) 
 
 // ToolVersion runs `zig version` in a source-less base container and returns
 // the trimmed output (e.g. "0.14.1").
-func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:279:1)
+func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:353:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}

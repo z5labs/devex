@@ -245,6 +245,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BuildRejectsInvalidOptimize(&parent, ctx)
+		case "CcCompilesHelloC":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CcCompilesHelloC(&parent, ctx)
+		case "CcCrossWindowsProducesExe":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CcCrossWindowsProducesExe(&parent, ctx)
+		case "CcRejectsEmptyFiles":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CcRejectsEmptyFiles(&parent, ctx)
 		case "ContainerHasZigToolchain":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -259,6 +280,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ContainerInfersVersionFromZon(&parent, ctx)
+		case "CxxCompilesHelloCpp":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CxxCompilesHelloCpp(&parent, ctx)
 		case "EnvContainsVersionKey":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
