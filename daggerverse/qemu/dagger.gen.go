@@ -631,11 +631,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoryMb", err))
 				}
 			}
-			var semihosting bool
-			if inputArgs["semihosting"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["semihosting"]), &semihosting)
+			var disableSemihosting bool
+			if inputArgs["disableSemihosting"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["disableSemihosting"]), &disableSemihosting)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg semihosting", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg disableSemihosting", err))
 				}
 			}
 			var cmdline string
@@ -659,7 +659,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
 				}
 			}
-			return (*Qemu).BareMetal(&parent, ctx, firmware, arch, machine, cpu, memoryMb, semihosting, cmdline, registry, name)
+			return (*Qemu).BareMetal(&parent, ctx, firmware, arch, machine, cpu, memoryMb, disableSemihosting, cmdline, registry, name)
 		case "Disk":
 			var parent Qemu
 			err = json.Unmarshal(parentJSON, &parent)

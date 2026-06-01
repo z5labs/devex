@@ -185,10 +185,15 @@ func (q *Qemu) Disk(
 // `arch` selects the qemu-system-<arch> binary and an MCU-class machine
 // default distinct from the SoC defaults Linux/Disk use (ARM => lm3s6965evb +
 // cortex-m3, RISC-V => virt); an explicit `machine` / `cpu` overrides it.
-// Acceleration is always TCG — MCU targets have no KVM analog. When
-// `semihosting` is true, `-semihosting-config enable=on,target=native` lets the
-// guest's semihosting calls reach the host so SYS_EXIT maps to the QEMU process
-// exit code. Rejects a nil firmware and an arch with no bare-metal profile.
+// Acceleration is always TCG — MCU targets have no KVM analog. Semihosting is
+// on by default (`-semihosting-config enable=on,target=native` lets the guest's
+// semihosting calls reach the host so SYS_EXIT maps to the QEMU process exit
+// code); pass `disableSemihosting` for firmware that drives a real UART instead
+// and wants neither the host console route nor SYS_EXIT wiring. The option is
+// inverted so the Go SDK can actually turn semihosting off — a `+default=true`
+// bool can't be set false through the generated bindings (false is the zero
+// value and is dropped). Rejects a nil firmware and an arch with no bare-metal
+// profile.
 //
 // Session-cached on `name` like Linux/Disk; every *Machine method is
 // never-cached so each Run / RunStatus re-executes.
@@ -205,8 +210,8 @@ func (q *Qemu) BareMetal(
 	cpu string,
 	// +default=16
 	memoryMb int,
-	// +default=true
-	semihosting bool,
+	// +default=false
+	disableSemihosting bool,
 	// +default=""
 	cmdline string,
 	// +default="docker.io"
@@ -226,7 +231,7 @@ func (q *Qemu) BareMetal(
 	base := baseContainer(arch, registry).WithMountedFile(firmwarePath, firmware)
 	core := baseArgv(arch, machine, cpu, memoryMb, AccelTcg)
 	core = append(core, "-kernel", firmwarePath)
-	if semihosting {
+	if !disableSemihosting {
 		// Route the semihosting console (SYS_WRITE0) to QEMU's own stdout via a
 		// /dev/stdout file chardev, not its default sink (stderr) — the
 		// run-to-completion path captures stdout, so without this the guest's

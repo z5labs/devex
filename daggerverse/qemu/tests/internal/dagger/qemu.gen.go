@@ -137,24 +137,23 @@ func (r *Qemu) WithGraphQLQuery(q *querybuilder.Selection) *Qemu {
 type QemuBareMetalOpts struct {
 
 	// Default: ARM
-	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:201:2)
+	Arch QemuArch // qemu (../../../../../daggerverse/qemu/machine.go:206:2)
 
-	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:203:2)
+	Machine string // qemu (../../../../../daggerverse/qemu/machine.go:208:2)
 
-	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:205:2)
+	CPU string // qemu (../../../../../daggerverse/qemu/machine.go:210:2)
 
 	// Default: 16
-	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:207:2)
+	MemoryMb int // qemu (../../../../../daggerverse/qemu/machine.go:212:2)
 
-	// Default: true
-	Semihosting bool // qemu (../../../../../daggerverse/qemu/machine.go:209:2)
+	DisableSemihosting bool // qemu (../../../../../daggerverse/qemu/machine.go:214:2)
 
-	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:211:2)
+	Cmdline string // qemu (../../../../../daggerverse/qemu/machine.go:216:2)
 
 	// Default: "docker.io"
-	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:213:2)
+	Registry string // qemu (../../../../../daggerverse/qemu/machine.go:218:2)
 
-	Name string // qemu (../../../../../daggerverse/qemu/machine.go:215:2)
+	Name string // qemu (../../../../../daggerverse/qemu/machine.go:220:2)
 }
 
 // BareMetal boots a bare-metal microcontroller firmware directly — no Linux
@@ -168,14 +167,18 @@ type QemuBareMetalOpts struct {
 // `arch` selects the qemu-system-<arch> binary and an MCU-class machine
 // default distinct from the SoC defaults Linux/Disk use (ARM => lm3s6965evb +
 // cortex-m3, RISC-V => virt); an explicit `machine` / `cpu` overrides it.
-// Acceleration is always TCG — MCU targets have no KVM analog. When
-// `semihosting` is true, `-semihosting-config enable=on,target=native` lets the
-// guest's semihosting calls reach the host so SYS_EXIT maps to the QEMU process
-// exit code. Rejects a nil firmware and an arch with no bare-metal profile.
+// Acceleration is always TCG — MCU targets have no KVM analog. Semihosting is
+// on by default (`-semihosting-config enable=on,target=native` lets the guest's
+// semihosting calls reach the host so SYS_EXIT maps to the QEMU process exit
+// code); pass `disableSemihosting` for firmware that drives a real UART instead
+// and wants neither the host console route nor SYS_EXIT wiring. The option is
+// inverted so the Go SDK can actually turn semihosting off — a `bool can't be set false through the generated bindings (false is the zero
+// value and is dropped). Rejects a nil firmware and an arch with no bare-metal
+// profile.
 //
 // Session-cached on `name` like Linux/Disk; every *Machine method is
 // never-cached so each Run / RunStatus re-executes.
-func (r *Qemu) BareMetal(firmware *File, opts ...QemuBareMetalOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:197:1)
+func (r *Qemu) BareMetal(firmware *File, opts ...QemuBareMetalOpts) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:202:1)
 	assertNotNil("firmware", firmware)
 	q := r.query.Select("bareMetal")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -195,9 +198,9 @@ func (r *Qemu) BareMetal(firmware *File, opts ...QemuBareMetalOpts) *QemuMachine
 		if !querybuilder.IsZeroValue(opts[i].MemoryMb) {
 			q = q.Arg("memoryMb", opts[i].MemoryMb)
 		}
-		// `semihosting` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Semihosting) {
-			q = q.Arg("semihosting", opts[i].Semihosting)
+		// `disableSemihosting` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DisableSemihosting) {
+			q = q.Arg("disableSemihosting", opts[i].DisableSemihosting)
 		}
 		// `cmdline` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Cmdline) {
@@ -609,7 +612,7 @@ func (r *QemuMachine) Run(ctx context.Context, opts ...QemuMachineRunOpts) (stri
 type QemuMachineRunStatusOpts struct {
 
 	// Default: 300
-	TimeoutSeconds int // qemu (../../../../../daggerverse/qemu/drive.go:142:2)
+	TimeoutSeconds int // qemu (../../../../../daggerverse/qemu/drive.go:144:2)
 }
 
 // RunStatus boots the guest to completion like Run, but returns both the
@@ -617,7 +620,7 @@ type QemuMachineRunStatusOpts struct {
 // bare-metal counterpart to Run, where the semihosting SYS_EXIT code carries
 // pass/fail that serial text alone can't. Run / WaitForLine / SerialLog are
 // unchanged and still return serial only.
-func (r *QemuMachine) RunStatus(opts ...QemuMachineRunStatusOpts) *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:139:1)
+func (r *QemuMachine) RunStatus(opts ...QemuMachineRunStatusOpts) *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:141:1)
 	q := r.query.Select("runStatus")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `timeoutSeconds` optional argument
@@ -721,8 +724,10 @@ func (r *QemuRunResult) WithGraphQLQuery(q *querybuilder.Selection) *QemuRunResu
 }
 
 // ExitCode is the guest exit code (semihosting SYS_EXIT; 0 = success). A
-// guest killed at the timeout deadline yields the SIGKILL code (137).
-func (r *QemuRunResult) ExitCode(ctx context.Context) (int, error) { // qemu (../../../../../daggerverse/qemu/drive.go:129:2)
+// guest that doesn't power off before the deadline is killed and yields the
+// timeout code (124) — see runSerialStatus for why it isn't the raw SIGKILL
+// code (137).
+func (r *QemuRunResult) ExitCode(ctx context.Context) (int, error) { // qemu (../../../../../daggerverse/qemu/drive.go:131:2)
 	if r.exitCode != nil {
 		return *r.exitCode, nil
 	}

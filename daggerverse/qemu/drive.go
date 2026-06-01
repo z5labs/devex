@@ -125,7 +125,9 @@ type RunResult struct {
 	// Output is the captured serial console output.
 	Output string
 	// ExitCode is the guest exit code (semihosting SYS_EXIT; 0 = success). A
-	// guest killed at the timeout deadline yields the SIGKILL code (137).
+	// guest that doesn't power off before the deadline is killed and yields the
+	// timeout code (124) — see runSerialStatus for why it isn't the raw SIGKILL
+	// code (137).
 	ExitCode int
 }
 
@@ -162,10 +164,17 @@ func (m *Machine) runSerial(ctx context.Context, timeoutSeconds int) (string, er
 // A per-call nonce env var busts Dagger's layer cache so each invocation
 // re-runs QEMU (without it, two identical Run calls would cache-hit and
 // return the same console — the `+cache="never"` on the function controls the
-// function result, not the inner WithExec). `timeout -s KILL N` bounds a
-// guest that never powers off, and Expect=Any tolerates a non-zero exit (a
-// semihosting SYS_EXIT failure code, or the SIGKILL from the deadline) so the
-// captured serial and the exit code are both still returned.
+// function result, not the inner WithExec). `timeout -s KILL N` bounds a guest
+// that never powers off, and Expect=Any tolerates the resulting non-zero exit
+// (a semihosting SYS_EXIT failure code, or the timeout) so the captured serial
+// and the exit code are both still returned.
+//
+// The timeout runs inside a tiny `sh -c` wrapper that rewrites the SIGKILL
+// exit (137) to the conventional timeout code (124). Expect=Any only tolerates
+// exit codes 0-127 and 192-255 (see dagger.ReturnTypeAny): a signal-kill exit
+// in 128-191 is treated as an exec error, which would make Stdout fail and
+// discard the captured serial. Remapping 137 -> 124 keeps a timed-out boot on
+// the value path — its serial is returned alongside a non-zero exit code.
 func (m *Machine) runSerialStatus(ctx context.Context, timeoutSeconds int) (string, int, error) {
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 300
@@ -174,7 +183,9 @@ func (m *Machine) runSerialStatus(ctx context.Context, timeoutSeconds int) (stri
 	if err != nil {
 		return "", 0, err
 	}
-	args := append([]string{"timeout", "-s", "KILL", strconv.Itoa(timeoutSeconds)}, m.RunArgv...)
+	// $0 is the timeout in seconds; "$@" is the QEMU argv. 137 = 128 + SIGKILL.
+	const wrap = `timeout -s KILL "$0" "$@"; ec=$?; [ "$ec" -eq 137 ] && ec=124; exit "$ec"`
+	args := append([]string{"sh", "-c", wrap, strconv.Itoa(timeoutSeconds)}, m.RunArgv...)
 	ran := m.Base.
 		WithEnvVariable("QEMU_RUN_NONCE", nonce).
 		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
