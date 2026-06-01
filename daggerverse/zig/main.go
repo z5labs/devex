@@ -322,8 +322,12 @@ func (z *Zig) ObjCopy(
 		return nil, err
 	}
 	const inputPath = "/work/input"
-	cmd := []string{"zig", "objcopy", "-O", format, inputPath, outputName}
+	// Options precede the positional <input> <output> operands: passing extra
+	// flags (e.g. --only-section, --pad-to) after the operands would make
+	// objcopy treat them as additional positional arguments.
+	cmd := []string{"zig", "objcopy", "-O", format}
 	cmd = append(cmd, args...)
+	cmd = append(cmd, inputPath, outputName)
 	return base.
 		WithWorkdir("/work").
 		WithMountedFile(inputPath, input).
@@ -335,7 +339,7 @@ func (z *Zig) ObjCopy(
 // are the budget-relevant rollups: Flash is what the image occupies in flash,
 // Ram what it claims at runtime.
 type SectionSizes struct {
-	Text  int // SHF_ALLOC|SHF_EXECINSTR (code)
+	Text  int // SHF_ALLOC, read-only: code (.text) + constants (.rodata)
 	Data  int // SHF_ALLOC|SHF_WRITE, PROGBITS (initialized data)
 	Bss   int // SHF_ALLOC|SHF_WRITE, NOBITS (zero-init data)
 	Flash int // Text + Data (consumes flash)
@@ -375,12 +379,17 @@ func (z *Zig) Size(ctx context.Context, input *dagger.File) (*SectionSizes, erro
 			continue
 		}
 		switch {
-		case sh.Flags&elf.SHF_EXECINSTR != 0:
+		case sh.Flags&elf.SHF_WRITE == 0:
+			// Read-only allocatable: executable code (.text) and constants
+			// (.rodata). Both occupy flash, so they roll up into Text (matching
+			// GNU/Berkeley `size`); omitting .rodata would under-report Flash.
 			sizes.Text += int(sh.Size)
-		case sh.Flags&elf.SHF_WRITE != 0 && sh.Type == elf.SHT_PROGBITS:
-			sizes.Data += int(sh.Size)
-		case sh.Flags&elf.SHF_WRITE != 0 && sh.Type == elf.SHT_NOBITS:
+		case sh.Type == elf.SHT_NOBITS:
+			// Writable, zero-initialized (.bss): claims RAM, no flash image.
 			sizes.Bss += int(sh.Size)
+		default:
+			// Writable, initialized (.data): claims RAM and a flash image.
+			sizes.Data += int(sh.Size)
 		}
 	}
 	sizes.Flash = sizes.Text + sizes.Data

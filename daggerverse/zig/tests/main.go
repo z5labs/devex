@@ -4,8 +4,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"dagger/tests/internal/dagger"
@@ -351,11 +354,23 @@ func (t *Tests) ObjCopyProducesBinary(ctx context.Context) error {
 	if size == 0 {
 		return fmt.Errorf("expected non-empty .bin, got size 0")
 	}
-	contents, err := out.Contents(ctx)
+	// A raw .bin holds arbitrary, non-UTF-8 bytes, so File.Contents() (which
+	// resolves as a string) is the wrong tool — it can error or mangle the
+	// data. Export the file and inspect its magic bytes directly.
+	dir, err := os.MkdirTemp(".", "objcopy-")
 	if err != nil {
-		return fmt.Errorf("read .bin contents: %w", err)
+		return err
 	}
-	if strings.HasPrefix(contents, "\x7fELF") {
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "out.bin")
+	if _, err := out.Export(ctx, path); err != nil {
+		return fmt.Errorf("export .bin: %w", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read .bin: %w", err)
+	}
+	if bytes.HasPrefix(data, []byte("\x7fELF")) {
 		return fmt.Errorf("expected raw binary without ELF magic, but found it")
 	}
 	return nil

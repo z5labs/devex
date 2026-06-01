@@ -13,7 +13,7 @@ import (
 type ZigID string // zig (../../../../../daggerverse/zig/main.go:50:6)
 
 // The `ZigSectionSizesID` scalar type represents an identifier for an object of type ZigSectionSizes.
-type ZigSectionSizesID string // zig (../../../../../daggerverse/zig/main.go:337:6)
+type ZigSectionSizesID string // zig (../../../../../daggerverse/zig/main.go:341:6)
 
 // Retrieve the binding value, as type Zig
 func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:50:6)
@@ -25,7 +25,7 @@ func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:
 }
 
 // Retrieve the binding value, as type ZigSectionSizes
-func (r *Binding) AsZigSectionSizes() *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:337:6)
+func (r *Binding) AsZigSectionSizes() *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	q := r.query.Select("asZigSectionSizes")
 
 	return &ZigSectionSizes{
@@ -58,7 +58,7 @@ func (r *Env) WithZigOutput(name string, description string) *Env { // zig (../.
 }
 
 // Create or update a binding of type ZigSectionSizes in the environment
-func (r *Env) WithZigSectionSizesInput(name string, value *ZigSectionSizes, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:337:6)
+func (r *Env) WithZigSectionSizesInput(name string, value *ZigSectionSizes, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZigSectionSizesInput")
 	q = q.Arg("name", name)
@@ -71,7 +71,7 @@ func (r *Env) WithZigSectionSizesInput(name string, value *ZigSectionSizes, desc
 }
 
 // Declare a desired ZigSectionSizes output to be assigned in the environment
-func (r *Env) WithZigSectionSizesOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:337:6)
+func (r *Env) WithZigSectionSizesOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	q := r.query.Select("withZigSectionSizesOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -92,7 +92,7 @@ func (r *Query) LoadZigFromID(id ZigID) *Zig { // zig (../../../../../daggervers
 }
 
 // Load a ZigSectionSizes from its ID.
-func (r *Query) LoadZigSectionSizesFromID(id ZigSectionSizesID) *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:337:6)
+func (r *Query) LoadZigSectionSizesFromID(id ZigSectionSizesID) *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	q := r.query.Select("loadZigSectionSizesFromID")
 	q = q.Arg("id", id)
 
@@ -353,7 +353,7 @@ func (r *Zig) Cxx(source *Directory, files []string, opts ...ZigCxxOpts) *File {
 
 // Env runs `zig env` in a source-less base container and returns its stdout
 // (JSON).
-func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:495:1)
+func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:504:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -376,7 +376,7 @@ func (r *Zig) Env(ctx context.Context) (string, error) { // zig (../../../../../
 // boundary whenever it also returns a non-nil error: a (string, error)
 // signature would leave the file list unreachable on exactly the failure path
 // that needs it.
-func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:452:1)
+func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../../../../daggerverse/zig/main.go:461:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return nil
@@ -488,12 +488,12 @@ func (r *Zig) ObjCopy(input *File, opts ...ZigObjCopyOpts) *File { // zig (../..
 
 // ZigRunOpts contains options for Zig.Run
 type ZigRunOpts struct {
-	Args []string // zig (../../../../../daggerverse/zig/main.go:399:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:408:2)
 }
 
 // Run runs `zig build run [-- args...]` against the supplied source and
 // returns the program's stdout.
-func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:395:1)
+func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:404:1)
 	assertNotNil("source", source)
 	if r.run != nil {
 		return *r.run, nil
@@ -520,7 +520,7 @@ func (r *Zig) Run(ctx context.Context, source *Directory, opts ...ZigRunOpts) (s
 // the input is exported and its section headers are read directly — no helper
 // container (per the established runtime-I/O pattern). A non-ELF input returns a
 // clear error.
-func (r *Zig) Size(input *File) *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:354:1)
+func (r *Zig) Size(input *File) *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:358:1)
 	assertNotNil("input", input)
 	q := r.query.Select("size")
 	q = q.Arg("input", input)
@@ -532,7 +532,7 @@ func (r *Zig) Size(input *File) *ZigSectionSizes { // zig (../../../../../dagger
 
 // Targets runs `zig targets` in a source-less base container and returns its
 // stdout (the supported architecture/OS/ABI matrix).
-func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:507:1)
+func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:516:1)
 	if r.targets != nil {
 		return *r.targets, nil
 	}
@@ -546,14 +546,14 @@ func (r *Zig) Targets(ctx context.Context) (string, error) { // zig (../../../..
 
 // ZigTestOpts contains options for Zig.Test
 type ZigTestOpts struct {
-	Root string // zig (../../../../../daggerverse/zig/main.go:421:2)
+	Root string // zig (../../../../../daggerverse/zig/main.go:430:2)
 
-	Args []string // zig (../../../../../daggerverse/zig/main.go:423:2)
+	Args []string // zig (../../../../../daggerverse/zig/main.go:432:2)
 }
 
 // Test runs `zig build test` when root is empty, else `zig test <root>`,
 // against the supplied source and returns the combined stdout.
-func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:417:1)
+func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) (string, error) { // zig (../../../../../daggerverse/zig/main.go:426:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -579,7 +579,7 @@ func (r *Zig) Test(ctx context.Context, source *Directory, opts ...ZigTestOpts) 
 
 // ToolVersion runs `zig version` in a source-less base container and returns
 // the trimmed output (e.g. "0.14.1").
-func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:479:1)
+func (r *Zig) ToolVersion(ctx context.Context) (string, error) { // zig (../../../../../daggerverse/zig/main.go:488:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}
@@ -609,7 +609,7 @@ func (r *Zig) Version(ctx context.Context) (string, error) { // zig (../../../..
 // SectionSizes is the per-section footprint of an ELF, in bytes. Flash and Ram
 // are the budget-relevant rollups: Flash is what the image occupies in flash,
 // Ram what it claims at runtime.
-type ZigSectionSizes struct { // zig (../../../../../daggerverse/zig/main.go:337:6)
+type ZigSectionSizes struct { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	query *querybuilder.Selection
 
 	bss   *int
@@ -627,7 +627,7 @@ func (r *ZigSectionSizes) WithGraphQLQuery(q *querybuilder.Selection) *ZigSectio
 }
 
 // SHF_ALLOC|SHF_WRITE, NOBITS (zero-init data)
-func (r *ZigSectionSizes) Bss(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:340:2)
+func (r *ZigSectionSizes) Bss(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:344:2)
 	if r.bss != nil {
 		return *r.bss, nil
 	}
@@ -640,7 +640,7 @@ func (r *ZigSectionSizes) Bss(ctx context.Context) (int, error) { // zig (../../
 }
 
 // SHF_ALLOC|SHF_WRITE, PROGBITS (initialized data)
-func (r *ZigSectionSizes) Data(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:339:2)
+func (r *ZigSectionSizes) Data(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:343:2)
 	if r.data != nil {
 		return *r.data, nil
 	}
@@ -653,7 +653,7 @@ func (r *ZigSectionSizes) Data(ctx context.Context) (int, error) { // zig (../..
 }
 
 // Text + Data (consumes flash)
-func (r *ZigSectionSizes) Flash(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:341:2)
+func (r *ZigSectionSizes) Flash(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:345:2)
 	if r.flash != nil {
 		return *r.flash, nil
 	}
@@ -715,7 +715,7 @@ func (r *ZigSectionSizes) UnmarshalJSON(bs []byte) error {
 }
 
 // Data + Bss (consumes RAM)
-func (r *ZigSectionSizes) RAM(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:342:2)
+func (r *ZigSectionSizes) RAM(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:346:2)
 	if r.ram != nil {
 		return *r.ram, nil
 	}
@@ -727,8 +727,8 @@ func (r *ZigSectionSizes) RAM(ctx context.Context) (int, error) { // zig (../../
 	return response, q.Execute(ctx)
 }
 
-// SHF_ALLOC|SHF_EXECINSTR (code)
-func (r *ZigSectionSizes) Text(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:338:2)
+// SHF_ALLOC, read-only: code (.text) + constants (.rodata)
+func (r *ZigSectionSizes) Text(ctx context.Context) (int, error) { // zig (../../../../../daggerverse/zig/main.go:342:2)
 	if r.text != nil {
 		return *r.text, nil
 	}
