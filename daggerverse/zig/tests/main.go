@@ -72,6 +72,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ObjCopyRejectsUnknownFormat", t.ObjCopyRejectsUnknownFormat)
 	jobs = jobs.WithJob("SizeReportsSections", t.SizeReportsSections)
 	jobs = jobs.WithJob("SizeRejectsNonElf", t.SizeRejectsNonElf)
+	jobs = jobs.WithJob("CiWithFmtPasses", t.CiWithFmtPasses)
+	jobs = jobs.WithJob("CiWithTestPasses", t.CiWithTestPasses)
+	jobs = jobs.WithJob("CiRunAllStagesProducesBinary", t.CiRunAllStagesProducesBinary)
+	jobs = jobs.WithJob("CiCheckRunsChecksAndSkipsBuild", t.CiCheckRunsChecksAndSkipsBuild)
+	jobs = jobs.WithJob("CiRunAggregatesFailures", t.CiRunAggregatesFailures)
 
 	return jobs.Run(ctx)
 }
@@ -512,6 +517,99 @@ func (t *Tests) CxxCompilesHelloCpp(ctx context.Context) error {
 	}
 	if size == 0 {
 		return fmt.Errorf("expected non-empty artifact, got size 0")
+	}
+	return nil
+}
+
+// ciBadDir returns the fixture whose single bad.zig is both unformatted and
+// contains a failing test, so a Ci run with Fmt and Test enabled fails both
+// stage-1 jobs (used to prove aggregation, not short-circuit).
+func ciBadDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/ci-bad")
+}
+
+// CiWithFmtPasses runs Ci with only the Fmt check enabled against the
+// fmt-clean hello fixture and asserts the build stage still produces a
+// non-empty binary.
+func (t *Tests) CiWithFmtPasses(ctx context.Context) error {
+	size, err := dag.Zig().Ci(helloDir()).WithFmt().Run().File("bin/hello").Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithFmt.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiWithTestPasses runs Ci with only the Test check enabled (zig build test)
+// against the hello fixture and asserts a non-empty binary is produced.
+func (t *Tests) CiWithTestPasses(ctx context.Context) error {
+	size, err := dag.Zig().Ci(helloDir()).WithTest().Run().File("bin/hello").Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithTest.Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiRunAllStagesProducesBinary runs Ci with every stage enabled against the
+// hello fixture and asserts a non-empty binary is produced.
+func (t *Tests) CiRunAllStagesProducesBinary(ctx context.Context) error {
+	size, err := dag.Zig().Ci(helloDir()).
+		WithFmt().
+		WithTest().
+		WithBuild().
+		Run().File("bin/hello").Size(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci all-stages Run: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// CiCheckRunsChecksAndSkipsBuild configures every stage against the clean hello
+// fixture and calls Check (not Run), asserting no error. To actively prove
+// Check does not invoke the build stage, WithBuild is configured with a
+// nonexistent build step: if Check were to call runBuild, `zig build
+// nonexistent-step` would fail and surface here. A nil return therefore proves
+// both (a) the checks passed and (b) the build was skipped.
+func (t *Tests) CiCheckRunsChecksAndSkipsBuild(ctx context.Context) error {
+	err := dag.Zig().Ci(helloDir()).
+		WithFmt().
+		WithTest().
+		WithBuild(dagger.ZigCiWithBuildOpts{Steps: []string{"nonexistent-step"}}).
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Check on clean hello: %w", err)
+	}
+	return nil
+}
+
+// CiRunAggregatesFailures runs Ci against the ci-bad fixture with both Fmt and
+// Test enabled and asserts stage-1 aggregated BOTH job failures rather than
+// short-circuiting on the first. Fmt fails with the "unformatted files" message
+// and Test fails with a withExec "exit code" error; the parallel aggregator
+// concatenates both, so requiring both signatures in the message proves both
+// jobs ran and both errors propagated (and the build was skipped).
+func (t *Tests) CiRunAggregatesFailures(ctx context.Context) error {
+	_, err := dag.Zig().Ci(ciBadDir()).
+		WithFmt().
+		WithTest(dagger.ZigCiWithTestOpts{Root: "bad.zig"}).
+		Run().Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected non-nil error from Ci.Run on ci-bad fixture, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "unformatted") {
+		return fmt.Errorf("expected fmt-stage failure (\"unformatted\") in aggregated error, got: %s", msg)
+	}
+	if !strings.Contains(msg, "exit code") {
+		return fmt.Errorf("expected test-stage failure (\"exit code\") in aggregated error, got: %s", msg)
 	}
 	return nil
 }
