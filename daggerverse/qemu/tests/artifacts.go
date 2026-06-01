@@ -104,14 +104,18 @@ func serviceInitramfs(port int) *dagger.File {
 		// boot, so two reads of the same running instance match.
 		"/bin/busybox head -c 16 /dev/urandom | /bin/busybox od -An -tx1 | /bin/busybox tr -d ' \\n' > /tmp/token",
 		fmt.Sprintf("/bin/busybox echo LISTENER_UP %d", port),
-		// Serve the token on every connection with a persistent listener
-		// (-lk keeps listening; -e cat writes the token then exits, so the socket
-		// closes cleanly and the client reads token+EOF). The outer loop is
-		// belt-and-suspenders in case nc ever returns. Note: a slirp hostfwd port
-		// accepts host-side even before the guest listens, so only an actual
-		// data read (the token) proves end-to-end reachability — a bare connect
-		// would be a false positive.
-		fmt.Sprintf("while true; do /bin/busybox nc -lk -p %d -e /bin/busybox cat /tmp/token; done", port),
+		// Serve the token with a one-shot listener restarted by the outer loop:
+		// `nc -l` copies stdin (/tmp/token) to the connected socket, then exits
+		// when the client disconnects, so the client reads token+EOF and the next
+		// loop iteration relistens for the next probe. busybox nc has no `-k`
+		// keep-listening, and its `-e` execs a single program *path* with no
+		// applet args (`-e /bin/busybox cat` would exec busybox with no applet
+		// selected and never serve the token), so feeding the file via stdin is
+		// the reliable way to serve it. Note: a slirp hostfwd port accepts
+		// host-side even before the guest listens, so only an actual data read
+		// (the token) proves end-to-end reachability — a bare connect would be a
+		// false positive.
+		fmt.Sprintf("while true; do /bin/busybox nc -l -p %d < /tmp/token; done", port),
 		"",
 	}, "\n")
 
