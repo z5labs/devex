@@ -223,7 +223,7 @@ func (r *DgraphTests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error 
 // HttpEndpointsShouldNotBeCached: same restart-after-stop check as Grpc
 // but for the HTTP listener. The liveness probe is the same gRPC-based
 // AlterSchema — both endpoint methods share start(), so any restart
-// proves either
+// proves either never-cache directive fired.
 func (r *DgraphTests) HTTPEndpointsShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:268:1)
 	if r.httpEndpointsShouldNotBeCached != nil {
 		return nil

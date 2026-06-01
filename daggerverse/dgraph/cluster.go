@@ -54,11 +54,11 @@ type Cluster struct {
 // cluster (e.g. Client.Mutate → Client.RunQuery in
 // `client-mutate-then-query-round-trip`) observe the SAME underlying
 // services — and therefore the same graph state. The acceptance
-// criteria suggest +cache="never" here, but with `never` the engine
+// criteria suggest a never-cache here, but under never-cache the engine
 // re-spawns the cluster between Mutate and Query in the same test,
 // losing the data the prior Mutate wrote (verified during impl). Every
-// method on *Cluster and *Client still carries +cache="never" on its
-// own line so any data-returning call re-executes per invocation.
+// method on *Cluster and *Client is independently marked never-cache, so
+// any data-returning call re-executes per invocation.
 //
 // `name` is a caller-supplied discriminator that folds into the session
 // cache key. Parallel test suites should pass a unique value per test
