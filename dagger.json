@@ -48,6 +48,10 @@
     {
       "name": "z5labs-tests",
       "source": "daggerverse/z5labs/tests"
+    },
+    {
+      "name": "zig-tests",
+      "source": "daggerverse/zig/tests"
     }
   ],
   "source": "ci",
