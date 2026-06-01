@@ -9,6 +9,9 @@ import (
 	"dagger.io/dagger/querybuilder"
 )
 
+// The `ZigCiID` scalar type represents an identifier for an object of type ZigCi.
+type ZigCiID string // zig (../../../../../daggerverse/zig/ci.go:19:6)
+
 // The `ZigID` scalar type represents an identifier for an object of type Zig.
 type ZigID string // zig (../../../../../daggerverse/zig/main.go:50:6)
 
@@ -24,11 +27,44 @@ func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:
 	}
 }
 
+// Retrieve the binding value, as type ZigCi
+func (r *Binding) AsZigCi() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+	q := r.query.Select("asZigCi")
+
+	return &ZigCi{
+		query: q,
+	}
+}
+
 // Retrieve the binding value, as type ZigSectionSizes
 func (r *Binding) AsZigSectionSizes() *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:341:6)
 	q := r.query.Select("asZigSectionSizes")
 
 	return &ZigSectionSizes{
+		query: q,
+	}
+}
+
+// Create or update a binding of type ZigCi in the environment
+func (r *Env) WithZigCiInput(name string, value *ZigCi, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withZigCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired ZigCi output to be assigned in the environment
+func (r *Env) WithZigCiOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+	q := r.query.Select("withZigCiOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
 		query: q,
 	}
 }
@@ -77,6 +113,16 @@ func (r *Env) WithZigSectionSizesOutput(name string, description string) *Env { 
 	q = q.Arg("description", description)
 
 	return &Env{
+		query: q,
+	}
+}
+
+// Load a ZigCi from its ID.
+func (r *Query) LoadZigCiFromID(id ZigCiID) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+	q := r.query.Select("loadZigCiFromID")
+	q = q.Arg("id", id)
+
+	return &ZigCi{
 		query: q,
 	}
 }
@@ -290,6 +336,17 @@ func (r *Zig) Cc(source *Directory, files []string, opts ...ZigCcOpts) *File { /
 	q = q.Arg("files", files)
 
 	return &File{
+		query: q,
+	}
+}
+
+// Ci returns a new pipeline builder bound to the supplied source.
+func (r *Zig) Ci(source *Directory) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:41:1)
+	assertNotNil("source", source)
+	q := r.query.Select("ci")
+	q = q.Arg("source", source)
+
+	return &ZigCi{
 		query: q,
 	}
 }
@@ -604,6 +661,173 @@ func (r *Zig) Version(ctx context.Context) (string, error) { // zig (../../../..
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// Ci is a chained builder for a standardized Zig CI pipeline. Construct via
+// Zig.Ci(source); enable check stages via the With* methods; call Run to
+// execute checks-then-build, or Check to run only the parallel checks.
+//
+// Stage 1 runs the enabled static checks in parallel (Fmt, Test); errors are
+// aggregated. Stage 2 builds the source and Run returns the produced zig-out
+// directory. Downstream consumers compose that directory into their own
+// pipelines (package, sign, publish, ...).
+type ZigCi struct { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ZigCiID
+}
+type WithZigCiFunc func(r *ZigCi) *ZigCi
+
+// With calls the provided function with current ZigCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *ZigCi) With(f WithZigCiFunc) *ZigCi {
+	return f(r)
+}
+
+func (r *ZigCi) WithGraphQLQuery(q *querybuilder.Selection) *ZigCi {
+	return &ZigCi{
+		query: q,
+	}
+}
+
+// Check runs the enabled check stages (Fmt, Test) in parallel via
+// github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
+// when callers want to run the checks independently of the build (for example
+// multi-target pipelines that share one check run across N target builds).
+func (r *ZigCi) Check(ctx context.Context) error { // zig (../../../../../daggerverse/zig/ci.go:87:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this ZigCi.
+func (r *ZigCi) ID(ctx context.Context) (ZigCiID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ZigCiID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *ZigCi) XXX_GraphQLType() string {
+	return "ZigCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *ZigCi) XXX_GraphQLIDType() string {
+	return "ZigCiID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *ZigCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *ZigCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *ZigCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = *dag.LoadZigCiFromID(ZigCiID(id))
+	return nil
+}
+
+// Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns the
+// produced zig-out directory. On stage-1 failure, returns the aggregated error
+// from Check and a nil directory (stage 2 is skipped).
+func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:106:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// ZigCiWithBuildOpts contains options for ZigCi.WithBuild
+type ZigCiWithBuildOpts struct {
+	Optimize string // zig (../../../../../daggerverse/zig/ci.go:68:2)
+
+	Target string // zig (../../../../../daggerverse/zig/ci.go:70:2)
+
+	Steps []string // zig (../../../../../daggerverse/zig/ci.go:72:2)
+}
+
+// WithBuild configures the build stage parameters (forwarded to Zig.Build).
+// optimize, when non-empty, must be one of Debug, ReleaseSafe, ReleaseFast,
+// ReleaseSmall; target sets -Dtarget; steps names build steps. Build is always
+// executed by Run regardless of whether this method is called.
+func (r *ZigCi) WithBuild(opts ...ZigCiWithBuildOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:66:1)
+	q := r.query.Select("withBuild")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `optimize` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Optimize) {
+			q = q.Arg("optimize", opts[i].Optimize)
+		}
+		// `target` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Target) {
+			q = q.Arg("target", opts[i].Target)
+		}
+		// `steps` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Steps) {
+			q = q.Arg("steps", opts[i].Steps)
+		}
+	}
+
+	return &ZigCi{
+		query: q,
+	}
+}
+
+// WithFmt enables the `zig fmt --check` check stage.
+func (r *ZigCi) WithFmt() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:46:1)
+	q := r.query.Select("withFmt")
+
+	return &ZigCi{
+		query: q,
+	}
+}
+
+// ZigCiWithTestOpts contains options for ZigCi.WithTest
+type ZigCiWithTestOpts struct {
+	Root string // zig (../../../../../daggerverse/zig/ci.go:55:2)
+}
+
+// WithTest enables the test check stage. root maps onto Zig.Test's optional
+// root: empty runs `zig build test`; non-empty runs `zig test <root>`.
+func (r *ZigCi) WithTest(opts ...ZigCiWithTestOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:53:1)
+	q := r.query.Select("withTest")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `root` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Root) {
+			q = q.Arg("root", opts[i].Root)
+		}
+	}
+
+	return &ZigCi{
+		query: q,
+	}
 }
 
 // SectionSizes is the per-section footprint of an ELF, in bytes. Flash and Ram
