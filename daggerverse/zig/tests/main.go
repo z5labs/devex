@@ -64,6 +64,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CcRejectsEmptyFiles", t.CcRejectsEmptyFiles)
 	jobs = jobs.WithJob("CcRejectsPathOutputName", t.CcRejectsPathOutputName)
 	jobs = jobs.WithJob("CxxCompilesHelloCpp", t.CxxCompilesHelloCpp)
+	jobs = jobs.WithJob("ObjCopyProducesBinary", t.ObjCopyProducesBinary)
+	jobs = jobs.WithJob("ObjCopyProducesIntelHex", t.ObjCopyProducesIntelHex)
+	jobs = jobs.WithJob("ObjCopyRejectsUnknownFormat", t.ObjCopyRejectsUnknownFormat)
+	jobs = jobs.WithJob("SizeReportsSections", t.SizeReportsSections)
+	jobs = jobs.WithJob("SizeRejectsNonElf", t.SizeRejectsNonElf)
 
 	return jobs.Run(ctx)
 }
@@ -325,6 +330,109 @@ func (t *Tests) CcCompilesHelloC(ctx context.Context) error {
 	}
 	if size == 0 {
 		return fmt.Errorf("expected non-empty artifact, got size 0")
+	}
+	return nil
+}
+
+// singleExe builds the single-file fixture into a host ELF executable, reused as
+// the input for the ObjCopy and Size tests.
+func singleExe() *dagger.File {
+	return dag.Zig().BuildExe(singleDir(), "main.zig")
+}
+
+// ObjCopyProducesBinary converts the BuildExe ELF to a raw .bin and asserts the
+// result is non-empty and no longer carries the ELF magic.
+func (t *Tests) ObjCopyProducesBinary(ctx context.Context) error {
+	out := dag.Zig().ObjCopy(singleExe(), dagger.ZigObjCopyOpts{Format: "binary"})
+	size, err := out.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("ObjCopy binary: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("expected non-empty .bin, got size 0")
+	}
+	contents, err := out.Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read .bin contents: %w", err)
+	}
+	if strings.HasPrefix(contents, "\x7fELF") {
+		return fmt.Errorf("expected raw binary without ELF magic, but found it")
+	}
+	return nil
+}
+
+// ObjCopyProducesIntelHex converts the BuildExe ELF to Intel HEX and asserts the
+// first record begins with ':' (the Intel HEX record start code).
+func (t *Tests) ObjCopyProducesIntelHex(ctx context.Context) error {
+	contents, err := dag.Zig().ObjCopy(singleExe(), dagger.ZigObjCopyOpts{Format: "hex"}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("ObjCopy hex: %w", err)
+	}
+	if !strings.HasPrefix(strings.TrimLeft(contents, "\r\n"), ":") {
+		return fmt.Errorf("expected Intel HEX output starting with ':', got %.20q", contents)
+	}
+	return nil
+}
+
+// ObjCopyRejectsUnknownFormat asserts ObjCopy rejects an unsupported format
+// (e.g. "uf2"). ObjCopy returns a lazy file, so the error surfaces on resolve.
+func (t *Tests) ObjCopyRejectsUnknownFormat(ctx context.Context) error {
+	_, err := dag.Zig().ObjCopy(singleExe(), dagger.ZigObjCopyOpts{Format: "uf2"}).Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected error for unknown format, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid objcopy format") {
+		return fmt.Errorf("expected format-validation error, got: %v", err)
+	}
+	return nil
+}
+
+// SizeReportsSections asserts Size on the BuildExe host ELF returns Text > 0 and
+// internally consistent Flash/Ram rollups.
+func (t *Tests) SizeReportsSections(ctx context.Context) error {
+	s := dag.Zig().Size(singleExe())
+	text, err := s.Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Size.Text: %w", err)
+	}
+	data, err := s.Data(ctx)
+	if err != nil {
+		return fmt.Errorf("Size.Data: %w", err)
+	}
+	bss, err := s.Bss(ctx)
+	if err != nil {
+		return fmt.Errorf("Size.Bss: %w", err)
+	}
+	flash, err := s.Flash(ctx)
+	if err != nil {
+		return fmt.Errorf("Size.Flash: %w", err)
+	}
+	ram, err := s.RAM(ctx)
+	if err != nil {
+		return fmt.Errorf("Size.Ram: %w", err)
+	}
+	if text <= 0 {
+		return fmt.Errorf("expected Text > 0, got %d", text)
+	}
+	if flash != text+data {
+		return fmt.Errorf("expected Flash == Text+Data (%d), got %d", text+data, flash)
+	}
+	if ram != data+bss {
+		return fmt.Errorf("expected Ram == Data+Bss (%d), got %d", data+bss, ram)
+	}
+	return nil
+}
+
+// SizeRejectsNonElf feeds a raw .bin (produced by ObjCopy) into Size and asserts
+// a clear non-ELF error.
+func (t *Tests) SizeRejectsNonElf(ctx context.Context) error {
+	bin := dag.Zig().ObjCopy(singleExe(), dagger.ZigObjCopyOpts{Format: "binary"})
+	_, err := dag.Zig().Size(bin).Text(ctx)
+	if err == nil {
+		return fmt.Errorf("expected error for non-ELF input, got nil")
+	}
+	if !strings.Contains(err.Error(), "not a valid ELF file") {
+		return fmt.Errorf("expected non-ELF error, got: %v", err)
 	}
 	return nil
 }

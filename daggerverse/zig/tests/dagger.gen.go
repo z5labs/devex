@@ -315,6 +315,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).FmtUnformattedReportsFile(&parent, ctx)
+		case "ObjCopyProducesBinary":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ObjCopyProducesBinary(&parent, ctx)
+		case "ObjCopyProducesIntelHex":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ObjCopyProducesIntelHex(&parent, ctx)
+		case "ObjCopyRejectsUnknownFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ObjCopyRejectsUnknownFormat(&parent, ctx)
 		case "RunHelloPrintsHello":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -322,6 +343,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RunHelloPrintsHello(&parent, ctx)
+		case "SizeRejectsNonElf":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SizeRejectsNonElf(&parent, ctx)
+		case "SizeReportsSections":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SizeReportsSections(&parent, ctx)
 		case "TargetsListsKnownArch":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

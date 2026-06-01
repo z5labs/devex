@@ -14,8 +14,11 @@ package main
 
 import (
 	"context"
+	"debug/elf"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -267,6 +270,122 @@ func (z *Zig) compileC(
 	cmd = append(cmd, "-o", outputName)
 	cmd = append(cmd, args...)
 	return ctr.WithExec(cmd).File("/src/" + outputName), nil
+}
+
+// ObjCopy runs `zig objcopy -O <format> <input> <output>` in the toolchain
+// container, converting an ELF (e.g. from BuildExe) into a flashable artifact,
+// and returns the result as a *dagger.File. This is the post-build step every
+// embedded flow needs before flashing.
+//
+// format selects the output target: "binary" (a raw .bin image) or "hex" (Intel
+// HEX). Any other value is rejected with a clear error — notably UF2 is out of
+// scope here, since `zig objcopy` can't emit it.
+//
+// outputName names the produced artifact and defaults to the input's basename
+// with its extension replaced by the format's (.bin or .hex). Extra flags (e.g.
+// --only-section, --pad-to) pass through via args.
+//
+// outputName (CLI: --output-name) is named so to avoid colliding with the Dagger
+// CLI's top-level --output/-o flag — same precedent as Cc/Cxx.
+//
+// +cache="session"
+func (z *Zig) ObjCopy(
+	ctx context.Context,
+	input *dagger.File,
+	// +default="binary"
+	format string,
+	// +default=""
+	outputName string,
+	// +optional
+	args []string,
+) (*dagger.File, error) {
+	ext, err := objCopyExt(format)
+	if err != nil {
+		return nil, err
+	}
+	if outputName == "" {
+		name, err := input.Name(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("ObjCopy: resolve input name: %w", err)
+		}
+		outputName = strings.TrimSuffix(name, filepath.Ext(name)) + ext
+	}
+	// outputName is a bare filename, not a path: the artifact is resolved at
+	// "/work/"+outputName below, so a path-like value would write outside /work
+	// yet resolve at the wrong location and fail confusingly. Reject it up front
+	// (same rule as compileC's outputName).
+	if strings.ContainsRune(outputName, '/') {
+		return nil, fmt.Errorf("ObjCopy: outputName %q must be a bare filename, not a path", outputName)
+	}
+	base, err := z.baseContainer(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	const inputPath = "/work/input"
+	cmd := []string{"zig", "objcopy", "-O", format, inputPath, outputName}
+	cmd = append(cmd, args...)
+	return base.
+		WithWorkdir("/work").
+		WithMountedFile(inputPath, input).
+		WithExec(cmd).
+		File("/work/" + outputName), nil
+}
+
+// SectionSizes is the per-section footprint of an ELF, in bytes. Flash and Ram
+// are the budget-relevant rollups: Flash is what the image occupies in flash,
+// Ram what it claims at runtime.
+type SectionSizes struct {
+	Text  int // SHF_ALLOC|SHF_EXECINSTR (code)
+	Data  int // SHF_ALLOC|SHF_WRITE, PROGBITS (initialized data)
+	Bss   int // SHF_ALLOC|SHF_WRITE, NOBITS (zero-init data)
+	Flash int // Text + Data (consumes flash)
+	Ram   int // Data + Bss (consumes RAM)
+}
+
+// Size reports the per-section byte totals of an ELF input (e.g. a freestanding
+// BuildExe output) so CI can gate Flash/Ram against a target's budget.
+//
+// Zig ships no `size` subcommand, so this is computed in pure Go via debug/elf:
+// the input is exported and its section headers are read directly — no helper
+// container (per the established runtime-I/O pattern). A non-ELF input returns a
+// clear error.
+//
+// +cache="session"
+func (z *Zig) Size(ctx context.Context, input *dagger.File) (*SectionSizes, error) {
+	dir, err := os.MkdirTemp(".", "elf-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, "input")
+	if _, err := input.Export(ctx, path); err != nil {
+		return nil, fmt.Errorf("Size: export input: %w", err)
+	}
+
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("Size: not a valid ELF file: %w", err)
+	}
+	defer f.Close()
+
+	var sizes SectionSizes
+	for _, sh := range f.Sections {
+		if sh.Flags&elf.SHF_ALLOC == 0 {
+			continue
+		}
+		switch {
+		case sh.Flags&elf.SHF_EXECINSTR != 0:
+			sizes.Text += int(sh.Size)
+		case sh.Flags&elf.SHF_WRITE != 0 && sh.Type == elf.SHT_PROGBITS:
+			sizes.Data += int(sh.Size)
+		case sh.Flags&elf.SHF_WRITE != 0 && sh.Type == elf.SHT_NOBITS:
+			sizes.Bss += int(sh.Size)
+		}
+	}
+	sizes.Flash = sizes.Text + sizes.Data
+	sizes.Ram = sizes.Data + sizes.Bss
+	return &sizes, nil
 }
 
 // Run runs `zig build run [-- args...]` against the supplied source and
@@ -571,6 +690,20 @@ func validateOptimize(optimize string) error {
 		return nil
 	default:
 		return fmt.Errorf("invalid optimize %q: must be one of Debug, ReleaseSafe, ReleaseFast, ReleaseSmall", optimize)
+	}
+}
+
+// objCopyExt validates an ObjCopy format and returns the output filename
+// extension for it: "binary" -> ".bin", "hex" -> ".hex". Any other value
+// (e.g. "uf2", which zig objcopy can't emit) is rejected with a clear error.
+func objCopyExt(format string) (string, error) {
+	switch format {
+	case "binary":
+		return ".bin", nil
+	case "hex":
+		return ".hex", nil
+	default:
+		return "", fmt.Errorf("invalid objcopy format %q: must be one of binary, hex", format)
 	}
 }
 
