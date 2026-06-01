@@ -76,6 +76,42 @@ func (r *Zig) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r SectionSizes) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Text  int
+		Data  int
+		Bss   int
+		Flash int
+		Ram   int
+	}
+	concrete.Text = r.Text
+	concrete.Data = r.Data
+	concrete.Bss = r.Bss
+	concrete.Flash = r.Flash
+	concrete.Ram = r.Ram
+	return json.Marshal(&concrete)
+}
+
+func (r *SectionSizes) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Text  int
+		Data  int
+		Bss   int
+		Flash int
+		Ram   int
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Text = concrete.Text
+	r.Data = concrete.Data
+	r.Bss = concrete.Bss
+	r.Flash = concrete.Flash
+	r.Ram = concrete.Ram
+	return nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -405,6 +441,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Zig).Fmt(&parent, ctx, source)
+		case "ObjCopy":
+			var parent Zig
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var input *dagger.File
+			if inputArgs["input"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["input"]), &input)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg input", err))
+				}
+			}
+			var format string
+			if inputArgs["format"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["format"]), &format)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			var args []string
+			if inputArgs["args"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["args"]), &args)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg args", err))
+				}
+			}
+			return (*Zig).ObjCopy(&parent, ctx, input, format, outputName, args)
 		case "Run":
 			var parent Zig
 			err = json.Unmarshal(parentJSON, &parent)
@@ -426,6 +497,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Zig).Run(&parent, ctx, source, args)
+		case "Size":
+			var parent Zig
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var input *dagger.File
+			if inputArgs["input"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["input"]), &input)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg input", err))
+				}
+			}
+			return (*Zig).Size(&parent, ctx, input)
 		case "Targets":
 			var parent Zig
 			err = json.Unmarshal(parentJSON, &parent)
