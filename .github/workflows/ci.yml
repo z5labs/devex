@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  DAGGER_VERSION: "0.21.3"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -16,16 +19,41 @@ jobs:
   list:
     name: List checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     outputs:
       jobs: ${{ steps.route.outputs.jobs }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Dagger engine image
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: engine.tar.gz
+          key: dagger-engine-v${{ env.DAGGER_VERSION }}
+
+      - name: Load or pull Dagger engine
+        env:
+          CACHE_HIT: ${{ steps.engine-cache.outputs.cache-hit }}
+        run: |
+          IMAGE="registry.dagger.io/engine:v${DAGGER_VERSION}"
+          if [ "$CACHE_HIT" = "true" ]; then
+            gunzip -c engine.tar.gz | docker load
+          else
+            for i in 1 2 3; do
+              timeout 300 docker pull "$IMAGE" && break
+              echo "engine pull attempt $i failed/timed out; retrying in 5s" >&2
+              sleep 5
+            done
+            docker image inspect "$IMAGE" >/dev/null   # fail the job if still missing
+            docker save "$IMAGE" | gzip > engine.tar.gz
+          fi
+
       - id: list
         uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
-          version: "0.21.3"
+          version: ${{ env.DAGGER_VERSION }}
           list: "true"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
@@ -66,6 +94,7 @@ jobs:
     name: ${{ matrix.job.name }}
     needs: [list]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -74,9 +103,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore Dagger engine image
+        id: engine-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: engine.tar.gz
+          key: dagger-engine-v${{ env.DAGGER_VERSION }}
+
+      - name: Load or pull Dagger engine
+        env:
+          CACHE_HIT: ${{ steps.engine-cache.outputs.cache-hit }}
+        run: |
+          IMAGE="registry.dagger.io/engine:v${DAGGER_VERSION}"
+          if [ "$CACHE_HIT" = "true" ]; then
+            gunzip -c engine.tar.gz | docker load
+          else
+            for i in 1 2 3; do
+              timeout 300 docker pull "$IMAGE" && break
+              echo "engine pull attempt $i failed/timed out; retrying in 5s" >&2
+              sleep 5
+            done
+            docker image inspect "$IMAGE" >/dev/null
+          fi
+
       - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
-          version: "0.21.3"
+          version: ${{ env.DAGGER_VERSION }}
           module: ${{ matrix.job.module }}
           filter: ${{ matrix.job.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
