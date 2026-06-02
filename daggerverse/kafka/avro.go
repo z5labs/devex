@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"slices"
 	"strings"
@@ -149,9 +150,29 @@ func (a *avroSchemas) decode(ctx context.Context, id int, bin []byte) ([]byte, e
 	if err != nil {
 		return nil, fmt.Errorf("map avro to json: %w", err)
 	}
-	out, err := json.Marshal(doc)
+	out, err := marshalNoEscape(doc)
 	if err != nil {
 		return nil, fmt.Errorf("marshal decoded json: %w", err)
+	}
+	return out, nil
+}
+
+// marshalNoEscape compact-marshals v with HTML escaping disabled, matching the
+// JSON-canonicalization path (see canonicalJSON in client.go): json.Marshal
+// would rewrite "<", ">", and "&" in string values as < / > / &,
+// mutating decoded payloads as they cross the module boundary.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	// json.Encoder appends a trailing newline; strip it so the output matches
+	// what json.Marshal would have produced.
+	out := buf.Bytes()
+	if n := len(out); n > 0 && out[n-1] == '\n' {
+		out = out[:n-1]
 	}
 	return out, nil
 }
@@ -166,7 +187,11 @@ func unmarshalJSONValue(raw []byte) (any, error) {
 	if err := d.Decode(&v); err != nil {
 		return nil, fmt.Errorf("payload is not valid JSON: %w", err)
 	}
-	if d.More() {
+	// Reject trailing tokens (e.g. `{} {}`) so the caller can't smuggle extra
+	// documents past the validator. Decoding a second time and requiring io.EOF
+	// is unambiguous, unlike Decoder.More() whose contract is about iterating
+	// the *current* array/object rather than the top-level stream.
+	if err := d.Decode(&struct{}{}); err != io.EOF {
 		return nil, fmt.Errorf("payload has trailing data after JSON value")
 	}
 	return v, nil

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -143,7 +144,10 @@ func canonicalJSON(b []byte, field string) ([]byte, error) {
 	}
 	// json.Decoder accepts a stream of values — reject trailing tokens
 	// so the caller can't smuggle extra documents through the validator.
-	if dec.More() {
+	// Decoding a second time and requiring io.EOF is unambiguous, unlike
+	// Decoder.More() whose contract is about iterating the current
+	// array/object rather than the top-level stream.
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return nil, fmt.Errorf("%s has trailing data after JSON value", field)
 	}
 	var buf bytes.Buffer
@@ -730,11 +734,11 @@ func (c *Client) Consume(
 				}
 			}
 			var err error
-			keyRaw, err = deserializeField(ctx, keyRaw, keyDeserializeAs, "key", keyID, schemaRegistryAware, codecs)
+			keyRaw, err = deserializeField(deadlineCtx, keyRaw, keyDeserializeAs, "key", keyID, schemaRegistryAware, codecs)
 			if err != nil {
 				return "", fmt.Errorf("deserialize key: %w", err)
 			}
-			valRaw, err = deserializeField(ctx, valRaw, valueDeserializeAs, "value", valID, schemaRegistryAware, codecs)
+			valRaw, err = deserializeField(deadlineCtx, valRaw, valueDeserializeAs, "value", valID, schemaRegistryAware, codecs)
 			if err != nil {
 				return "", fmt.Errorf("deserialize value: %w", err)
 			}
