@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `Z5LabsTestsID` scalar type represents an identifier for an object of type Z5LabsTests.
-type Z5LabsTestsID string // z5labs-tests (../../../daggerverse/z5labs/tests/main.go:26:6)
 
 // Retrieve the binding value, as type Z5LabsTests
 func (r *Binding) AsZ5LabsTests() *Z5LabsTests { // z5labs-tests (../../../daggerverse/z5labs/tests/main.go:26:6)
@@ -45,16 +42,6 @@ func (r *Env) WithZ5LabsTestsOutput(name string, description string) *Env { // z
 	}
 }
 
-// Load a Z5LabsTests from its ID.
-func (r *Query) LoadZ5LabsTestsFromID(id Z5LabsTestsID) *Z5LabsTests { // z5labs-tests (../../../daggerverse/z5labs/tests/main.go:26:6)
-	q := r.query.Select("loadZ5LabsTestsFromID")
-	q = q.Arg("id", id)
-
-	return &Z5LabsTests{
-		query: q,
-	}
-}
-
 // Package main implements the test module for daggerverse/z5labs.
 // Each test is exposed as a standalone Dagger function so it can be
 // invoked individually during TDD; All wires them up for parallel
@@ -84,7 +71,7 @@ type Z5LabsTests struct { // z5labs-tests (../../../daggerverse/z5labs/tests/mai
 	goAppCiTagBeatsBranch                            *Void
 	goLibCiFailsForFailingTest                       *Void
 	goLibCiPassesForValidSource                      *Void
-	id                                               *Z5LabsTestsID
+	id                                               *ID
 }
 
 func (r *Z5LabsTests) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsTests {
@@ -269,13 +256,13 @@ func (r *Z5LabsTests) GoLibCiPassesForValidSource(ctx context.Context) error { /
 }
 
 // A unique identifier for this Z5LabsTests.
-func (r *Z5LabsTests) ID(ctx context.Context) (Z5LabsTestsID, error) {
+func (r *Z5LabsTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response Z5LabsTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -288,7 +275,7 @@ func (r *Z5LabsTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Z5LabsTests) XXX_GraphQLIDType() string {
-	return "Z5LabsTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -313,6 +300,14 @@ func (r *Z5LabsTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZ5LabsTestsFromID(Z5LabsTestsID(id))
+	*r = Z5LabsTests{query: selectNode(dag.query, id, "Z5LabsTests")}
 	return nil
+}
+
+// AsNode returns this Z5LabsTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Z5LabsTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

@@ -6,47 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `EnvoyClusterID` scalar type represents an identifier for an object of type EnvoyCluster.
-type EnvoyClusterID string // envoy (../../../../../daggerverse/envoy/main.go:94:6)
-
-// The `EnvoyEndpointID` scalar type represents an identifier for an object of type EnvoyEndpoint.
-type EnvoyEndpointID string // envoy (../../../../../daggerverse/envoy/main.go:75:6)
-
-// The `EnvoyHttpConnectionManagerID` scalar type represents an identifier for an object of type EnvoyHttpConnectionManager.
-type EnvoyHTTPConnectionManagerID string // envoy (../../../../../daggerverse/envoy/main.go:283:6)
-
-// The `EnvoyHttpFilterID` scalar type represents an identifier for an object of type EnvoyHttpFilter.
-type EnvoyHTTPFilterID string // envoy (../../../../../daggerverse/envoy/main.go:243:6)
-
-// The `EnvoyID` scalar type represents an identifier for an object of type Envoy.
-type EnvoyID string // envoy (../../../../../daggerverse/envoy/main.go:36:6)
-
-// The `EnvoyListenerID` scalar type represents an identifier for an object of type EnvoyListener.
-type EnvoyListenerID string // envoy (../../../../../daggerverse/envoy/main.go:556:6)
-
-// The `EnvoyProxyID` scalar type represents an identifier for an object of type EnvoyProxy.
-type EnvoyProxyID string // envoy (../../../../../daggerverse/envoy/main.go:626:6)
-
-// The `EnvoyRouteConfigID` scalar type represents an identifier for an object of type EnvoyRouteConfig.
-type EnvoyRouteConfigID string // envoy (../../../../../daggerverse/envoy/main.go:218:6)
-
-// The `EnvoyRouteID` scalar type represents an identifier for an object of type EnvoyRoute.
-type EnvoyRouteID string // envoy (../../../../../daggerverse/envoy/main.go:169:6)
-
-// The `EnvoyServerSecurityID` scalar type represents an identifier for an object of type EnvoyServerSecurity.
-type EnvoyServerSecurityID string // envoy (../../../../../daggerverse/envoy/security.go:25:6)
-
-// The `EnvoyTcpProxyID` scalar type represents an identifier for an object of type EnvoyTcpProxy.
-type EnvoyTCPProxyID string // envoy (../../../../../daggerverse/envoy/main.go:463:6)
-
-// The `EnvoyUpstreamSecurityID` scalar type represents an identifier for an object of type EnvoyUpstreamSecurity.
-type EnvoyUpstreamSecurityID string // envoy (../../../../../daggerverse/envoy/security.go:42:6)
-
-// The `EnvoyVirtualHostID` scalar type represents an identifier for an object of type EnvoyVirtualHost.
-type EnvoyVirtualHostID string // envoy (../../../../../daggerverse/envoy/main.go:188:6)
 
 // Retrieve the binding value, as type Envoy
 func (r *Binding) AsEnvoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
@@ -482,7 +443,7 @@ func (r *Env) WithEnvoyVirtualHostOutput(name string, description string) *Env {
 type Envoy struct { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
 	query *querybuilder.Selection
 
-	id *EnvoyID
+	id *ID
 }
 
 func (r *Envoy) WithGraphQLQuery(q *querybuilder.Selection) *Envoy {
@@ -612,13 +573,13 @@ func (r *Envoy) HTTPListener(name string, port int, hcm *EnvoyHTTPConnectionMana
 }
 
 // A unique identifier for this Envoy.
-func (r *Envoy) ID(ctx context.Context) (EnvoyID, error) {
+func (r *Envoy) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -631,7 +592,7 @@ func (r *Envoy) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Envoy) XXX_GraphQLIDType() string {
-	return "EnvoyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -656,7 +617,7 @@ func (r *Envoy) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyFromID(EnvoyID(id))
+	*r = Envoy{query: selectNode(dag.query, id, "Envoy")}
 	return nil
 }
 
@@ -889,12 +850,20 @@ func (r *Envoy) VirtualHost(name string, domains []string) *EnvoyVirtualHost { /
 	}
 }
 
+// AsNode returns this Envoy as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Envoy) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Cluster is a named upstream cluster of Endpoints, optionally
 // configured with TLS / mTLS to the upstream side.
 type EnvoyCluster struct { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
 	query *querybuilder.Selection
 
-	id   *EnvoyClusterID
+	id   *ID
 	kind *string
 	name *string
 }
@@ -919,7 +888,7 @@ func (r *EnvoyCluster) Endpoints(ctx context.Context) ([]EnvoyEndpoint, error) {
 	q = q.Select("id")
 
 	type endpoints struct {
-		Id EnvoyEndpointID
+		Id ID
 	}
 
 	convert := func(fields []endpoints) []EnvoyEndpoint {
@@ -927,7 +896,7 @@ func (r *EnvoyCluster) Endpoints(ctx context.Context) ([]EnvoyEndpoint, error) {
 
 		for i := range fields {
 			val := EnvoyEndpoint{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyEndpointFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyEndpoint")
 			out = append(out, val)
 		}
 
@@ -946,13 +915,13 @@ func (r *EnvoyCluster) Endpoints(ctx context.Context) ([]EnvoyEndpoint, error) {
 }
 
 // A unique identifier for this EnvoyCluster.
-func (r *EnvoyCluster) ID(ctx context.Context) (EnvoyClusterID, error) {
+func (r *EnvoyCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -965,7 +934,7 @@ func (r *EnvoyCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyCluster) XXX_GraphQLIDType() string {
-	return "EnvoyClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -990,7 +959,7 @@ func (r *EnvoyCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyClusterFromID(EnvoyClusterID(id))
+	*r = EnvoyCluster{query: selectNode(dag.query, id, "EnvoyCluster")}
 	return nil
 }
 
@@ -1030,13 +999,21 @@ func (r *EnvoyCluster) WithEndpoint(ep *EnvoyEndpoint) *EnvoyCluster { // envoy 
 	}
 }
 
+// AsNode returns this EnvoyCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Endpoint is a single upstream address (host + port) that a Cluster
 // resolves to.
 type EnvoyEndpoint struct { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
 	query *querybuilder.Selection
 
 	host *string
-	id   *EnvoyEndpointID
+	id   *ID
 	port *int
 }
 
@@ -1059,13 +1036,13 @@ func (r *EnvoyEndpoint) Host(ctx context.Context) (string, error) { // envoy (..
 }
 
 // A unique identifier for this EnvoyEndpoint.
-func (r *EnvoyEndpoint) ID(ctx context.Context) (EnvoyEndpointID, error) {
+func (r *EnvoyEndpoint) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyEndpointID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1078,7 +1055,7 @@ func (r *EnvoyEndpoint) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyEndpoint) XXX_GraphQLIDType() string {
-	return "EnvoyEndpointID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1103,7 +1080,7 @@ func (r *EnvoyEndpoint) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyEndpointFromID(EnvoyEndpointID(id))
+	*r = EnvoyEndpoint{query: selectNode(dag.query, id, "EnvoyEndpoint")}
 	return nil
 }
 
@@ -1119,13 +1096,21 @@ func (r *EnvoyEndpoint) Port(ctx context.Context) (int, error) { // envoy (../..
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyEndpoint as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyEndpoint) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // HttpConnectionManager is the L7 network filter that decodes HTTP
 // frames, applies an ordered filter chain, and dispatches to a
 // route_config.
 type EnvoyHTTPConnectionManager struct { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
 	query *querybuilder.Selection
 
-	id         *EnvoyHTTPConnectionManagerID
+	id         *ID
 	statPrefix *string
 }
 type WithEnvoyHTTPConnectionManagerFunc func(r *EnvoyHTTPConnectionManager) *EnvoyHTTPConnectionManager
@@ -1149,7 +1134,7 @@ func (r *EnvoyHTTPConnectionManager) HTTPFilters(ctx context.Context) ([]EnvoyHT
 	q = q.Select("id")
 
 	type httpFilters struct {
-		Id EnvoyHTTPFilterID
+		Id ID
 	}
 
 	convert := func(fields []httpFilters) []EnvoyHTTPFilter {
@@ -1157,7 +1142,7 @@ func (r *EnvoyHTTPConnectionManager) HTTPFilters(ctx context.Context) ([]EnvoyHT
 
 		for i := range fields {
 			val := EnvoyHTTPFilter{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyHttpFilterFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyHttpFilter")
 			out = append(out, val)
 		}
 
@@ -1176,13 +1161,13 @@ func (r *EnvoyHTTPConnectionManager) HTTPFilters(ctx context.Context) ([]EnvoyHT
 }
 
 // A unique identifier for this EnvoyHttpConnectionManager.
-func (r *EnvoyHTTPConnectionManager) ID(ctx context.Context) (EnvoyHTTPConnectionManagerID, error) {
+func (r *EnvoyHTTPConnectionManager) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyHTTPConnectionManagerID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1195,7 +1180,7 @@ func (r *EnvoyHTTPConnectionManager) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyHTTPConnectionManager) XXX_GraphQLIDType() string {
-	return "EnvoyHTTPConnectionManagerID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1220,7 +1205,7 @@ func (r *EnvoyHTTPConnectionManager) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyHTTPConnectionManagerFromID(EnvoyHTTPConnectionManagerID(id))
+	*r = EnvoyHTTPConnectionManager{query: selectNode(dag.query, id, "EnvoyHttpConnectionManager")}
 	return nil
 }
 
@@ -1255,6 +1240,14 @@ func (r *EnvoyHTTPConnectionManager) WithHTTPFilter(f *EnvoyHTTPFilter) *EnvoyHT
 	}
 }
 
+// AsNode returns this EnvoyHTTPConnectionManager as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyHTTPConnectionManager) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // HttpFilter is a single HTTP filter that participates in the
 // HttpConnectionManager's filter chain. Body is the YAML body of the
 // filter's `typed_config` map; for the terminal router filter Body
@@ -1264,7 +1257,7 @@ type EnvoyHTTPFilter struct { // envoy (../../../../../daggerverse/envoy/main.go
 	query *querybuilder.Selection
 
 	body *string
-	id   *EnvoyHTTPFilterID
+	id   *ID
 	name *string
 }
 
@@ -1287,13 +1280,13 @@ func (r *EnvoyHTTPFilter) Body(ctx context.Context) (string, error) { // envoy (
 }
 
 // A unique identifier for this EnvoyHttpFilter.
-func (r *EnvoyHTTPFilter) ID(ctx context.Context) (EnvoyHTTPFilterID, error) {
+func (r *EnvoyHTTPFilter) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyHTTPFilterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1306,7 +1299,7 @@ func (r *EnvoyHTTPFilter) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyHTTPFilter) XXX_GraphQLIDType() string {
-	return "EnvoyHTTPFilterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1331,7 +1324,7 @@ func (r *EnvoyHTTPFilter) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyHTTPFilterFromID(EnvoyHTTPFilterID(id))
+	*r = EnvoyHTTPFilter{query: selectNode(dag.query, id, "EnvoyHttpFilter")}
 	return nil
 }
 
@@ -1347,6 +1340,14 @@ func (r *EnvoyHTTPFilter) Name(ctx context.Context) (string, error) { // envoy (
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyHTTPFilter as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyHTTPFilter) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Listener is a single Envoy listener — either typed
 // (HttpListener/TcpListener) or opaque (CustomListener). Body is the
 // YAML body for the listener excluding the top-level `name:` key,
@@ -1359,7 +1360,7 @@ type EnvoyListener struct { // envoy (../../../../../daggerverse/envoy/main.go:5
 	query *querybuilder.Selection
 
 	body *string
-	id   *EnvoyListenerID
+	id   *ID
 	name *string
 }
 
@@ -1391,13 +1392,13 @@ func (r *EnvoyListener) ClusterRefs(ctx context.Context) ([]string, error) { // 
 }
 
 // A unique identifier for this EnvoyListener.
-func (r *EnvoyListener) ID(ctx context.Context) (EnvoyListenerID, error) {
+func (r *EnvoyListener) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyListenerID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1410,7 +1411,7 @@ func (r *EnvoyListener) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyListener) XXX_GraphQLIDType() string {
-	return "EnvoyListenerID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1435,7 +1436,7 @@ func (r *EnvoyListener) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyListenerFromID(EnvoyListenerID(id))
+	*r = EnvoyListener{query: selectNode(dag.query, id, "EnvoyListener")}
 	return nil
 }
 
@@ -1451,6 +1452,14 @@ func (r *EnvoyListener) Name(ctx context.Context) (string, error) { // envoy (..
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyListener as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyListener) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Proxy is a running Envoy instance with a composed (or
 // caller-supplied) static-resources bootstrap.
 type EnvoyProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
@@ -1458,7 +1467,7 @@ type EnvoyProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:626:
 
 	adminEndpoint    *string
 	adminPort        *int
-	id               *EnvoyProxyID
+	id               *ID
 	listenerEndpoint *string
 	registry         *string
 	tag              *string
@@ -1518,7 +1527,7 @@ func (r *EnvoyProxy) BindingSvcs(ctx context.Context) ([]Service, error) { // en
 	q = q.Select("id")
 
 	type bindingSvcs struct {
-		Id ServiceID
+		Id ID
 	}
 
 	convert := func(fields []bindingSvcs) []Service {
@@ -1526,7 +1535,7 @@ func (r *EnvoyProxy) BindingSvcs(ctx context.Context) ([]Service, error) { // en
 
 		for i := range fields {
 			val := Service{id: &fields[i].Id}
-			val.query = q.Root().Select("loadServiceFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Service")
 			out = append(out, val)
 		}
 
@@ -1550,7 +1559,7 @@ func (r *EnvoyProxy) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // 
 	q = q.Select("id")
 
 	type clusters struct {
-		Id EnvoyClusterID
+		Id ID
 	}
 
 	convert := func(fields []clusters) []EnvoyCluster {
@@ -1558,7 +1567,7 @@ func (r *EnvoyProxy) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // 
 
 		for i := range fields {
 			val := EnvoyCluster{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyClusterFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyCluster")
 			out = append(out, val)
 		}
 
@@ -1589,13 +1598,13 @@ func (r *EnvoyProxy) ConfigFile() *File { // envoy (../../../../../daggerverse/e
 }
 
 // A unique identifier for this EnvoyProxy.
-func (r *EnvoyProxy) ID(ctx context.Context) (EnvoyProxyID, error) {
+func (r *EnvoyProxy) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyProxyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1608,7 +1617,7 @@ func (r *EnvoyProxy) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyProxy) XXX_GraphQLIDType() string {
-	return "EnvoyProxyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1633,7 +1642,7 @@ func (r *EnvoyProxy) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyProxyFromID(EnvoyProxyID(id))
+	*r = EnvoyProxy{query: selectNode(dag.query, id, "EnvoyProxy")}
 	return nil
 }
 
@@ -1659,7 +1668,7 @@ func (r *EnvoyProxy) Listeners(ctx context.Context) ([]EnvoyListener, error) { /
 	q = q.Select("id")
 
 	type listeners struct {
-		Id EnvoyListenerID
+		Id ID
 	}
 
 	convert := func(fields []listeners) []EnvoyListener {
@@ -1667,7 +1676,7 @@ func (r *EnvoyProxy) Listeners(ctx context.Context) ([]EnvoyListener, error) { /
 
 		for i := range fields {
 			val := EnvoyListener{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyListenerFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyListener")
 			out = append(out, val)
 		}
 
@@ -1776,12 +1785,20 @@ func (r *EnvoyProxy) WithServiceBinding(host string, svc *Service) *EnvoyProxy {
 	}
 }
 
+// AsNode returns this EnvoyProxy as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyProxy) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Route is a single HTTP route (prefix match → cluster).
 type EnvoyRoute struct { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
 	query *querybuilder.Selection
 
 	cluster *string
-	id      *EnvoyRouteID
+	id      *ID
 	prefix  *string
 }
 
@@ -1804,13 +1821,13 @@ func (r *EnvoyRoute) Cluster(ctx context.Context) (string, error) { // envoy (..
 }
 
 // A unique identifier for this EnvoyRoute.
-func (r *EnvoyRoute) ID(ctx context.Context) (EnvoyRouteID, error) {
+func (r *EnvoyRoute) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyRouteID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1823,7 +1840,7 @@ func (r *EnvoyRoute) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyRoute) XXX_GraphQLIDType() string {
-	return "EnvoyRouteID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1848,7 +1865,7 @@ func (r *EnvoyRoute) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyRouteFromID(EnvoyRouteID(id))
+	*r = EnvoyRoute{query: selectNode(dag.query, id, "EnvoyRoute")}
 	return nil
 }
 
@@ -1864,11 +1881,19 @@ func (r *EnvoyRoute) Prefix(ctx context.Context) (string, error) { // envoy (../
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyRoute as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyRoute) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // RouteConfig is a named route configuration (a set of virtual hosts).
 type EnvoyRouteConfig struct { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
 	query *querybuilder.Selection
 
-	id   *EnvoyRouteConfigID
+	id   *ID
 	name *string
 }
 type WithEnvoyRouteConfigFunc func(r *EnvoyRouteConfig) *EnvoyRouteConfig
@@ -1887,13 +1912,13 @@ func (r *EnvoyRouteConfig) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyRou
 }
 
 // A unique identifier for this EnvoyRouteConfig.
-func (r *EnvoyRouteConfig) ID(ctx context.Context) (EnvoyRouteConfigID, error) {
+func (r *EnvoyRouteConfig) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyRouteConfigID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1906,7 +1931,7 @@ func (r *EnvoyRouteConfig) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyRouteConfig) XXX_GraphQLIDType() string {
-	return "EnvoyRouteConfigID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1931,7 +1956,7 @@ func (r *EnvoyRouteConfig) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyRouteConfigFromID(EnvoyRouteConfigID(id))
+	*r = EnvoyRouteConfig{query: selectNode(dag.query, id, "EnvoyRouteConfig")}
 	return nil
 }
 
@@ -1953,7 +1978,7 @@ func (r *EnvoyRouteConfig) VirtualHosts(ctx context.Context) ([]EnvoyVirtualHost
 	q = q.Select("id")
 
 	type virtualHosts struct {
-		Id EnvoyVirtualHostID
+		Id ID
 	}
 
 	convert := func(fields []virtualHosts) []EnvoyVirtualHost {
@@ -1961,7 +1986,7 @@ func (r *EnvoyRouteConfig) VirtualHosts(ctx context.Context) ([]EnvoyVirtualHost
 
 		for i := range fields {
 			val := EnvoyVirtualHost{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyVirtualHostFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyVirtualHost")
 			out = append(out, val)
 		}
 
@@ -1990,6 +2015,14 @@ func (r *EnvoyRouteConfig) WithVirtualHost(v *EnvoyVirtualHost) *EnvoyRouteConfi
 	}
 }
 
+// AsNode returns this EnvoyRouteConfig as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyRouteConfig) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ServerSecurity describes how an Envoy listener authenticates and
 // encrypts traffic from downstream clients. Plaintext is the default;
 // TLS and mTLS modes carry the PKI material needed to terminate TLS
@@ -1997,7 +2030,7 @@ func (r *EnvoyRouteConfig) WithVirtualHost(v *EnvoyVirtualHost) *EnvoyRouteConfi
 type EnvoyServerSecurity struct { // envoy (../../../../../daggerverse/envoy/security.go:25:6)
 	query *querybuilder.Selection
 
-	id *EnvoyServerSecurityID
+	id *ID
 }
 
 func (r *EnvoyServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyServerSecurity {
@@ -2007,13 +2040,13 @@ func (r *EnvoyServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Envoy
 }
 
 // A unique identifier for this EnvoyServerSecurity.
-func (r *EnvoyServerSecurity) ID(ctx context.Context) (EnvoyServerSecurityID, error) {
+func (r *EnvoyServerSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyServerSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2026,7 +2059,7 @@ func (r *EnvoyServerSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyServerSecurity) XXX_GraphQLIDType() string {
-	return "EnvoyServerSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2051,8 +2084,16 @@ func (r *EnvoyServerSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyServerSecurityFromID(EnvoyServerSecurityID(id))
+	*r = EnvoyServerSecurity{query: selectNode(dag.query, id, "EnvoyServerSecurity")}
 	return nil
+}
+
+// AsNode returns this EnvoyServerSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyServerSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // TcpProxy is the network-level filter that forwards bytes from a
@@ -2061,7 +2102,7 @@ type EnvoyTCPProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:4
 	query *querybuilder.Selection
 
 	cluster    *string
-	id         *EnvoyTCPProxyID
+	id         *ID
 	statPrefix *string
 }
 
@@ -2084,13 +2125,13 @@ func (r *EnvoyTCPProxy) Cluster(ctx context.Context) (string, error) { // envoy 
 }
 
 // A unique identifier for this EnvoyTcpProxy.
-func (r *EnvoyTCPProxy) ID(ctx context.Context) (EnvoyTCPProxyID, error) {
+func (r *EnvoyTCPProxy) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyTCPProxyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2103,7 +2144,7 @@ func (r *EnvoyTCPProxy) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyTCPProxy) XXX_GraphQLIDType() string {
-	return "EnvoyTCPProxyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2128,7 +2169,7 @@ func (r *EnvoyTCPProxy) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyTCPProxyFromID(EnvoyTCPProxyID(id))
+	*r = EnvoyTCPProxy{query: selectNode(dag.query, id, "EnvoyTcpProxy")}
 	return nil
 }
 
@@ -2144,6 +2185,14 @@ func (r *EnvoyTCPProxy) StatPrefix(ctx context.Context) (string, error) { // env
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyTCPProxy as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyTCPProxy) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // UpstreamSecurity describes how an Envoy cluster authenticates and
 // encrypts traffic to upstream endpoints. Plaintext is the default;
 // TLS validates the upstream's server cert; mTLS additionally
@@ -2151,7 +2200,7 @@ func (r *EnvoyTCPProxy) StatPrefix(ctx context.Context) (string, error) { // env
 type EnvoyUpstreamSecurity struct { // envoy (../../../../../daggerverse/envoy/security.go:42:6)
 	query *querybuilder.Selection
 
-	id *EnvoyUpstreamSecurityID
+	id *ID
 }
 
 func (r *EnvoyUpstreamSecurity) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyUpstreamSecurity {
@@ -2161,13 +2210,13 @@ func (r *EnvoyUpstreamSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Env
 }
 
 // A unique identifier for this EnvoyUpstreamSecurity.
-func (r *EnvoyUpstreamSecurity) ID(ctx context.Context) (EnvoyUpstreamSecurityID, error) {
+func (r *EnvoyUpstreamSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyUpstreamSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2180,7 +2229,7 @@ func (r *EnvoyUpstreamSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyUpstreamSecurity) XXX_GraphQLIDType() string {
-	return "EnvoyUpstreamSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2205,8 +2254,16 @@ func (r *EnvoyUpstreamSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyUpstreamSecurityFromID(EnvoyUpstreamSecurityID(id))
+	*r = EnvoyUpstreamSecurity{query: selectNode(dag.query, id, "EnvoyUpstreamSecurity")}
 	return nil
+}
+
+// AsNode returns this EnvoyUpstreamSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyUpstreamSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // VirtualHost is a named virtual host with a domain list and an
@@ -2214,7 +2271,7 @@ func (r *EnvoyUpstreamSecurity) UnmarshalJSON(bs []byte) error {
 type EnvoyVirtualHost struct { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
 	query *querybuilder.Selection
 
-	id   *EnvoyVirtualHostID
+	id   *ID
 	name *string
 }
 type WithEnvoyVirtualHostFunc func(r *EnvoyVirtualHost) *EnvoyVirtualHost
@@ -2242,13 +2299,13 @@ func (r *EnvoyVirtualHost) Domains(ctx context.Context) ([]string, error) { // e
 }
 
 // A unique identifier for this EnvoyVirtualHost.
-func (r *EnvoyVirtualHost) ID(ctx context.Context) (EnvoyVirtualHostID, error) {
+func (r *EnvoyVirtualHost) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyVirtualHostID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2261,7 +2318,7 @@ func (r *EnvoyVirtualHost) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyVirtualHost) XXX_GraphQLIDType() string {
-	return "EnvoyVirtualHostID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2286,7 +2343,7 @@ func (r *EnvoyVirtualHost) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyVirtualHostFromID(EnvoyVirtualHostID(id))
+	*r = EnvoyVirtualHost{query: selectNode(dag.query, id, "EnvoyVirtualHost")}
 	return nil
 }
 
@@ -2308,7 +2365,7 @@ func (r *EnvoyVirtualHost) Routes(ctx context.Context) ([]EnvoyRoute, error) { /
 	q = q.Select("id")
 
 	type routes struct {
-		Id EnvoyRouteID
+		Id ID
 	}
 
 	convert := func(fields []routes) []EnvoyRoute {
@@ -2316,7 +2373,7 @@ func (r *EnvoyVirtualHost) Routes(ctx context.Context) ([]EnvoyRoute, error) { /
 
 		for i := range fields {
 			val := EnvoyRoute{id: &fields[i].Id}
-			val.query = q.Root().Select("loadEnvoyRouteFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyRoute")
 			out = append(out, val)
 		}
 
@@ -2345,142 +2402,20 @@ func (r *EnvoyVirtualHost) WithRoute(route *EnvoyRoute) *EnvoyVirtualHost { // e
 	}
 }
 
+// AsNode returns this EnvoyVirtualHost as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyVirtualHost) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Envoy is the top-level builder type. All component factories hang
 // off of it.
 func (r *Query) Envoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
 	q := r.query.Select("envoy")
 
 	return &Envoy{
-		query: q,
-	}
-}
-
-// Load a EnvoyCluster from its ID.
-func (r *Query) LoadEnvoyClusterFromID(id EnvoyClusterID) *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
-	q := r.query.Select("loadEnvoyClusterFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyCluster{
-		query: q,
-	}
-}
-
-// Load a EnvoyEndpoint from its ID.
-func (r *Query) LoadEnvoyEndpointFromID(id EnvoyEndpointID) *EnvoyEndpoint { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
-	q := r.query.Select("loadEnvoyEndpointFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyEndpoint{
-		query: q,
-	}
-}
-
-// Load a Envoy from its ID.
-func (r *Query) LoadEnvoyFromID(id EnvoyID) *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
-	q := r.query.Select("loadEnvoyFromID")
-	q = q.Arg("id", id)
-
-	return &Envoy{
-		query: q,
-	}
-}
-
-// Load a EnvoyHttpConnectionManager from its ID.
-func (r *Query) LoadEnvoyHTTPConnectionManagerFromID(id EnvoyHTTPConnectionManagerID) *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
-	q := r.query.Select("loadEnvoyHttpConnectionManagerFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyHTTPConnectionManager{
-		query: q,
-	}
-}
-
-// Load a EnvoyHttpFilter from its ID.
-func (r *Query) LoadEnvoyHTTPFilterFromID(id EnvoyHTTPFilterID) *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:243:6)
-	q := r.query.Select("loadEnvoyHttpFilterFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyHTTPFilter{
-		query: q,
-	}
-}
-
-// Load a EnvoyListener from its ID.
-func (r *Query) LoadEnvoyListenerFromID(id EnvoyListenerID) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:556:6)
-	q := r.query.Select("loadEnvoyListenerFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyListener{
-		query: q,
-	}
-}
-
-// Load a EnvoyProxy from its ID.
-func (r *Query) LoadEnvoyProxyFromID(id EnvoyProxyID) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
-	q := r.query.Select("loadEnvoyProxyFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyProxy{
-		query: q,
-	}
-}
-
-// Load a EnvoyRouteConfig from its ID.
-func (r *Query) LoadEnvoyRouteConfigFromID(id EnvoyRouteConfigID) *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
-	q := r.query.Select("loadEnvoyRouteConfigFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyRouteConfig{
-		query: q,
-	}
-}
-
-// Load a EnvoyRoute from its ID.
-func (r *Query) LoadEnvoyRouteFromID(id EnvoyRouteID) *EnvoyRoute { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
-	q := r.query.Select("loadEnvoyRouteFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyRoute{
-		query: q,
-	}
-}
-
-// Load a EnvoyServerSecurity from its ID.
-func (r *Query) LoadEnvoyServerSecurityFromID(id EnvoyServerSecurityID) *EnvoyServerSecurity { // envoy (../../../../../daggerverse/envoy/security.go:25:6)
-	q := r.query.Select("loadEnvoyServerSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyServerSecurity{
-		query: q,
-	}
-}
-
-// Load a EnvoyTcpProxy from its ID.
-func (r *Query) LoadEnvoyTCPProxyFromID(id EnvoyTCPProxyID) *EnvoyTCPProxy { // envoy (../../../../../daggerverse/envoy/main.go:463:6)
-	q := r.query.Select("loadEnvoyTcpProxyFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyTCPProxy{
-		query: q,
-	}
-}
-
-// Load a EnvoyUpstreamSecurity from its ID.
-func (r *Query) LoadEnvoyUpstreamSecurityFromID(id EnvoyUpstreamSecurityID) *EnvoyUpstreamSecurity { // envoy (../../../../../daggerverse/envoy/security.go:42:6)
-	q := r.query.Select("loadEnvoyUpstreamSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyUpstreamSecurity{
-		query: q,
-	}
-}
-
-// Load a EnvoyVirtualHost from its ID.
-func (r *Query) LoadEnvoyVirtualHostFromID(id EnvoyVirtualHostID) *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
-	q := r.query.Select("loadEnvoyVirtualHostFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyVirtualHost{
 		query: q,
 	}
 }

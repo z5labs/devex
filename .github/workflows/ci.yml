@@ -25,7 +25,7 @@ jobs:
       - id: list
         uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
-          version: "0.20.8"
+          version: "0.21.3"
           list: "true"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
@@ -76,7 +76,7 @@ jobs:
 
       - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         with:
-          version: "0.20.8"
+          version: "0.21.3"
           module: ${{ matrix.job.module }}
           filter: ${{ matrix.job.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}

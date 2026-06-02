@@ -6,14 +6,11 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
 
-// The `ZigTestsID` scalar type represents an identifier for an object of type ZigTests.
-type ZigTestsID string // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
-
 // Retrieve the binding value, as type ZigTests
-func (r *Binding) AsZigTests() *ZigTests { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
+func (r *Binding) AsZigTests() *ZigTests { // zig-tests (../../../daggerverse/zig/tests/main.go:19:6)
 	q := r.query.Select("asZigTests")
 
 	return &ZigTests{
@@ -22,7 +19,7 @@ func (r *Binding) AsZigTests() *ZigTests { // zig-tests (../../../daggerverse/zi
 }
 
 // Create or update a binding of type ZigTests in the environment
-func (r *Env) WithZigTestsInput(name string, value *ZigTests, description string) *Env { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
+func (r *Env) WithZigTestsInput(name string, value *ZigTests, description string) *Env { // zig-tests (../../../daggerverse/zig/tests/main.go:19:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZigTestsInput")
 	q = q.Arg("name", name)
@@ -35,7 +32,7 @@ func (r *Env) WithZigTestsInput(name string, value *ZigTests, description string
 }
 
 // Declare a desired ZigTests output to be assigned in the environment
-func (r *Env) WithZigTestsOutput(name string, description string) *Env { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
+func (r *Env) WithZigTestsOutput(name string, description string) *Env { // zig-tests (../../../daggerverse/zig/tests/main.go:19:6)
 	q := r.query.Select("withZigTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -45,20 +42,10 @@ func (r *Env) WithZigTestsOutput(name string, description string) *Env { // zig-
 	}
 }
 
-// Load a ZigTests from its ID.
-func (r *Query) LoadZigTestsFromID(id ZigTestsID) *ZigTests { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
-	q := r.query.Select("loadZigTestsFromID")
-	q = q.Arg("id", id)
-
-	return &ZigTests{
-		query: q,
-	}
-}
-
 // Package main implements the test module for the zig Dagger module. Each test
 // is exposed as a standalone dagger function so it can be invoked individually
 // during TDD; All wires them up for parallel execution under `dagger call all`.
-func (r *Query) ZigTests() *ZigTests { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
+func (r *Query) ZigTests() *ZigTests { // zig-tests (../../../daggerverse/zig/tests/main.go:19:6)
 	q := r.query.Select("zigTests")
 
 	return &ZigTests{
@@ -66,7 +53,7 @@ func (r *Query) ZigTests() *ZigTests { // zig-tests (../../../daggerverse/zig/te
 	}
 }
 
-type ZigTests struct { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6)
+type ZigTests struct { // zig-tests (../../../daggerverse/zig/tests/main.go:19:6)
 	query *querybuilder.Selection
 
 	all                            *Void
@@ -76,13 +63,28 @@ type ZigTests struct { // zig-tests (../../../daggerverse/zig/tests/main.go:16:6
 	buildHelloProducesBinary       *Void
 	buildOptimizeReleaseSmall      *Void
 	buildRejectsInvalidOptimize    *Void
+	ccCompilesHelloC               *Void
+	ccCrossWindowsProducesExe      *Void
+	ccRejectsEmptyFiles            *Void
+	ccRejectsPathOutputName        *Void
+	ciCheckRunsChecksAndSkipsBuild *Void
+	ciRunAggregatesFailures        *Void
+	ciRunAllStagesProducesBinary   *Void
+	ciWithFmtPasses                *Void
+	ciWithTestPasses               *Void
 	containerHasZigToolchain       *Void
 	containerInfersVersionFromZon  *Void
+	cxxCompilesHelloCpp            *Void
 	envContainsVersionKey          *Void
 	fmtHelloIsClean                *Void
 	fmtUnformattedReportsFile      *Void
-	id                             *ZigTestsID
+	id                             *ID
+	objCopyProducesBinary          *Void
+	objCopyProducesIntelHex        *Void
+	objCopyRejectsUnknownFormat    *Void
 	runHelloPrintsHello            *Void
+	sizeRejectsNonElf              *Void
+	sizeReportsSections            *Void
 	targetsListsKnownArch          *Void
 	testDirectFilePasses           *Void
 	testHelloBuildStepPasses       *Void
@@ -97,7 +99,7 @@ func (r *ZigTests) WithGraphQLQuery(q *querybuilder.Selection) *ZigTests {
 
 // ZigTestsAllOpts contains options for ZigTests.All
 type ZigTestsAllOpts struct {
-	Parallel int // zig-tests (../../../daggerverse/zig/tests/main.go:37:2)
+	Parallel int // zig-tests (../../../daggerverse/zig/tests/main.go:40:2)
 }
 
 // All runs every zig-module test in parallel.
@@ -106,7 +108,7 @@ type ZigTestsAllOpts struct {
 // 0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions
 // runner, so in-runner parallelism is bounded by the VM's CPU/memory, not by
 // the scheduler. Pass any positive integer to opt into a specific cap.
-func (r *ZigTests) All(ctx context.Context, opts ...ZigTestsAllOpts) error { // zig-tests (../../../daggerverse/zig/tests/main.go:34:1)
+func (r *ZigTests) All(ctx context.Context, opts ...ZigTestsAllOpts) error { // zig-tests (../../../daggerverse/zig/tests/main.go:37:1)
 	if r.all != nil {
 		return nil
 	}
@@ -124,7 +126,7 @@ func (r *ZigTests) All(ctx context.Context, opts ...ZigTestsAllOpts) error { // 
 // BuildCrossTargetProducesBinary cross-compiles the hello fixture for
 // aarch64-linux and asserts an artifact is produced. The binary is not
 // host-runnable, so only its size is checked.
-func (r *ZigTests) BuildCrossTargetProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:195:1)
+func (r *ZigTests) BuildCrossTargetProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:223:1)
 	if r.buildCrossTargetProducesBinary != nil {
 		return nil
 	}
@@ -135,7 +137,7 @@ func (r *ZigTests) BuildCrossTargetProducesBinary(ctx context.Context) error { /
 
 // BuildExeProducesExecutable builds the single-file fixture via build-exe and
 // asserts the produced file is named "main" and non-empty.
-func (r *ZigTests) BuildExeProducesExecutable(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:219:1)
+func (r *ZigTests) BuildExeProducesExecutable(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:247:1)
 	if r.buildExeProducesExecutable != nil {
 		return nil
 	}
@@ -146,7 +148,7 @@ func (r *ZigTests) BuildExeProducesExecutable(ctx context.Context) error { // zi
 
 // BuildExeRejectsEmptyRoot asserts BuildExe rejects an empty root. BuildExe
 // returns a lazy file, so the error surfaces on resolve.
-func (r *ZigTests) BuildExeRejectsEmptyRoot(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:240:1)
+func (r *ZigTests) BuildExeRejectsEmptyRoot(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:268:1)
 	if r.buildExeRejectsEmptyRoot != nil {
 		return nil
 	}
@@ -157,7 +159,7 @@ func (r *ZigTests) BuildExeRejectsEmptyRoot(ctx context.Context) error { // zig-
 
 // BuildHelloProducesBinary builds the hello fixture for the host and asserts
 // the installed executable (zig-out/bin/hello) is non-empty.
-func (r *ZigTests) BuildHelloProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:167:1)
+func (r *ZigTests) BuildHelloProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:195:1)
 	if r.buildHelloProducesBinary != nil {
 		return nil
 	}
@@ -168,7 +170,7 @@ func (r *ZigTests) BuildHelloProducesBinary(ctx context.Context) error { // zig-
 
 // BuildOptimizeReleaseSmall builds the hello fixture with
 // -Doptimize=ReleaseSmall and asserts an executable is produced.
-func (r *ZigTests) BuildOptimizeReleaseSmall(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:180:1)
+func (r *ZigTests) BuildOptimizeReleaseSmall(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:208:1)
 	if r.buildOptimizeReleaseSmall != nil {
 		return nil
 	}
@@ -179,7 +181,7 @@ func (r *ZigTests) BuildOptimizeReleaseSmall(ctx context.Context) error { // zig
 
 // BuildRejectsInvalidOptimize asserts Build rejects an invalid optimize value.
 // Build returns a lazy directory, so the validation error surfaces on resolve.
-func (r *ZigTests) BuildRejectsInvalidOptimize(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:209:1)
+func (r *ZigTests) BuildRejectsInvalidOptimize(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:237:1)
 	if r.buildRejectsInvalidOptimize != nil {
 		return nil
 	}
@@ -188,11 +190,122 @@ func (r *ZigTests) BuildRejectsInvalidOptimize(ctx context.Context) error { // z
 	return q.Execute(ctx)
 }
 
+// CcCompilesHelloC compiles the C fixture for the host with `zig cc` and
+// asserts the produced artifact is non-empty.
+func (r *ZigTests) CcCompilesHelloC(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:334:1)
+	if r.ccCompilesHelloC != nil {
+		return nil
+	}
+	q := r.query.Select("ccCompilesHelloC")
+
+	return q.Execute(ctx)
+}
+
+// CcCrossWindowsProducesExe cross-compiles the C fixture for
+// x86_64-windows-gnu and asserts the artifact carries the requested output
+// name. Resolving .Name runs the cross-compile, so a successful Name read also
+// proves the cross build succeeded.
+func (r *ZigTests) CcCrossWindowsProducesExe(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:464:1)
+	if r.ccCrossWindowsProducesExe != nil {
+		return nil
+	}
+	q := r.query.Select("ccCrossWindowsProducesExe")
+
+	return q.Execute(ctx)
+}
+
+// CcRejectsEmptyFiles asserts Cc rejects an empty files slice. Cc returns a
+// lazy file, so the validation error surfaces on resolve.
+func (r *ZigTests) CcRejectsEmptyFiles(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:481:1)
+	if r.ccRejectsEmptyFiles != nil {
+		return nil
+	}
+	q := r.query.Select("ccRejectsEmptyFiles")
+
+	return q.Execute(ctx)
+}
+
+// CcRejectsPathOutputName asserts Cc rejects a path-like outputName (the
+// parameter is a bare filename, not a path). The validation error surfaces on
+// resolve, before any zig exec runs.
+func (r *ZigTests) CcRejectsPathOutputName(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:498:1)
+	if r.ccRejectsPathOutputName != nil {
+		return nil
+	}
+	q := r.query.Select("ccRejectsPathOutputName")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckRunsChecksAndSkipsBuild configures every stage against the clean hello
+// fixture and calls Check (not Run), asserting no error. To actively prove
+// Check does not invoke the build stage, WithBuild is configured with a
+// nonexistent build step: if Check were to call runBuild, `zig build
+// nonexistent-step` would fail and surface here. A nil return therefore proves
+// both (a) the checks passed and (b) the build was skipped.
+func (r *ZigTests) CiCheckRunsChecksAndSkipsBuild(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:581:1)
+	if r.ciCheckRunsChecksAndSkipsBuild != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckRunsChecksAndSkipsBuild")
+
+	return q.Execute(ctx)
+}
+
+// CiRunAggregatesFailures runs Ci against the ci-bad fixture with both Fmt and
+// Test enabled and asserts stage-1 aggregated BOTH job failures rather than
+// short-circuiting on the first. Fmt fails with the "unformatted files" message
+// and Test fails with a withExec "exit code" error; the parallel aggregator
+// concatenates both, so requiring both signatures in the message proves both
+// jobs ran and both errors propagated (and the build was skipped).
+func (r *ZigTests) CiRunAggregatesFailures(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:599:1)
+	if r.ciRunAggregatesFailures != nil {
+		return nil
+	}
+	q := r.query.Select("ciRunAggregatesFailures")
+
+	return q.Execute(ctx)
+}
+
+// CiRunAllStagesProducesBinary runs Ci with every stage enabled against the
+// hello fixture and asserts a non-empty binary is produced.
+func (r *ZigTests) CiRunAllStagesProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:560:1)
+	if r.ciRunAllStagesProducesBinary != nil {
+		return nil
+	}
+	q := r.query.Select("ciRunAllStagesProducesBinary")
+
+	return q.Execute(ctx)
+}
+
+// CiWithFmtPasses runs Ci with only the Fmt check enabled against the
+// fmt-clean hello fixture and asserts the build stage still produces a
+// non-empty binary.
+func (r *ZigTests) CiWithFmtPasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:534:1)
+	if r.ciWithFmtPasses != nil {
+		return nil
+	}
+	q := r.query.Select("ciWithFmtPasses")
+
+	return q.Execute(ctx)
+}
+
+// CiWithTestPasses runs Ci with only the Test check enabled (zig build test)
+// against the hello fixture and asserts a non-empty binary is produced.
+func (r *ZigTests) CiWithTestPasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:547:1)
+	if r.ciWithTestPasses != nil {
+		return nil
+	}
+	q := r.query.Select("ciWithTestPasses")
+
+	return q.Execute(ctx)
+}
+
 // ContainerHasZigToolchain proves the base container is reachable, the
 // downloaded toolchain is on PATH, the source is mounted at /src, and `zig`
 // runs. This is the canary for every other test — if it fails, the rest can't
 // possibly pass.
-func (r *ZigTests) ContainerHasZigToolchain(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:94:1)
+func (r *ZigTests) ContainerHasZigToolchain(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:122:1)
 	if r.containerHasZigToolchain != nil {
 		return nil
 	}
@@ -207,7 +320,7 @@ func (r *ZigTests) ContainerHasZigToolchain(ctx context.Context) error { // zig-
 // i.e. resolveVersion + ZON parsing wire through to toolchain selection.
 // zonVersion is a different patch than the pinned default, so a match proves
 // inference rather than the fallback.
-func (r *ZigTests) ContainerInfersVersionFromZon(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:113:1)
+func (r *ZigTests) ContainerInfersVersionFromZon(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:141:1)
 	if r.containerInfersVersionFromZon != nil {
 		return nil
 	}
@@ -216,9 +329,20 @@ func (r *ZigTests) ContainerInfersVersionFromZon(ctx context.Context) error { //
 	return q.Execute(ctx)
 }
 
+// CxxCompilesHelloCpp compiles the C++ fixture for the host with `zig c++` and
+// asserts the produced artifact is non-empty.
+func (r *ZigTests) CxxCompilesHelloCpp(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:513:1)
+	if r.cxxCompilesHelloCpp != nil {
+		return nil
+	}
+	q := r.query.Select("cxxCompilesHelloCpp")
+
+	return q.Execute(ctx)
+}
+
 // EnvContainsVersionKey calls the source-less Env and asserts the `zig env`
 // JSON contains the version key.
-func (r *ZigTests) EnvContainsVersionKey(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:141:1)
+func (r *ZigTests) EnvContainsVersionKey(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:169:1)
 	if r.envContainsVersionKey != nil {
 		return nil
 	}
@@ -227,9 +351,9 @@ func (r *ZigTests) EnvContainsVersionKey(ctx context.Context) error { // zig-tes
 	return q.Execute(ctx)
 }
 
-// FmtHelloIsClean runs Fmt against the fmt-clean hello fixture and asserts the
-// output is empty and no error is returned.
-func (r *ZigTests) FmtHelloIsClean(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:281:1)
+// FmtHelloIsClean runs Fmt against the fmt-clean hello fixture and asserts no
+// error is returned.
+func (r *ZigTests) FmtHelloIsClean(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:309:1)
 	if r.fmtHelloIsClean != nil {
 		return nil
 	}
@@ -239,12 +363,11 @@ func (r *ZigTests) FmtHelloIsClean(ctx context.Context) error { // zig-tests (..
 }
 
 // FmtUnformattedReportsFile runs Fmt against the unformatted fixture and
-// asserts it returns an error naming the offending file. Fmt returns the file
-// list both as its string result and inside the error, but a Dagger function's
-// non-error return value is dropped at the GraphQL boundary when it also
-// returns a non-nil error — so the offending path is asserted against the
-// error message, which is what a caller actually receives.
-func (r *ZigTests) FmtUnformattedReportsFile(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:298:1)
+// asserts it returns an error naming the offending file. Fmt surfaces the
+// offending paths only via the error (it returns error alone, since a Dagger
+// function's non-error return value is dropped at the GraphQL boundary when it
+// also returns a non-nil error).
+func (r *ZigTests) FmtUnformattedReportsFile(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:321:1)
 	if r.fmtUnformattedReportsFile != nil {
 		return nil
 	}
@@ -254,13 +377,13 @@ func (r *ZigTests) FmtUnformattedReportsFile(ctx context.Context) error { // zig
 }
 
 // A unique identifier for this ZigTests.
-func (r *ZigTests) ID(ctx context.Context) (ZigTestsID, error) {
+func (r *ZigTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response ZigTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -273,7 +396,7 @@ func (r *ZigTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *ZigTests) XXX_GraphQLIDType() string {
-	return "ZigTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -298,13 +421,46 @@ func (r *ZigTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZigTestsFromID(ZigTestsID(id))
+	*r = ZigTests{query: selectNode(dag.query, id, "ZigTests")}
 	return nil
+}
+
+// ObjCopyProducesBinary converts the BuildExe ELF to a raw .bin and asserts the
+// result is non-empty and no longer carries the ELF magic.
+func (r *ZigTests) ObjCopyProducesBinary(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:353:1)
+	if r.objCopyProducesBinary != nil {
+		return nil
+	}
+	q := r.query.Select("objCopyProducesBinary")
+
+	return q.Execute(ctx)
+}
+
+// ObjCopyProducesIntelHex converts the BuildExe ELF to Intel HEX and asserts the
+// first record begins with ':' (the Intel HEX record start code).
+func (r *ZigTests) ObjCopyProducesIntelHex(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:386:1)
+	if r.objCopyProducesIntelHex != nil {
+		return nil
+	}
+	q := r.query.Select("objCopyProducesIntelHex")
+
+	return q.Execute(ctx)
+}
+
+// ObjCopyRejectsUnknownFormat asserts ObjCopy rejects an unsupported format
+// (e.g. "uf2"). ObjCopy returns a lazy file, so the error surfaces on resolve.
+func (r *ZigTests) ObjCopyRejectsUnknownFormat(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:399:1)
+	if r.objCopyRejectsUnknownFormat != nil {
+		return nil
+	}
+	q := r.query.Select("objCopyRejectsUnknownFormat")
+
+	return q.Execute(ctx)
 }
 
 // RunHelloPrintsHello runs the hello fixture and asserts its stdout contains
 // "hello".
-func (r *ZigTests) RunHelloPrintsHello(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:268:1)
+func (r *ZigTests) RunHelloPrintsHello(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:296:1)
 	if r.runHelloPrintsHello != nil {
 		return nil
 	}
@@ -313,9 +469,31 @@ func (r *ZigTests) RunHelloPrintsHello(ctx context.Context) error { // zig-tests
 	return q.Execute(ctx)
 }
 
+// SizeRejectsNonElf feeds a raw .bin (produced by ObjCopy) into Size and asserts
+// a clear non-ELF error.
+func (r *ZigTests) SizeRejectsNonElf(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:448:1)
+	if r.sizeRejectsNonElf != nil {
+		return nil
+	}
+	q := r.query.Select("sizeRejectsNonElf")
+
+	return q.Execute(ctx)
+}
+
+// SizeReportsSections asserts Size on the BuildExe host ELF returns Text > 0 and
+// internally consistent Flash/Ram rollups.
+func (r *ZigTests) SizeReportsSections(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:412:1)
+	if r.sizeReportsSections != nil {
+		return nil
+	}
+	q := r.query.Select("sizeReportsSections")
+
+	return q.Execute(ctx)
+}
+
 // TargetsListsKnownArch calls the source-less Targets and asserts a known
 // architecture appears in the output.
-func (r *ZigTests) TargetsListsKnownArch(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:154:1)
+func (r *ZigTests) TargetsListsKnownArch(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:182:1)
 	if r.targetsListsKnownArch != nil {
 		return nil
 	}
@@ -326,7 +504,7 @@ func (r *ZigTests) TargetsListsKnownArch(ctx context.Context) error { // zig-tes
 
 // TestDirectFilePasses runs `zig test main.zig` against the single-file
 // fixture and asserts it succeeds.
-func (r *ZigTests) TestDirectFilePasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:259:1)
+func (r *ZigTests) TestDirectFilePasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:287:1)
 	if r.testDirectFilePasses != nil {
 		return nil
 	}
@@ -337,7 +515,7 @@ func (r *ZigTests) TestDirectFilePasses(ctx context.Context) error { // zig-test
 
 // TestHelloBuildStepPasses runs `zig build test` against the hello fixture and
 // asserts it succeeds.
-func (r *ZigTests) TestHelloBuildStepPasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:250:1)
+func (r *ZigTests) TestHelloBuildStepPasses(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:278:1)
 	if r.testHelloBuildStepPasses != nil {
 		return nil
 	}
@@ -348,11 +526,19 @@ func (r *ZigTests) TestHelloBuildStepPasses(ctx context.Context) error { // zig-
 
 // ToolVersionReturnsVersion calls the source-less ToolVersion and asserts it
 // returns a dotted version string.
-func (r *ZigTests) ToolVersionReturnsVersion(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:128:1)
+func (r *ZigTests) ToolVersionReturnsVersion(ctx context.Context) error { // zig-tests (../../../daggerverse/zig/tests/main.go:156:1)
 	if r.toolVersionReturnsVersion != nil {
 		return nil
 	}
 	q := r.query.Select("toolVersionReturnsVersion")
 
 	return q.Execute(ctx)
+}
+
+// AsNode returns this ZigTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *ZigTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

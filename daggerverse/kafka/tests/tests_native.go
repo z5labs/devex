@@ -380,7 +380,7 @@ func mtlsRoundTripOn(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "15s",
 		KeyEncoding:   "raw",
@@ -482,7 +482,7 @@ func internalListenersAreEncryptedOn(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "20s",
 		KeyEncoding:   "raw",
@@ -552,7 +552,7 @@ func tlsRoundTripOn(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "15s",
 		KeyEncoding:   "raw",
@@ -783,7 +783,7 @@ func produceConsumeRoundTripRawOn(ctx context.Context, cluster *dagger.KafkaClus
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "10s",
 		KeyEncoding:   "raw",
@@ -1001,7 +1001,7 @@ func oneControllerTwoBrokersReplicationFactorTwoOn(ctx context.Context, cluster 
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "15s",
 		KeyEncoding:   "raw",
@@ -1173,7 +1173,7 @@ func consumerGroupOnSingleBrokerWorksOn(ctx context.Context, cluster *dagger.Kaf
 	if err != nil {
 		return err
 	}
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "20s",
 		KeyEncoding:   "raw",
@@ -1225,7 +1225,7 @@ func roundTripBinaryOn(ctx context.Context, cluster *dagger.KafkaCluster, encodi
 	}); err != nil {
 		return fmt.Errorf("produce: %w", err)
 	}
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "10s",
 		KeyEncoding:   encoding,

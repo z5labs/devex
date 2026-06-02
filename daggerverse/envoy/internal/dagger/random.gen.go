@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `RandomID` scalar type represents an identifier for an object of type Random.
-type RandomID string // random (../../../../daggerverse/random/main.go:17:6)
 
 // Retrieve the binding value, as type Random
 func (r *Binding) AsRandom() *Random { // random (../../../../daggerverse/random/main.go:17:6)
@@ -45,16 +42,6 @@ func (r *Env) WithRandomOutput(name string, description string) *Env { // random
 	}
 }
 
-// Load a Random from its ID.
-func (r *Query) LoadRandomFromID(id RandomID) *Random { // random (../../../../daggerverse/random/main.go:17:6)
-	q := r.query.Select("loadRandomFromID")
-	q = q.Arg("id", id)
-
-	return &Random{
-		query: q,
-	}
-}
-
 // Random provides functions for generating random values such as UUIDs and
 // random-derived SHA hashes. Each call returns a fresh value; results are not
 // cached by the Dagger engine.
@@ -72,7 +59,7 @@ func (r *Query) Random() *Random { // random (../../../../daggerverse/random/mai
 type Random struct { // random (../../../../daggerverse/random/main.go:17:6)
 	query *querybuilder.Selection
 
-	id     *RandomID
+	id     *ID
 	serial *string
 	sha256 *string
 	sha512 *string
@@ -87,13 +74,13 @@ func (r *Random) WithGraphQLQuery(q *querybuilder.Selection) *Random {
 }
 
 // A unique identifier for this Random.
-func (r *Random) ID(ctx context.Context) (RandomID, error) {
+func (r *Random) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response RandomID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -106,7 +93,7 @@ func (r *Random) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Random) XXX_GraphQLIDType() string {
-	return "RandomID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -131,7 +118,7 @@ func (r *Random) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadRandomFromID(RandomID(id))
+	*r = Random{query: selectNode(dag.query, id, "Random")}
 	return nil
 }
 
@@ -244,4 +231,12 @@ func (r *Random) UUIDV7(ctx context.Context) (string, error) { // random (../../
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// AsNode returns this Random as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Random) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

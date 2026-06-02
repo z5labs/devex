@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `CryptoTestsID` scalar type represents an identifier for an object of type CryptoTests.
-type CryptoTestsID string // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
 
 // Retrieve the binding value, as type CryptoTests
 func (r *Binding) AsCryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
@@ -31,7 +28,7 @@ type CryptoTests struct { // crypto-tests (../../../daggerverse/crypto/tests/mai
 	ecdsaP521KeyShouldNotBeCached *Void
 	ed25519KeyEmitsValidFormats   *Void
 	ed25519KeyShouldNotBeCached   *Void
-	id                            *CryptoTestsID
+	id                            *ID
 	rsaKeyEmitsValidFormats       *Void
 	rsaKeyShouldNotBeCached       *Void
 	sha256MatchesKnownDigest      *Void
@@ -128,13 +125,13 @@ func (r *CryptoTests) Ed25519KeyShouldNotBeCached(ctx context.Context) error { /
 }
 
 // A unique identifier for this CryptoTests.
-func (r *CryptoTests) ID(ctx context.Context) (CryptoTestsID, error) {
+func (r *CryptoTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CryptoTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -147,7 +144,7 @@ func (r *CryptoTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CryptoTests) XXX_GraphQLIDType() string {
-	return "CryptoTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -172,7 +169,7 @@ func (r *CryptoTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCryptoTestsFromID(CryptoTestsID(id))
+	*r = CryptoTests{query: selectNode(dag.query, id, "CryptoTests")}
 	return nil
 }
 
@@ -239,6 +236,14 @@ func (r *CryptoTests) Sha512MatchesKnownDigest(ctx context.Context) error { // c
 	return q.Execute(ctx)
 }
 
+// AsNode returns this CryptoTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CryptoTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Create or update a binding of type CryptoTests in the environment
 func (r *Env) WithCryptoTestsInput(name string, value *CryptoTests, description string) *Env { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
 	assertNotNil("value", value)
@@ -266,16 +271,6 @@ func (r *Env) WithCryptoTestsOutput(name string, description string) *Env { // c
 // Package main implements the test module for the crypto Dagger module.
 func (r *Query) CryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
 	q := r.query.Select("cryptoTests")
-
-	return &CryptoTests{
-		query: q,
-	}
-}
-
-// Load a CryptoTests from its ID.
-func (r *Query) LoadCryptoTestsFromID(id CryptoTestsID) *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
-	q := r.query.Select("loadCryptoTestsFromID")
-	q = q.Arg("id", id)
 
 	return &CryptoTests{
 		query: q,

@@ -4,11 +4,47 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"dagger/tests/internal/dagger"
 )
+
+// consumedRecord mirrors the kafka module's ConsumedRecord. Consume returns a
+// JSON array string (Dagger v0.21 cannot lazily re-resolve fields of objects
+// returned from a +cache="never" cross-module call), so tests unmarshal into
+// this local type. The getter methods preserve the previous object-style call
+// sites (records[i].Key(ctx)); the returned error is always nil.
+type consumedRecord struct {
+	KeyV           string `json:"key"`
+	ValueV         string `json:"value"`
+	KeySchemaIDV   int    `json:"keySchemaId"`
+	ValueSchemaIDV int    `json:"valueSchemaId"`
+}
+
+func (r consumedRecord) Key(context.Context) (string, error)   { return r.KeyV, nil }
+func (r consumedRecord) Value(context.Context) (string, error) { return r.ValueV, nil }
+func (r consumedRecord) KeySchemaID(context.Context) (int, error) {
+	return r.KeySchemaIDV, nil
+}
+func (r consumedRecord) ValueSchemaID(context.Context) (int, error) {
+	return r.ValueSchemaIDV, nil
+}
+
+// consume calls the kafka module's Consume and unmarshals the JSON array it
+// returns into a slice of consumedRecord.
+func consume(ctx context.Context, client *dagger.KafkaClient, topic string, opts dagger.KafkaClientConsumeOpts) ([]consumedRecord, error) {
+	raw, err := client.Consume(ctx, topic, opts)
+	if err != nil {
+		return nil, err
+	}
+	var records []consumedRecord
+	if err := json.Unmarshal([]byte(raw), &records); err != nil {
+		return nil, fmt.Errorf("unmarshal consumed records: %w", err)
+	}
+	return records, nil
+}
 
 // newClusterId mints a fresh KRaft-shaped cluster ID — 16 random bytes
 // rendered as 22 unpadded base64-url characters — by feeding random bytes

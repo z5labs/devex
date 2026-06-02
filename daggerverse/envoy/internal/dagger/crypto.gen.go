@@ -6,20 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `CryptoEcdsaKeyID` scalar type represents an identifier for an object of type CryptoEcdsaKey.
-type CryptoEcdsaKeyID string // crypto (../../../../daggerverse/crypto/main.go:206:6)
-
-// The `CryptoEd25519KeyID` scalar type represents an identifier for an object of type CryptoEd25519Key.
-type CryptoEd25519KeyID string // crypto (../../../../daggerverse/crypto/main.go:250:6)
-
-// The `CryptoID` scalar type represents an identifier for an object of type Crypto.
-type CryptoID string // crypto (../../../../daggerverse/crypto/main.go:37:6)
-
-// The `CryptoRsaKeyID` scalar type represents an identifier for an object of type CryptoRsaKey.
-type CryptoRsaKeyID string // crypto (../../../../daggerverse/crypto/main.go:162:6)
 
 // Retrieve the binding value, as type Crypto
 func (r *Binding) AsCrypto() *Crypto { // crypto (../../../../daggerverse/crypto/main.go:37:6)
@@ -63,7 +51,7 @@ func (r *Binding) AsCryptoRsaKey() *CryptoRsaKey { // crypto (../../../../dagger
 type Crypto struct { // crypto (../../../../daggerverse/crypto/main.go:37:6)
 	query *querybuilder.Selection
 
-	id      *CryptoID
+	id      *ID
 	sha256  *string
 	sha3256 *string
 	sha3512 *string
@@ -136,13 +124,13 @@ func (r *Crypto) GenerateRsaKey(opts ...CryptoGenerateRsaKeyOpts) *CryptoRsaKey 
 }
 
 // A unique identifier for this Crypto.
-func (r *Crypto) ID(ctx context.Context) (CryptoID, error) {
+func (r *Crypto) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CryptoID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -155,7 +143,7 @@ func (r *Crypto) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Crypto) XXX_GraphQLIDType() string {
-	return "CryptoID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -180,7 +168,7 @@ func (r *Crypto) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCryptoFromID(CryptoID(id))
+	*r = Crypto{query: selectNode(dag.query, id, "Crypto")}
 	return nil
 }
 
@@ -259,12 +247,20 @@ func (r *Crypto) Sha512(ctx context.Context, file *File) (string, error) { // cr
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this Crypto as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Crypto) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // EcdsaKey wraps a generated ECDSA keypair. See RsaKey for why each method
 // carries `
 type CryptoEcdsaKey struct { // crypto (../../../../daggerverse/crypto/main.go:206:6)
 	query *querybuilder.Selection
 
-	id *CryptoEcdsaKeyID
+	id *ID
 }
 
 func (r *CryptoEcdsaKey) WithGraphQLQuery(q *querybuilder.Selection) *CryptoEcdsaKey {
@@ -282,13 +278,13 @@ func (r *CryptoEcdsaKey) Der() *File { // crypto (../../../../daggerverse/crypto
 }
 
 // A unique identifier for this CryptoEcdsaKey.
-func (r *CryptoEcdsaKey) ID(ctx context.Context) (CryptoEcdsaKeyID, error) {
+func (r *CryptoEcdsaKey) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CryptoEcdsaKeyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -301,7 +297,7 @@ func (r *CryptoEcdsaKey) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CryptoEcdsaKey) XXX_GraphQLIDType() string {
-	return "CryptoEcdsaKeyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -326,7 +322,7 @@ func (r *CryptoEcdsaKey) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCryptoEcdsaKeyFromID(CryptoEcdsaKeyID(id))
+	*r = CryptoEcdsaKey{query: selectNode(dag.query, id, "CryptoEcdsaKey")}
 	return nil
 }
 
@@ -362,12 +358,20 @@ func (r *CryptoEcdsaKey) PublicKeyPem() *File { // crypto (../../../../daggerver
 	}
 }
 
+// AsNode returns this CryptoEcdsaKey as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CryptoEcdsaKey) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Ed25519Key wraps a generated Ed25519 keypair. See RsaKey for why each
 // method carries `
 type CryptoEd25519Key struct { // crypto (../../../../daggerverse/crypto/main.go:250:6)
 	query *querybuilder.Selection
 
-	id *CryptoEd25519KeyID
+	id *ID
 }
 
 func (r *CryptoEd25519Key) WithGraphQLQuery(q *querybuilder.Selection) *CryptoEd25519Key {
@@ -385,13 +389,13 @@ func (r *CryptoEd25519Key) Der() *File { // crypto (../../../../daggerverse/cryp
 }
 
 // A unique identifier for this CryptoEd25519Key.
-func (r *CryptoEd25519Key) ID(ctx context.Context) (CryptoEd25519KeyID, error) {
+func (r *CryptoEd25519Key) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CryptoEd25519KeyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -404,7 +408,7 @@ func (r *CryptoEd25519Key) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CryptoEd25519Key) XXX_GraphQLIDType() string {
-	return "CryptoEd25519KeyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -429,7 +433,7 @@ func (r *CryptoEd25519Key) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCryptoEd25519KeyFromID(CryptoEd25519KeyID(id))
+	*r = CryptoEd25519Key{query: selectNode(dag.query, id, "CryptoEd25519Key")}
 	return nil
 }
 
@@ -465,6 +469,14 @@ func (r *CryptoEd25519Key) PublicKeyPem() *File { // crypto (../../../../daggerv
 	}
 }
 
+// AsNode returns this CryptoEd25519Key as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CryptoEd25519Key) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // RsaKey wraps a generated RSA keypair. The private key bytes live off the
 // GraphQL surface and are materialized to a *dagger.File on demand.
 //
@@ -479,7 +491,7 @@ func (r *CryptoEd25519Key) PublicKeyPem() *File { // crypto (../../../../daggerv
 type CryptoRsaKey struct { // crypto (../../../../daggerverse/crypto/main.go:162:6)
 	query *querybuilder.Selection
 
-	id *CryptoRsaKeyID
+	id *ID
 }
 
 func (r *CryptoRsaKey) WithGraphQLQuery(q *querybuilder.Selection) *CryptoRsaKey {
@@ -497,13 +509,13 @@ func (r *CryptoRsaKey) Der() *File { // crypto (../../../../daggerverse/crypto/m
 }
 
 // A unique identifier for this CryptoRsaKey.
-func (r *CryptoRsaKey) ID(ctx context.Context) (CryptoRsaKeyID, error) {
+func (r *CryptoRsaKey) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CryptoRsaKeyID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -516,7 +528,7 @@ func (r *CryptoRsaKey) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CryptoRsaKey) XXX_GraphQLIDType() string {
-	return "CryptoRsaKeyID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -541,7 +553,7 @@ func (r *CryptoRsaKey) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCryptoRsaKeyFromID(CryptoRsaKeyID(id))
+	*r = CryptoRsaKey{query: selectNode(dag.query, id, "CryptoRsaKey")}
 	return nil
 }
 
@@ -574,6 +586,14 @@ func (r *CryptoRsaKey) PublicKeyPem() *File { // crypto (../../../../daggerverse
 
 	return &File{
 		query: q,
+	}
+}
+
+// AsNode returns this CryptoRsaKey as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CryptoRsaKey) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 
@@ -680,46 +700,6 @@ func (r *Query) Crypto() *Crypto { // crypto (../../../../daggerverse/crypto/mai
 	q := r.query.Select("crypto")
 
 	return &Crypto{
-		query: q,
-	}
-}
-
-// Load a CryptoEcdsaKey from its ID.
-func (r *Query) LoadCryptoEcdsaKeyFromID(id CryptoEcdsaKeyID) *CryptoEcdsaKey { // crypto (../../../../daggerverse/crypto/main.go:206:6)
-	q := r.query.Select("loadCryptoEcdsaKeyFromID")
-	q = q.Arg("id", id)
-
-	return &CryptoEcdsaKey{
-		query: q,
-	}
-}
-
-// Load a CryptoEd25519Key from its ID.
-func (r *Query) LoadCryptoEd25519KeyFromID(id CryptoEd25519KeyID) *CryptoEd25519Key { // crypto (../../../../daggerverse/crypto/main.go:250:6)
-	q := r.query.Select("loadCryptoEd25519KeyFromID")
-	q = q.Arg("id", id)
-
-	return &CryptoEd25519Key{
-		query: q,
-	}
-}
-
-// Load a Crypto from its ID.
-func (r *Query) LoadCryptoFromID(id CryptoID) *Crypto { // crypto (../../../../daggerverse/crypto/main.go:37:6)
-	q := r.query.Select("loadCryptoFromID")
-	q = q.Arg("id", id)
-
-	return &Crypto{
-		query: q,
-	}
-}
-
-// Load a CryptoRsaKey from its ID.
-func (r *Query) LoadCryptoRsaKeyFromID(id CryptoRsaKeyID) *CryptoRsaKey { // crypto (../../../../daggerverse/crypto/main.go:162:6)
-	q := r.query.Select("loadCryptoRsaKeyFromID")
-	q = q.Arg("id", id)
-
-	return &CryptoRsaKey{
 		query: q,
 	}
 }

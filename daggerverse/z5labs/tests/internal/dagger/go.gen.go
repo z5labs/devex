@@ -6,14 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `GoCiID` scalar type represents an identifier for an object of type GoCi.
-type GoCiID string // go (../../../../../daggerverse/go/ci.go:27:6)
-
-// The `GoID` scalar type represents an identifier for an object of type Go.
-type GoID string // go (../../../../../daggerverse/go/main.go:24:6)
 
 // Retrieve the binding value, as type Go
 func (r *Binding) AsGo() *Go { // go (../../../../../daggerverse/go/main.go:24:6)
@@ -89,7 +83,7 @@ type Go struct { // go (../../../../../daggerverse/go/main.go:24:6)
 
 	env         *string
 	fmt         *string
-	id          *GoID
+	id          *ID
 	modDownload *Void
 	modVerify   *Void
 	run         *string
@@ -231,13 +225,13 @@ func (r *Go) Generate(source *Directory, opts ...GoGenerateOpts) *Directory { //
 }
 
 // A unique identifier for this Go.
-func (r *Go) ID(ctx context.Context) (GoID, error) {
+func (r *Go) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GoID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -250,7 +244,7 @@ func (r *Go) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Go) XXX_GraphQLIDType() string {
-	return "GoID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -275,7 +269,7 @@ func (r *Go) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGoFromID(GoID(id))
+	*r = Go{query: selectNode(dag.query, id, "Go")}
 	return nil
 }
 
@@ -488,6 +482,14 @@ func (r *Go) Work(ctx context.Context, source *Directory, subcommand string, opt
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this Go as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Go) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Ci is a chained builder for a standardized Go CI pipeline. Construct via
 // Go.Ci(source); enable stages via the With* methods; call Run to execute
 // checks-then-build, or Check to run only the parallel checks.
@@ -500,7 +502,7 @@ type GoCi struct { // go (../../../../../daggerverse/go/ci.go:27:6)
 	query *querybuilder.Selection
 
 	check *Void
-	id    *GoCiID
+	id    *ID
 }
 type WithGoCiFunc func(r *GoCi) *GoCi
 
@@ -532,13 +534,13 @@ func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../daggerve
 }
 
 // A unique identifier for this GoCi.
-func (r *GoCi) ID(ctx context.Context) (GoCiID, error) {
+func (r *GoCi) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GoCiID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -551,7 +553,7 @@ func (r *GoCi) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GoCi) XXX_GraphQLIDType() string {
-	return "GoCiID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -576,7 +578,7 @@ func (r *GoCi) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGoCiFromID(GoCiID(id))
+	*r = GoCi{query: selectNode(dag.query, id, "GoCi")}
 	return nil
 }
 
@@ -691,6 +693,14 @@ func (r *GoCi) WithVet() *GoCi { // go (../../../../../daggerverse/go/ci.go:66:1
 	}
 }
 
+// AsNode returns this GoCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GoCi) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // GoOpts contains options for Query.Go
 type GoOpts struct {
 	Version string // go (../../../../../daggerverse/go/main.go:37:2)
@@ -708,26 +718,6 @@ func (r *Query) Go(opts ...GoOpts) *Go { // go (../../../../../daggerverse/go/ma
 			q = q.Arg("version", opts[i].Version)
 		}
 	}
-
-	return &Go{
-		query: q,
-	}
-}
-
-// Load a GoCi from its ID.
-func (r *Query) LoadGoCiFromID(id GoCiID) *GoCi { // go (../../../../../daggerverse/go/ci.go:27:6)
-	q := r.query.Select("loadGoCiFromID")
-	q = q.Arg("id", id)
-
-	return &GoCi{
-		query: q,
-	}
-}
-
-// Load a Go from its ID.
-func (r *Query) LoadGoFromID(id GoID) *Go { // go (../../../../../daggerverse/go/main.go:24:6)
-	q := r.query.Select("loadGoFromID")
-	q = q.Arg("id", id)
 
 	return &Go{
 		query: q,

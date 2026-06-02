@@ -19,7 +19,7 @@ import (
 
 	"dagger/kafka/internal/dagger"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
 
 var dag = dagger.Connect()
@@ -37,7 +37,10 @@ func setMarshalContext(ctx context.Context) {
 	dagger.SetMarshalContext(ctx)
 }
 
-type DaggerObject = querybuilder.GraphQLMarshaller
+type DaggerObject interface {
+	querybuilder.GraphQLMarshaller
+	ID(ctx context.Context) (dagger.ID, error)
+}
 
 type ExecError = dagger.ExecError
 
@@ -335,38 +338,6 @@ func (r *SchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 	}
 	r.Svc = concrete.Svc
 	r.BaseURL = concrete.BaseURL
-	return nil
-}
-
-func (r ConsumedRecord) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Key           string
-		Value         string
-		KeySchemaID   int
-		ValueSchemaID int
-	}
-	concrete.Key = r.Key
-	concrete.Value = r.Value
-	concrete.KeySchemaID = r.KeySchemaID
-	concrete.ValueSchemaID = r.ValueSchemaID
-	return json.Marshal(&concrete)
-}
-
-func (r *ConsumedRecord) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Key           string
-		Value         string
-		KeySchemaID   int
-		ValueSchemaID int
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Key = concrete.Key
-	r.Value = concrete.Value
-	r.KeySchemaID = concrete.KeySchemaID
-	r.ValueSchemaID = concrete.ValueSchemaID
 	return nil
 }
 

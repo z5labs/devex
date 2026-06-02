@@ -6,23 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `DgraphClientID` scalar type represents an identifier for an object of type DgraphClient.
-type DgraphClientID string // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
-
-// The `DgraphClientSecurityID` scalar type represents an identifier for an object of type DgraphClientSecurity.
-type DgraphClientSecurityID string // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
-
-// The `DgraphClusterID` scalar type represents an identifier for an object of type DgraphCluster.
-type DgraphClusterID string // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
-
-// The `DgraphID` scalar type represents an identifier for an object of type Dgraph.
-type DgraphID string // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
-
-// The `DgraphServerSecurityID` scalar type represents an identifier for an object of type DgraphServerSecurity.
-type DgraphServerSecurityID string // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
 
 // Retrieve the binding value, as type Dgraph
 func (r *Binding) AsDgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
@@ -76,7 +61,7 @@ func (r *Binding) AsDgraphServerSecurity() *DgraphServerSecurity { // dgraph (..
 type Dgraph struct { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
 	query *querybuilder.Selection
 
-	id *DgraphID
+	id *ID
 }
 
 func (r *Dgraph) WithGraphQLQuery(q *querybuilder.Selection) *Dgraph {
@@ -201,13 +186,13 @@ func (r *Dgraph) Cluster(clientListenerSecurity *DgraphServerSecurity, opts ...D
 }
 
 // A unique identifier for this Dgraph.
-func (r *Dgraph) ID(ctx context.Context) (DgraphID, error) {
+func (r *Dgraph) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -220,7 +205,7 @@ func (r *Dgraph) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Dgraph) XXX_GraphQLIDType() string {
-	return "DgraphID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -245,7 +230,7 @@ func (r *Dgraph) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphFromID(DgraphID(id))
+	*r = Dgraph{query: selectNode(dag.query, id, "Dgraph")}
 	return nil
 }
 
@@ -269,6 +254,14 @@ func (r *Dgraph) PlaintextServerSecurity() *DgraphServerSecurity { // dgraph (..
 	}
 }
 
+// AsNode returns this Dgraph as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Dgraph) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Client is a dgo-backed Dgraph client. Each method opens a fresh
 // gRPC connection so the function call is stateless from Dagger's
 // perspective.
@@ -277,7 +270,7 @@ type DgraphClient struct { // dgraph (../../../../../daggerverse/dgraph/client.g
 
 	alterSchema   *Void
 	dropAll       *Void
-	id            *DgraphClientID
+	id            *ID
 	mutate        *string
 	queryWithVars *string
 	runQuery      *string
@@ -312,13 +305,13 @@ func (r *DgraphClient) DropAll(ctx context.Context) error { // dgraph (../../../
 }
 
 // A unique identifier for this DgraphClient.
-func (r *DgraphClient) ID(ctx context.Context) (DgraphClientID, error) {
+func (r *DgraphClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphClientID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -331,7 +324,7 @@ func (r *DgraphClient) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *DgraphClient) XXX_GraphQLIDType() string {
-	return "DgraphClientID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -356,7 +349,7 @@ func (r *DgraphClient) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphClientFromID(DgraphClientID(id))
+	*r = DgraphClient{query: selectNode(dag.query, id, "DgraphClient")}
 	return nil
 }
 
@@ -423,12 +416,20 @@ func (r *DgraphClient) RunQuery(ctx context.Context, dql string) (string, error)
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this DgraphClient as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *DgraphClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ClientSecurity describes how a dgo client authenticates to a Dgraph
 // Alpha. PLAINTEXT only in this story; TLS / mTLS land in a follow-up.
 type DgraphClientSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
 	query *querybuilder.Selection
 
-	id *DgraphClientSecurityID
+	id *ID
 }
 
 func (r *DgraphClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *DgraphClientSecurity {
@@ -438,13 +439,13 @@ func (r *DgraphClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Dgra
 }
 
 // A unique identifier for this DgraphClientSecurity.
-func (r *DgraphClientSecurity) ID(ctx context.Context) (DgraphClientSecurityID, error) {
+func (r *DgraphClientSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphClientSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -457,7 +458,7 @@ func (r *DgraphClientSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *DgraphClientSecurity) XXX_GraphQLIDType() string {
-	return "DgraphClientSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -482,8 +483,16 @@ func (r *DgraphClientSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphClientSecurityFromID(DgraphClientSecurityID(id))
+	*r = DgraphClientSecurity{query: selectNode(dag.query, id, "DgraphClientSecurity")}
 	return nil
+}
+
+// AsNode returns this DgraphClientSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *DgraphClientSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Cluster represents a running Dgraph cluster: a single Zero coordinator
@@ -493,7 +502,7 @@ func (r *DgraphClientSecurity) UnmarshalJSON(bs []byte) error {
 type DgraphCluster struct { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
 	query *querybuilder.Selection
 
-	id   *DgraphClusterID
+	id   *ID
 	stop *Void
 }
 
@@ -567,13 +576,13 @@ func (r *DgraphCluster) HTTPEndpoints(ctx context.Context) ([]string, error) { /
 }
 
 // A unique identifier for this DgraphCluster.
-func (r *DgraphCluster) ID(ctx context.Context) (DgraphClusterID, error) {
+func (r *DgraphCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -586,7 +595,7 @@ func (r *DgraphCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *DgraphCluster) XXX_GraphQLIDType() string {
-	return "DgraphClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -611,7 +620,7 @@ func (r *DgraphCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphClusterFromID(DgraphClusterID(id))
+	*r = DgraphCluster{query: selectNode(dag.query, id, "DgraphCluster")}
 	return nil
 }
 
@@ -629,6 +638,14 @@ func (r *DgraphCluster) Stop(ctx context.Context) error { // dgraph (../../../..
 	return q.Execute(ctx)
 }
 
+// AsNode returns this DgraphCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *DgraphCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ServerSecurity describes how a Dgraph cluster's listeners authenticate
 // and encrypt traffic. In this story only PLAINTEXT is supported on
 // every listener (client-facing and internal); TLS / mTLS variants land
@@ -640,7 +657,7 @@ func (r *DgraphCluster) Stop(ctx context.Context) error { // dgraph (../../../..
 type DgraphServerSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
 	query *querybuilder.Selection
 
-	id *DgraphServerSecurityID
+	id *ID
 }
 
 func (r *DgraphServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *DgraphServerSecurity {
@@ -650,13 +667,13 @@ func (r *DgraphServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Dgra
 }
 
 // A unique identifier for this DgraphServerSecurity.
-func (r *DgraphServerSecurity) ID(ctx context.Context) (DgraphServerSecurityID, error) {
+func (r *DgraphServerSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphServerSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -669,7 +686,7 @@ func (r *DgraphServerSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *DgraphServerSecurity) XXX_GraphQLIDType() string {
-	return "DgraphServerSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -694,8 +711,16 @@ func (r *DgraphServerSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphServerSecurityFromID(DgraphServerSecurityID(id))
+	*r = DgraphServerSecurity{query: selectNode(dag.query, id, "DgraphServerSecurity")}
 	return nil
+}
+
+// AsNode returns this DgraphServerSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *DgraphServerSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Create or update a binding of type DgraphClient in the environment
@@ -826,56 +851,6 @@ func (r *Query) Dgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/
 	q := r.query.Select("dgraph")
 
 	return &Dgraph{
-		query: q,
-	}
-}
-
-// Load a DgraphClient from its ID.
-func (r *Query) LoadDgraphClientFromID(id DgraphClientID) *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
-	q := r.query.Select("loadDgraphClientFromID")
-	q = q.Arg("id", id)
-
-	return &DgraphClient{
-		query: q,
-	}
-}
-
-// Load a DgraphClientSecurity from its ID.
-func (r *Query) LoadDgraphClientSecurityFromID(id DgraphClientSecurityID) *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
-	q := r.query.Select("loadDgraphClientSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &DgraphClientSecurity{
-		query: q,
-	}
-}
-
-// Load a DgraphCluster from its ID.
-func (r *Query) LoadDgraphClusterFromID(id DgraphClusterID) *DgraphCluster { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
-	q := r.query.Select("loadDgraphClusterFromID")
-	q = q.Arg("id", id)
-
-	return &DgraphCluster{
-		query: q,
-	}
-}
-
-// Load a Dgraph from its ID.
-func (r *Query) LoadDgraphFromID(id DgraphID) *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
-	q := r.query.Select("loadDgraphFromID")
-	q = q.Arg("id", id)
-
-	return &Dgraph{
-		query: q,
-	}
-}
-
-// Load a DgraphServerSecurity from its ID.
-func (r *Query) LoadDgraphServerSecurityFromID(id DgraphServerSecurityID) *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
-	q := r.query.Select("loadDgraphServerSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &DgraphServerSecurity{
 		query: q,
 	}
 }

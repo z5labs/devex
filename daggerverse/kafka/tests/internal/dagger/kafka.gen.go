@@ -6,41 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `KafkaClientID` scalar type represents an identifier for an object of type KafkaClient.
-type KafkaClientID string // kafka (../../../../../daggerverse/kafka/client.go:31:6)
-
-// The `KafkaClientSecurityID` scalar type represents an identifier for an object of type KafkaClientSecurity.
-type KafkaClientSecurityID string // kafka (../../../../../daggerverse/kafka/security.go:23:6)
-
-// The `KafkaClusterID` scalar type represents an identifier for an object of type KafkaCluster.
-type KafkaClusterID string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
-
-// The `KafkaConsumedRecordID` scalar type represents an identifier for an object of type KafkaConsumedRecord.
-type KafkaConsumedRecordID string // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-
-// The `KafkaID` scalar type represents an identifier for an object of type Kafka.
-type KafkaID string // kafka (../../../../../daggerverse/kafka/main.go:37:6)
-
-// The `KafkaRedpandaClusterID` scalar type represents an identifier for an object of type KafkaRedpandaCluster.
-type KafkaRedpandaClusterID string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
-
-// The `KafkaRedpandaServerSecurityID` scalar type represents an identifier for an object of type KafkaRedpandaServerSecurity.
-type KafkaRedpandaServerSecurityID string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
-
-// The `KafkaRegisteredSchemaID` scalar type represents an identifier for an object of type KafkaRegisteredSchema.
-type KafkaRegisteredSchemaID string // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
-
-// The `KafkaSchemaRegistryClientID` scalar type represents an identifier for an object of type KafkaSchemaRegistryClient.
-type KafkaSchemaRegistryClientID string // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
-
-// The `KafkaSchemaRegistryID` scalar type represents an identifier for an object of type KafkaSchemaRegistry.
-type KafkaSchemaRegistryID string // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
-
-// The `KafkaServerSecurityID` scalar type represents an identifier for an object of type KafkaServerSecurity.
-type KafkaServerSecurityID string // kafka (../../../../../daggerverse/kafka/security.go:8:6)
 
 // Retrieve the binding value, as type Kafka
 func (r *Binding) AsKafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
@@ -74,15 +41,6 @@ func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../dagg
 	q := r.query.Select("asKafkaCluster")
 
 	return &KafkaCluster{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type KafkaConsumedRecord
-func (r *Binding) AsKafkaConsumedRecord() *KafkaConsumedRecord { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	q := r.query.Select("asKafkaConsumedRecord")
-
-	return &KafkaConsumedRecord{
 		query: q,
 	}
 }
@@ -205,30 +163,6 @@ func (r *Env) WithKafkaClusterInput(name string, value *KafkaCluster, descriptio
 // Declare a desired KafkaCluster output to be assigned in the environment
 func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
 	q := r.query.Select("withKafkaClusterOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type KafkaConsumedRecord in the environment
-func (r *Env) WithKafkaConsumedRecordInput(name string, value *KafkaConsumedRecord, description string) *Env { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withKafkaConsumedRecordInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired KafkaConsumedRecord output to be assigned in the environment
-func (r *Env) WithKafkaConsumedRecordOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	q := r.query.Select("withKafkaConsumedRecordOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -411,7 +345,7 @@ func (r *Env) WithKafkaServerSecurityOutput(name string, description string) *En
 type Kafka struct { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
 	query *querybuilder.Selection
 
-	id *KafkaID
+	id *ID
 }
 
 func (r *Kafka) WithGraphQLQuery(q *querybuilder.Selection) *Kafka {
@@ -596,7 +530,7 @@ func (r *Kafka) ApicurioSchemaRegistry(cluster *KafkaCluster, opts ...KafkaApicu
 
 // Client constructs a franz-go-backed Kafka client that targets the given
 // bootstrap servers. No I/O happens at construction time.
-func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/client.go:61:1)
+func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/client.go:66:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("bootstrapServers", bootstrapServers)
@@ -707,13 +641,13 @@ func (r *Kafka) ConfluentSchemaRegistry(cluster *KafkaCluster, opts ...KafkaConf
 }
 
 // A unique identifier for this Kafka.
-func (r *Kafka) ID(ctx context.Context) (KafkaID, error) {
+func (r *Kafka) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -726,7 +660,7 @@ func (r *Kafka) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Kafka) XXX_GraphQLIDType() string {
-	return "KafkaID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -751,7 +685,7 @@ func (r *Kafka) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaFromID(KafkaID(id))
+	*r = Kafka{query: selectNode(dag.query, id, "Kafka")}
 	return nil
 }
 
@@ -985,14 +919,23 @@ func (r *Kafka) TLSServerSecurity(caKeyStore *File, caKeyStorePassword *Secret) 
 	}
 }
 
+// AsNode returns this Kafka as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Kafka) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Client is a franz-go-backed Kafka client. Each method opens a fresh
 // connection so the function call is stateless from Dagger's perspective.
 type KafkaClient struct { // kafka (../../../../../daggerverse/kafka/client.go:31:6)
 	query *querybuilder.Selection
 
+	consume     *string
 	createTopic *Void
 	deleteTopic *Void
-	id          *KafkaClientID
+	id          *ID
 	produce     *Void
 }
 
@@ -1006,30 +949,32 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:565:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:572:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:567:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:574:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:569:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:576:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:571:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:578:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:573:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:580:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:575:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:582:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:577:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:584:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:579:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:586:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
 // earliest offset, returning when either maxMessages have been gathered or
 // the parsed timeout elapses. Each record's key and value are encoded into
-// the requested string forms before being returned.
+// the requested string forms before being returned. The records are returned
+// as a JSON array string (a `[]ConsumedRecord` marshaled with encoding/json);
+// callers unmarshal it into their own struct — see ConsumedRecord for why.
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
@@ -1054,7 +999,10 @@ type KafkaClientConsumeOpts struct {
 // error out and abandon the remaining poll. Default "" is
 // pass-through; "JSON" is the only non-empty value accepted in this
 // story.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) ([]KafkaConsumedRecord, error) { // kafka (../../../../../daggerverse/kafka/client.go:561:1)
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:568:1)
+	if r.consume != nil {
+		return *r.consume, nil
+	}
 	q := r.query.Select("consume")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `maxMessages` optional argument
@@ -1092,48 +1040,25 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 	}
 	q = q.Arg("topic", topic)
 
-	q = q.Select("id")
-
-	type consume struct {
-		Id KafkaConsumedRecordID
-	}
-
-	convert := func(fields []consume) []KafkaConsumedRecord {
-		out := []KafkaConsumedRecord{}
-
-		for i := range fields {
-			val := KafkaConsumedRecord{id: &fields[i].Id}
-			val.query = q.Root().Select("loadKafkaConsumedRecordFromID").Arg("id", fields[i].Id)
-			out = append(out, val)
-		}
-
-		return out
-	}
-	var response []consume
+	var response string
 
 	q = q.Bind(&response)
-
-	err := q.Execute(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return convert(response), nil
+	return response, q.Execute(ctx)
 }
 
 // KafkaClientCreateTopicOpts contains options for KafkaClient.CreateTopic
 type KafkaClientCreateTopicOpts struct {
 
 	// Default: 1
-	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:389:2)
+	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:394:2)
 
 	// Default: 1
-	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:391:2)
+	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:396:2)
 }
 
 // CreateTopic creates a new topic with the given partition count and
 // replication factor. Errors out if the topic already exists.
-func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:385:1)
+func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:390:1)
 	if r.createTopic != nil {
 		return nil
 	}
@@ -1154,7 +1079,7 @@ func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...Kafk
 }
 
 // DeleteTopic deletes the named topic.
-func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:419:1)
+func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:424:1)
 	if r.deleteTopic != nil {
 		return nil
 	}
@@ -1165,13 +1090,13 @@ func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // k
 }
 
 // A unique identifier for this KafkaClient.
-func (r *KafkaClient) ID(ctx context.Context) (KafkaClientID, error) {
+func (r *KafkaClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaClientID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1184,7 +1109,7 @@ func (r *KafkaClient) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaClient) XXX_GraphQLIDType() string {
-	return "KafkaClientID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1209,12 +1134,12 @@ func (r *KafkaClient) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaClientFromID(KafkaClientID(id))
+	*r = KafkaClient{query: selectNode(dag.query, id, "KafkaClient")}
 	return nil
 }
 
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:671:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:688:1)
 	q := r.query.Select("listTopics")
 
 	var response []string
@@ -1227,18 +1152,18 @@ func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kaf
 type KafkaClientProduceOpts struct {
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:464:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:469:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:466:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:471:2)
 
-	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:468:2)
+	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:473:2)
 
-	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:470:2)
+	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:475:2)
 
-	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:472:2)
+	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:477:2)
 
-	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:474:2)
+	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:479:2)
 }
 
 // Produce synchronously writes one record to the topic. Key and value are
@@ -1258,7 +1183,7 @@ type KafkaClientProduceOpts struct {
 // JSON payload and prepend the Confluent header. Invalid JSON is
 // rejected before any broker I/O. Default "" is pass-through; "JSON"
 // is the only non-empty value accepted in this story.
-func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:458:1)
+func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:463:1)
 	if r.produce != nil {
 		return nil
 	}
@@ -1306,11 +1231,19 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 // export the parent directory (`props.Directory()`) so the relative
 // references resolve. Passwords appear plaintext, which is a Kafka CLI
 // constraint.
-func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:204:1)
+func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:209:1)
 	q := r.query.Select("propertiesFile")
 
 	return &File{
 		query: q,
+	}
+}
+
+// AsNode returns this KafkaClient as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 
@@ -1319,7 +1252,7 @@ func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerve
 type KafkaClientSecurity struct { // kafka (../../../../../daggerverse/kafka/security.go:23:6)
 	query *querybuilder.Selection
 
-	id *KafkaClientSecurityID
+	id *ID
 }
 
 func (r *KafkaClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClientSecurity {
@@ -1329,13 +1262,13 @@ func (r *KafkaClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Kafka
 }
 
 // A unique identifier for this KafkaClientSecurity.
-func (r *KafkaClientSecurity) ID(ctx context.Context) (KafkaClientSecurityID, error) {
+func (r *KafkaClientSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaClientSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1348,7 +1281,7 @@ func (r *KafkaClientSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaClientSecurity) XXX_GraphQLIDType() string {
-	return "KafkaClientSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1373,8 +1306,16 @@ func (r *KafkaClientSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaClientSecurityFromID(KafkaClientSecurityID(id))
+	*r = KafkaClientSecurity{query: selectNode(dag.query, id, "KafkaClientSecurity")}
 	return nil
+}
+
+// AsNode returns this KafkaClientSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaClientSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Cluster represents a running KRaft Kafka cluster, holding references to
@@ -1383,7 +1324,7 @@ func (r *KafkaClientSecurity) UnmarshalJSON(bs []byte) error {
 type KafkaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
 	query *querybuilder.Selection
 
-	id   *KafkaClusterID
+	id   *ID
 	stop *Void
 }
 
@@ -1431,13 +1372,13 @@ func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // k
 }
 
 // A unique identifier for this KafkaCluster.
-func (r *KafkaCluster) ID(ctx context.Context) (KafkaClusterID, error) {
+func (r *KafkaCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1450,7 +1391,7 @@ func (r *KafkaCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaCluster) XXX_GraphQLIDType() string {
-	return "KafkaClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1475,7 +1416,7 @@ func (r *KafkaCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaClusterFromID(KafkaClusterID(id))
+	*r = KafkaCluster{query: selectNode(dag.query, id, "KafkaCluster")}
 	return nil
 }
 
@@ -1498,123 +1439,12 @@ func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../.
 	return q.Execute(ctx)
 }
 
-// ConsumedRecord is a single record returned by Client.Consume, with key and
-// value already encoded into the requested string representation. KeySchemaID
-// and ValueSchemaID are populated when Consume runs with schemaRegistryAware
-// and the corresponding record bytes carry the Confluent wire-format header
-// (`0x00 || uint32be(schemaID) || payload`); otherwise they are 0 and the
-// key/value bytes pass through untouched.
-type KafkaConsumedRecord struct { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	query *querybuilder.Selection
-
-	id            *KafkaConsumedRecordID
-	key           *string
-	keySchemaId   *int
-	value         *string
-	valueSchemaId *int
-}
-
-func (r *KafkaConsumedRecord) WithGraphQLQuery(q *querybuilder.Selection) *KafkaConsumedRecord {
-	return &KafkaConsumedRecord{
-		query: q,
+// AsNode returns this KafkaCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
-}
-
-// A unique identifier for this KafkaConsumedRecord.
-func (r *KafkaConsumedRecord) ID(ctx context.Context) (KafkaConsumedRecordID, error) {
-	if r.id != nil {
-		return *r.id, nil
-	}
-	q := r.query.Select("id")
-
-	var response KafkaConsumedRecordID
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *KafkaConsumedRecord) XXX_GraphQLType() string {
-	return "KafkaConsumedRecord"
-}
-
-// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *KafkaConsumedRecord) XXX_GraphQLIDType() string {
-	return "KafkaConsumedRecordID"
-}
-
-// XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *KafkaConsumedRecord) XXX_GraphQLID(ctx context.Context) (string, error) {
-	id, err := r.ID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(id), nil
-}
-
-func (r *KafkaConsumedRecord) MarshalJSON() ([]byte, error) {
-	id, err := r.ID(marshalCtx)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(id)
-}
-func (r *KafkaConsumedRecord) UnmarshalJSON(bs []byte) error {
-	var id string
-	err := json.Unmarshal(bs, &id)
-	if err != nil {
-		return err
-	}
-	*r = *dag.LoadKafkaConsumedRecordFromID(KafkaConsumedRecordID(id))
-	return nil
-}
-
-func (r *KafkaConsumedRecord) Key(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:53:2)
-	if r.key != nil {
-		return *r.key, nil
-	}
-	q := r.query.Select("key")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) KeySchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/client.go:55:2)
-	if r.keySchemaId != nil {
-		return *r.keySchemaId, nil
-	}
-	q := r.query.Select("keySchemaId")
-
-	var response int
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) Value(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:54:2)
-	if r.value != nil {
-		return *r.value, nil
-	}
-	q := r.query.Select("value")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) ValueSchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/client.go:56:2)
-	if r.valueSchemaId != nil {
-		return *r.valueSchemaId, nil
-	}
-	q := r.query.Select("valueSchemaId")
-
-	var response int
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
 }
 
 // RedpandaCluster is the Redpanda counterpart to *Cluster. Redpanda speaks
@@ -1626,7 +1456,7 @@ func (r *KafkaConsumedRecord) ValueSchemaID(ctx context.Context) (int, error) { 
 type KafkaRedpandaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
 	query *querybuilder.Selection
 
-	id   *KafkaRedpandaClusterID
+	id   *ID
 	stop *Void
 }
 
@@ -1673,13 +1503,13 @@ func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClien
 }
 
 // A unique identifier for this KafkaRedpandaCluster.
-func (r *KafkaRedpandaCluster) ID(ctx context.Context) (KafkaRedpandaClusterID, error) {
+func (r *KafkaRedpandaCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaRedpandaClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1692,7 +1522,7 @@ func (r *KafkaRedpandaCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaRedpandaCluster) XXX_GraphQLIDType() string {
-	return "KafkaRedpandaClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1717,7 +1547,7 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaRedpandaClusterFromID(KafkaRedpandaClusterID(id))
+	*r = KafkaRedpandaCluster{query: selectNode(dag.query, id, "KafkaRedpandaCluster")}
 	return nil
 }
 
@@ -1757,6 +1587,14 @@ func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../..
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KafkaRedpandaCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaRedpandaCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // RedpandaServerSecurity carries the external-listener security profile for
 // a Redpanda cluster. Same shape as *ServerSecurity (PKCS#12 CAso callers don't have to convert; the constructor extracts PEM from the
 // issued leaf internally for redpanda.yaml. Separate type from
@@ -1765,7 +1603,7 @@ func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../..
 type KafkaRedpandaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
 	query *querybuilder.Selection
 
-	id *KafkaRedpandaServerSecurityID
+	id *ID
 }
 
 func (r *KafkaRedpandaServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *KafkaRedpandaServerSecurity {
@@ -1775,13 +1613,13 @@ func (r *KafkaRedpandaServerSecurity) WithGraphQLQuery(q *querybuilder.Selection
 }
 
 // A unique identifier for this KafkaRedpandaServerSecurity.
-func (r *KafkaRedpandaServerSecurity) ID(ctx context.Context) (KafkaRedpandaServerSecurityID, error) {
+func (r *KafkaRedpandaServerSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaRedpandaServerSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1794,7 +1632,7 @@ func (r *KafkaRedpandaServerSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaRedpandaServerSecurity) XXX_GraphQLIDType() string {
-	return "KafkaRedpandaServerSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1819,8 +1657,16 @@ func (r *KafkaRedpandaServerSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaRedpandaServerSecurityFromID(KafkaRedpandaServerSecurityID(id))
+	*r = KafkaRedpandaServerSecurity{query: selectNode(dag.query, id, "KafkaRedpandaServerSecurity")}
 	return nil
+}
+
+// AsNode returns this KafkaRedpandaServerSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaRedpandaServerSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // RegisteredSchema is one schema version as the Confluent Schema Registry
@@ -1834,7 +1680,7 @@ type KafkaRegisteredSchema struct { // kafka (../../../../../daggerverse/kafka/s
 	query *querybuilder.Selection
 
 	definition *string
-	id         *KafkaRegisteredSchemaID
+	id         *ID
 	schemaId   *int
 	schemaType *string
 	subject    *string
@@ -1861,13 +1707,13 @@ func (r *KafkaRegisteredSchema) Definition(ctx context.Context) (string, error) 
 }
 
 // A unique identifier for this KafkaRegisteredSchema.
-func (r *KafkaRegisteredSchema) ID(ctx context.Context) (KafkaRegisteredSchemaID, error) {
+func (r *KafkaRegisteredSchema) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaRegisteredSchemaID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1880,7 +1726,7 @@ func (r *KafkaRegisteredSchema) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaRegisteredSchema) XXX_GraphQLIDType() string {
-	return "KafkaRegisteredSchemaID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1905,7 +1751,7 @@ func (r *KafkaRegisteredSchema) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaRegisteredSchemaFromID(KafkaRegisteredSchemaID(id))
+	*r = KafkaRegisteredSchema{query: selectNode(dag.query, id, "KafkaRegisteredSchema")}
 	return nil
 }
 
@@ -1961,6 +1807,14 @@ func (r *KafkaRegisteredSchema) Version(ctx context.Context) (int, error) { // k
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this KafkaRegisteredSchema as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaRegisteredSchema) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // SchemaRegistry is the module's shared Schema Registry abstraction, bound
 // to a Kafka cluster's brokers. It stores schemas in the cluster's `_schemas`
 // topic and exposes a REST API for registering and looking up Avro / JSON
@@ -1979,7 +1833,7 @@ type KafkaSchemaRegistry struct { // kafka (../../../../../daggerverse/kafka/sch
 	query *querybuilder.Selection
 
 	endpoint *string
-	id       *KafkaSchemaRegistryID
+	id       *ID
 	stop     *Void
 }
 
@@ -2027,13 +1881,13 @@ func (r *KafkaSchemaRegistry) Endpoint(ctx context.Context) (string, error) { //
 }
 
 // A unique identifier for this KafkaSchemaRegistry.
-func (r *KafkaSchemaRegistry) ID(ctx context.Context) (KafkaSchemaRegistryID, error) {
+func (r *KafkaSchemaRegistry) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaSchemaRegistryID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2046,7 +1900,7 @@ func (r *KafkaSchemaRegistry) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaSchemaRegistry) XXX_GraphQLIDType() string {
-	return "KafkaSchemaRegistryID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2071,7 +1925,7 @@ func (r *KafkaSchemaRegistry) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaSchemaRegistryFromID(KafkaSchemaRegistryID(id))
+	*r = KafkaSchemaRegistry{query: selectNode(dag.query, id, "KafkaSchemaRegistry")}
 	return nil
 }
 
@@ -2092,6 +1946,14 @@ func (r *KafkaSchemaRegistry) Stop(ctx context.Context) error { // kafka (../../
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KafkaSchemaRegistry as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaSchemaRegistry) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's
 // admin REST API. Each method opens a fresh request so the function call is
 // stateless from Dagger's perspective.
@@ -2099,7 +1961,7 @@ type KafkaSchemaRegistryClient struct { // kafka (../../../../../daggerverse/kaf
 	query *querybuilder.Selection
 
 	getCompatibility *string
-	id               *KafkaSchemaRegistryClientID
+	id               *ID
 	registerSchema   *int
 	setCompatibility *Void
 }
@@ -2139,13 +2001,13 @@ func (r *KafkaSchemaRegistryClient) GetCompatibility(ctx context.Context, subjec
 }
 
 // A unique identifier for this KafkaSchemaRegistryClient.
-func (r *KafkaSchemaRegistryClient) ID(ctx context.Context) (KafkaSchemaRegistryClientID, error) {
+func (r *KafkaSchemaRegistryClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaSchemaRegistryClientID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2158,7 +2020,7 @@ func (r *KafkaSchemaRegistryClient) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaSchemaRegistryClient) XXX_GraphQLIDType() string {
-	return "KafkaSchemaRegistryClientID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2183,7 +2045,7 @@ func (r *KafkaSchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaSchemaRegistryClientFromID(KafkaSchemaRegistryClientID(id))
+	*r = KafkaSchemaRegistryClient{query: selectNode(dag.query, id, "KafkaSchemaRegistryClient")}
 	return nil
 }
 
@@ -2267,13 +2129,21 @@ func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subjec
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KafkaSchemaRegistryClient as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaSchemaRegistryClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ServerSecurity describes how a Kafka cluster's external listener
 // authenticates and encrypts traffic from clients. Internal listeners
 // (inter-broker + controller-quorum) are always mTLS, regardless of mode.
 type KafkaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/security.go:8:6)
 	query *querybuilder.Selection
 
-	id *KafkaServerSecurityID
+	id *ID
 }
 
 func (r *KafkaServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *KafkaServerSecurity {
@@ -2283,13 +2153,13 @@ func (r *KafkaServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Kafka
 }
 
 // A unique identifier for this KafkaServerSecurity.
-func (r *KafkaServerSecurity) ID(ctx context.Context) (KafkaServerSecurityID, error) {
+func (r *KafkaServerSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaServerSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -2302,7 +2172,7 @@ func (r *KafkaServerSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaServerSecurity) XXX_GraphQLIDType() string {
-	return "KafkaServerSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -2327,8 +2197,16 @@ func (r *KafkaServerSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaServerSecurityFromID(KafkaServerSecurityID(id))
+	*r = KafkaServerSecurity{query: selectNode(dag.query, id, "KafkaServerSecurity")}
 	return nil
+}
+
+// AsNode returns this KafkaServerSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaServerSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Kafka is the root namespace for every exported function in this module.
@@ -2338,116 +2216,6 @@ func (r *Query) Kafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main
 	q := r.query.Select("kafka")
 
 	return &Kafka{
-		query: q,
-	}
-}
-
-// Load a KafkaClient from its ID.
-func (r *Query) LoadKafkaClientFromID(id KafkaClientID) *KafkaClient { // kafka (../../../../../daggerverse/kafka/client.go:31:6)
-	q := r.query.Select("loadKafkaClientFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaClient{
-		query: q,
-	}
-}
-
-// Load a KafkaClientSecurity from its ID.
-func (r *Query) LoadKafkaClientSecurityFromID(id KafkaClientSecurityID) *KafkaClientSecurity { // kafka (../../../../../daggerverse/kafka/security.go:23:6)
-	q := r.query.Select("loadKafkaClientSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaClientSecurity{
-		query: q,
-	}
-}
-
-// Load a KafkaCluster from its ID.
-func (r *Query) LoadKafkaClusterFromID(id KafkaClusterID) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
-	q := r.query.Select("loadKafkaClusterFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaCluster{
-		query: q,
-	}
-}
-
-// Load a KafkaConsumedRecord from its ID.
-func (r *Query) LoadKafkaConsumedRecordFromID(id KafkaConsumedRecordID) *KafkaConsumedRecord { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	q := r.query.Select("loadKafkaConsumedRecordFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaConsumedRecord{
-		query: q,
-	}
-}
-
-// Load a Kafka from its ID.
-func (r *Query) LoadKafkaFromID(id KafkaID) *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
-	q := r.query.Select("loadKafkaFromID")
-	q = q.Arg("id", id)
-
-	return &Kafka{
-		query: q,
-	}
-}
-
-// Load a KafkaRedpandaCluster from its ID.
-func (r *Query) LoadKafkaRedpandaClusterFromID(id KafkaRedpandaClusterID) *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
-	q := r.query.Select("loadKafkaRedpandaClusterFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaRedpandaCluster{
-		query: q,
-	}
-}
-
-// Load a KafkaRedpandaServerSecurity from its ID.
-func (r *Query) LoadKafkaRedpandaServerSecurityFromID(id KafkaRedpandaServerSecurityID) *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
-	q := r.query.Select("loadKafkaRedpandaServerSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaRedpandaServerSecurity{
-		query: q,
-	}
-}
-
-// Load a KafkaRegisteredSchema from its ID.
-func (r *Query) LoadKafkaRegisteredSchemaFromID(id KafkaRegisteredSchemaID) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
-	q := r.query.Select("loadKafkaRegisteredSchemaFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaRegisteredSchema{
-		query: q,
-	}
-}
-
-// Load a KafkaSchemaRegistryClient from its ID.
-func (r *Query) LoadKafkaSchemaRegistryClientFromID(id KafkaSchemaRegistryClientID) *KafkaSchemaRegistryClient { // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
-	q := r.query.Select("loadKafkaSchemaRegistryClientFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaSchemaRegistryClient{
-		query: q,
-	}
-}
-
-// Load a KafkaSchemaRegistry from its ID.
-func (r *Query) LoadKafkaSchemaRegistryFromID(id KafkaSchemaRegistryID) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
-	q := r.query.Select("loadKafkaSchemaRegistryFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaSchemaRegistry{
-		query: q,
-	}
-}
-
-// Load a KafkaServerSecurity from its ID.
-func (r *Query) LoadKafkaServerSecurityFromID(id KafkaServerSecurityID) *KafkaServerSecurity { // kafka (../../../../../daggerverse/kafka/security.go:8:6)
-	q := r.query.Select("loadKafkaServerSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaServerSecurity{
 		query: q,
 	}
 }

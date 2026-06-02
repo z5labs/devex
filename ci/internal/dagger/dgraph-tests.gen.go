@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `DgraphTestsID` scalar type represents an identifier for an object of type DgraphTests.
-type DgraphTestsID string // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:18:6)
 
 // Retrieve the binding value, as type DgraphTests
 func (r *Binding) AsDgraphTests() *DgraphTests { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:18:6)
@@ -37,7 +34,7 @@ type DgraphTests struct { // dgraph-tests (../../../daggerverse/dgraph/tests/mai
 	defaultsProduceWorkingSingleNodeCluster  *Void
 	grpcEndpointsShouldNotBeCached           *Void
 	httpEndpointsShouldNotBeCached           *Void
-	id                                       *DgraphTestsID
+	id                                       *ID
 	multiAlphaShardedTopology                *Void
 	multiAlphaSingleGroupAllReachable        *Void
 	mutateShouldNotBeCached                  *Void
@@ -234,13 +231,13 @@ func (r *DgraphTests) HTTPEndpointsShouldNotBeCached(ctx context.Context) error 
 }
 
 // A unique identifier for this DgraphTests.
-func (r *DgraphTests) ID(ctx context.Context) (DgraphTestsID, error) {
+func (r *DgraphTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response DgraphTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -253,7 +250,7 @@ func (r *DgraphTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *DgraphTests) XXX_GraphQLIDType() string {
-	return "DgraphTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -278,7 +275,7 @@ func (r *DgraphTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadDgraphTestsFromID(DgraphTestsID(id))
+	*r = DgraphTests{query: selectNode(dag.query, id, "DgraphTests")}
 	return nil
 }
 
@@ -359,6 +356,14 @@ func (r *DgraphTests) Validation(ctx context.Context, opts ...DgraphTestsValidat
 	return q.Execute(ctx)
 }
 
+// AsNode returns this DgraphTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *DgraphTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Create or update a binding of type DgraphTests in the environment
 func (r *Env) WithDgraphTestsInput(name string, value *DgraphTests, description string) *Env { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:18:6)
 	assertNotNil("value", value)
@@ -389,16 +394,6 @@ func (r *Env) WithDgraphTestsOutput(name string, description string) *Env { // d
 // `dagger call all`.
 func (r *Query) DgraphTests() *DgraphTests { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:18:6)
 	q := r.query.Select("dgraphTests")
-
-	return &DgraphTests{
-		query: q,
-	}
-}
-
-// Load a DgraphTests from its ID.
-func (r *Query) LoadDgraphTestsFromID(id DgraphTestsID) *DgraphTests { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:18:6)
-	q := r.query.Select("loadDgraphTestsFromID")
-	q = q.Arg("id", id)
 
 	return &DgraphTests{
 		query: q,

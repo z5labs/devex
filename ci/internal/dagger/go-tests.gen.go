@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `GoTestsID` scalar type represents an identifier for an object of type GoTests.
-type GoTestsID string // go-tests (../../../daggerverse/go/tests/main.go:16:6)
 
 // Retrieve the binding value, as type GoTests
 func (r *Binding) AsGoTests() *GoTests { // go-tests (../../../daggerverse/go/tests/main.go:16:6)
@@ -66,7 +63,7 @@ type GoTests struct { // go-tests (../../../daggerverse/go/tests/main.go:16:6)
 	envContainsGoroot                         *Void
 	fmtHelloIsClean                           *Void
 	generateHelloProducesFile                 *Void
-	id                                        *GoTestsID
+	id                                        *ID
 	installSmallToolReturnsBinary             *Void
 	modDownloadHelloPasses                    *Void
 	modTidyHelloIsIdempotent                  *Void
@@ -353,13 +350,13 @@ func (r *GoTests) GenerateHelloProducesFile(ctx context.Context, goImageTag stri
 }
 
 // A unique identifier for this GoTests.
-func (r *GoTests) ID(ctx context.Context) (GoTestsID, error) {
+func (r *GoTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GoTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -372,7 +369,7 @@ func (r *GoTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GoTests) XXX_GraphQLIDType() string {
-	return "GoTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -397,7 +394,7 @@ func (r *GoTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGoTestsFromID(GoTestsID(id))
+	*r = GoTests{query: selectNode(dag.query, id, "GoTests")}
 	return nil
 }
 
@@ -525,21 +522,19 @@ func (r *GoTests) WorkInitSucceeds(ctx context.Context, goImageTag string) error
 	return q.Execute(ctx)
 }
 
+// AsNode returns this GoTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GoTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Package main implements the test module for the go Dagger module. Each test
 // is exposed as a standalone dagger function so it can be invoked individually
 // during TDD; All wires them up for parallel execution under `dagger call all`.
 func (r *Query) GoTests() *GoTests { // go-tests (../../../daggerverse/go/tests/main.go:16:6)
 	q := r.query.Select("goTests")
-
-	return &GoTests{
-		query: q,
-	}
-}
-
-// Load a GoTests from its ID.
-func (r *Query) LoadGoTestsFromID(id GoTestsID) *GoTests { // go-tests (../../../daggerverse/go/tests/main.go:16:6)
-	q := r.query.Select("loadGoTestsFromID")
-	q = q.Arg("id", id)
 
 	return &GoTests{
 		query: q,

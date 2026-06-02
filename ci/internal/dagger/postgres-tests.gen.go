@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `PostgresTestsID` scalar type represents an identifier for an object of type PostgresTests.
-type PostgresTestsID string // postgres-tests (../../../daggerverse/postgres/tests/main.go:22:6)
 
 // Retrieve the binding value, as type PostgresTests
 func (r *Binding) AsPostgresTests() *PostgresTests { // postgres-tests (../../../daggerverse/postgres/tests/main.go:22:6)
@@ -58,7 +55,7 @@ type PostgresTests struct { // postgres-tests (../../../daggerverse/postgres/tes
 	defaultsProduceHealthyPrimary  *Void
 	endpointShouldNotBeCached      *Void
 	execScalarRoundTrip            *Void
-	id                             *PostgresTestsID
+	id                             *ID
 	passwordReusableViaClient      *Void
 	queryJsonreturnsRowObjects     *Void
 	scalarShouldNotBeCached        *Void
@@ -219,13 +216,13 @@ func (r *PostgresTests) ExecScalarRoundTrip(ctx context.Context) error { // post
 }
 
 // A unique identifier for this PostgresTests.
-func (r *PostgresTests) ID(ctx context.Context) (PostgresTestsID, error) {
+func (r *PostgresTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -238,7 +235,7 @@ func (r *PostgresTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *PostgresTests) XXX_GraphQLIDType() string {
-	return "PostgresTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -263,7 +260,7 @@ func (r *PostgresTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresTestsFromID(PostgresTestsID(id))
+	*r = PostgresTests{query: selectNode(dag.query, id, "PostgresTests")}
 	return nil
 }
 
@@ -338,13 +335,11 @@ func (r *PostgresTests) Validation(ctx context.Context, opts ...PostgresTestsVal
 	return q.Execute(ctx)
 }
 
-// Load a PostgresTests from its ID.
-func (r *Query) LoadPostgresTestsFromID(id PostgresTestsID) *PostgresTests { // postgres-tests (../../../daggerverse/postgres/tests/main.go:22:6)
-	q := r.query.Select("loadPostgresTestsFromID")
-	q = q.Arg("id", id)
-
-	return &PostgresTests{
-		query: q,
+// AsNode returns this PostgresTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *PostgresTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 
