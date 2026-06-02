@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `CertificateManagementTestsID` scalar type represents an identifier for an object of type CertificateManagementTests.
-type CertificateManagementTestsID string // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:20:6)
 
 // Retrieve the binding value, as type CertificateManagementTests
 func (r *Binding) AsCertificateManagementTests() *CertificateManagementTests { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:20:6)
@@ -26,7 +23,7 @@ type CertificateManagementTests struct { // certificate-management-tests (../../
 
 	all                                  *Void
 	createCaProducesUsableKeyStore       *Void
-	id                                   *CertificateManagementTestsID
+	id                                   *ID
 	issueClientCertificateChainsToCa     *Void
 	issueMutualTlsCertificateChainsToCa  *Void
 	issueServerCertificateChainsToCa     *Void
@@ -82,13 +79,13 @@ func (r *CertificateManagementTests) CreateCaProducesUsableKeyStore(ctx context.
 }
 
 // A unique identifier for this CertificateManagementTests.
-func (r *CertificateManagementTests) ID(ctx context.Context) (CertificateManagementTestsID, error) {
+func (r *CertificateManagementTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -101,7 +98,7 @@ func (r *CertificateManagementTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagementTests) XXX_GraphQLIDType() string {
-	return "CertificateManagementTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -126,7 +123,7 @@ func (r *CertificateManagementTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementTestsFromID(CertificateManagementTestsID(id))
+	*r = CertificateManagementTests{query: selectNode(dag.query, id, "CertificateManagementTests")}
 	return nil
 }
 
@@ -214,6 +211,14 @@ func (r *CertificateManagementTests) LoadTrustStoreFromPkcs12RoundTrip(ctx conte
 	return q.Execute(ctx)
 }
 
+// AsNode returns this CertificateManagementTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagementTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Create or update a binding of type CertificateManagementTests in the environment
 func (r *Env) WithCertificateManagementTestsInput(name string, value *CertificateManagementTests, description string) *Env { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:20:6)
 	assertNotNil("value", value)
@@ -241,16 +246,6 @@ func (r *Env) WithCertificateManagementTestsOutput(name string, description stri
 // Package main is the certificate-management-tests Dagger module.
 func (r *Query) CertificateManagementTests() *CertificateManagementTests { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:20:6)
 	q := r.query.Select("certificateManagementTests")
-
-	return &CertificateManagementTests{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementTests from its ID.
-func (r *Query) LoadCertificateManagementTestsFromID(id CertificateManagementTestsID) *CertificateManagementTests { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:20:6)
-	q := r.query.Select("loadCertificateManagementTestsFromID")
-	q = q.Arg("id", id)
 
 	return &CertificateManagementTests{
 		query: q,

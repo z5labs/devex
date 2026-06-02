@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `KafkaTestsID` scalar type represents an identifier for an object of type KafkaTests.
-type KafkaTestsID string // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
 
 // Retrieve the binding value, as type KafkaTests
 func (r *Binding) AsKafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
@@ -64,7 +61,7 @@ type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.g
 	consumerGroupOnSingleBrokerWorks                   *Void
 	createAndDeleteTopicRoundTrip                      *Void
 	dedicatedControllerAndBrokerProduceConsume         *Void
-	id                                                 *KafkaTestsID
+	id                                                 *ID
 	internalListenersAreEncrypted                      *Void
 	karapaceSchemaRegistryRegisterLookupRoundTrip      *Void
 	mtlsRequiresClientCert                             *Void
@@ -576,13 +573,13 @@ func (r *KafkaTests) DedicatedControllerAndBrokerProduceConsume(ctx context.Cont
 }
 
 // A unique identifier for this KafkaTests.
-func (r *KafkaTests) ID(ctx context.Context) (KafkaTestsID, error) {
+func (r *KafkaTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KafkaTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -595,7 +592,7 @@ func (r *KafkaTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KafkaTests) XXX_GraphQLIDType() string {
-	return "KafkaTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -620,7 +617,7 @@ func (r *KafkaTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKafkaTestsFromID(KafkaTestsID(id))
+	*r = KafkaTests{query: selectNode(dag.query, id, "KafkaTests")}
 	return nil
 }
 
@@ -1460,6 +1457,14 @@ func (r *KafkaTests) TLSRoundTrip(ctx context.Context, opts ...KafkaTestsTLSRoun
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KafkaTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Tests for the kafka daggerverse module. Each test is exposed as a standalone
 // dagger function so it can be invoked individually during TDD; All wires them
 // up for grouped, parallel execution under `dagger call all`.
@@ -1491,16 +1496,6 @@ func (r *KafkaTests) TLSRoundTrip(ctx context.Context, opts ...KafkaTestsTLSRoun
 //     non-PLAINTEXT-cluster rejection.
 func (r *Query) KafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
 	q := r.query.Select("kafkaTests")
-
-	return &KafkaTests{
-		query: q,
-	}
-}
-
-// Load a KafkaTests from its ID.
-func (r *Query) LoadKafkaTestsFromID(id KafkaTestsID) *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
-	q := r.query.Select("loadKafkaTestsFromID")
-	q = q.Arg("id", id)
 
 	return &KafkaTests{
 		query: q,

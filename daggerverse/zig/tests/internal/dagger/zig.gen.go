@@ -6,17 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `ZigCiID` scalar type represents an identifier for an object of type ZigCi.
-type ZigCiID string // zig (../../../../../daggerverse/zig/ci.go:19:6)
-
-// The `ZigID` scalar type represents an identifier for an object of type Zig.
-type ZigID string // zig (../../../../../daggerverse/zig/main.go:50:6)
-
-// The `ZigSectionSizesID` scalar type represents an identifier for an object of type ZigSectionSizes.
-type ZigSectionSizesID string // zig (../../../../../daggerverse/zig/main.go:341:6)
 
 // Retrieve the binding value, as type Zig
 func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:50:6)
@@ -117,36 +108,6 @@ func (r *Env) WithZigSectionSizesOutput(name string, description string) *Env { 
 	}
 }
 
-// Load a ZigCi from its ID.
-func (r *Query) LoadZigCiFromID(id ZigCiID) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:19:6)
-	q := r.query.Select("loadZigCiFromID")
-	q = q.Arg("id", id)
-
-	return &ZigCi{
-		query: q,
-	}
-}
-
-// Load a Zig from its ID.
-func (r *Query) LoadZigFromID(id ZigID) *Zig { // zig (../../../../../daggerverse/zig/main.go:50:6)
-	q := r.query.Select("loadZigFromID")
-	q = q.Arg("id", id)
-
-	return &Zig{
-		query: q,
-	}
-}
-
-// Load a ZigSectionSizes from its ID.
-func (r *Query) LoadZigSectionSizesFromID(id ZigSectionSizesID) *ZigSectionSizes { // zig (../../../../../daggerverse/zig/main.go:341:6)
-	q := r.query.Select("loadZigSectionSizesFromID")
-	q = q.Arg("id", id)
-
-	return &ZigSectionSizes{
-		query: q,
-	}
-}
-
 // ZigOpts contains options for Query.Zig
 type ZigOpts struct {
 	Version string // zig (../../../../../daggerverse/zig/main.go:63:2)
@@ -179,7 +140,7 @@ type Zig struct { // zig (../../../../../daggerverse/zig/main.go:50:6)
 
 	env         *string
 	fmt         *Void
-	id          *ZigID
+	id          *ID
 	run         *string
 	targets     *string
 	test        *string
@@ -445,13 +406,13 @@ func (r *Zig) Fmt(ctx context.Context, source *Directory) error { // zig (../../
 }
 
 // A unique identifier for this Zig.
-func (r *Zig) ID(ctx context.Context) (ZigID, error) {
+func (r *Zig) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response ZigID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -464,7 +425,7 @@ func (r *Zig) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Zig) XXX_GraphQLIDType() string {
-	return "ZigID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -489,7 +450,7 @@ func (r *Zig) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZigFromID(ZigID(id))
+	*r = Zig{query: selectNode(dag.query, id, "Zig")}
 	return nil
 }
 
@@ -663,6 +624,14 @@ func (r *Zig) Version(ctx context.Context) (string, error) { // zig (../../../..
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this Zig as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Zig) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Ci is a chained builder for a standardized Zig CI pipeline. Construct via
 // Zig.Ci(source); enable check stages via the With* methods; call Run to
 // execute checks-then-build, or Check to run only the parallel checks.
@@ -675,7 +644,7 @@ type ZigCi struct { // zig (../../../../../daggerverse/zig/ci.go:19:6)
 	query *querybuilder.Selection
 
 	check *Void
-	id    *ZigCiID
+	id    *ID
 }
 type WithZigCiFunc func(r *ZigCi) *ZigCi
 
@@ -706,13 +675,13 @@ func (r *ZigCi) Check(ctx context.Context) error { // zig (../../../../../dagger
 }
 
 // A unique identifier for this ZigCi.
-func (r *ZigCi) ID(ctx context.Context) (ZigCiID, error) {
+func (r *ZigCi) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response ZigCiID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -725,7 +694,7 @@ func (r *ZigCi) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *ZigCi) XXX_GraphQLIDType() string {
-	return "ZigCiID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -750,7 +719,7 @@ func (r *ZigCi) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZigCiFromID(ZigCiID(id))
+	*r = ZigCi{query: selectNode(dag.query, id, "ZigCi")}
 	return nil
 }
 
@@ -830,6 +799,14 @@ func (r *ZigCi) WithTest(opts ...ZigCiWithTestOpts) *ZigCi { // zig (../../../..
 	}
 }
 
+// AsNode returns this ZigCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *ZigCi) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // SectionSizes is the per-section footprint of an ELF, in bytes. Flash and Ram
 // are the budget-relevant rollups: Flash is what the image occupies in flash,
 // Ram what it claims at runtime.
@@ -839,7 +816,7 @@ type ZigSectionSizes struct { // zig (../../../../../daggerverse/zig/main.go:341
 	bss   *int
 	data  *int
 	flash *int
-	id    *ZigSectionSizesID
+	id    *ID
 	ram   *int
 	text  *int
 }
@@ -890,13 +867,13 @@ func (r *ZigSectionSizes) Flash(ctx context.Context) (int, error) { // zig (../.
 }
 
 // A unique identifier for this ZigSectionSizes.
-func (r *ZigSectionSizes) ID(ctx context.Context) (ZigSectionSizesID, error) {
+func (r *ZigSectionSizes) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response ZigSectionSizesID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -909,7 +886,7 @@ func (r *ZigSectionSizes) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *ZigSectionSizes) XXX_GraphQLIDType() string {
-	return "ZigSectionSizesID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -934,7 +911,7 @@ func (r *ZigSectionSizes) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZigSectionSizesFromID(ZigSectionSizesID(id))
+	*r = ZigSectionSizes{query: selectNode(dag.query, id, "ZigSectionSizes")}
 	return nil
 }
 
@@ -962,4 +939,12 @@ func (r *ZigSectionSizes) Text(ctx context.Context) (int, error) { // zig (../..
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// AsNode returns this ZigSectionSizes as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *ZigSectionSizes) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

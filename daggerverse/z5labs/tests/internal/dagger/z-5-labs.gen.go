@@ -6,20 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `Z5LabsBuilderID` scalar type represents an identifier for an object of type Z5LabsBuilder.
-type Z5LabsBuilderID string // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
-
-// The `Z5LabsGoAppID` scalar type represents an identifier for an object of type Z5LabsGoApp.
-type Z5LabsGoAppID string // z5labs (../../../../../daggerverse/z5labs/goapp.go:13:6)
-
-// The `Z5LabsGoLibID` scalar type represents an identifier for an object of type Z5LabsGoLib.
-type Z5LabsGoLibID string // z5labs (../../../../../daggerverse/z5labs/golib.go:10:6)
-
-// The `Z5LabsID` scalar type represents an identifier for an object of type Z5Labs.
-type Z5LabsID string // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
 
 // Retrieve the binding value, as type Z5Labs
 func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
@@ -153,46 +141,6 @@ func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs
 	}
 }
 
-// Load a Z5LabsBuilder from its ID.
-func (r *Query) LoadZ5LabsBuilderFromID(id Z5LabsBuilderID) *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
-	q := r.query.Select("loadZ5LabsBuilderFromID")
-	q = q.Arg("id", id)
-
-	return &Z5LabsBuilder{
-		query: q,
-	}
-}
-
-// Load a Z5Labs from its ID.
-func (r *Query) LoadZ5LabsFromID(id Z5LabsID) *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
-	q := r.query.Select("loadZ5LabsFromID")
-	q = q.Arg("id", id)
-
-	return &Z5Labs{
-		query: q,
-	}
-}
-
-// Load a Z5LabsGoApp from its ID.
-func (r *Query) LoadZ5LabsGoAppFromID(id Z5LabsGoAppID) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/goapp.go:13:6)
-	q := r.query.Select("loadZ5LabsGoAppFromID")
-	q = q.Arg("id", id)
-
-	return &Z5LabsGoApp{
-		query: q,
-	}
-}
-
-// Load a Z5LabsGoLib from its ID.
-func (r *Query) LoadZ5LabsGoLibFromID(id Z5LabsGoLibID) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/golib.go:10:6)
-	q := r.query.Select("loadZ5LabsGoLibFromID")
-	q = q.Arg("id", id)
-
-	return &Z5LabsGoLib{
-		query: q,
-	}
-}
-
 // Z5labs is the root module type. Construct project archetypes via
 // GoApp / GoLib.
 func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
@@ -208,7 +156,7 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
 	query *querybuilder.Selection
 
-	id *Z5LabsID
+	id *ID
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -327,13 +275,13 @@ func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib 
 }
 
 // A unique identifier for this Z5Labs.
-func (r *Z5Labs) ID(ctx context.Context) (Z5LabsID, error) {
+func (r *Z5Labs) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response Z5LabsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -346,7 +294,7 @@ func (r *Z5Labs) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Z5Labs) XXX_GraphQLIDType() string {
-	return "Z5LabsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -371,8 +319,16 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZ5LabsFromID(Z5LabsID(id))
+	*r = Z5Labs{query: selectNode(dag.query, id, "Z5Labs")}
 	return nil
+}
+
+// AsNode returns this Z5Labs as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Z5Labs) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Builder produces the same image GoApp.Ci would publish, single-arch
@@ -381,7 +337,7 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 type Z5LabsBuilder struct { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
 	query *querybuilder.Selection
 
-	id *Z5LabsBuilderID
+	id *ID
 }
 
 func (r *Z5LabsBuilder) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsBuilder {
@@ -410,13 +366,13 @@ func (r *Z5LabsBuilder) Container() *Container { // z5labs (../../../../../dagge
 }
 
 // A unique identifier for this Z5LabsBuilder.
-func (r *Z5LabsBuilder) ID(ctx context.Context) (Z5LabsBuilderID, error) {
+func (r *Z5LabsBuilder) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response Z5LabsBuilderID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -429,7 +385,7 @@ func (r *Z5LabsBuilder) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Z5LabsBuilder) XXX_GraphQLIDType() string {
-	return "Z5LabsBuilderID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -454,8 +410,16 @@ func (r *Z5LabsBuilder) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZ5LabsBuilderFromID(Z5LabsBuilderID(id))
+	*r = Z5LabsBuilder{query: selectNode(dag.query, id, "Z5LabsBuilder")}
 	return nil
+}
+
+// AsNode returns this Z5LabsBuilder as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Z5LabsBuilder) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // GoApp is the application archetype. Construct via Z5labs.GoApp.
@@ -463,7 +427,7 @@ type Z5LabsGoApp struct { // z5labs (../../../../../daggerverse/z5labs/goapp.go:
 	query *querybuilder.Selection
 
 	ci *Void
-	id *Z5LabsGoAppID
+	id *ID
 }
 
 func (r *Z5LabsGoApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoApp {
@@ -500,13 +464,13 @@ func (r *Z5LabsGoApp) Ci(ctx context.Context) error { // z5labs (../../../../../
 }
 
 // A unique identifier for this Z5LabsGoApp.
-func (r *Z5LabsGoApp) ID(ctx context.Context) (Z5LabsGoAppID, error) {
+func (r *Z5LabsGoApp) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response Z5LabsGoAppID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -519,7 +483,7 @@ func (r *Z5LabsGoApp) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Z5LabsGoApp) XXX_GraphQLIDType() string {
-	return "Z5LabsGoAppID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -544,8 +508,16 @@ func (r *Z5LabsGoApp) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZ5LabsGoAppFromID(Z5LabsGoAppID(id))
+	*r = Z5LabsGoApp{query: selectNode(dag.query, id, "Z5LabsGoApp")}
 	return nil
+}
+
+// AsNode returns this Z5LabsGoApp as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Z5LabsGoApp) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // GoLib is the library archetype. Construct via Z5labs.GoLib.
@@ -553,7 +525,7 @@ type Z5LabsGoLib struct { // z5labs (../../../../../daggerverse/z5labs/golib.go:
 	query *querybuilder.Selection
 
 	ci *Void
-	id *Z5LabsGoLibID
+	id *ID
 }
 
 func (r *Z5LabsGoLib) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoLib {
@@ -574,13 +546,13 @@ func (r *Z5LabsGoLib) Ci(ctx context.Context) error { // z5labs (../../../../../
 }
 
 // A unique identifier for this Z5LabsGoLib.
-func (r *Z5LabsGoLib) ID(ctx context.Context) (Z5LabsGoLibID, error) {
+func (r *Z5LabsGoLib) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response Z5LabsGoLibID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -593,7 +565,7 @@ func (r *Z5LabsGoLib) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Z5LabsGoLib) XXX_GraphQLIDType() string {
-	return "Z5LabsGoLibID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -618,6 +590,14 @@ func (r *Z5LabsGoLib) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadZ5LabsGoLibFromID(Z5LabsGoLibID(id))
+	*r = Z5LabsGoLib{query: selectNode(dag.query, id, "Z5LabsGoLib")}
 	return nil
+}
+
+// AsNode returns this Z5LabsGoLib as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Z5LabsGoLib) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

@@ -6,23 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `GrafanaStackGrafanaID` scalar type represents an identifier for an object of type GrafanaStackGrafana.
-type GrafanaStackGrafanaID string // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:336:6)
-
-// The `GrafanaStackID` scalar type represents an identifier for an object of type GrafanaStack.
-type GrafanaStackID string // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:23:6)
-
-// The `GrafanaStackLokiID` scalar type represents an identifier for an object of type GrafanaStackLoki.
-type GrafanaStackLokiID string // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:60:6)
-
-// The `GrafanaStackMimirID` scalar type represents an identifier for an object of type GrafanaStackMimir.
-type GrafanaStackMimirID string // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:245:6)
-
-// The `GrafanaStackTempoID` scalar type represents an identifier for an object of type GrafanaStackTempo.
-type GrafanaStackTempoID string // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:149:6)
 
 // Retrieve the binding value, as type GrafanaStack
 func (r *Binding) AsGrafanaStack() *GrafanaStack { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:23:6)
@@ -194,7 +179,7 @@ func (r *Env) WithGrafanaStackTempoOutput(name string, description string) *Env 
 type GrafanaStack struct { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:23:6)
 	query *querybuilder.Selection
 
-	id *GrafanaStackID
+	id *ID
 }
 
 func (r *GrafanaStack) WithGraphQLQuery(q *querybuilder.Selection) *GrafanaStack {
@@ -267,13 +252,13 @@ func (r *GrafanaStack) Grafana(adminPassword *Secret, opts ...GrafanaStackGrafan
 }
 
 // A unique identifier for this GrafanaStack.
-func (r *GrafanaStack) ID(ctx context.Context) (GrafanaStackID, error) {
+func (r *GrafanaStack) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -286,7 +271,7 @@ func (r *GrafanaStack) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStack) XXX_GraphQLIDType() string {
-	return "GrafanaStackID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -311,7 +296,7 @@ func (r *GrafanaStack) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackFromID(GrafanaStackID(id))
+	*r = GrafanaStack{query: selectNode(dag.query, id, "GrafanaStack")}
 	return nil
 }
 
@@ -494,6 +479,14 @@ func (r *GrafanaStack) Tempo(opts ...GrafanaStackTempoOpts) *GrafanaStackTempo {
 	}
 }
 
+// AsNode returns this GrafanaStack as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStack) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Grafana wraps a configured grafana/grafana container with file-based
 // datasource and dashboard provisioning. Datasources and dashboards are
 // accumulated via the WithX builder methods and rendered into the
@@ -502,7 +495,7 @@ type GrafanaStackGrafana struct { // grafana-stack (../../../../../daggerverse/g
 	query *querybuilder.Selection
 
 	endpoint *string
-	id       *GrafanaStackGrafanaID
+	id       *ID
 	image    *string
 }
 type WithGrafanaStackGrafanaFunc func(r *GrafanaStackGrafana) *GrafanaStackGrafana
@@ -566,13 +559,13 @@ func (r *GrafanaStackGrafana) Endpoint(ctx context.Context) (string, error) { //
 }
 
 // A unique identifier for this GrafanaStackGrafana.
-func (r *GrafanaStackGrafana) ID(ctx context.Context) (GrafanaStackGrafanaID, error) {
+func (r *GrafanaStackGrafana) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackGrafanaID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -585,7 +578,7 @@ func (r *GrafanaStackGrafana) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStackGrafana) XXX_GraphQLIDType() string {
-	return "GrafanaStackGrafanaID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -610,7 +603,7 @@ func (r *GrafanaStackGrafana) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackGrafanaFromID(GrafanaStackGrafanaID(id))
+	*r = GrafanaStackGrafana{query: selectNode(dag.query, id, "GrafanaStackGrafana")}
 	return nil
 }
 
@@ -645,7 +638,7 @@ func (r *GrafanaStackGrafana) LokiSvcs(ctx context.Context) ([]Service, error) {
 	q = q.Select("id")
 
 	type lokiSvcs struct {
-		Id ServiceID
+		Id ID
 	}
 
 	convert := func(fields []lokiSvcs) []Service {
@@ -653,7 +646,7 @@ func (r *GrafanaStackGrafana) LokiSvcs(ctx context.Context) ([]Service, error) {
 
 		for i := range fields {
 			val := Service{id: &fields[i].Id}
-			val.query = q.Root().Select("loadServiceFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Service")
 			out = append(out, val)
 		}
 
@@ -686,7 +679,7 @@ func (r *GrafanaStackGrafana) MimirSvcs(ctx context.Context) ([]Service, error) 
 	q = q.Select("id")
 
 	type mimirSvcs struct {
-		Id ServiceID
+		Id ID
 	}
 
 	convert := func(fields []mimirSvcs) []Service {
@@ -694,7 +687,7 @@ func (r *GrafanaStackGrafana) MimirSvcs(ctx context.Context) ([]Service, error) 
 
 		for i := range fields {
 			val := Service{id: &fields[i].Id}
-			val.query = q.Root().Select("loadServiceFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Service")
 			out = append(out, val)
 		}
 
@@ -749,7 +742,7 @@ func (r *GrafanaStackGrafana) TempoSvcs(ctx context.Context) ([]Service, error) 
 	q = q.Select("id")
 
 	type tempoSvcs struct {
-		Id ServiceID
+		Id ID
 	}
 
 	convert := func(fields []tempoSvcs) []Service {
@@ -757,7 +750,7 @@ func (r *GrafanaStackGrafana) TempoSvcs(ctx context.Context) ([]Service, error) 
 
 		for i := range fields {
 			val := Service{id: &fields[i].Id}
-			val.query = q.Root().Select("loadServiceFromID").Arg("id", fields[i].Id)
+			val.query = selectNode(q.Root(), fields[i].Id, "Service")
 			out = append(out, val)
 		}
 
@@ -849,6 +842,14 @@ func (r *GrafanaStackGrafana) WithTempoDatasource(name string, tempo *GrafanaSta
 	}
 }
 
+// AsNode returns this GrafanaStackGrafana as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStackGrafana) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Loki wraps a configured grafana/loki container. Use Service() to obtain
 // the *dagger.Service for binding into other containers, and Endpoint() /
 // OtlpHttpEndpoint() to derive client URLs.
@@ -856,7 +857,7 @@ type GrafanaStackLoki struct { // grafana-stack (../../../../../daggerverse/graf
 	query *querybuilder.Selection
 
 	endpoint         *string
-	id               *GrafanaStackLokiID
+	id               *ID
 	image            *string
 	otlpHttpEndpoint *string
 }
@@ -891,13 +892,13 @@ func (r *GrafanaStackLoki) Endpoint(ctx context.Context) (string, error) { // gr
 }
 
 // A unique identifier for this GrafanaStackLoki.
-func (r *GrafanaStackLoki) ID(ctx context.Context) (GrafanaStackLokiID, error) {
+func (r *GrafanaStackLoki) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackLokiID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -910,7 +911,7 @@ func (r *GrafanaStackLoki) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStackLoki) XXX_GraphQLIDType() string {
-	return "GrafanaStackLokiID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -935,7 +936,7 @@ func (r *GrafanaStackLoki) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackLokiFromID(GrafanaStackLokiID(id))
+	*r = GrafanaStackLoki{query: selectNode(dag.query, id, "GrafanaStackLoki")}
 	return nil
 }
 
@@ -991,6 +992,14 @@ func (r *GrafanaStackLoki) Storage() *CacheVolume { // grafana-stack (../../../.
 	}
 }
 
+// AsNode returns this GrafanaStackLoki as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStackLoki) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Mimir wraps a configured grafana/mimir container running in monolithic
 // (single-binary, target=all) mode with the OTLP HTTP ingester enabled,
 // anonymous tenant, and filesystem block storage.
@@ -998,7 +1007,7 @@ type GrafanaStackMimir struct { // grafana-stack (../../../../../daggerverse/gra
 	query *querybuilder.Selection
 
 	endpoint         *string
-	id               *GrafanaStackMimirID
+	id               *ID
 	image            *string
 	otlpHttpEndpoint *string
 }
@@ -1035,13 +1044,13 @@ func (r *GrafanaStackMimir) Endpoint(ctx context.Context) (string, error) { // g
 }
 
 // A unique identifier for this GrafanaStackMimir.
-func (r *GrafanaStackMimir) ID(ctx context.Context) (GrafanaStackMimirID, error) {
+func (r *GrafanaStackMimir) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackMimirID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1054,7 +1063,7 @@ func (r *GrafanaStackMimir) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStackMimir) XXX_GraphQLIDType() string {
-	return "GrafanaStackMimirID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1079,7 +1088,7 @@ func (r *GrafanaStackMimir) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackMimirFromID(GrafanaStackMimirID(id))
+	*r = GrafanaStackMimir{query: selectNode(dag.query, id, "GrafanaStackMimir")}
 	return nil
 }
 
@@ -1132,6 +1141,14 @@ func (r *GrafanaStackMimir) Storage() *CacheVolume { // grafana-stack (../../../
 	}
 }
 
+// AsNode returns this GrafanaStackMimir as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStackMimir) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Tempo wraps a configured grafana/tempo container running in monolithic
 // mode with the OTLP gRPC and HTTP receivers enabled and local filesystem
 // trace storage.
@@ -1139,7 +1156,7 @@ type GrafanaStackTempo struct { // grafana-stack (../../../../../daggerverse/gra
 	query *querybuilder.Selection
 
 	httpEndpoint     *string
-	id               *GrafanaStackTempoID
+	id               *ID
 	image            *string
 	otlpGrpcEndpoint *string
 	otlpHttpEndpoint *string
@@ -1176,13 +1193,13 @@ func (r *GrafanaStackTempo) HTTPEndpoint(ctx context.Context) (string, error) { 
 }
 
 // A unique identifier for this GrafanaStackTempo.
-func (r *GrafanaStackTempo) ID(ctx context.Context) (GrafanaStackTempoID, error) {
+func (r *GrafanaStackTempo) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackTempoID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -1195,7 +1212,7 @@ func (r *GrafanaStackTempo) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStackTempo) XXX_GraphQLIDType() string {
-	return "GrafanaStackTempoID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -1220,7 +1237,7 @@ func (r *GrafanaStackTempo) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackTempoFromID(GrafanaStackTempoID(id))
+	*r = GrafanaStackTempo{query: selectNode(dag.query, id, "GrafanaStackTempo")}
 	return nil
 }
 
@@ -1285,62 +1302,20 @@ func (r *GrafanaStackTempo) Storage() *CacheVolume { // grafana-stack (../../../
 	}
 }
 
+// AsNode returns this GrafanaStackTempo as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStackTempo) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // GrafanaStack is the module entry point. Use the per-backend constructor
 // functions (Loki, Tempo, Mimir) to obtain a service handle.
 func (r *Query) GrafanaStack() *GrafanaStack { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:23:6)
 	q := r.query.Select("grafanaStack")
 
 	return &GrafanaStack{
-		query: q,
-	}
-}
-
-// Load a GrafanaStack from its ID.
-func (r *Query) LoadGrafanaStackFromID(id GrafanaStackID) *GrafanaStack { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:23:6)
-	q := r.query.Select("loadGrafanaStackFromID")
-	q = q.Arg("id", id)
-
-	return &GrafanaStack{
-		query: q,
-	}
-}
-
-// Load a GrafanaStackGrafana from its ID.
-func (r *Query) LoadGrafanaStackGrafanaFromID(id GrafanaStackGrafanaID) *GrafanaStackGrafana { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:336:6)
-	q := r.query.Select("loadGrafanaStackGrafanaFromID")
-	q = q.Arg("id", id)
-
-	return &GrafanaStackGrafana{
-		query: q,
-	}
-}
-
-// Load a GrafanaStackLoki from its ID.
-func (r *Query) LoadGrafanaStackLokiFromID(id GrafanaStackLokiID) *GrafanaStackLoki { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:60:6)
-	q := r.query.Select("loadGrafanaStackLokiFromID")
-	q = q.Arg("id", id)
-
-	return &GrafanaStackLoki{
-		query: q,
-	}
-}
-
-// Load a GrafanaStackMimir from its ID.
-func (r *Query) LoadGrafanaStackMimirFromID(id GrafanaStackMimirID) *GrafanaStackMimir { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:245:6)
-	q := r.query.Select("loadGrafanaStackMimirFromID")
-	q = q.Arg("id", id)
-
-	return &GrafanaStackMimir{
-		query: q,
-	}
-}
-
-// Load a GrafanaStackTempo from its ID.
-func (r *Query) LoadGrafanaStackTempoFromID(id GrafanaStackTempoID) *GrafanaStackTempo { // grafana-stack (../../../../../daggerverse/grafana-stack/main.go:149:6)
-	q := r.query.Select("loadGrafanaStackTempoFromID")
-	q = q.Arg("id", id)
-
-	return &GrafanaStackTempo{
 		query: q,
 	}
 }

@@ -7,17 +7,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `QemuID` scalar type represents an identifier for an object of type Qemu.
-type QemuID string // qemu (../../../../../daggerverse/qemu/main.go:29:6)
-
-// The `QemuMachineID` scalar type represents an identifier for an object of type QemuMachine.
-type QemuMachineID string // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
-
-// The `QemuRunResultID` scalar type represents an identifier for an object of type QemuRunResult.
-type QemuRunResultID string // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
 
 // Retrieve the binding value, as type Qemu
 func (r *Binding) AsQemu() *Qemu { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
@@ -124,7 +115,7 @@ func (r *Env) WithQemuRunResultOutput(name string, description string) *Env { //
 type Qemu struct { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
 	query *querybuilder.Selection
 
-	id *QemuID
+	id *ID
 }
 
 func (r *Qemu) WithGraphQLQuery(q *querybuilder.Selection) *Qemu {
@@ -321,13 +312,13 @@ func (r *Qemu) Disk(image *File, opts ...QemuDiskOpts) *QemuMachine { // qemu (.
 }
 
 // A unique identifier for this Qemu.
-func (r *Qemu) ID(ctx context.Context) (QemuID, error) {
+func (r *Qemu) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response QemuID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -340,7 +331,7 @@ func (r *Qemu) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Qemu) XXX_GraphQLIDType() string {
-	return "QemuID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -365,7 +356,7 @@ func (r *Qemu) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadQemuFromID(QemuID(id))
+	*r = Qemu{query: selectNode(dag.query, id, "Qemu")}
 	return nil
 }
 
@@ -469,6 +460,14 @@ func (r *Qemu) Linux(kernel *File, opts ...QemuLinuxOpts) *QemuMachine { // qemu
 	}
 }
 
+// AsNode returns this Qemu as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Qemu) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Machine is a configured-but-not-necessarily-running QEMU guest. It carries
 // both drive modes: a long-running *dagger.Service (mode A, for OS images
 // reached over forwarded ports) and a finite run argv replayed per call (mode
@@ -478,7 +477,7 @@ type QemuMachine struct { // qemu (../../../../../daggerverse/qemu/machine.go:36
 
 	endpoint    *string
 	host        *string
-	id          *QemuMachineID
+	id          *ID
 	run         *string
 	stop        *Void
 	waitForLine *string
@@ -531,13 +530,13 @@ func (r *QemuMachine) Host(ctx context.Context) (string, error) { // qemu (../..
 }
 
 // A unique identifier for this QemuMachine.
-func (r *QemuMachine) ID(ctx context.Context) (QemuMachineID, error) {
+func (r *QemuMachine) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response QemuMachineID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -550,7 +549,7 @@ func (r *QemuMachine) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *QemuMachine) XXX_GraphQLIDType() string {
-	return "QemuMachineID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -575,7 +574,7 @@ func (r *QemuMachine) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadQemuMachineFromID(QemuMachineID(id))
+	*r = QemuMachine{query: selectNode(dag.query, id, "QemuMachine")}
 	return nil
 }
 
@@ -706,6 +705,14 @@ func (r *QemuMachine) WaitForLine(ctx context.Context, substr string, opts ...Qe
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this QemuMachine as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *QemuMachine) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // RunResult pairs the serial console output of a finite boot with the guest's
 // exit code. On the bare-metal path the exit code is the semihosting SYS_EXIT
 // value (0 = success); see Machine.RunStatus.
@@ -713,7 +720,7 @@ type QemuRunResult struct { // qemu (../../../../../daggerverse/qemu/drive.go:12
 	query *querybuilder.Selection
 
 	exitCode *int
-	id       *QemuRunResultID
+	id       *ID
 	output   *string
 }
 
@@ -740,13 +747,13 @@ func (r *QemuRunResult) ExitCode(ctx context.Context) (int, error) { // qemu (..
 }
 
 // A unique identifier for this QemuRunResult.
-func (r *QemuRunResult) ID(ctx context.Context) (QemuRunResultID, error) {
+func (r *QemuRunResult) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response QemuRunResultID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -759,7 +766,7 @@ func (r *QemuRunResult) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *QemuRunResult) XXX_GraphQLIDType() string {
-	return "QemuRunResultID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -784,7 +791,7 @@ func (r *QemuRunResult) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadQemuRunResultFromID(QemuRunResultID(id))
+	*r = QemuRunResult{query: selectNode(dag.query, id, "QemuRunResult")}
 	return nil
 }
 
@@ -801,33 +808,11 @@ func (r *QemuRunResult) Output(ctx context.Context) (string, error) { // qemu (.
 	return response, q.Execute(ctx)
 }
 
-// Load a Qemu from its ID.
-func (r *Query) LoadQemuFromID(id QemuID) *Qemu { // qemu (../../../../../daggerverse/qemu/main.go:29:6)
-	q := r.query.Select("loadQemuFromID")
-	q = q.Arg("id", id)
-
-	return &Qemu{
-		query: q,
-	}
-}
-
-// Load a QemuMachine from its ID.
-func (r *Query) LoadQemuMachineFromID(id QemuMachineID) *QemuMachine { // qemu (../../../../../daggerverse/qemu/machine.go:36:6)
-	q := r.query.Select("loadQemuMachineFromID")
-	q = q.Arg("id", id)
-
-	return &QemuMachine{
-		query: q,
-	}
-}
-
-// Load a QemuRunResult from its ID.
-func (r *Query) LoadQemuRunResultFromID(id QemuRunResultID) *QemuRunResult { // qemu (../../../../../daggerverse/qemu/drive.go:124:6)
-	q := r.query.Select("loadQemuRunResultFromID")
-	q = q.Arg("id", id)
-
-	return &QemuRunResult{
-		query: q,
+// AsNode returns this QemuRunResult as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *QemuRunResult) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 

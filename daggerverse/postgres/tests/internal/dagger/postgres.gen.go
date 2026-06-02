@@ -6,23 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `PostgresClientID` scalar type represents an identifier for an object of type PostgresClient.
-type PostgresClientID string // postgres (../../../../../daggerverse/postgres/client.go:22:6)
-
-// The `PostgresClientSecurityID` scalar type represents an identifier for an object of type PostgresClientSecurity.
-type PostgresClientSecurityID string // postgres (../../../../../daggerverse/postgres/security.go:19:6)
-
-// The `PostgresClusterID` scalar type represents an identifier for an object of type PostgresCluster.
-type PostgresClusterID string // postgres (../../../../../daggerverse/postgres/cluster.go:17:6)
-
-// The `PostgresID` scalar type represents an identifier for an object of type Postgres.
-type PostgresID string // postgres (../../../../../daggerverse/postgres/main.go:29:6)
-
-// The `PostgresServerSecurityID` scalar type represents an identifier for an object of type PostgresServerSecurity.
-type PostgresServerSecurityID string // postgres (../../../../../daggerverse/postgres/security.go:11:6)
 
 // Retrieve the binding value, as type Postgres
 func (r *Binding) AsPostgres() *Postgres { // postgres (../../../../../daggerverse/postgres/main.go:29:6)
@@ -196,7 +181,7 @@ func (r *Env) WithPostgresServerSecurityOutput(name string, description string) 
 type Postgres struct { // postgres (../../../../../daggerverse/postgres/main.go:29:6)
 	query *querybuilder.Selection
 
-	id *PostgresID
+	id *ID
 }
 
 func (r *Postgres) WithGraphQLQuery(q *querybuilder.Selection) *Postgres {
@@ -325,13 +310,13 @@ func (r *Postgres) Cluster(password *Secret, clientListenerSecurity *PostgresSer
 }
 
 // A unique identifier for this Postgres.
-func (r *Postgres) ID(ctx context.Context) (PostgresID, error) {
+func (r *Postgres) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -344,7 +329,7 @@ func (r *Postgres) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Postgres) XXX_GraphQLIDType() string {
-	return "PostgresID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -369,7 +354,7 @@ func (r *Postgres) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresFromID(PostgresID(id))
+	*r = Postgres{query: selectNode(dag.query, id, "Postgres")}
 	return nil
 }
 
@@ -393,6 +378,14 @@ func (r *Postgres) PlaintextServerSecurity() *PostgresServerSecurity { // postgr
 	}
 }
 
+// AsNode returns this Postgres as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Postgres) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Client is a pgx-backed PostgreSQL client. Each method opens a fresh
 // connection so the function call is stateless from Dagger's
 // perspective; ApplyFile is the exception — it runs every statement on
@@ -402,7 +395,7 @@ type PostgresClient struct { // postgres (../../../../../daggerverse/postgres/cl
 
 	applyFile *Void
 	exec      *int
-	id        *PostgresClientID
+	id        *ID
 	ping      *Void
 	scalar    *string
 }
@@ -444,13 +437,13 @@ func (r *PostgresClient) Exec(ctx context.Context, sql string) (int, error) { //
 }
 
 // A unique identifier for this PostgresClient.
-func (r *PostgresClient) ID(ctx context.Context) (PostgresClientID, error) {
+func (r *PostgresClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresClientID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -463,7 +456,7 @@ func (r *PostgresClient) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *PostgresClient) XXX_GraphQLIDType() string {
-	return "PostgresClientID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -488,7 +481,7 @@ func (r *PostgresClient) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresClientFromID(PostgresClientID(id))
+	*r = PostgresClient{query: selectNode(dag.query, id, "PostgresClient")}
 	return nil
 }
 
@@ -532,13 +525,21 @@ func (r *PostgresClient) Scalar(ctx context.Context, sql string) (string, error)
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this PostgresClient as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *PostgresClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ClientSecurity describes how a pgx client authenticates to a Postgres
 // primary. PLAINTEXT only in this story; TLS / mTLS land in a
 // follow-up.
 type PostgresClientSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
 	query *querybuilder.Selection
 
-	id *PostgresClientSecurityID
+	id *ID
 }
 
 func (r *PostgresClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *PostgresClientSecurity {
@@ -548,13 +549,13 @@ func (r *PostgresClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Po
 }
 
 // A unique identifier for this PostgresClientSecurity.
-func (r *PostgresClientSecurity) ID(ctx context.Context) (PostgresClientSecurityID, error) {
+func (r *PostgresClientSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresClientSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -567,7 +568,7 @@ func (r *PostgresClientSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *PostgresClientSecurity) XXX_GraphQLIDType() string {
-	return "PostgresClientSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -592,8 +593,16 @@ func (r *PostgresClientSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresClientSecurityFromID(PostgresClientSecurityID(id))
+	*r = PostgresClientSecurity{query: selectNode(dag.query, id, "PostgresClientSecurity")}
 	return nil
+}
+
+// AsNode returns this PostgresClientSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *PostgresClientSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }
 
 // Cluster represents a running single-node PostgreSQL primary plus the
@@ -605,7 +614,7 @@ type PostgresCluster struct { // postgres (../../../../../daggerverse/postgres/c
 
 	database *string
 	endpoint *string
-	id       *PostgresClusterID
+	id       *ID
 	stop     *Void
 	user     *string
 }
@@ -679,13 +688,13 @@ func (r *PostgresCluster) Endpoint(ctx context.Context) (string, error) { // pos
 }
 
 // A unique identifier for this PostgresCluster.
-func (r *PostgresCluster) ID(ctx context.Context) (PostgresClusterID, error) {
+func (r *PostgresCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -698,7 +707,7 @@ func (r *PostgresCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *PostgresCluster) XXX_GraphQLIDType() string {
-	return "PostgresClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -723,7 +732,7 @@ func (r *PostgresCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresClusterFromID(PostgresClusterID(id))
+	*r = PostgresCluster{query: selectNode(dag.query, id, "PostgresCluster")}
 	return nil
 }
 
@@ -765,6 +774,14 @@ func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgre
 	return response, q.Execute(ctx)
 }
 
+// AsNode returns this PostgresCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *PostgresCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // ServerSecurity describes how a Postgres cluster's client-facing
 // listener authenticates and encrypts traffic. In this story only
 // PLAINTEXT is supported (scram-sha-256 password auth over an
@@ -776,7 +793,7 @@ func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgre
 type PostgresServerSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
 	query *querybuilder.Selection
 
-	id *PostgresServerSecurityID
+	id *ID
 }
 
 func (r *PostgresServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *PostgresServerSecurity {
@@ -786,13 +803,13 @@ func (r *PostgresServerSecurity) WithGraphQLQuery(q *querybuilder.Selection) *Po
 }
 
 // A unique identifier for this PostgresServerSecurity.
-func (r *PostgresServerSecurity) ID(ctx context.Context) (PostgresServerSecurityID, error) {
+func (r *PostgresServerSecurity) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response PostgresServerSecurityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -805,7 +822,7 @@ func (r *PostgresServerSecurity) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *PostgresServerSecurity) XXX_GraphQLIDType() string {
-	return "PostgresServerSecurityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -830,57 +847,15 @@ func (r *PostgresServerSecurity) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadPostgresServerSecurityFromID(PostgresServerSecurityID(id))
+	*r = PostgresServerSecurity{query: selectNode(dag.query, id, "PostgresServerSecurity")}
 	return nil
 }
 
-// Load a PostgresClient from its ID.
-func (r *Query) LoadPostgresClientFromID(id PostgresClientID) *PostgresClient { // postgres (../../../../../daggerverse/postgres/client.go:22:6)
-	q := r.query.Select("loadPostgresClientFromID")
-	q = q.Arg("id", id)
-
-	return &PostgresClient{
-		query: q,
-	}
-}
-
-// Load a PostgresClientSecurity from its ID.
-func (r *Query) LoadPostgresClientSecurityFromID(id PostgresClientSecurityID) *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
-	q := r.query.Select("loadPostgresClientSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &PostgresClientSecurity{
-		query: q,
-	}
-}
-
-// Load a PostgresCluster from its ID.
-func (r *Query) LoadPostgresClusterFromID(id PostgresClusterID) *PostgresCluster { // postgres (../../../../../daggerverse/postgres/cluster.go:17:6)
-	q := r.query.Select("loadPostgresClusterFromID")
-	q = q.Arg("id", id)
-
-	return &PostgresCluster{
-		query: q,
-	}
-}
-
-// Load a Postgres from its ID.
-func (r *Query) LoadPostgresFromID(id PostgresID) *Postgres { // postgres (../../../../../daggerverse/postgres/main.go:29:6)
-	q := r.query.Select("loadPostgresFromID")
-	q = q.Arg("id", id)
-
-	return &Postgres{
-		query: q,
-	}
-}
-
-// Load a PostgresServerSecurity from its ID.
-func (r *Query) LoadPostgresServerSecurityFromID(id PostgresServerSecurityID) *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
-	q := r.query.Select("loadPostgresServerSecurityFromID")
-	q = q.Arg("id", id)
-
-	return &PostgresServerSecurity{
-		query: q,
+// AsNode returns this PostgresServerSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *PostgresServerSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 

@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `OtelTestsID` scalar type represents an identifier for an object of type OtelTests.
-type OtelTestsID string // otel-tests (../../../daggerverse/otel/tests/main.go:15:6)
 
 // Retrieve the binding value, as type OtelTests
 func (r *Binding) AsOtelTests() *OtelTests { // otel-tests (../../../daggerverse/otel/tests/main.go:15:6)
@@ -59,7 +56,7 @@ type OtelTests struct { // otel-tests (../../../daggerverse/otel/tests/main.go:1
 	coreForwardsTracesToTempo             *Void
 	customComponentBodyIsSpliced          *Void
 	debugPipelineAcceptsOtlpPush          *Void
-	id                                    *OtelTestsID
+	id                                    *ID
 	rejectsInvalidComponentName           *Void
 	rejectsUnknownPipelineSignal          *Void
 	serviceWithoutPipelinesOrConfigFails  *Void
@@ -449,13 +446,13 @@ func (r *OtelTests) DebugPipelineAcceptsOtlpPush(ctx context.Context, opts ...Ot
 }
 
 // A unique identifier for this OtelTests.
-func (r *OtelTests) ID(ctx context.Context) (OtelTestsID, error) {
+func (r *OtelTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response OtelTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -468,7 +465,7 @@ func (r *OtelTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *OtelTests) XXX_GraphQLIDType() string {
-	return "OtelTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -493,7 +490,7 @@ func (r *OtelTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadOtelTestsFromID(OtelTestsID(id))
+	*r = OtelTests{query: selectNode(dag.query, id, "OtelTests")}
 	return nil
 }
 
@@ -601,13 +598,11 @@ func (r *OtelTests) Validation(ctx context.Context, opts ...OtelTestsValidationO
 	return q.Execute(ctx)
 }
 
-// Load a OtelTests from its ID.
-func (r *Query) LoadOtelTestsFromID(id OtelTestsID) *OtelTests { // otel-tests (../../../daggerverse/otel/tests/main.go:15:6)
-	q := r.query.Select("loadOtelTestsFromID")
-	q = q.Arg("id", id)
-
-	return &OtelTests{
-		query: q,
+// AsNode returns this OtelTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *OtelTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 

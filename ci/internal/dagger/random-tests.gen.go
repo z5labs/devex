@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `RandomTestsID` scalar type represents an identifier for an object of type RandomTests.
-type RandomTestsID string // random-tests (../../../daggerverse/random/tests/main.go:10:6)
 
 // Retrieve the binding value, as type RandomTests
 func (r *Binding) AsRandomTests() *RandomTests { // random-tests (../../../daggerverse/random/tests/main.go:10:6)
@@ -45,16 +42,6 @@ func (r *Env) WithRandomTestsOutput(name string, description string) *Env { // r
 	}
 }
 
-// Load a RandomTests from its ID.
-func (r *Query) LoadRandomTestsFromID(id RandomTestsID) *RandomTests { // random-tests (../../../daggerverse/random/tests/main.go:10:6)
-	q := r.query.Select("loadRandomTestsFromID")
-	q = q.Arg("id", id)
-
-	return &RandomTests{
-		query: q,
-	}
-}
-
 func (r *Query) RandomTests() *RandomTests { // random-tests (../../../daggerverse/random/tests/main.go:10:6)
 	q := r.query.Select("randomTests")
 
@@ -67,7 +54,7 @@ type RandomTests struct { // random-tests (../../../daggerverse/random/tests/mai
 	query *querybuilder.Selection
 
 	all                     *Void
-	id                      *RandomTestsID
+	id                      *ID
 	serialShouldNotBeCached *Void
 	sha256ShouldNotBeCached *Void
 	sha512ShouldNotBeCached *Void
@@ -108,13 +95,13 @@ func (r *RandomTests) All(ctx context.Context, opts ...RandomTestsAllOpts) error
 }
 
 // A unique identifier for this RandomTests.
-func (r *RandomTests) ID(ctx context.Context) (RandomTestsID, error) {
+func (r *RandomTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response RandomTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -127,7 +114,7 @@ func (r *RandomTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *RandomTests) XXX_GraphQLIDType() string {
-	return "RandomTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -152,7 +139,7 @@ func (r *RandomTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadRandomTestsFromID(RandomTestsID(id))
+	*r = RandomTests{query: selectNode(dag.query, id, "RandomTests")}
 	return nil
 }
 
@@ -199,4 +186,12 @@ func (r *RandomTests) UUIDV7ShouldNotBeCached(ctx context.Context) error { // ra
 	q := r.query.Select("uuidV7ShouldNotBeCached")
 
 	return q.Execute(ctx)
+}
+
+// AsNode returns this RandomTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *RandomTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
 }

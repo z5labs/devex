@@ -6,23 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `CertificateManagementCertificateAuthorityID` scalar type represents an identifier for an object of type CertificateManagementCertificateAuthority.
-type CertificateManagementCertificateAuthorityID string // certificate-management (../../../../../daggerverse/certificate-management/main.go:36:6)
-
-// The `CertificateManagementID` scalar type represents an identifier for an object of type CertificateManagement.
-type CertificateManagementID string // certificate-management (../../../../../daggerverse/certificate-management/main.go:31:6)
-
-// The `CertificateManagementIssuedCertificateID` scalar type represents an identifier for an object of type CertificateManagementIssuedCertificate.
-type CertificateManagementIssuedCertificateID string // certificate-management (../../../../../daggerverse/certificate-management/main.go:44:6)
-
-// The `CertificateManagementKeyStoreID` scalar type represents an identifier for an object of type CertificateManagementKeyStore.
-type CertificateManagementKeyStoreID string // certificate-management (../../../../../daggerverse/certificate-management/main.go:53:6)
-
-// The `CertificateManagementTrustStoreID` scalar type represents an identifier for an object of type CertificateManagementTrustStore.
-type CertificateManagementTrustStoreID string // certificate-management (../../../../../daggerverse/certificate-management/main.go:66:6)
 
 // Retrieve the binding value, as type CertificateManagement
 func (r *Binding) AsCertificateManagement() *CertificateManagement { // certificate-management (../../../../../daggerverse/certificate-management/main.go:31:6)
@@ -78,7 +63,7 @@ func (r *Binding) AsCertificateManagementTrustStore() *CertificateManagementTrus
 type CertificateManagement struct { // certificate-management (../../../../../daggerverse/certificate-management/main.go:31:6)
 	query *querybuilder.Selection
 
-	id *CertificateManagementID
+	id *ID
 }
 
 func (r *CertificateManagement) WithGraphQLQuery(q *querybuilder.Selection) *CertificateManagement {
@@ -140,13 +125,13 @@ func (r *CertificateManagement) CreateCertificateAuthority(notBefore string, ser
 }
 
 // A unique identifier for this CertificateManagement.
-func (r *CertificateManagement) ID(ctx context.Context) (CertificateManagementID, error) {
+func (r *CertificateManagement) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -159,7 +144,7 @@ func (r *CertificateManagement) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagement) XXX_GraphQLIDType() string {
-	return "CertificateManagementID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -184,7 +169,7 @@ func (r *CertificateManagement) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementFromID(CertificateManagementID(id))
+	*r = CertificateManagement{query: selectNode(dag.query, id, "CertificateManagement")}
 	return nil
 }
 
@@ -231,13 +216,21 @@ func (r *CertificateManagement) LoadTrustStoreFromPkcs12(pkcs12File *File, passw
 	}
 }
 
+// AsNode returns this CertificateManagement as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagement) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // CertificateAuthority is a self-signed X.509 root capable of issuing leaf
 // certificates. It carries its own PKCS#12 password used by KeyStore() and
 // TrustStore().
 type CertificateManagementCertificateAuthority struct { // certificate-management (../../../../../daggerverse/certificate-management/main.go:36:6)
 	query *querybuilder.Selection
 
-	id *CertificateManagementCertificateAuthorityID
+	id *ID
 }
 
 func (r *CertificateManagementCertificateAuthority) WithGraphQLQuery(q *querybuilder.Selection) *CertificateManagementCertificateAuthority {
@@ -256,13 +249,13 @@ func (r *CertificateManagementCertificateAuthority) CertPemFile() *File { // cer
 }
 
 // A unique identifier for this CertificateManagementCertificateAuthority.
-func (r *CertificateManagementCertificateAuthority) ID(ctx context.Context) (CertificateManagementCertificateAuthorityID, error) {
+func (r *CertificateManagementCertificateAuthority) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementCertificateAuthorityID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -275,7 +268,7 @@ func (r *CertificateManagementCertificateAuthority) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagementCertificateAuthority) XXX_GraphQLIDType() string {
-	return "CertificateManagementCertificateAuthorityID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -300,7 +293,7 @@ func (r *CertificateManagementCertificateAuthority) UnmarshalJSON(bs []byte) err
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementCertificateAuthorityFromID(CertificateManagementCertificateAuthorityID(id))
+	*r = CertificateManagementCertificateAuthority{query: selectNode(dag.query, id, "CertificateManagementCertificateAuthority")}
 	return nil
 }
 
@@ -471,12 +464,20 @@ func (r *CertificateManagementCertificateAuthority) TrustStore() *CertificateMan
 	}
 }
 
+// AsNode returns this CertificateManagementCertificateAuthority as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagementCertificateAuthority) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // IssuedCertificate is a leaf certificate signed by a CA, together with the
 // issuing CA's certificate (used to build trust bundles).
 type CertificateManagementIssuedCertificate struct { // certificate-management (../../../../../daggerverse/certificate-management/main.go:44:6)
 	query *querybuilder.Selection
 
-	id *CertificateManagementIssuedCertificateID
+	id *ID
 }
 
 func (r *CertificateManagementIssuedCertificate) WithGraphQLQuery(q *querybuilder.Selection) *CertificateManagementIssuedCertificate {
@@ -495,13 +496,13 @@ func (r *CertificateManagementIssuedCertificate) CertPemFile() *File { // certif
 }
 
 // A unique identifier for this CertificateManagementIssuedCertificate.
-func (r *CertificateManagementIssuedCertificate) ID(ctx context.Context) (CertificateManagementIssuedCertificateID, error) {
+func (r *CertificateManagementIssuedCertificate) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementIssuedCertificateID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -514,7 +515,7 @@ func (r *CertificateManagementIssuedCertificate) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagementIssuedCertificate) XXX_GraphQLIDType() string {
-	return "CertificateManagementIssuedCertificateID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -539,7 +540,7 @@ func (r *CertificateManagementIssuedCertificate) UnmarshalJSON(bs []byte) error 
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementIssuedCertificateFromID(CertificateManagementIssuedCertificateID(id))
+	*r = CertificateManagementIssuedCertificate{query: selectNode(dag.query, id, "CertificateManagementIssuedCertificate")}
 	return nil
 }
 
@@ -589,12 +590,20 @@ func (r *CertificateManagementIssuedCertificate) TrustStore() *CertificateManage
 	}
 }
 
+// AsNode returns this CertificateManagementIssuedCertificate as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagementIssuedCertificate) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // KeyStore is a PKCS#12 archive containing a certificate and its private key,
 // protected by a password.
 type CertificateManagementKeyStore struct { // certificate-management (../../../../../daggerverse/certificate-management/main.go:53:6)
 	query *querybuilder.Selection
 
-	id *CertificateManagementKeyStoreID
+	id *ID
 }
 
 func (r *CertificateManagementKeyStore) WithGraphQLQuery(q *querybuilder.Selection) *CertificateManagementKeyStore {
@@ -612,13 +621,13 @@ func (r *CertificateManagementKeyStore) File() *File { // certificate-management
 }
 
 // A unique identifier for this CertificateManagementKeyStore.
-func (r *CertificateManagementKeyStore) ID(ctx context.Context) (CertificateManagementKeyStoreID, error) {
+func (r *CertificateManagementKeyStore) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementKeyStoreID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -631,7 +640,7 @@ func (r *CertificateManagementKeyStore) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagementKeyStore) XXX_GraphQLIDType() string {
-	return "CertificateManagementKeyStoreID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -656,7 +665,7 @@ func (r *CertificateManagementKeyStore) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementKeyStoreFromID(CertificateManagementKeyStoreID(id))
+	*r = CertificateManagementKeyStore{query: selectNode(dag.query, id, "CertificateManagementKeyStore")}
 	return nil
 }
 
@@ -686,12 +695,20 @@ func (r *CertificateManagementKeyStore) Pwd() *Secret { // certificate-managemen
 	}
 }
 
+// AsNode returns this CertificateManagementKeyStore as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagementKeyStore) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // TrustStore is a PKCS#12 archive containing one or more trusted certificates,
 // protected by a password.
 type CertificateManagementTrustStore struct { // certificate-management (../../../../../daggerverse/certificate-management/main.go:66:6)
 	query *querybuilder.Selection
 
-	id *CertificateManagementTrustStoreID
+	id *ID
 }
 
 func (r *CertificateManagementTrustStore) WithGraphQLQuery(q *querybuilder.Selection) *CertificateManagementTrustStore {
@@ -709,13 +726,13 @@ func (r *CertificateManagementTrustStore) File() *File { // certificate-manageme
 }
 
 // A unique identifier for this CertificateManagementTrustStore.
-func (r *CertificateManagementTrustStore) ID(ctx context.Context) (CertificateManagementTrustStoreID, error) {
+func (r *CertificateManagementTrustStore) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response CertificateManagementTrustStoreID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -728,7 +745,7 @@ func (r *CertificateManagementTrustStore) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *CertificateManagementTrustStore) XXX_GraphQLIDType() string {
-	return "CertificateManagementTrustStoreID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -753,7 +770,7 @@ func (r *CertificateManagementTrustStore) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadCertificateManagementTrustStoreFromID(CertificateManagementTrustStoreID(id))
+	*r = CertificateManagementTrustStore{query: selectNode(dag.query, id, "CertificateManagementTrustStore")}
 	return nil
 }
 
@@ -780,6 +797,14 @@ func (r *CertificateManagementTrustStore) Pwd() *Secret { // certificate-managem
 
 	return &Secret{
 		query: q,
+	}
+}
+
+// AsNode returns this CertificateManagementTrustStore as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *CertificateManagementTrustStore) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
 	}
 }
 
@@ -913,56 +938,6 @@ func (r *Query) CertificateManagement() *CertificateManagement { // certificate-
 	q := r.query.Select("certificateManagement")
 
 	return &CertificateManagement{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementCertificateAuthority from its ID.
-func (r *Query) LoadCertificateManagementCertificateAuthorityFromID(id CertificateManagementCertificateAuthorityID) *CertificateManagementCertificateAuthority { // certificate-management (../../../../../daggerverse/certificate-management/main.go:36:6)
-	q := r.query.Select("loadCertificateManagementCertificateAuthorityFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagementCertificateAuthority{
-		query: q,
-	}
-}
-
-// Load a CertificateManagement from its ID.
-func (r *Query) LoadCertificateManagementFromID(id CertificateManagementID) *CertificateManagement { // certificate-management (../../../../../daggerverse/certificate-management/main.go:31:6)
-	q := r.query.Select("loadCertificateManagementFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagement{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementIssuedCertificate from its ID.
-func (r *Query) LoadCertificateManagementIssuedCertificateFromID(id CertificateManagementIssuedCertificateID) *CertificateManagementIssuedCertificate { // certificate-management (../../../../../daggerverse/certificate-management/main.go:44:6)
-	q := r.query.Select("loadCertificateManagementIssuedCertificateFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagementIssuedCertificate{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementKeyStore from its ID.
-func (r *Query) LoadCertificateManagementKeyStoreFromID(id CertificateManagementKeyStoreID) *CertificateManagementKeyStore { // certificate-management (../../../../../daggerverse/certificate-management/main.go:53:6)
-	q := r.query.Select("loadCertificateManagementKeyStoreFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagementKeyStore{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementTrustStore from its ID.
-func (r *Query) LoadCertificateManagementTrustStoreFromID(id CertificateManagementTrustStoreID) *CertificateManagementTrustStore { // certificate-management (../../../../../daggerverse/certificate-management/main.go:66:6)
-	q := r.query.Select("loadCertificateManagementTrustStoreFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagementTrustStore{
 		query: q,
 	}
 }

@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `EnvoyTestsID` scalar type represents an identifier for an object of type EnvoyTests.
-type EnvoyTestsID string // envoy-tests (../../../daggerverse/envoy/tests/main.go:15:6)
 
 // Retrieve the binding value, as type EnvoyTests
 func (r *Binding) AsEnvoyTests() *EnvoyTests { // envoy-tests (../../../daggerverse/envoy/tests/main.go:15:6)
@@ -55,7 +52,7 @@ type EnvoyTests struct { // envoy-tests (../../../daggerverse/envoy/tests/main.g
 	customHttpFilterBodyIsSpliced                     *Void
 	customListenerBodyIsSpliced                       *Void
 	defaultClusterTypeIsStrictDns                     *Void
-	id                                                *EnvoyTestsID
+	id                                                *ID
 	l4TcpRoundTrip                                    *Void
 	l4TcpTlsRoundTrip                                 *Void
 	l7HttpRoundTrip                                   *Void
@@ -224,13 +221,13 @@ func (r *EnvoyTests) DefaultClusterTypeIsStrictDNS(ctx context.Context) error { 
 }
 
 // A unique identifier for this EnvoyTests.
-func (r *EnvoyTests) ID(ctx context.Context) (EnvoyTestsID, error) {
+func (r *EnvoyTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response EnvoyTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -243,7 +240,7 @@ func (r *EnvoyTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *EnvoyTests) XXX_GraphQLIDType() string {
-	return "EnvoyTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -268,7 +265,7 @@ func (r *EnvoyTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadEnvoyTestsFromID(EnvoyTestsID(id))
+	*r = EnvoyTests{query: selectNode(dag.query, id, "EnvoyTests")}
 	return nil
 }
 
@@ -674,20 +671,18 @@ func (r *EnvoyTests) Validation(ctx context.Context, opts ...EnvoyTestsValidatio
 	return q.Execute(ctx)
 }
 
+// AsNode returns this EnvoyTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Package main is the envoy-tests Dagger module: round-trip and unit
 // checks for the envoy daggerverse module.
 func (r *Query) EnvoyTests() *EnvoyTests { // envoy-tests (../../../daggerverse/envoy/tests/main.go:15:6)
 	q := r.query.Select("envoyTests")
-
-	return &EnvoyTests{
-		query: q,
-	}
-}
-
-// Load a EnvoyTests from its ID.
-func (r *Query) LoadEnvoyTestsFromID(id EnvoyTestsID) *EnvoyTests { // envoy-tests (../../../daggerverse/envoy/tests/main.go:15:6)
-	q := r.query.Select("loadEnvoyTestsFromID")
-	q = q.Arg("id", id)
 
 	return &EnvoyTests{
 		query: q,

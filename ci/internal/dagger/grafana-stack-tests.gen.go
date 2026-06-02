@@ -6,11 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `GrafanaStackTestsID` scalar type represents an identifier for an object of type GrafanaStackTests.
-type GrafanaStackTestsID string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/main.go:19:6)
 
 // Retrieve the binding value, as type GrafanaStackTests
 func (r *Binding) AsGrafanaStackTests() *GrafanaStackTests { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/main.go:19:6)
@@ -50,7 +47,7 @@ type GrafanaStackTests struct { // grafana-stack-tests (../../../daggerverse/gra
 
 	all                     *Void
 	grafanaProxiesLokiQuery *Void
-	id                      *GrafanaStackTestsID
+	id                      *ID
 	lokiAcceptsOtlpLogs     *Void
 	mimirAcceptsOtlpMetrics *Void
 	tempoAcceptsOtlpTraces  *Void
@@ -183,13 +180,13 @@ func (r *GrafanaStackTests) GrafanaProxiesLokiQuery(ctx context.Context, opts ..
 }
 
 // A unique identifier for this GrafanaStackTests.
-func (r *GrafanaStackTests) ID(ctx context.Context) (GrafanaStackTestsID, error) {
+func (r *GrafanaStackTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response GrafanaStackTestsID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -202,7 +199,7 @@ func (r *GrafanaStackTests) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *GrafanaStackTests) XXX_GraphQLIDType() string {
-	return "GrafanaStackTestsID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -227,7 +224,7 @@ func (r *GrafanaStackTests) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadGrafanaStackTestsFromID(GrafanaStackTestsID(id))
+	*r = GrafanaStackTests{query: selectNode(dag.query, id, "GrafanaStackTests")}
 	return nil
 }
 
@@ -311,20 +308,18 @@ func (r *GrafanaStackTests) TempoAcceptsOtlpTraces(ctx context.Context, opts ...
 	return q.Execute(ctx)
 }
 
+// AsNode returns this GrafanaStackTests as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *GrafanaStackTests) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Package main is the grafana-stack-tests Dagger module: round-trip checks
 // for each backend exposed by the grafana-stack module.
 func (r *Query) GrafanaStackTests() *GrafanaStackTests { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/main.go:19:6)
 	q := r.query.Select("grafanaStackTests")
-
-	return &GrafanaStackTests{
-		query: q,
-	}
-}
-
-// Load a GrafanaStackTests from its ID.
-func (r *Query) LoadGrafanaStackTestsFromID(id GrafanaStackTestsID) *GrafanaStackTests { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/main.go:19:6)
-	q := r.query.Select("loadGrafanaStackTestsFromID")
-	q = q.Arg("id", id)
 
 	return &GrafanaStackTests{
 		query: q,
