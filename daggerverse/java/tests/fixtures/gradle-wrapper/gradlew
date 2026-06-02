@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test shim standing in for the real Gradle wrapper: prove the wrapper path was
+# taken by emitting a sentinel, then hand off to the system gradle so the task
+# still runs.
+echo "GRADLEW-SHIM"
+exec gradle "$@"

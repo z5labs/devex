@@ -34,6 +34,10 @@
       "source": "daggerverse/grafana-stack/tests"
     },
     {
+      "name": "java-tests",
+      "source": "daggerverse/java/tests"
+    },
+    {
       "name": "kafka-tests",
       "source": "daggerverse/kafka/tests"
     },
