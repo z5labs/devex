@@ -1,0 +1,10 @@
+{
+  "name": "flash",
+  "engineVersion": "v0.21.3",
+  "sdk": {
+    "source": "go"
+  },
+  "codegen": {
+    "automaticGitignore": false
+  }
+}

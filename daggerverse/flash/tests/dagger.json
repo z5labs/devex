@@ -1,0 +1,20 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.21.3",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "flash",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
