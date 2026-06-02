@@ -440,6 +440,28 @@ validated, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     ValueDeserializeAs:  "JSON", // "" pass-through; "JSON" rejects non-parseable payloads
 })
 
+// Avro wire format: the JSON input is Avro-binary-encoded against the
+// registered schema and framed on Produce, and framed Avro-binary bytes
+// are decoded back to JSON on Consume. Both sides take a SchemaRegistry so
+// the schema text is resolved by id; Produce requires a positive
+// ValueSchemaID (it both selects the schema and frames the record).
+id, err = srClient.RegisterSchema(ctx, "my-topic-value", avroSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+    SchemaType: "AVRO",
+})
+err = client.Produce(ctx, "my-topic", "k", `{"x":"hello"}`, dagger.KafkaClientProduceOpts{
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    ValueSchemaID:    id,
+    ValueSerializeAs: "AVRO", // JSON -> Avro binary, then frame with id
+    Registry:         sr,     // *SchemaRegistry: resolves schema text by id
+})
+decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
+    MaxMessages: 1, Timeout: "10s",
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    SchemaRegistryAware: true,        // required: supplies the wire id
+    ValueDeserializeAs:  "AVRO",      // Avro binary -> JSON
+    Registry:            sr,
+})
+
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
 // truststore.p12 / keystore.p12 references resolve.
@@ -450,15 +472,31 @@ props := client.PropertiesFile() // *dagger.File — resolve via .Contents(ctx) 
 `"hex"`, or `"base64"` (standard padding). Anything else is rejected.
 
 The serde opts (`keySerializeAs` / `valueSerializeAs` on `Produce`,
-`keyDeserializeAs` / `valueDeserializeAs` on `Consume`) are wire-format
-enforcement only — they do not fetch or apply the registered schema's
-content rules. Defaults are `""` (pass-through); `"JSON"` is the only
-non-empty value accepted today. The producer side canonicalises (parse
-+ re-marshal via `encoding/json`) so what hits the wire is independent
-of caller-side whitespace; the consumer side validates with
-`json.Valid` after any frame strip. Composition order is
-decode → serialize → frame on `Produce`, unframe → deserialize → encode
-on `Consume`.
+`keyDeserializeAs` / `valueDeserializeAs` on `Consume`) accept `""`
+(pass-through, the default), `"JSON"`, or `"AVRO"`.
+
+`"JSON"` is wire-format enforcement only — it does not fetch or apply a
+registered schema. The producer side canonicalises (parse + re-marshal
+via `encoding/json`) so what hits the wire is independent of caller-side
+whitespace; the consumer side validates with `json.Valid` after any frame
+strip.
+
+`"AVRO"` is schema-bound. The caller's string is treated as a JSON
+document and **Avro-binary-encoded** against the registered schema on
+`Produce`, then framed; on `Consume` the framed Avro-binary payload is
+decoded and re-serialised back to JSON. Both directions resolve the
+schema text by id through the supplied `Registry` (`*SchemaRegistry`),
+caching per id for the duration of the call. `Produce` requires a
+positive `…SchemaID` (it both names the schema and frames the record) and
+errors before any I/O on a zero id; `Consume` requires
+`schemaRegistryAware=true` and errors on an unframed record. The JSON
+shape follows the Avro spec's JSON encoding (unions as
+`{"<type>": value}`, bare `null` for the null branch, `bytes` as a
+one-char-per-byte string); logical types, `decimal`, and `fixed` are not
+yet supported.
+
+Composition order is decode → serialize → frame on `Produce`,
+unframe → deserialize → encode on `Consume`.
 
 Topic auto-creation is disabled on the broker — call `CreateTopic` before
 `Produce` / `Consume`.

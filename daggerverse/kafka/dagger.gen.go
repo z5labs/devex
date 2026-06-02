@@ -565,7 +565,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueDeserializeAs", err))
 				}
 			}
-			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs)
+			var registry *SchemaRegistry
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs, registry)
 		case "CreateTopic":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)
@@ -684,7 +691,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueSerializeAs", err))
 				}
 			}
-			return nil, (*Client).Produce(&parent, ctx, topic, key, value, keyEncoding, valueEncoding, keySchemaId, valueSchemaId, keySerializeAs, valueSerializeAs)
+			var registry *SchemaRegistry
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			return nil, (*Client).Produce(&parent, ctx, topic, key, value, keyEncoding, valueEncoding, keySchemaId, valueSchemaId, keySerializeAs, valueSerializeAs, registry)
 		case "PropertiesFile":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)

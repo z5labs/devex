@@ -175,6 +175,49 @@ func applySerializeAs(b []byte, mode, field string) ([]byte, error) {
 	}
 }
 
+// serializeField runs the producer-side serializer for one field. "" and
+// "JSON" delegate to the pure applySerializeAs; "AVRO" needs the schema-id,
+// registry, and codec cache that only the Produce call has, so it is handled
+// here: the schema id is required (a zero / negative id errors before any
+// broker or registry I/O), then the bytes are mapped from JSON and
+// Avro-binary-encoded.
+func serializeField(ctx context.Context, b []byte, mode, field string, schemaID int, codecs *avroSchemas) ([]byte, error) {
+	switch mode {
+	case "", "JSON":
+		return applySerializeAs(b, mode, field)
+	case "AVRO":
+		if schemaID <= 0 {
+			return nil, fmt.Errorf("%sSerializeAs=\"AVRO\" requires %sSchemaID > 0, got %d", field, field, schemaID)
+		}
+		return codecs.encode(ctx, schemaID, b)
+	default:
+		return nil, fmt.Errorf("unsupported %sSerializeAs %q (want \"\"|\"JSON\"|\"AVRO\")", field, mode)
+	}
+}
+
+// deserializeField runs the consumer-side deserializer for one field, after
+// any Confluent frame has been stripped. "" and "JSON" delegate to the pure
+// applyDeserializeAs; "AVRO" decodes the Avro binary payload against the
+// schema identified by the wire id and re-serialises it to JSON. schemaID is
+// the id extracted from the frame (0 when the record was unframed); a zero id
+// in AVRO mode means the record carried no wire header and cannot be decoded.
+func deserializeField(ctx context.Context, b []byte, mode, field string, schemaID int, schemaRegistryAware bool, codecs *avroSchemas) ([]byte, error) {
+	switch mode {
+	case "", "JSON":
+		return applyDeserializeAs(b, mode, field)
+	case "AVRO":
+		if !schemaRegistryAware {
+			return nil, fmt.Errorf("%sDeserializeAs=\"AVRO\" requires schemaRegistryAware=true", field)
+		}
+		if schemaID <= 0 {
+			return nil, fmt.Errorf("%s record is missing the Confluent wire header (no schema id); cannot AVRO-decode", field)
+		}
+		return codecs.decode(ctx, schemaID, b)
+	default:
+		return nil, fmt.Errorf("unsupported %sDeserializeAs %q (want \"\"|\"JSON\"|\"AVRO\")", field, mode)
+	}
+}
+
 // applyDeserializeAs runs the named consumer-side deserializer against
 // payload bytes that have already had any Confluent frame stripped. "" is
 // pass-through; "JSON" validates with json.Valid. The bytes are returned
@@ -457,7 +500,16 @@ func (c *Client) DeleteTopic(ctx context.Context, name string) error {
 // decode → serialize → frame, so a single call can both canonicalise a
 // JSON payload and prepend the Confluent header. Invalid JSON is
 // rejected before any broker I/O. Default "" is pass-through; "JSON"
-// is the only non-empty value accepted in this story.
+// canonicalises.
+//
+// keySerializeAs / valueSerializeAs set to "AVRO" interpret the decoded
+// bytes as a JSON document and Avro-binary-encode it (via
+// github.com/z5labs/avro-go/generic) against the schema identified by
+// keySchemaID / valueSchemaID before framing. The id is required in this
+// mode — a zero / negative id errors out before any broker or registry
+// I/O — and registry must be supplied so the schema text can be resolved
+// by id. The JSON shape follows the Avro spec's JSON encoding; logical
+// types, decimal, and fixed are not yet supported.
 //
 // +cache="never"
 func (c *Client) Produce(
@@ -477,6 +529,11 @@ func (c *Client) Produce(
 	keySerializeAs string,
 	// +default=""
 	valueSerializeAs string,
+	// registry resolves the Avro schema text by id when keySerializeAs /
+	// valueSerializeAs is "AVRO". Required in that mode; ignored otherwise.
+	//
+	// +optional
+	registry *SchemaRegistry,
 ) error {
 	if keySchemaID < 0 {
 		return fmt.Errorf("keySchemaID must be >= 0, got %d", keySchemaID)
@@ -494,11 +551,12 @@ func (c *Client) Produce(
 		return fmt.Errorf("decode value: %w", err)
 	}
 
-	keyBytes, err = applySerializeAs(keyBytes, keySerializeAs, "key")
+	codecs := newAvroSchemas(registry)
+	keyBytes, err = serializeField(ctx, keyBytes, keySerializeAs, "key", keySchemaID, codecs)
 	if err != nil {
 		return fmt.Errorf("serialize key: %w", err)
 	}
-	valBytes, err = applySerializeAs(valBytes, valueSerializeAs, "value")
+	valBytes, err = serializeField(ctx, valBytes, valueSerializeAs, "value", valueSchemaID, codecs)
 	if err != nil {
 		return fmt.Errorf("serialize value: %w", err)
 	}
@@ -561,8 +619,18 @@ func (c *Client) Produce(
 // compose: framed bytes are stripped first and validation runs on the
 // payload alone. Records whose payloads fail to parse cause Consume to
 // error out and abandon the remaining poll. Default "" is
-// pass-through; "JSON" is the only non-empty value accepted in this
-// story.
+// pass-through; "JSON" validates.
+//
+// keyDeserializeAs / valueDeserializeAs set to "AVRO" decode each
+// record's post-frame-strip Avro binary payload (via
+// github.com/z5labs/avro-go/generic) against the schema identified by the
+// wire id and re-serialise it to JSON. This mode requires
+// schemaRegistryAware=true (so the wire id is available) and a registry
+// (so the schema text can be resolved by id); an unframed record errors
+// out pointing at the missing wire header. Schema resolution is cached
+// per id for the duration of the call. The JSON shape follows the Avro
+// spec's JSON encoding; logical types, decimal, and fixed are not yet
+// supported.
 //
 // +cache="never"
 func (c *Client) Consume(
@@ -584,9 +652,22 @@ func (c *Client) Consume(
 	keyDeserializeAs string,
 	// +default=""
 	valueDeserializeAs string,
+	// registry resolves the Avro schema text by id when keyDeserializeAs /
+	// valueDeserializeAs is "AVRO". Required in that mode; ignored otherwise.
+	//
+	// +optional
+	registry *SchemaRegistry,
 ) (string, error) {
 	if maxMessages <= 0 {
 		return "", fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
+	}
+	if keyDeserializeAs == "AVRO" || valueDeserializeAs == "AVRO" {
+		if !schemaRegistryAware {
+			return "", fmt.Errorf(`AVRO deserialize requires schemaRegistryAware=true so the wire schema id is available`)
+		}
+		if registry == nil {
+			return "", fmt.Errorf("AVRO deserialize requires a schema registry to resolve schema text by id")
+		}
 	}
 	d, err := time.ParseDuration(timeout)
 	if err != nil {
@@ -618,6 +699,10 @@ func (c *Client) Consume(
 	deadlineCtx, cancel := context.WithTimeout(ctx, d)
 	defer cancel()
 
+	// One codec cache per call so schema resolution is cached per id across
+	// every record polled (issue: avoid one HTTP round-trip per record).
+	codecs := newAvroSchemas(registry)
+
 	out := make([]ConsumedRecord, 0, maxMessages)
 	for len(out) < maxMessages {
 		fetches := cl.PollFetches(deadlineCtx)
@@ -645,11 +730,11 @@ func (c *Client) Consume(
 				}
 			}
 			var err error
-			keyRaw, err = applyDeserializeAs(keyRaw, keyDeserializeAs, "key")
+			keyRaw, err = deserializeField(ctx, keyRaw, keyDeserializeAs, "key", keyID, schemaRegistryAware, codecs)
 			if err != nil {
 				return "", fmt.Errorf("deserialize key: %w", err)
 			}
-			valRaw, err = applyDeserializeAs(valRaw, valueDeserializeAs, "value")
+			valRaw, err = deserializeField(ctx, valRaw, valueDeserializeAs, "value", valID, schemaRegistryAware, codecs)
 			if err != nil {
 				return "", fmt.Errorf("deserialize value: %w", err)
 			}
