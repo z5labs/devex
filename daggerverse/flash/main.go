@@ -41,10 +41,14 @@ type Flash struct{}
 // The rendered form is the Linux usbip/usbipd toolchain. On Windows the
 // equivalent is `usbipd bind --busid <busid>` followed by `usbipd attach`
 // from the engine side (usbipd-win); see the module README.
+//
+// `port` and `busid` are shell-quoted in the output so a value carrying spaces
+// or shell metacharacters (`;`, `$()`) can't inject into the emitted command
+// when it's run via command substitution.
 func (f *Flash) BridgeCommand(
 	busid string,
 	// +default="3240"
 	port string,
 ) string {
-	return fmt.Sprintf("usbipd -tcp-port %s & usbip bind --busid %s", port, busid)
+	return fmt.Sprintf("usbipd -tcp-port %s & usbip bind --busid %s", shQuote(port), shQuote(busid))
 }

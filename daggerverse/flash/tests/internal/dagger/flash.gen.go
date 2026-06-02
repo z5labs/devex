@@ -20,7 +20,7 @@ func (r *Binding) AsFlash() *Flash { // flash (../../../../../daggerverse/flash/
 }
 
 // Retrieve the binding value, as type FlashFlasher
-func (r *Binding) AsFlashFlasher() *FlashFlasher { // flash (../../../../../daggerverse/flash/flasher.go:18:6)
+func (r *Binding) AsFlashFlasher() *FlashFlasher { // flash (../../../../../daggerverse/flash/flasher.go:23:6)
 	q := r.query.Select("asFlashFlasher")
 
 	return &FlashFlasher{
@@ -29,7 +29,7 @@ func (r *Binding) AsFlashFlasher() *FlashFlasher { // flash (../../../../../dagg
 }
 
 // Retrieve the binding value, as type FlashResult
-func (r *Binding) AsFlashResult() *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:34:6)
+func (r *Binding) AsFlashResult() *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:39:6)
 	q := r.query.Select("asFlashResult")
 
 	return &FlashResult{
@@ -38,7 +38,7 @@ func (r *Binding) AsFlashResult() *FlashResult { // flash (../../../../../dagger
 }
 
 // Create or update a binding of type FlashFlasher in the environment
-func (r *Env) WithFlashFlasherInput(name string, value *FlashFlasher, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:18:6)
+func (r *Env) WithFlashFlasherInput(name string, value *FlashFlasher, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:23:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withFlashFlasherInput")
 	q = q.Arg("name", name)
@@ -51,7 +51,7 @@ func (r *Env) WithFlashFlasherInput(name string, value *FlashFlasher, descriptio
 }
 
 // Declare a desired FlashFlasher output to be assigned in the environment
-func (r *Env) WithFlashFlasherOutput(name string, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:18:6)
+func (r *Env) WithFlashFlasherOutput(name string, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:23:6)
 	q := r.query.Select("withFlashFlasherOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -86,7 +86,7 @@ func (r *Env) WithFlashOutput(name string, description string) *Env { // flash (
 }
 
 // Create or update a binding of type FlashResult in the environment
-func (r *Env) WithFlashResultInput(name string, value *FlashResult, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:34:6)
+func (r *Env) WithFlashResultInput(name string, value *FlashResult, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:39:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withFlashResultInput")
 	q = q.Arg("name", name)
@@ -99,7 +99,7 @@ func (r *Env) WithFlashResultInput(name string, value *FlashResult, description 
 }
 
 // Declare a desired FlashResult output to be assigned in the environment
-func (r *Env) WithFlashResultOutput(name string, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:34:6)
+func (r *Env) WithFlashResultOutput(name string, description string) *Env { // flash (../../../../../daggerverse/flash/flasher.go:39:6)
 	q := r.query.Select("withFlashResultOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -130,7 +130,7 @@ func (r *Flash) WithGraphQLQuery(q *querybuilder.Selection) *Flash {
 type FlashBridgeCommandOpts struct {
 
 	// Default: "3240"
-	Port string // flash (../../../../../daggerverse/flash/main.go:47:2)
+	Port string // flash (../../../../../daggerverse/flash/main.go:51:2)
 }
 
 // BridgeCommand emits — it does NOT run — the host-side USB/IP command that
@@ -147,7 +147,11 @@ type FlashBridgeCommandOpts struct {
 // The rendered form is the Linux usbip/usbipd toolchain. On Windows the
 // equivalent is `usbipd bind --busid <busid>` followed by `usbipd attach`
 // from the engine side (usbipd-win); see the module README.
-func (r *Flash) BridgeCommand(ctx context.Context, busid string, opts ...FlashBridgeCommandOpts) (string, error) { // flash (../../../../../daggerverse/flash/main.go:44:1)
+//
+// `port` and `busid` are shell-quoted in the output so a value carrying spaces
+// or shell metacharacters (`;`, `$()`) can't inject into the emitted command
+// when it's run via command substitution.
+func (r *Flash) BridgeCommand(ctx context.Context, busid string, opts ...FlashBridgeCommandOpts) (string, error) { // flash (../../../../../daggerverse/flash/main.go:48:1)
 	if r.bridgeCommand != nil {
 		return *r.bridgeCommand, nil
 	}
@@ -351,7 +355,7 @@ func (r *Flash) AsNode() Node {
 // probe-rs container (with the firmware mounted) and the argv split into the
 // pieces each subcommand needs, so Plan can render deterministically without
 // hardware while Run / Verify / Reset / GdbServer swap in their verb and exec.
-type FlashFlasher struct { // flash (../../../../../daggerverse/flash/flasher.go:18:6)
+type FlashFlasher struct { // flash (../../../../../daggerverse/flash/flasher.go:23:6)
 	query *querybuilder.Selection
 
 	id    *ID
@@ -377,14 +381,14 @@ func (r *FlashFlasher) WithGraphQLQuery(q *querybuilder.Selection) *FlashFlasher
 type FlashFlasherGdbServerOpts struct {
 
 	// Default: 1337
-	Port int // flash (../../../../../daggerverse/flash/flasher.go:130:2)
+	Port int // flash (../../../../../daggerverse/flash/flasher.go:133:2)
 }
 
 // GdbServer exposes probe-rs's GDB stub as a Service so a debugger (or the gdb
 // bridge, #106) can attach over the network. Requires a reachable probe to
 // serve a live target; HIL-only at runtime. For the USB/IP transport the
 // attach runs first inside the service command.
-func (r *FlashFlasher) GdbServer(opts ...FlashFlasherGdbServerOpts) *Service { // flash (../../../../../daggerverse/flash/flasher.go:128:1)
+func (r *FlashFlasher) GdbServer(opts ...FlashFlasherGdbServerOpts) *Service { // flash (../../../../../daggerverse/flash/flasher.go:131:1)
 	q := r.query.Select("gdbServer")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `port` optional argument
@@ -451,7 +455,7 @@ func (r *FlashFlasher) UnmarshalJSON(bs []byte) error {
 // deterministic, hardware-free. For the USB/IP transport it includes the
 // `usbip attach` prefix; for BIN it includes `--base-address`; for the remote
 // transport it has no attach and carries `--host`.
-func (r *FlashFlasher) Plan(ctx context.Context) (string, error) { // flash (../../../../../daggerverse/flash/flasher.go:70:1)
+func (r *FlashFlasher) Plan(ctx context.Context) (string, error) { // flash (../../../../../daggerverse/flash/flasher.go:75:1)
 	if r.plan != nil {
 		return *r.plan, nil
 	}
@@ -463,26 +467,15 @@ func (r *FlashFlasher) Plan(ctx context.Context) (string, error) { // flash (../
 	return response, q.Execute(ctx)
 }
 
-// FlashFlasherResetOpts contains options for FlashFlasher.Reset
-type FlashFlasherResetOpts struct {
-
-	// Default: 120
-	TimeoutSeconds int // flash (../../../../../daggerverse/flash/flasher.go:110:2)
-}
-
 // Reset resets the target (`probe-rs reset`). Requires a reachable probe; a
 // non-zero probe-rs exit becomes an error here (Reset has no FlashResult).
-func (r *FlashFlasher) Reset(ctx context.Context, opts ...FlashFlasherResetOpts) error { // flash (../../../../../daggerverse/flash/flasher.go:107:1)
+// Reset takes no timeout argument (its v1 surface is Reset(ctx) error) and
+// always runs under defaultTimeoutSeconds.
+func (r *FlashFlasher) Reset(ctx context.Context) error { // flash (../../../../../daggerverse/flash/flasher.go:114:1)
 	if r.reset != nil {
 		return nil
 	}
 	q := r.query.Select("reset")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `timeoutSeconds` optional argument
-		if !querybuilder.IsZeroValue(opts[i].TimeoutSeconds) {
-			q = q.Arg("timeoutSeconds", opts[i].TimeoutSeconds)
-		}
-	}
 
 	return q.Execute(ctx)
 }
@@ -491,13 +484,13 @@ func (r *FlashFlasher) Reset(ctx context.Context, opts ...FlashFlasherResetOpts)
 type FlashFlasherRunOpts struct {
 
 	// Default: 120
-	TimeoutSeconds int // flash (../../../../../daggerverse/flash/flasher.go:86:2)
+	TimeoutSeconds int // flash (../../../../../daggerverse/flash/flasher.go:91:2)
 }
 
 // Run flashes the firmware (`probe-rs download`) and returns the combined
 // output and exit code. Requires a reachable probe; in CI (no hardware) it
 // returns a non-zero ExitCode with the probe-rs error in Output.
-func (r *FlashFlasher) Run(opts ...FlashFlasherRunOpts) *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:83:1)
+func (r *FlashFlasher) Run(opts ...FlashFlasherRunOpts) *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:88:1)
 	q := r.query.Select("run")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `timeoutSeconds` optional argument
@@ -515,12 +508,12 @@ func (r *FlashFlasher) Run(opts ...FlashFlasherRunOpts) *FlashResult { // flash 
 type FlashFlasherVerifyOpts struct {
 
 	// Default: 120
-	TimeoutSeconds int // flash (../../../../../daggerverse/flash/flasher.go:98:2)
+	TimeoutSeconds int // flash (../../../../../daggerverse/flash/flasher.go:103:2)
 }
 
 // Verify checks that the on-target flash matches the firmware
 // (`probe-rs verify`) without rewriting it. Requires a reachable probe.
-func (r *FlashFlasher) Verify(opts ...FlashFlasherVerifyOpts) *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:95:1)
+func (r *FlashFlasher) Verify(opts ...FlashFlasherVerifyOpts) *FlashResult { // flash (../../../../../daggerverse/flash/flasher.go:100:1)
 	q := r.query.Select("verify")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `timeoutSeconds` optional argument
@@ -539,7 +532,7 @@ func (r *FlashFlasher) Verify(opts ...FlashFlasherVerifyOpts) *FlashResult { // 
 // it. This is the seam for reaching an in-Dagger probe relay (e.g. a usbip
 // service) — and how the test suite points a Flasher at a fake-usbipd service
 // without real hardware. Returns a new Flasher; the original is unchanged.
-func (r *FlashFlasher) WithServiceBinding(host string, svc *Service) *FlashFlasher { // flash (../../../../../daggerverse/flash/flasher.go:47:1)
+func (r *FlashFlasher) WithServiceBinding(host string, svc *Service) *FlashFlasher { // flash (../../../../../daggerverse/flash/flasher.go:52:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withServiceBinding")
 	q = q.Arg("host", host)
@@ -561,7 +554,7 @@ func (r *FlashFlasher) AsNode() Node {
 // FlashResult pairs probe-rs's combined output with its exit code. A clean
 // probe-rs failure (e.g. no probe attached) is reported as a non-zero ExitCode
 // with a nil Go error, so the captured Output is never lost to the error path.
-type FlashResult struct { // flash (../../../../../daggerverse/flash/flasher.go:34:6)
+type FlashResult struct { // flash (../../../../../daggerverse/flash/flasher.go:39:6)
 	query *querybuilder.Selection
 
 	exitCode *int
@@ -577,7 +570,7 @@ func (r *FlashResult) WithGraphQLQuery(q *querybuilder.Selection) *FlashResult {
 
 // ExitCode is probe-rs's process exit code (0 = success). A run that
 // exceeds the deadline is killed and yields the timeout code (124).
-func (r *FlashResult) ExitCode(ctx context.Context) (int, error) { // flash (../../../../../daggerverse/flash/flasher.go:39:2)
+func (r *FlashResult) ExitCode(ctx context.Context) (int, error) { // flash (../../../../../daggerverse/flash/flasher.go:44:2)
 	if r.exitCode != nil {
 		return *r.exitCode, nil
 	}
@@ -639,7 +632,7 @@ func (r *FlashResult) UnmarshalJSON(bs []byte) error {
 }
 
 // Output is probe-rs's combined stdout
-func (r *FlashResult) Output(ctx context.Context) (string, error) { // flash (../../../../../daggerverse/flash/flasher.go:36:2)
+func (r *FlashResult) Output(ctx context.Context) (string, error) { // flash (../../../../../daggerverse/flash/flasher.go:41:2)
 	if r.output != nil {
 		return *r.output, nil
 	}

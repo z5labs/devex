@@ -442,7 +442,8 @@ func (r *FlashTests) ProbeRsRejectsUsbipWithoutBusid(ctx context.Context) error 
 	return q.Execute(ctx)
 }
 
-// RunReExecutesNotCached proves Run'stwo Run calls hit a fake-usbipd service. Each Run's usbip attach opens one TCP
+// RunReExecutesNotCached proves Run's never-cache behavior by counting how many
+// times two Run calls hit a fake-usbipd service. Each Run's usbip attach opens one TCP
 // connection; reading the counter before and after the two Runs, the
 // Run-attributable connection delta must be exactly 2 (a cached Run would skip
 // the connect and yield fewer).

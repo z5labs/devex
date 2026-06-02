@@ -460,14 +460,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			var timeoutSeconds int
-			if inputArgs["timeoutSeconds"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["timeoutSeconds"]), &timeoutSeconds)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg timeoutSeconds", err))
-				}
-			}
-			return nil, (*Flasher).Reset(&parent, ctx, timeoutSeconds)
+			return nil, (*Flasher).Reset(&parent, ctx)
 		case "Run":
 			var parent Flasher
 			err = json.Unmarshal(parentJSON, &parent)

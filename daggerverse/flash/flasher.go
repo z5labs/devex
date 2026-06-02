@@ -11,6 +11,11 @@ import (
 	"dagger/flash/internal/dagger"
 )
 
+// defaultTimeoutSeconds bounds a single probe-rs invocation when the caller does
+// not override it. Run/Verify expose it as a +default; Reset (whose v1 surface
+// is Reset(ctx) error) always runs under it.
+const defaultTimeoutSeconds = 120
+
 // Flasher is a prepared-but-not-yet-run probe-rs flash. It carries the
 // probe-rs container (with the firmware mounted) and the argv split into the
 // pieces each subcommand needs, so Plan can render deterministically without
@@ -102,14 +107,12 @@ func (fl *Flasher) Verify(
 
 // Reset resets the target (`probe-rs reset`). Requires a reachable probe; a
 // non-zero probe-rs exit becomes an error here (Reset has no FlashResult).
+// Reset takes no timeout argument (its v1 surface is Reset(ctx) error) and
+// always runs under defaultTimeoutSeconds.
 //
 // +cache="never"
-func (fl *Flasher) Reset(
-	ctx context.Context,
-	// +default=120
-	timeoutSeconds int,
-) error {
-	res, err := fl.runProbe(ctx, append([]string{"reset"}, fl.ProbeArgs...), timeoutSeconds)
+func (fl *Flasher) Reset(ctx context.Context) error {
+	res, err := fl.runProbe(ctx, append([]string{"reset"}, fl.ProbeArgs...), defaultTimeoutSeconds)
 	if err != nil {
 		return err
 	}
@@ -147,9 +150,13 @@ func (fl *Flasher) GdbServer(
 // combined output and exit code.
 //
 // A per-call random nonce env var busts Dagger's inner WithExec layer cache so
-// each call actually re-runs probe-rs (the +cache="never" on the method governs
-// the function result, not the inner exec). probe-rs logs to stderr, so the
-// command redirects 2>&1 — without it a failing run's Output would be empty.
+// each call actually re-runs probe-rs (the never-cache directive on the method
+// governs the function result, not the inner exec). probe-rs logs to stderr, so
+// the command redirects 2>&1 — without it a failing run's Output would be empty.
+//
+// Every argv token is single-quoted (shArgs) before composing the inner command
+// string, so caller-supplied values (chip, probeSelector, host, busid, …) can't
+// inject shell syntax when `sh -c` re-parses it.
 //
 // `timeout -s KILL N` bounds a hung probe-rs, and Expect=Any tolerates the
 // resulting non-zero exit so the output and code both survive. The SIGKILL exit
@@ -159,15 +166,15 @@ func (fl *Flasher) GdbServer(
 // gotcha).
 func (fl *Flasher) runProbe(ctx context.Context, probeArgv []string, timeoutSeconds int) (*FlashResult, error) {
 	if timeoutSeconds <= 0 {
-		timeoutSeconds = 120
+		timeoutSeconds = defaultTimeoutSeconds
 	}
 	nonce, err := randHex()
 	if err != nil {
 		return nil, err
 	}
-	inner := "probe-rs " + strings.Join(probeArgv, " ")
+	inner := shArgs(append([]string{"probe-rs"}, probeArgv...))
 	if len(fl.Attach) > 0 {
-		inner = strings.Join(fl.Attach, " ") + " && " + inner
+		inner = shArgs(fl.Attach) + " && " + inner
 	}
 	inner += " 2>&1"
 	// $0 is the timeout in seconds; $1 is the inner command. 137 = 128 + SIGKILL.
@@ -185,6 +192,23 @@ func (fl *Flasher) runProbe(ctx context.Context, probeArgv []string, timeoutSeco
 		return nil, fmt.Errorf("run probe-rs: read exit code: %w", err)
 	}
 	return &FlashResult{Output: out, ExitCode: code}, nil
+}
+
+// shQuote single-quotes s so it survives re-parsing by /bin/sh intact: a
+// caller-supplied value can't inject shell syntax (`;`, `$()`, spaces, …). Every
+// embedded single quote is rendered as the '\'' splice.
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// shArgs renders argv as a single /bin/sh command string with every token
+// shell-quoted, so the composed command is injection-safe when run via sh -c.
+func shArgs(argv []string) string {
+	quoted := make([]string, len(argv))
+	for i, a := range argv {
+		quoted[i] = shQuote(a)
+	}
+	return strings.Join(quoted, " ")
 }
 
 // randHex returns 32 hex chars of cryptographically-random data for use as a
