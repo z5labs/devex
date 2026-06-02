@@ -318,6 +318,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).AutoCreateTopicsDisabled(&parent, ctx, kafkaImageTag)
+		case "AvroBytesFieldRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).AvroBytesFieldRoundTrip(&parent, ctx, kafkaImageTag)
 		case "AvroConsumeUnframedErrors":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

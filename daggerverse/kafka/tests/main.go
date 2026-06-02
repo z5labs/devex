@@ -149,6 +149,9 @@ func (t *Tests) SchemaRegistry(
 	jobs = jobs.WithJob("AvroFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
 		return t.AvroFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("AvroBytesFieldRoundTrip", func(ctx context.Context) error {
+		return t.AvroBytesFieldRoundTrip(ctx, kafkaImageTag)
+	})
 
 	return jobs.Run(ctx)
 }

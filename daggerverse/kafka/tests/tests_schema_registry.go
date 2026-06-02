@@ -12,6 +12,11 @@ import (
 // Registry round-trip test.
 const avroTestSchema = `{"type":"record","name":"R","fields":[{"name":"x","type":"string"}]}`
 
+// avroBytesSchema is a minimal Avro record schema with a single bytes field,
+// used to exercise the Avro-spec JSON encoding of bytes (a string of code
+// points 0-255, one character per byte) end-to-end.
+const avroBytesSchema = `{"type":"record","name":"B","fields":[{"name":"b","type":"bytes"}]}`
+
 // SchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path test
 // for Kafka.ConfluentSchemaRegistry: stand a cp-schema-registry up next to
 // a fresh cluster, then exercise register → lookup-by-id →
@@ -897,6 +902,95 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	}
 	if gotValID != id {
 		return fmt.Errorf("value schema id mismatch: want %d, got %d", id, gotValID)
+	}
+	return nil
+}
+
+// AvroBytesFieldRoundTrip pins the Avro-spec JSON encoding of a bytes field.
+// Per the Avro specification, the JSON encoding of bytes (and fixed) is a
+// string whose characters are the byte values as Unicode code points 0-255 —
+// one character per byte, NOT base64. The input value here contains byte 0xFF
+// (code point U+00FF), which is outside the base64 alphabet, so a round-trip
+// that preserves it byte-for-byte proves the one-char-per-byte mapping and
+// would be impossible under a base64 interpretation.
+func (t *Tests) AvroBytesFieldRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshCluster(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	defer sr.Stop(ctx)
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	topic := subject
+	subject += "-value"
+
+	id, err := sr.Client().RegisterSchema(ctx, subject, avroBytesSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	// The bytes value is [0x41, 0xFF, 0x5A] ("A", 0xFF, "Z"). 0xFF is U+00FF,
+	// outside the base64 alphabet, so this only round-trips under the
+	// Avro-spec one-char-per-byte encoding. Whitespace differs from the
+	// canonical form so the round-trip proves genuine re-encoding.
+	const inputJSON = "{ \"b\" :  \"AÿZ\" }"
+	const wantCanonical = "{\"b\":\"AÿZ\"}"
+	const wantKey = "k"
+
+	if err := client.Produce(ctx, topic, wantKey, inputJSON, dagger.KafkaClientProduceOpts{
+		KeyEncoding:      "raw",
+		ValueEncoding:    "raw",
+		ValueSchemaID:    id,
+		ValueSerializeAs: "AVRO",
+		Registry:         sr,
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:         1,
+		Timeout:             "10s",
+		KeyEncoding:         "raw",
+		ValueEncoding:       "raw",
+		SchemaRegistryAware: true,
+		ValueDeserializeAs:  "AVRO",
+		Registry:            sr,
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotVal != wantCanonical {
+		return fmt.Errorf("value mismatch: want canonical %q, got %q", wantCanonical, gotVal)
 	}
 	return nil
 }
