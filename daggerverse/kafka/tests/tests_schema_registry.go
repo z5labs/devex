@@ -447,7 +447,7 @@ func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:         1,
 		Timeout:             "10s",
 		KeyEncoding:         "raw",
@@ -526,7 +526,7 @@ func (t *Tests) SchemaRegistryPlaintextConsumeUnframed(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:         1,
 		Timeout:             "10s",
 		KeyEncoding:         "raw",
@@ -678,7 +678,7 @@ func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:         1,
 		Timeout:             "10s",
 		KeyEncoding:         "raw",

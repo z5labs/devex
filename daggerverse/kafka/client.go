@@ -49,11 +49,16 @@ type Client struct {
 // and the corresponding record bytes carry the Confluent wire-format header
 // (`0x00 || uint32be(schemaID) || payload`); otherwise they are 0 and the
 // key/value bytes pass through untouched.
+//
+// Consume returns these records as a JSON array string rather than as a
+// Dagger object list: under Dagger v0.21 the engine cannot lazily re-resolve
+// the fields of objects returned from a +cache="never" cross-module call (the
+// receiver detaches), so callers unmarshal the JSON into their own struct.
 type ConsumedRecord struct {
-	Key           string
-	Value         string
-	KeySchemaID   int
-	ValueSchemaID int
+	Key           string `json:"key"`
+	Value         string `json:"value"`
+	KeySchemaID   int    `json:"keySchemaId"`
+	ValueSchemaID int    `json:"valueSchemaId"`
 }
 
 // Client constructs a franz-go-backed Kafka client that targets the given
@@ -530,7 +535,9 @@ func (c *Client) Produce(
 // Consume reads up to maxMessages records from the topic, starting at the
 // earliest offset, returning when either maxMessages have been gathered or
 // the parsed timeout elapses. Each record's key and value are encoded into
-// the requested string forms before being returned.
+// the requested string forms before being returned. The records are returned
+// as a JSON array string (a `[]ConsumedRecord` marshaled with encoding/json);
+// callers unmarshal it into their own struct — see ConsumedRecord for why.
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
@@ -577,16 +584,16 @@ func (c *Client) Consume(
 	keyDeserializeAs string,
 	// +default=""
 	valueDeserializeAs string,
-) ([]ConsumedRecord, error) {
+) (string, error) {
 	if maxMessages <= 0 {
-		return nil, fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
+		return "", fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
 	}
 	d, err := time.ParseDuration(timeout)
 	if err != nil {
-		return nil, fmt.Errorf("parse timeout %q: %w", timeout, err)
+		return "", fmt.Errorf("parse timeout %q: %w", timeout, err)
 	}
 	if d <= 0 {
-		return nil, fmt.Errorf("timeout must be > 0, got %s", d)
+		return "", fmt.Errorf("timeout must be > 0, got %s", d)
 	}
 
 	opts := []kgo.Opt{
@@ -604,7 +611,7 @@ func (c *Client) Consume(
 	}
 	cl, err := c.newKgoClient(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("new kafka client: %w", err)
+		return "", fmt.Errorf("new kafka client: %w", err)
 	}
 	defer cl.Close()
 
@@ -619,9 +626,9 @@ func (c *Client) Consume(
 				if errors.Is(e.Err, context.DeadlineExceeded) || errors.Is(e.Err, context.Canceled) {
 					continue
 				}
-				return nil, fmt.Errorf("poll fetches: %w", e.Err)
+				return "", fmt.Errorf("poll fetches: %w", e.Err)
 			}
-			return out, nil
+			return marshalRecords(out)
 		}
 		iter := fetches.RecordIter()
 		for !iter.Done() && len(out) < maxMessages {
@@ -640,19 +647,19 @@ func (c *Client) Consume(
 			var err error
 			keyRaw, err = applyDeserializeAs(keyRaw, keyDeserializeAs, "key")
 			if err != nil {
-				return nil, fmt.Errorf("deserialize key: %w", err)
+				return "", fmt.Errorf("deserialize key: %w", err)
 			}
 			valRaw, err = applyDeserializeAs(valRaw, valueDeserializeAs, "value")
 			if err != nil {
-				return nil, fmt.Errorf("deserialize value: %w", err)
+				return "", fmt.Errorf("deserialize value: %w", err)
 			}
 			keyStr, err := encodeBytes(keyRaw, keyEncoding)
 			if err != nil {
-				return nil, fmt.Errorf("encode key: %w", err)
+				return "", fmt.Errorf("encode key: %w", err)
 			}
 			valStr, err := encodeBytes(valRaw, valueEncoding)
 			if err != nil {
-				return nil, fmt.Errorf("encode value: %w", err)
+				return "", fmt.Errorf("encode value: %w", err)
 			}
 			out = append(out, ConsumedRecord{
 				Key:           keyStr,
@@ -662,7 +669,17 @@ func (c *Client) Consume(
 			})
 		}
 	}
-	return out, nil
+	return marshalRecords(out)
+}
+
+// marshalRecords encodes the consumed records as a JSON array string. See
+// ConsumedRecord for why Consume returns JSON instead of a Dagger object list.
+func marshalRecords(out []ConsumedRecord) (string, error) {
+	b, err := json.Marshal(out)
+	if err != nil {
+		return "", fmt.Errorf("marshal records: %w", err)
+	}
+	return string(b), nil
 }
 
 // ListTopics returns the names of every topic the broker reports.

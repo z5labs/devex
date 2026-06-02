@@ -299,9 +299,6 @@ type KafkaClientSecurityID string
 type KafkaClusterID string
 
 // A unique identifier for an object.
-type KafkaConsumedRecordID string
-
-// A unique identifier for an object.
 type KafkaID string
 
 // A unique identifier for an object.
@@ -13267,16 +13264,6 @@ func (r *Query) LoadKafkaClusterFromID(id KafkaClusterID) *KafkaCluster {
 	q = q.Arg("id", id)
 
 	return &KafkaCluster{
-		query: q,
-	}
-}
-
-// Load a KafkaConsumedRecord from its ID.
-func (r *Query) LoadKafkaConsumedRecordFromID(id KafkaConsumedRecordID) *KafkaConsumedRecord {
-	q := r.query.Select("loadKafkaConsumedRecordFromID")
-	q = q.Arg("id", id)
-
-	return &KafkaConsumedRecord{
 		query: q,
 	}
 }

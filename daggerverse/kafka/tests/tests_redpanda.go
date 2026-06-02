@@ -143,7 +143,7 @@ func redpandaClusterTlsRoundTripOn(
 		return fmt.Errorf("produce: %w", err)
 	}
 
-	records, err := client.Consume(ctx, topic, dagger.KafkaClientConsumeOpts{
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
 		MaxMessages:   1,
 		Timeout:       "15s",
 		KeyEncoding:   "raw",

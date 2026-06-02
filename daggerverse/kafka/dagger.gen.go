@@ -341,38 +341,6 @@ func (r *SchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r ConsumedRecord) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Key           string
-		Value         string
-		KeySchemaID   int
-		ValueSchemaID int
-	}
-	concrete.Key = r.Key
-	concrete.Value = r.Value
-	concrete.KeySchemaID = r.KeySchemaID
-	concrete.ValueSchemaID = r.ValueSchemaID
-	return json.Marshal(&concrete)
-}
-
-func (r *ConsumedRecord) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Key           string
-		Value         string
-		KeySchemaID   int
-		ValueSchemaID int
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Key = concrete.Key
-	r.Value = concrete.Value
-	r.KeySchemaID = concrete.KeySchemaID
-	r.ValueSchemaID = concrete.ValueSchemaID
-	return nil
-}
-
 func (r RegisteredSchema) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Subject    string

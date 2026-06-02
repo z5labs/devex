@@ -45,15 +45,6 @@ func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../dagg
 	}
 }
 
-// Retrieve the binding value, as type KafkaConsumedRecord
-func (r *Binding) AsKafkaConsumedRecord() *KafkaConsumedRecord { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	q := r.query.Select("asKafkaConsumedRecord")
-
-	return &KafkaConsumedRecord{
-		query: q,
-	}
-}
-
 // Retrieve the binding value, as type KafkaRedpandaCluster
 func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
 	q := r.query.Select("asKafkaRedpandaCluster")
@@ -172,30 +163,6 @@ func (r *Env) WithKafkaClusterInput(name string, value *KafkaCluster, descriptio
 // Declare a desired KafkaCluster output to be assigned in the environment
 func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
 	q := r.query.Select("withKafkaClusterOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type KafkaConsumedRecord in the environment
-func (r *Env) WithKafkaConsumedRecordInput(name string, value *KafkaConsumedRecord, description string) *Env { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withKafkaConsumedRecordInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired KafkaConsumedRecord output to be assigned in the environment
-func (r *Env) WithKafkaConsumedRecordOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	q := r.query.Select("withKafkaConsumedRecordOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -563,7 +530,7 @@ func (r *Kafka) ApicurioSchemaRegistry(cluster *KafkaCluster, opts ...KafkaApicu
 
 // Client constructs a franz-go-backed Kafka client that targets the given
 // bootstrap servers. No I/O happens at construction time.
-func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/client.go:61:1)
+func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/client.go:66:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("bootstrapServers", bootstrapServers)
@@ -965,6 +932,7 @@ func (r *Kafka) AsNode() Node {
 type KafkaClient struct { // kafka (../../../../../daggerverse/kafka/client.go:31:6)
 	query *querybuilder.Selection
 
+	consume     *string
 	createTopic *Void
 	deleteTopic *Void
 	id          *ID
@@ -981,30 +949,32 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:565:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:572:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:567:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:574:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:569:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:576:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:571:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:578:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:573:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:580:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:575:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:582:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:577:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:584:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:579:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:586:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
 // earliest offset, returning when either maxMessages have been gathered or
 // the parsed timeout elapses. Each record's key and value are encoded into
-// the requested string forms before being returned.
+// the requested string forms before being returned. The records are returned
+// as a JSON array string (a `[]ConsumedRecord` marshaled with encoding/json);
+// callers unmarshal it into their own struct — see ConsumedRecord for why.
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
@@ -1029,7 +999,10 @@ type KafkaClientConsumeOpts struct {
 // error out and abandon the remaining poll. Default "" is
 // pass-through; "JSON" is the only non-empty value accepted in this
 // story.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) ([]KafkaConsumedRecord, error) { // kafka (../../../../../daggerverse/kafka/client.go:561:1)
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:568:1)
+	if r.consume != nil {
+		return *r.consume, nil
+	}
 	q := r.query.Select("consume")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `maxMessages` optional argument
@@ -1067,48 +1040,25 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 	}
 	q = q.Arg("topic", topic)
 
-	q = q.Select("id")
-
-	type consume struct {
-		Id ID
-	}
-
-	convert := func(fields []consume) []KafkaConsumedRecord {
-		out := []KafkaConsumedRecord{}
-
-		for i := range fields {
-			val := KafkaConsumedRecord{id: &fields[i].Id}
-			val.query = selectNode(q.Root(), fields[i].Id, "KafkaConsumedRecord")
-			out = append(out, val)
-		}
-
-		return out
-	}
-	var response []consume
+	var response string
 
 	q = q.Bind(&response)
-
-	err := q.Execute(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return convert(response), nil
+	return response, q.Execute(ctx)
 }
 
 // KafkaClientCreateTopicOpts contains options for KafkaClient.CreateTopic
 type KafkaClientCreateTopicOpts struct {
 
 	// Default: 1
-	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:389:2)
+	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:394:2)
 
 	// Default: 1
-	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:391:2)
+	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:396:2)
 }
 
 // CreateTopic creates a new topic with the given partition count and
 // replication factor. Errors out if the topic already exists.
-func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:385:1)
+func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:390:1)
 	if r.createTopic != nil {
 		return nil
 	}
@@ -1129,7 +1079,7 @@ func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...Kafk
 }
 
 // DeleteTopic deletes the named topic.
-func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:419:1)
+func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:424:1)
 	if r.deleteTopic != nil {
 		return nil
 	}
@@ -1189,7 +1139,7 @@ func (r *KafkaClient) UnmarshalJSON(bs []byte) error {
 }
 
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:671:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:688:1)
 	q := r.query.Select("listTopics")
 
 	var response []string
@@ -1202,18 +1152,18 @@ func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kaf
 type KafkaClientProduceOpts struct {
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:464:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:469:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:466:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:471:2)
 
-	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:468:2)
+	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:473:2)
 
-	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:470:2)
+	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:475:2)
 
-	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:472:2)
+	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:477:2)
 
-	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:474:2)
+	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:479:2)
 }
 
 // Produce synchronously writes one record to the topic. Key and value are
@@ -1233,7 +1183,7 @@ type KafkaClientProduceOpts struct {
 // JSON payload and prepend the Confluent header. Invalid JSON is
 // rejected before any broker I/O. Default "" is pass-through; "JSON"
 // is the only non-empty value accepted in this story.
-func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:458:1)
+func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:463:1)
 	if r.produce != nil {
 		return nil
 	}
@@ -1281,7 +1231,7 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 // export the parent directory (`props.Directory()`) so the relative
 // references resolve. Passwords appear plaintext, which is a Kafka CLI
 // constraint.
-func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:204:1)
+func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:209:1)
 	q := r.query.Select("propertiesFile")
 
 	return &File{
@@ -1492,133 +1442,6 @@ func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../.
 // AsNode returns this KafkaCluster as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *KafkaCluster) AsNode() Node {
-	return &NodeClient{
-		query: r.query,
-	}
-}
-
-// ConsumedRecord is a single record returned by Client.Consume, with key and
-// value already encoded into the requested string representation. KeySchemaID
-// and ValueSchemaID are populated when Consume runs with schemaRegistryAware
-// and the corresponding record bytes carry the Confluent wire-format header
-// (`0x00 || uint32be(schemaID) || payload`); otherwise they are 0 and the
-// key/value bytes pass through untouched.
-type KafkaConsumedRecord struct { // kafka (../../../../../daggerverse/kafka/client.go:52:6)
-	query *querybuilder.Selection
-
-	id            *ID
-	key           *string
-	keySchemaId   *int
-	value         *string
-	valueSchemaId *int
-}
-
-func (r *KafkaConsumedRecord) WithGraphQLQuery(q *querybuilder.Selection) *KafkaConsumedRecord {
-	return &KafkaConsumedRecord{
-		query: q,
-	}
-}
-
-// A unique identifier for this KafkaConsumedRecord.
-func (r *KafkaConsumedRecord) ID(ctx context.Context) (ID, error) {
-	if r.id != nil {
-		return *r.id, nil
-	}
-	q := r.query.Select("id")
-
-	var response ID
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *KafkaConsumedRecord) XXX_GraphQLType() string {
-	return "KafkaConsumedRecord"
-}
-
-// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *KafkaConsumedRecord) XXX_GraphQLIDType() string {
-	return "ID"
-}
-
-// XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *KafkaConsumedRecord) XXX_GraphQLID(ctx context.Context) (string, error) {
-	id, err := r.ID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return string(id), nil
-}
-
-func (r *KafkaConsumedRecord) MarshalJSON() ([]byte, error) {
-	id, err := r.ID(marshalCtx)
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(id)
-}
-func (r *KafkaConsumedRecord) UnmarshalJSON(bs []byte) error {
-	var id string
-	err := json.Unmarshal(bs, &id)
-	if err != nil {
-		return err
-	}
-	*r = KafkaConsumedRecord{query: selectNode(dag.query, id, "KafkaConsumedRecord")}
-	return nil
-}
-
-func (r *KafkaConsumedRecord) Key(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:53:2)
-	if r.key != nil {
-		return *r.key, nil
-	}
-	q := r.query.Select("key")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) KeySchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/client.go:55:2)
-	if r.keySchemaId != nil {
-		return *r.keySchemaId, nil
-	}
-	q := r.query.Select("keySchemaId")
-
-	var response int
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) Value(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:54:2)
-	if r.value != nil {
-		return *r.value, nil
-	}
-	q := r.query.Select("value")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-func (r *KafkaConsumedRecord) ValueSchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/client.go:56:2)
-	if r.valueSchemaId != nil {
-		return *r.valueSchemaId, nil
-	}
-	q := r.query.Select("valueSchemaId")
-
-	var response int
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
-// AsNode returns this KafkaConsumedRecord as a Node.
-// This is a local type conversion — no GraphQL call.
-func (r *KafkaConsumedRecord) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}
