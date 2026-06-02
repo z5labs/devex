@@ -22,6 +22,10 @@
       "source": "daggerverse/envoy/tests"
     },
     {
+      "name": "flash-tests",
+      "source": "daggerverse/flash/tests"
+    },
+    {
       "name": "go-tests",
       "source": "daggerverse/go/tests"
     },
