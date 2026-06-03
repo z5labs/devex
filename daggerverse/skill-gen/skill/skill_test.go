@@ -1,0 +1,258 @@
+package skill
+
+import (
+	"flag"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+var update = flag.Bool("update", false, "regenerate golden files under testdata/golden")
+
+// fixtureModel is a deterministic multi-schema snapshot that exercises every
+// rendering path: two schemas, FK hubs (for ranking), a composite FK, an enum,
+// a view, indexes, and table/column comments.
+func fixtureModel() *Model {
+	m := &Model{DBName: "shop", Host: "db.internal", Port: 5432, User: "analyst"}
+
+	m.Columns = []Column{
+		// public.users (4 cols) — referenced by orders.user_id and analytics.sessions.user_id
+		{"public", "users", "id", "bigint", "NO", "nextval('users_id_seq'::regclass)"},
+		{"public", "users", "email", "text", "NO", ""},
+		{"public", "users", "name", "text", "YES", ""},
+		{"public", "users", "created_at", "timestamptz", "NO", "now()"},
+		// public.orders (5 cols) — referenced by order_items.order_id
+		{"public", "orders", "id", "bigint", "NO", "nextval('orders_id_seq'::regclass)"},
+		{"public", "orders", "user_id", "bigint", "NO", ""},
+		{"public", "orders", "status", "order_status", "NO", "'pending'::order_status"},
+		{"public", "orders", "total", "numeric", "NO", "0"},
+		{"public", "orders", "placed_at", "timestamptz", "NO", "now()"},
+		// public.order_items (3 cols) — composite PK + composite-ish FKs
+		{"public", "order_items", "order_id", "bigint", "NO", ""},
+		{"public", "order_items", "line_no", "integer", "NO", ""},
+		{"public", "order_items", "sku", "text", "NO", ""},
+		// analytics.sessions (3 cols)
+		{"analytics", "sessions", "id", "bigint", "NO", ""},
+		{"analytics", "sessions", "user_id", "bigint", "NO", ""},
+		{"analytics", "sessions", "started_at", "timestamptz", "NO", "now()"},
+	}
+	m.PrimaryKeys = []ColumnRef{
+		{"public", "users", "id"},
+		{"public", "orders", "id"},
+		{"public", "order_items", "order_id"},
+		{"public", "order_items", "line_no"},
+		{"analytics", "sessions", "id"},
+	}
+	m.ForeignKeys = []ForeignKey{
+		{"public", "orders", "user_id", "public", "users", "id"},
+		{"public", "order_items", "order_id", "public", "orders", "id"},
+		{"analytics", "sessions", "user_id", "public", "users", "id"},
+	}
+	m.Indexes = []Index{
+		{"public", "orders", "orders_pkey", "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (id)"},
+		{"public", "users", "users_email_key", "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)"},
+		{"public", "users", "users_pkey", "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)"},
+	}
+	m.Enums = []EnumValue{
+		{"public", "order_status", "pending"},
+		{"public", "order_status", "shipped"},
+		{"public", "order_status", "delivered"},
+	}
+	m.Views = []View{
+		{"public", "active_users", "SELECT u.id,\n    u.email\n   FROM users u\n  WHERE (u.created_at > (now() - '30 days'::interval))"},
+	}
+	m.Comments = []Comment{
+		{"public", "users", "", "Customer accounts."},
+		{"public", "orders", "total", "Order total in USD."},
+		{"public", "active_users", "", "Users active in the last 30 days."},
+	}
+	return m
+}
+
+func TestTopTablesRanking(t *testing.T) {
+	m := fixtureModel()
+	got := m.TopTables(5)
+	want := []TableRef{
+		{"public", "users"},       // 2 FK refs
+		{"public", "orders"},      // 1 FK ref
+		{"analytics", "sessions"}, // 0 refs, 3 cols, (analytics < public)
+		{"public", "order_items"}, // 0 refs, 3 cols
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d tables, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("rank[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTopTableSQL(t *testing.T) {
+	if got := fixtureModel().topTableSQL(); got != `"public"."users"` {
+		t.Errorf("topTableSQL = %s, want \"public\".\"users\"", got)
+	}
+}
+
+func TestValidateDBName(t *testing.T) {
+	ok := []string{"shop", "my_db", "db-1", "ABC123", "x"}
+	bad := []string{"", "my db", "db;drop", "../etc", "pg.main", "naïve", "a/b"}
+	for _, s := range ok {
+		if err := ValidateDBName(s); err != nil {
+			t.Errorf("ValidateDBName(%q) = %v, want nil", s, err)
+		}
+	}
+	for _, s := range bad {
+		if err := ValidateDBName(s); err == nil {
+			t.Errorf("ValidateDBName(%q) = nil, want error", s)
+		}
+	}
+}
+
+func TestMarkdownEscaping(t *testing.T) {
+	cases := map[string]string{
+		"a|b":          `a\|b`,
+		"line1\nline2": "line1 line2",
+		"  pad\t end ": "pad end",
+		"x | y | z":    `x \| y \| z`,
+	}
+	for in, want := range cases {
+		if got := mdCell(in); got != want {
+			t.Errorf("mdCell(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestVerifyPositive(t *testing.T) {
+	files, err := Render(fixtureModel())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if err := Verify(files, "shop"); err != nil {
+		t.Fatalf("Verify on good tree: %v", err)
+	}
+}
+
+func TestVerifyCatchesPlaceholder(t *testing.T) {
+	files, _ := Render(fixtureModel())
+	files[PathSKILL] += "\nleftover <dbname> here\n"
+	if err := Verify(files, "shop"); err == nil {
+		t.Error("Verify accepted a leftover <dbname> placeholder")
+	}
+}
+
+func TestVerifyCatchesDisableModelInvocation(t *testing.T) {
+	files, _ := Render(fixtureModel())
+	files[PathSKILL] = "---\nname: pg-shop\ndisable-model-invocation: true\n---\nbody\n"
+	if err := Verify(files, "shop"); err == nil {
+		t.Error("Verify accepted disable-model-invocation in frontmatter")
+	}
+}
+
+func TestVerifyCatchesWrongName(t *testing.T) {
+	files, _ := Render(fixtureModel())
+	if err := Verify(files, "other"); err == nil {
+		t.Error("Verify accepted SKILL.md whose name doesn't match db")
+	}
+}
+
+func TestVerifyCatchesMissingFile(t *testing.T) {
+	files, _ := Render(fixtureModel())
+	delete(files, PathRelationships)
+	if err := Verify(files, "shop"); err == nil {
+		t.Error("Verify accepted a tree missing references/relationships.md")
+	}
+}
+
+func TestEnumsConditional(t *testing.T) {
+	// With enums: enums.md present and referenced.
+	files, _ := Render(fixtureModel())
+	if _, ok := files[PathEnums]; !ok {
+		t.Error("expected references/enums.md when enums exist")
+	}
+	// Without enums: enums.md absent and not advertised anywhere.
+	m := fixtureModel()
+	m.Enums = nil
+	files, _ = Render(m)
+	if _, ok := files[PathEnums]; ok {
+		t.Error("enums.md should be absent when no enums")
+	}
+	for _, p := range []string{PathSKILL, PathREADME} {
+		for _, sub := range []string{"enums.md", "enum types", "and enums"} {
+			if strings.Contains(files[p], sub) {
+				t.Errorf("%s still advertises enums (%q) when none exist", p, sub)
+			}
+		}
+	}
+}
+
+func TestGoldenRender(t *testing.T) {
+	files, err := Render(fixtureModel())
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	dir := filepath.Join("testdata", "golden")
+
+	if *update {
+		// Wipe and rewrite the golden tree so removed files don't linger.
+		_ = os.RemoveAll(dir)
+		for p, content := range files {
+			full := filepath.Join(dir, p)
+			if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		t.Log("golden files updated")
+		return
+	}
+
+	// Every rendered file matches its golden, and the golden set matches
+	// exactly (no extra, no missing).
+	var gotPaths, wantPaths []string
+	for p := range files {
+		gotPaths = append(gotPaths, p)
+	}
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, _ := filepath.Rel(dir, path)
+		wantPaths = append(wantPaths, filepath.ToSlash(rel))
+		return nil
+	})
+	sort.Strings(gotPaths)
+	sort.Strings(wantPaths)
+	if len(gotPaths) == 0 {
+		t.Fatal("no golden files found; run `go test ./skill -update`")
+	}
+	if !equalStrings(gotPaths, wantPaths) {
+		t.Fatalf("file set mismatch:\n got: %v\nwant: %v", gotPaths, wantPaths)
+	}
+	for p, content := range files {
+		want, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
+		if err != nil {
+			t.Errorf("read golden %s: %v", p, err)
+			continue
+		}
+		if string(want) != content {
+			t.Errorf("%s differs from golden (run -update to regenerate)", p)
+		}
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
