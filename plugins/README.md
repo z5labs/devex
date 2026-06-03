@@ -5,9 +5,9 @@ published by the [`z5labs-devex` marketplace](../.claude-plugin/marketplace.json
 Keeping them here keeps the plugin catalog cleanly separate from the Dagger
 tooling (`daggerverse/`, `ci/`) and the docs (`docs/`).
 
-> No plugins live here yet. The first one — the `new-dagger-module` skill,
-> migrated in as `plan-dagger-module` — lands in
-> [#124](https://github.com/z5labs/devex/issues/124).
+> The first plugin, **[`daggerverse`](daggerverse/)**, houses the
+> `plan-dagger-module` skill — a paced design workflow that drafts story
+> issues for a new daggerverse module.
 
 ## Convention
 

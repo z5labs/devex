@@ -1,9 +1,9 @@
 ---
-name: new-dagger-module
-description: Standardized 9-step workflow for designing a new daggerverse module from scratch — picking a name, researching prior art, proposing types/funcs and tests, drafting story issues against `.github/ISSUE_TEMPLATE/story.yaml`, and creating them with `gh issue create`. Use this whenever the user wants to start a new daggerverse module, kicks off a new module design under `daggerverse/`, or asks to "scope out", "plan", "design", or "propose issues for" a new module (Redis, Vault, MongoDB, NATS, anything). Use it even when the user types `/new-dagger-module` without naming a module — drive the workflow and ask. Skip only when the user is *implementing* an already-scoped module (issue already exists) or making changes to an existing module's API.
+name: plan-dagger-module
+description: Standardized 9-step workflow for designing a new daggerverse module from scratch — picking a name, researching prior art, proposing types/funcs and tests, drafting story issues against `.github/ISSUE_TEMPLATE/story.yaml`, and creating them with `gh issue create`. Use this whenever the user wants to start a new daggerverse module, kicks off a new module design under `daggerverse/`, or asks to "scope out", "plan", "design", or "propose issues for" a new module (Redis, Vault, MongoDB, NATS, anything). Use it even when the user types `/plan-dagger-module` without naming a module — drive the workflow and ask. Skip only when the user is *implementing* an already-scoped module (issue already exists) or making changes to an existing module's API.
 ---
 
-# new-dagger-module
+# plan-dagger-module
 
 A new daggerverse module starts as a design conversation, not a code patch. This skill paces that conversation: name → research → API → tests → issues → `gh issue create`. The point is to *converge with the user* before any module code is written, so the eventual implementation PR has a real spec to land against.
 

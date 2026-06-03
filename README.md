@@ -47,15 +47,17 @@ marketplace](https://code.claude.com/docs/en/plugin-marketplaces) named
 /plugin marketplace add z5labs/devex
 ```
 
-Then install individual plugins as they become available:
+Then install a plugin:
 
 ```
-/plugin install <plugin>@z5labs-devex
+/plugin install daggerverse@z5labs-devex
 ```
 
-The first plugin (the `new-dagger-module` design workflow) lands in
-[#124](https://github.com/z5labs/devex/issues/124); see
-[`plugins/README.md`](plugins/README.md) for the plugin layout. To develop
+| Plugin | Provides |
+| ------ | -------- |
+| [`daggerverse`](plugins/daggerverse) | `/plan-dagger-module` — paces a design conversation and drafts story issues for a new daggerverse module. |
+
+See [`plugins/README.md`](plugins/README.md) for the plugin layout. To develop
 against an unmerged local checkout, run `/plugin marketplace add .` from the
 repo root instead.
 
