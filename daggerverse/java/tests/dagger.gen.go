@@ -241,6 +241,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GradleBuildProducesArtifacts(&parent, ctx)
+		case "GradleCiCheckRunsChecksAndSkipsBuild":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GradleCiCheckRunsChecksAndSkipsBuild(&parent, ctx)
+		case "GradleCiRunAllStagesProducesJar":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GradleCiRunAllStagesProducesJar(&parent, ctx)
+		case "GradleCiRunFailingTestAggregates":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GradleCiRunFailingTestAggregates(&parent, ctx)
 		case "GradleContainerHasGradle":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +304,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GradleUsesWrapperWhenPresent(&parent, ctx)
+		case "MavenCiCheckRunsChecksAndSkipsPackage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MavenCiCheckRunsChecksAndSkipsPackage(&parent, ctx)
+		case "MavenCiRunAllStagesProducesJar":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MavenCiRunAllStagesProducesJar(&parent, ctx)
+		case "MavenCiRunFailingTestAggregates":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MavenCiRunFailingTestAggregates(&parent, ctx)
 		case "MavenCompileProducesClasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

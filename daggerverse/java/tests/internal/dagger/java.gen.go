@@ -27,11 +27,53 @@ func (r *Binding) AsJavaGradle() *JavaGradle { // java (../../../../../daggerver
 	}
 }
 
+// Retrieve the binding value, as type JavaGradleCi
+func (r *Binding) AsJavaGradleCi() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:105:6)
+	q := r.query.Select("asJavaGradleCi")
+
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
 // Retrieve the binding value, as type JavaMaven
 func (r *Binding) AsJavaMaven() *JavaMaven { // java (../../../../../daggerverse/java/maven.go:14:6)
 	q := r.query.Select("asJavaMaven")
 
 	return &JavaMaven{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type JavaMavenCi
+func (r *Binding) AsJavaMavenCi() *JavaMavenCi { // java (../../../../../daggerverse/java/ci.go:22:6)
+	q := r.query.Select("asJavaMavenCi")
+
+	return &JavaMavenCi{
+		query: q,
+	}
+}
+
+// Create or update a binding of type JavaGradleCi in the environment
+func (r *Env) WithJavaGradleCiInput(name string, value *JavaGradleCi, description string) *Env { // java (../../../../../daggerverse/java/ci.go:105:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withJavaGradleCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired JavaGradleCi output to be assigned in the environment
+func (r *Env) WithJavaGradleCiOutput(name string, description string) *Env { // java (../../../../../daggerverse/java/ci.go:105:6)
+	q := r.query.Select("withJavaGradleCiOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
 		query: q,
 	}
 }
@@ -66,6 +108,30 @@ func (r *Env) WithJavaInput(name string, value *Java, description string) *Env {
 	q := r.query.Select("withJavaInput")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type JavaMavenCi in the environment
+func (r *Env) WithJavaMavenCiInput(name string, value *JavaMavenCi, description string) *Env { // java (../../../../../daggerverse/java/ci.go:22:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withJavaMavenCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired JavaMavenCi output to be assigned in the environment
+func (r *Env) WithJavaMavenCiOutput(name string, description string) *Env { // java (../../../../../daggerverse/java/ci.go:22:6)
+	q := r.query.Select("withJavaMavenCiOutput")
+	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
 	return &Env{
@@ -349,6 +415,15 @@ func (r *JavaGradle) Build() *Directory { // java (../../../../../daggerverse/ja
 	}
 }
 
+// Ci returns a new pipeline builder bound to this Gradle tool object.
+func (r *JavaGradle) Ci() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:115:1)
+	q := r.query.Select("ci")
+
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
 // Container returns the prepared Gradle container with source mounted at /work,
 // the shared gradle-caches-cache mounted at ~/.gradle/caches (owned by the
 // gradle user), GRADLE_USER_HOME set, and the working directory set to /work.
@@ -457,6 +532,137 @@ func (r *JavaGradle) AsNode() Node {
 	}
 }
 
+// GradleCi is a chained builder for a standardized Gradle CI pipeline.
+// Construct via Gradle.Ci(); enable check stages via the With* methods; call
+// Run to execute checks-then-assemble, or Check to run only the parallel
+// checks.
+//
+// Stage 1 runs the enabled checks (Test, Check) in parallel via
+// github.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs
+// `gradle assemble` (which never runs tests) and Run returns the produced
+// build/libs directory for downstream pipelines to compose.
+//
+// The builder reuses the parent Gradle lifecycle helpers, so wrapper handling,
+// JDK inference, and cache mounts are inherited.
+type JavaGradleCi struct { // java (../../../../../daggerverse/java/ci.go:105:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ID
+}
+type WithJavaGradleCiFunc func(r *JavaGradleCi) *JavaGradleCi
+
+// With calls the provided function with current JavaGradleCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *JavaGradleCi) With(f WithJavaGradleCiFunc) *JavaGradleCi {
+	return f(r)
+}
+
+func (r *JavaGradleCi) WithGraphQLQuery(q *querybuilder.Selection) *JavaGradleCi {
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
+// Check runs the enabled check stages (Test, Check) in parallel via
+// github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
+// when callers want to run the checks independently of the build.
+func (r *JavaGradleCi) Check(ctx context.Context) error { // java (../../../../../daggerverse/java/ci.go:137:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this JavaGradleCi.
+func (r *JavaGradleCi) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *JavaGradleCi) XXX_GraphQLType() string {
+	return "JavaGradleCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *JavaGradleCi) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *JavaGradleCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *JavaGradleCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *JavaGradleCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = JavaGradleCi{query: selectNode(dag.query, id, "JavaGradleCi")}
+	return nil
+}
+
+// Run executes the pipeline: stage 1 (Check) → stage 2 (`gradle assemble`).
+// Returns the produced build/libs directory. On stage-1 failure, returns the
+// aggregated error from Check and a nil directory (the build is skipped).
+func (r *JavaGradleCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:156:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// WithCheck enables the `gradle check` check stage.
+func (r *JavaGradleCi) WithCheck() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:126:1)
+	q := r.query.Select("withCheck")
+
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
+// WithTest enables the `gradle test` check stage.
+func (r *JavaGradleCi) WithTest() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:120:1)
+	q := r.query.Select("withTest")
+
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
+// AsNode returns this JavaGradleCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *JavaGradleCi) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Maven wraps the Maven build lifecycle as Dagger functions. Construct via
 // Java.Maven(). The container is maven:<ver>-eclipse-temurin-<jdk> with
 // ~/.m2/repository mounted as a shared cache volume; an in-repo `mvnw` is used
@@ -472,6 +678,15 @@ type JavaMaven struct { // java (../../../../../daggerverse/java/maven.go:14:6)
 
 func (r *JavaMaven) WithGraphQLQuery(q *querybuilder.Selection) *JavaMaven {
 	return &JavaMaven{
+		query: q,
+	}
+}
+
+// Ci returns a new pipeline builder bound to this Maven tool object.
+func (r *JavaMaven) Ci() *JavaMavenCi { // java (../../../../../daggerverse/java/ci.go:32:1)
+	q := r.query.Select("ci")
+
+	return &JavaMavenCi{
 		query: q,
 	}
 }
@@ -624,6 +839,137 @@ func (r *JavaMaven) Verify(ctx context.Context) (string, error) { // java (../..
 // AsNode returns this JavaMaven as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *JavaMaven) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// MavenCi is a chained builder for a standardized Maven CI pipeline. Construct
+// via Maven.Ci(); enable check stages via the With* methods; call Run to
+// execute checks-then-package, or Check to run only the parallel checks.
+//
+// Stage 1 runs the enabled checks (Test, Verify) in parallel via
+// github.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs
+// `mvn package -DskipTests` (the checks already covered testing) and Run
+// returns the produced target/ directory for downstream pipelines to compose.
+//
+// The builder reuses the parent Maven lifecycle helpers, so wrapper handling,
+// JDK inference, and cache mounts are inherited.
+type JavaMavenCi struct { // java (../../../../../daggerverse/java/ci.go:22:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ID
+}
+type WithJavaMavenCiFunc func(r *JavaMavenCi) *JavaMavenCi
+
+// With calls the provided function with current JavaMavenCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *JavaMavenCi) With(f WithJavaMavenCiFunc) *JavaMavenCi {
+	return f(r)
+}
+
+func (r *JavaMavenCi) WithGraphQLQuery(q *querybuilder.Selection) *JavaMavenCi {
+	return &JavaMavenCi{
+		query: q,
+	}
+}
+
+// Check runs the enabled check stages (Test, Verify) in parallel via
+// github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
+// when callers want to run the checks independently of packaging.
+func (r *JavaMavenCi) Check(ctx context.Context) error { // java (../../../../../daggerverse/java/ci.go:54:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this JavaMavenCi.
+func (r *JavaMavenCi) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *JavaMavenCi) XXX_GraphQLType() string {
+	return "JavaMavenCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *JavaMavenCi) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *JavaMavenCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *JavaMavenCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *JavaMavenCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = JavaMavenCi{query: selectNode(dag.query, id, "JavaMavenCi")}
+	return nil
+}
+
+// Run executes the pipeline: stage 1 (Check) → stage 2 (`mvn package
+// -DskipTests`). Returns the produced target/ directory. On stage-1 failure,
+// returns the aggregated error from Check and a nil directory (packaging is
+// skipped).
+func (r *JavaMavenCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:74:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// WithTest enables the `mvn test` check stage.
+func (r *JavaMavenCi) WithTest() *JavaMavenCi { // java (../../../../../daggerverse/java/ci.go:37:1)
+	q := r.query.Select("withTest")
+
+	return &JavaMavenCi{
+		query: q,
+	}
+}
+
+// WithVerify enables the `mvn verify` check stage.
+func (r *JavaMavenCi) WithVerify() *JavaMavenCi { // java (../../../../../daggerverse/java/ci.go:43:1)
+	q := r.query.Select("withVerify")
+
+	return &JavaMavenCi{
+		query: q,
+	}
+}
+
+// AsNode returns this JavaMavenCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *JavaMavenCi) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}

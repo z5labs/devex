@@ -59,6 +59,12 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GradleDisableWrapperUsesSystemGradle", t.GradleDisableWrapperUsesSystemGradle)
 	jobs = jobs.WithJob("MavenPackageRunsTestsByDefault", t.MavenPackageRunsTestsByDefault)
 	jobs = jobs.WithJob("MavenPackageSkipTestsBypassesFailingTest", t.MavenPackageSkipTestsBypassesFailingTest)
+	jobs = jobs.WithJob("MavenCiRunAllStagesProducesJar", t.MavenCiRunAllStagesProducesJar)
+	jobs = jobs.WithJob("MavenCiCheckRunsChecksAndSkipsPackage", t.MavenCiCheckRunsChecksAndSkipsPackage)
+	jobs = jobs.WithJob("MavenCiRunFailingTestAggregates", t.MavenCiRunFailingTestAggregates)
+	jobs = jobs.WithJob("GradleCiRunAllStagesProducesJar", t.GradleCiRunAllStagesProducesJar)
+	jobs = jobs.WithJob("GradleCiCheckRunsChecksAndSkipsBuild", t.GradleCiCheckRunsChecksAndSkipsBuild)
+	jobs = jobs.WithJob("GradleCiRunFailingTestAggregates", t.GradleCiRunFailingTestAggregates)
 
 	return jobs.Run(ctx)
 }
@@ -76,6 +82,7 @@ func mavenWrapperDir() *dagger.Directory   { return fixture("maven-wrapper") }
 func gradleHelloDir() *dagger.Directory    { return fixture("gradle-hello") }
 func gradleJdk17Dir() *dagger.Directory    { return fixture("gradle-jdk17") }
 func gradleWrapperDir() *dagger.Directory  { return fixture("gradle-wrapper") }
+func gradleFailtestDir() *dagger.Directory { return fixture("gradle-failtest") }
 func dotJavaVersionDir() *dagger.Directory { return fixture("dotjava-version") }
 func runJarDir() *dagger.Directory         { return fixture("run-jar") }
 
@@ -391,6 +398,90 @@ func (t *Tests) MavenPackageSkipTestsBypassesFailingTest(ctx context.Context) er
 	}
 	if len(jars) == 0 {
 		return fmt.Errorf("expected a packaged jar with skipTests, found none")
+	}
+	return nil
+}
+
+// ---- Ci builder tests ----
+
+// MavenCiRunAllStagesProducesJar runs the Maven Ci pipeline with both checks
+// enabled against the clean hello fixture and asserts Run produces a jar under
+// target/.
+func (t *Tests) MavenCiRunAllStagesProducesJar(ctx context.Context) error {
+	target := dag.Java().Maven(mavenHelloDir()).Ci().WithTest().WithVerify().Run()
+	jars, err := target.Glob(ctx, "*.jar")
+	if err != nil {
+		return fmt.Errorf("Maven Ci all-stages Run: %w", err)
+	}
+	if len(jars) == 0 {
+		return fmt.Errorf("expected a packaged jar under target, found none")
+	}
+	return nil
+}
+
+// MavenCiCheckRunsChecksAndSkipsPackage runs both checks against the clean
+// hello fixture via Check (not Run) and asserts no error. Check returns an
+// error (not a Directory), so it structurally cannot package; a nil return
+// proves the checks passed and packaging was skipped.
+func (t *Tests) MavenCiCheckRunsChecksAndSkipsPackage(ctx context.Context) error {
+	if err := dag.Java().Maven(mavenHelloDir()).Ci().WithTest().WithVerify().Check(ctx); err != nil {
+		return fmt.Errorf("Maven Ci.Check on clean hello: %w", err)
+	}
+	return nil
+}
+
+// MavenCiRunFailingTestAggregates runs the Maven Ci pipeline against the
+// failtest fixture with both checks enabled and asserts Run fails at the check
+// stage (both checks run the failing test), surfacing the failure and skipping
+// packaging.
+func (t *Tests) MavenCiRunFailingTestAggregates(ctx context.Context) error {
+	_, err := dag.Java().Maven(mavenFailtestDir()).Ci().WithTest().WithVerify().Run().Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected non-nil error from Maven Ci.Run on failtest fixture, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit code") {
+		return fmt.Errorf("expected a check-stage failure (\"exit code\") in aggregated error, got: %s", msg)
+	}
+	return nil
+}
+
+// GradleCiRunAllStagesProducesJar runs the Gradle Ci pipeline with both checks
+// enabled against the clean hello fixture and asserts Run produces a jar under
+// build/libs.
+func (t *Tests) GradleCiRunAllStagesProducesJar(ctx context.Context) error {
+	libs := dag.Java().Gradle(gradleHelloDir()).Ci().WithTest().WithCheck().Run()
+	jars, err := libs.Glob(ctx, "*.jar")
+	if err != nil {
+		return fmt.Errorf("Gradle Ci all-stages Run: %w", err)
+	}
+	if len(jars) == 0 {
+		return fmt.Errorf("expected an assembled jar under build/libs, found none")
+	}
+	return nil
+}
+
+// GradleCiCheckRunsChecksAndSkipsBuild runs both checks against the clean hello
+// fixture via Check (not Run) and asserts no error. Check returns an error (not
+// a Directory), so it structurally cannot build; a nil return proves the checks
+// passed and the build was skipped.
+func (t *Tests) GradleCiCheckRunsChecksAndSkipsBuild(ctx context.Context) error {
+	if err := dag.Java().Gradle(gradleHelloDir()).Ci().WithTest().WithCheck().Check(ctx); err != nil {
+		return fmt.Errorf("Gradle Ci.Check on clean hello: %w", err)
+	}
+	return nil
+}
+
+// GradleCiRunFailingTestAggregates runs the Gradle Ci pipeline against the
+// failtest fixture with both checks enabled and asserts Run fails at the check
+// stage (both checks run the failing test), surfacing the failure and skipping
+// the build.
+func (t *Tests) GradleCiRunFailingTestAggregates(ctx context.Context) error {
+	_, err := dag.Java().Gradle(gradleFailtestDir()).Ci().WithTest().WithCheck().Run().Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected non-nil error from Gradle Ci.Run on failtest fixture, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit code") {
+		return fmt.Errorf("expected a check-stage failure (\"exit code\") in aggregated error, got: %s", msg)
 	}
 	return nil
 }
