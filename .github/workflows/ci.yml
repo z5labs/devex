@@ -97,6 +97,16 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
+      # Burst-throttling mitigation (#125): the matrix fans out one leg per
+      # check (finer-grained than the toolchain modules), so an uncapped fan-out
+      # boots several dozen ephemeral engines at once that all simultaneously
+      # pull Docker Hub base images (anonymous, per-IP limited via GitHub's
+      # shared egress NAT) and flush OTLP telemetry to Dagger Cloud. Both
+      # upstreams answer the resulting thundering herd with 504s. Cap concurrent
+      # legs to spread the same load over time — remaining legs queue and start
+      # as slots free. Same shape as #116's cold engine-image pull. Do NOT raise
+      # this to "speed up CI" without re-checking the 504 rate.
+      max-parallel: 6
       matrix:
         job: ${{ fromJSON(needs.list.outputs.jobs) }}
     steps:
