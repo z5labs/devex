@@ -263,10 +263,16 @@ type JSON string
 type JSONValueID string
 
 // A unique identifier for an object.
+type JavaGradleCiID string
+
+// A unique identifier for an object.
 type JavaGradleID string
 
 // A unique identifier for an object.
 type JavaID string
+
+// A unique identifier for an object.
+type JavaMavenCiID string
 
 // A unique identifier for an object.
 type JavaMavenID string
@@ -13107,12 +13113,32 @@ func (r *Query) LoadJavaFromID(id JavaID) *Java {
 	}
 }
 
+// Load a JavaGradleCi from its ID.
+func (r *Query) LoadJavaGradleCiFromID(id JavaGradleCiID) *JavaGradleCi {
+	q := r.query.Select("loadJavaGradleCiFromID")
+	q = q.Arg("id", id)
+
+	return &JavaGradleCi{
+		query: q,
+	}
+}
+
 // Load a JavaGradle from its ID.
 func (r *Query) LoadJavaGradleFromID(id JavaGradleID) *JavaGradle {
 	q := r.query.Select("loadJavaGradleFromID")
 	q = q.Arg("id", id)
 
 	return &JavaGradle{
+		query: q,
+	}
+}
+
+// Load a JavaMavenCi from its ID.
+func (r *Query) LoadJavaMavenCiFromID(id JavaMavenCiID) *JavaMavenCi {
+	q := r.query.Select("loadJavaMavenCiFromID")
+	q = q.Arg("id", id)
+
+	return &JavaMavenCi{
 		query: q,
 	}
 }

@@ -135,6 +135,62 @@ func (r *Maven) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r GradleCi) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Gradle       *Gradle
+		TestEnabled  bool
+		CheckEnabled bool
+	}
+	concrete.Gradle = r.Gradle
+	concrete.TestEnabled = r.TestEnabled
+	concrete.CheckEnabled = r.CheckEnabled
+	return json.Marshal(&concrete)
+}
+
+func (r *GradleCi) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Gradle       *Gradle
+		TestEnabled  bool
+		CheckEnabled bool
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Gradle = concrete.Gradle
+	r.TestEnabled = concrete.TestEnabled
+	r.CheckEnabled = concrete.CheckEnabled
+	return nil
+}
+
+func (r MavenCi) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Maven         *Maven
+		TestEnabled   bool
+		VerifyEnabled bool
+	}
+	concrete.Maven = r.Maven
+	concrete.TestEnabled = r.TestEnabled
+	concrete.VerifyEnabled = r.VerifyEnabled
+	return json.Marshal(&concrete)
+}
+
+func (r *MavenCi) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Maven         *Maven
+		TestEnabled   bool
+		VerifyEnabled bool
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Maven = concrete.Maven
+	r.TestEnabled = concrete.TestEnabled
+	r.VerifyEnabled = concrete.VerifyEnabled
+	return nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -268,6 +324,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Gradle).Build(&parent, ctx)
+		case "Ci":
+			var parent Gradle
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Gradle).Ci(&parent), nil
 		case "Container":
 			var parent Gradle
 			err = json.Unmarshal(parentJSON, &parent)
@@ -303,6 +366,39 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Gradle).Test(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "GradleCi":
+		switch fnName {
+		case "Check":
+			var parent GradleCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*GradleCi).Check(&parent, ctx)
+		case "Run":
+			var parent GradleCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*GradleCi).Run(&parent, ctx)
+		case "WithCheck":
+			var parent GradleCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*GradleCi).WithCheck(&parent), nil
+		case "WithTest":
+			var parent GradleCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*GradleCi).WithTest(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -418,6 +514,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Maven":
 		switch fnName {
+		case "Ci":
+			var parent Maven
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Maven).Ci(&parent), nil
 		case "Compile":
 			var parent Maven
 			err = json.Unmarshal(parentJSON, &parent)
@@ -481,6 +584,39 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Maven).Verify(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "MavenCi":
+		switch fnName {
+		case "Check":
+			var parent MavenCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*MavenCi).Check(&parent, ctx)
+		case "Run":
+			var parent MavenCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*MavenCi).Run(&parent, ctx)
+		case "WithTest":
+			var parent MavenCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*MavenCi).WithTest(&parent), nil
+		case "WithVerify":
+			var parent MavenCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*MavenCi).WithVerify(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
