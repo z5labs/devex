@@ -1,0 +1,16 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.21.3",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "java",
+      "source": ".."
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}

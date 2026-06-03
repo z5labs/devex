@@ -1,0 +1,6 @@
+#!/bin/sh
+# Test shim standing in for the real Maven wrapper: prove the wrapper path was
+# taken by emitting a sentinel, then hand off to the system mvn so the goal
+# still runs.
+echo "MVNW-SHIM"
+exec mvn "$@"
