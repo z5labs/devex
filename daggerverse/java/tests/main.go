@@ -419,10 +419,12 @@ func (t *Tests) MavenCiRunAllStagesProducesJar(ctx context.Context) error {
 	return nil
 }
 
-// MavenCiCheckRunsChecksAndSkipsPackage runs both checks against the clean
-// hello fixture via Check (not Run) and asserts no error. Check returns an
-// error (not a Directory), so it structurally cannot package; a nil return
-// proves the checks passed and packaging was skipped.
+// MavenCiCheckRunsChecksAndSkipsPackage exercises the checks-only path: it runs
+// both checks against the clean hello fixture via Check (not Run) and asserts
+// no error. Check runs just the parallel check stages (Test, Verify) and
+// returns their aggregated result, so a nil return proves both enabled checks
+// passed. Packaging is not part of Check's implementation, so there is no
+// artifact to observe here.
 func (t *Tests) MavenCiCheckRunsChecksAndSkipsPackage(ctx context.Context) error {
 	if err := dag.Java().Maven(mavenHelloDir()).Ci().WithTest().WithVerify().Check(ctx); err != nil {
 		return fmt.Errorf("Maven Ci.Check on clean hello: %w", err)
@@ -432,15 +434,19 @@ func (t *Tests) MavenCiCheckRunsChecksAndSkipsPackage(ctx context.Context) error
 
 // MavenCiRunFailingTestAggregates runs the Maven Ci pipeline against the
 // failtest fixture with both checks enabled and asserts Run fails at the check
-// stage (both checks run the failing test), surfacing the failure and skipping
-// packaging.
+// stage and that BOTH enabled checks (Test, Verify) failed rather than
+// short-circuiting on the first. The parallel aggregator joins each job's raw
+// error (job names live in trace spans, not the Go-level string), so each
+// failing `mvn` exec surfaces as a separate "exit code" line. Counting those
+// occurrences confirms both checks ran and both failures propagated through Run.
 func (t *Tests) MavenCiRunFailingTestAggregates(ctx context.Context) error {
 	_, err := dag.Java().Maven(mavenFailtestDir()).Ci().WithTest().WithVerify().Run().Sync(ctx)
 	if err == nil {
 		return fmt.Errorf("expected non-nil error from Maven Ci.Run on failtest fixture, got nil")
 	}
-	if msg := err.Error(); !strings.Contains(msg, "exit code") {
-		return fmt.Errorf("expected a check-stage failure (\"exit code\") in aggregated error, got: %s", msg)
+	msg := err.Error()
+	if got := strings.Count(msg, "exit code"); got < 2 {
+		return fmt.Errorf("expected aggregated error to contain at least 2 \"exit code\" lines (one per failing check), got %d: %s", got, msg)
 	}
 	return nil
 }
@@ -460,10 +466,12 @@ func (t *Tests) GradleCiRunAllStagesProducesJar(ctx context.Context) error {
 	return nil
 }
 
-// GradleCiCheckRunsChecksAndSkipsBuild runs both checks against the clean hello
-// fixture via Check (not Run) and asserts no error. Check returns an error (not
-// a Directory), so it structurally cannot build; a nil return proves the checks
-// passed and the build was skipped.
+// GradleCiCheckRunsChecksAndSkipsBuild exercises the checks-only path: it runs
+// both checks against the clean hello fixture via Check (not Run) and asserts
+// no error. Check runs just the parallel check stages (Test, Check) and returns
+// their aggregated result, so a nil return proves both enabled checks passed.
+// The build (assemble) is not part of Check's implementation, so there is no
+// artifact to observe here.
 func (t *Tests) GradleCiCheckRunsChecksAndSkipsBuild(ctx context.Context) error {
 	if err := dag.Java().Gradle(gradleHelloDir()).Ci().WithTest().WithCheck().Check(ctx); err != nil {
 		return fmt.Errorf("Gradle Ci.Check on clean hello: %w", err)
@@ -473,15 +481,19 @@ func (t *Tests) GradleCiCheckRunsChecksAndSkipsBuild(ctx context.Context) error 
 
 // GradleCiRunFailingTestAggregates runs the Gradle Ci pipeline against the
 // failtest fixture with both checks enabled and asserts Run fails at the check
-// stage (both checks run the failing test), surfacing the failure and skipping
-// the build.
+// stage and that BOTH enabled checks (Test, Check) failed rather than
+// short-circuiting on the first. The parallel aggregator joins each job's raw
+// error (job names live in trace spans, not the Go-level string), so each
+// failing `gradle` exec surfaces as a separate "exit code" line. Counting those
+// occurrences confirms both checks ran and both failures propagated through Run.
 func (t *Tests) GradleCiRunFailingTestAggregates(ctx context.Context) error {
 	_, err := dag.Java().Gradle(gradleFailtestDir()).Ci().WithTest().WithCheck().Run().Sync(ctx)
 	if err == nil {
 		return fmt.Errorf("expected non-nil error from Gradle Ci.Run on failtest fixture, got nil")
 	}
-	if msg := err.Error(); !strings.Contains(msg, "exit code") {
-		return fmt.Errorf("expected a check-stage failure (\"exit code\") in aggregated error, got: %s", msg)
+	msg := err.Error()
+	if got := strings.Count(msg, "exit code"); got < 2 {
+		return fmt.Errorf("expected aggregated error to contain at least 2 \"exit code\" lines (one per failing check), got %d: %s", got, msg)
 	}
 	return nil
 }
