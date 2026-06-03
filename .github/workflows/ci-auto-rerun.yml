@@ -1,0 +1,42 @@
+name: CI auto-rerun
+
+# Auto-rerun failed CI legs on a fresh runner. The Dagger Cloud telemetry-drain
+# hang (upstream dagger/dagger#7048, #12178) intermittently fails a leg even
+# though its check passed: the CLI blocks on flushing telemetry to
+# api.dagger.cloud and, when that ingest stalls, can't exit. Re-running the
+# failed leg on a fresh runner + fresh engine reliably clears it — the manual
+# re-run we'd otherwise do by hand. An in-process retry can't: it reuses the
+# same stuck engine and re-hits the still-ongoing Cloud stall.
+#
+# NOTE: workflow_run always uses the workflow file from the default branch, so
+# this only takes effect once merged to main (it won't rerun this PR's own runs).
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+# Only what `gh run rerun` needs; nothing else.
+permissions:
+  actions: write
+
+jobs:
+  rerun:
+    # Only act on genuine failures — a 'cancelled' run (e.g. PR concurrency
+    # cancel-in-progress) is skipped — and cap total attempts so a deterministic
+    # failure can't loop forever. run_attempt is 1 on the first run, so this
+    # allows reruns after attempts 1 and 2, for at most 3 attempts overall.
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.run_attempt < 3
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-run failed jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        # --failed re-runs only the failed legs (on fresh runners), reusing the
+        # successful `list` job's outputs; passing legs are left untouched.
+        run: gh run rerun "$RUN_ID" --failed

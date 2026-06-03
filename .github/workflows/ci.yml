@@ -94,9 +94,22 @@ jobs:
     name: ${{ matrix.job.name }}
     needs: [list]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Per matrix leg. Observed real legs finish in <4m; this is only a backstop
+    # above the 6m dagger/checks step bound + setup, so the step's timeout is
+    # what fails a telemetry-drain hang fast, not this job cap.
+    timeout-minutes: 10
     strategy:
       fail-fast: false
+      # Burst-throttling mitigation (#125): the matrix fans out one leg per
+      # check (finer-grained than the toolchain modules), so an uncapped fan-out
+      # boots several dozen ephemeral engines at once that all simultaneously
+      # pull Docker Hub base images (anonymous, per-IP limited via GitHub's
+      # shared egress NAT) and flush OTLP telemetry to Dagger Cloud. Both
+      # upstreams answer the resulting thundering herd with 504s. Cap concurrent
+      # legs to spread the same load over time — remaining legs queue and start
+      # as slots free. Same shape as #116's cold engine-image pull. Do NOT raise
+      # this to "speed up CI" without re-checking the 504 rate.
+      max-parallel: 10
       matrix:
         job: ${{ fromJSON(needs.list.outputs.jobs) }}
     steps:
@@ -126,7 +139,17 @@ jobs:
             docker image inspect "$IMAGE" >/dev/null
           fi
 
+      # Fail fast on the Dagger Cloud telemetry-drain hang. The check itself runs
+      # in ~1-4m; a leg still going at 6m is almost certainly stuck draining
+      # telemetry to api.dagger.cloud (upstream dagger/dagger#7048, #12178),
+      # which otherwise hangs the leg until the job timeout. Bounding the step
+      # makes the job fail quickly so ci-auto-rerun.yml re-runs the failed leg on
+      # a fresh runner + fresh engine — the manual re-run that reliably clears a
+      # transient/sustained Cloud stall (an in-process retry can't: it reuses the
+      # same stuck engine and re-hits the ongoing stall). Telemetry stays on
+      # (cloud-token set); we only bound how long a stuck drain may hang.
       - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
+        timeout-minutes: 6
         with:
           version: ${{ env.DAGGER_VERSION }}
           module: ${{ matrix.job.module }}
