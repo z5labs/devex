@@ -37,6 +37,45 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
-        # --failed re-runs only the failed legs (on fresh runners), reusing the
-        # successful `list` job's outputs; passing legs are left untouched.
-        run: gh run rerun "$RUN_ID" --failed
+        # Re-run each failed leg by its explicit job databaseId, NOT
+        # `gh run rerun --failed`. On our dynamic, object-valued matrix
+        # (matrix.job: ${{ fromJSON(needs.list.outputs.jobs) }}, each entry a
+        # {name, module, filter} object) GitHub's rerun-failed-jobs API
+        # intermittently mis-resolves which leg failed: it re-runs a *passing*
+        # module-sibling (same module, differing name/filter) and stamps out
+        # orphaned job records stuck at status=queued/conclusion=null that never
+        # resolve, making a healthy run look broken (observed: run 26862681576).
+        # Re-running by job ID mirrors the per-job "Re-run this job" button and
+        # removes GitHub's need to guess which leg of a re-expanded dynamic
+        # matrix failed. It includes dependencies, so the passing `list` job's
+        # output is reused (no full-matrix re-run, avoiding the #125 throttling).
+        #
+        # ?filter=latest scopes to the most recent attempt's jobs; we use .id
+        # (databaseId) — NOT the job number from the browser URL, which 404s
+        # against `--job`.
+        #
+        # Multi-failure self-heal: GitHub has no "re-run this subset in one
+        # attempt" API (rerun-failed-jobs, removed here, was the only one), and
+        # per-job rerun creates a new attempt per call. So when >1 leg fails,
+        # re-running the first failed job creates attempt N+1 that carries the
+        # other failed leg(s) forward as failed; that attempt completes failure
+        # -> workflow_run fires again -> we re-run the next failed leg (with its
+        # fresh job ID). The run_attempt < 3 cap bounds this to ~2 cleared legs
+        # before the safety valve stops it — acceptable, since the telemetry-
+        # drain hang has only ever failed a single leg per run. A stale job ID
+        # from a superseded attempt is tolerated (|| logged warning) so it can't
+        # fail the whole step.
+        run: |
+          set -euo pipefail
+          ids=$(gh api --paginate \
+            "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?filter=latest" \
+            --jq '.jobs[] | select(.conclusion=="failure") | .id')
+          if [ -z "$ids" ]; then
+            echo "No failed jobs on the latest attempt of run $RUN_ID; nothing to re-run."
+            exit 0
+          fi
+          for id in $ids; do
+            echo "Re-running failed job $id"
+            gh run rerun --job "$id" \
+              || echo "::warning::Failed to re-run job $id (likely superseded by a newer attempt); continuing."
+          done
