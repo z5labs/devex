@@ -54,7 +54,7 @@ type tmplData struct {
 func Render(m *Model) (map[string]string, error) {
 	tables := m.Tables()
 	enumTypes := m.enumTypes()
-	skillDir := ".claude/skills/pg-" + m.DBName
+	skillDir := "pg-" + m.DBName
 
 	data := tmplData{
 		DB:             m.DBName,

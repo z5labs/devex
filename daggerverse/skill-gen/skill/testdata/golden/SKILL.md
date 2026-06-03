@@ -13,7 +13,7 @@ Use `scripts/query.sh` to execute SQL. It loads connection details (host, port, 
 
 Copy the example env file and fill in real credentials for whichever environment you connect to:
 
-    cp .claude/skills/pg-shop/scripts/.env.example .env.dev
+    cp pg-shop/scripts/.env.example .env.dev
     # edit .env.dev — set PGHOST, PGPORT, PGUSER, PGPASSWORD
 
 Repeat for additional environments (`.env.staging`, `.env.prod`, ...). Add the chosen filename(s) to `.gitignore` so secrets don't get committed:
@@ -31,13 +31,13 @@ Repeat for additional environments (`.env.staging`, `.env.prod`, ...). Add the c
 
 If `--env-file` or `PG_ENV_FILE` is set, it must point to an existing file or the script exits with an error. If neither is set and `./.env` does not exist, the generation-time defaults are used.
 
-    bash .claude/skills/pg-shop/scripts/query.sh "SELECT ..."
+    bash pg-shop/scripts/query.sh "SELECT ..."
 
-    bash .claude/skills/pg-shop/scripts/query.sh --env-file .env.prod "SELECT ..."
+    bash pg-shop/scripts/query.sh --env-file .env.prod "SELECT ..."
 
 For multi-statement scripts, pipe via stdin:
 
-    PG_ENV_FILE=.env.staging bash .claude/skills/pg-shop/scripts/query.sh < script.sql
+    PG_ENV_FILE=.env.staging bash pg-shop/scripts/query.sh < script.sql
 
 ## Schema overview
 

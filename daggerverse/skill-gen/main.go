@@ -22,9 +22,13 @@ import (
 type SkillGen struct{}
 
 // Postgres introspects the PostgreSQL database at host:port and returns a
-// generated `pg-<db>` Claude Code skill as a *dagger.Directory. The function
-// never touches the host filesystem — the caller exports the returned tree
-// wherever they want (e.g. `export --path .claude/skills/pg-<db>`).
+// generated `pg-<db>` Claude Code skill as a *dagger.Directory. The returned
+// tree is the skill directory itself (SKILL.md at its root) with no enclosing
+// `.claude/skills/` wrapper, so it can be dropped straight into Claude Code,
+// Copilot, or any other gen-AI environment. The function never touches the
+// host filesystem — the caller exports the tree wherever they want (e.g.
+// `export --path pg-<db>` for Copilot, or `export --path .claude/skills/pg-<db>`
+// for Claude Code).
 //
 // Introspection is delegated to the postgres module's pgx-backed
 // Client.QueryJSON; only core types cross this module's boundary
