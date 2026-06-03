@@ -106,7 +106,7 @@ jobs:
       # legs to spread the same load over time — remaining legs queue and start
       # as slots free. Same shape as #116's cold engine-image pull. Do NOT raise
       # this to "speed up CI" without re-checking the 504 rate.
-      max-parallel: 6
+      max-parallel: 10
       matrix:
         job: ${{ fromJSON(needs.list.outputs.jobs) }}
     steps:
