@@ -94,7 +94,10 @@ jobs:
     name: ${{ matrix.job.name }}
     needs: [list]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Worst case is all 3 bounded attempts timing out (3 x 8m) plus
+    # checkout/install, so the job cap must clear ~24m + buffer. The normal path
+    # is a single ~1-4m attempt; only a telemetry-drain hang reaches the retries.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       # Burst-throttling mitigation (#125): the matrix fans out one leg per
@@ -136,9 +139,47 @@ jobs:
             docker image inspect "$IMAGE" >/dev/null
           fi
 
-      - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
-        with:
-          version: ${{ env.DAGGER_VERSION }}
-          module: ${{ matrix.job.module }}
-          filter: ${{ matrix.job.filter }}
-          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+      # Run dagger checks ourselves (instead of the dagger/checks action) so we
+      # can wrap the invocation in a wall-clock bound and retry. The action only
+      # runs `dagger checks <filter>`; replicating it costs one install step.
+      - name: Install Dagger
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | BIN_DIR="$RUNNER_TEMP/bin" DAGGER_VERSION="$DAGGER_VERSION" sh
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Run checks (bounded drain, retry only on telemetry-drain hang)
+        env:
+          DAGGER_MODULE: ${{ matrix.job.module }}
+          DAGGER_PROGRESS: dots
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+          FILTER: ${{ matrix.job.filter }}
+        run: |
+          # Dagger's CLI blocks on draining telemetry to Dagger Cloud when a run
+          # ends; when api.dagger.cloud's /v1/metrics ingest stalls, the process
+          # can't exit and hangs the leg until it's killed (upstream
+          # dagger/dagger#7048 and #12178). max-parallel (#125) cut the Docker
+          # Hub burst but can't stop a single stuck flush. So bound each attempt
+          # with a hard wall-clock `timeout` and auto-retry ONLY when an attempt
+          # times out (exit 124) — i.e. the drain hang. A real test failure exits
+          # fast with its own non-zero code and is NOT retried, so genuine
+          # breakage still fails immediately. A transient Cloud stall clears on
+          # the next attempt (the manual re-run we'd otherwise do by hand).
+          # Telemetry stays on (DAGGER_CLOUD_TOKEN is set) — we only bound how
+          # long a stuck drain may hang, we don't drop traces.
+          attempts=3
+          for i in $(seq 1 "$attempts"); do
+            code=0
+            timeout -k 30s 8m dagger checks "$FILTER" || code=$?
+            if [ "$code" -eq 0 ]; then
+              exit 0
+            fi
+            if [ "$code" -ne 124 ]; then
+              echo "::error::dagger checks exited $code (not a telemetry-drain timeout); failing without retry" >&2
+              exit "$code"
+            fi
+            echo "::warning::attempt $i/$attempts hit the 8m wall-clock bound (Dagger Cloud telemetry-drain hang); retrying" >&2
+          done
+          echo "::error::dagger checks still hanging on telemetry drain after $attempts attempts" >&2
+          exit 124
