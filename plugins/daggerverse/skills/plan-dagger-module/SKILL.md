@@ -16,6 +16,7 @@ You are not the decider here. The user is. Your job is to surface options, encod
 - **Echo the constraints back into proposals.** Every proposed type, function, and test must be consistent with the rules in *Constraints* below. If a constraint forces a design choice (e.g. a function returning a `*dagger.Secret` instead of a string), say so in the proposal rather than burying it.
 - **Use existing modules as shape references.** Read at least one comparable module under `daggerverse/` before proposing types. Cite the analogy in your proposal (e.g. "modeled after `kafka.Cluster` — controller + broker services with `+cache=\"never\"` chained methods").
 - **Don't invent caching policy.** The default `+cache=` story is: pure deterministic helpers get no directive (7-day default is fine); anything that spins up services, exposes randomness, or chains queries needs `+cache="never"` on every method that gets chained off it. Tests that exist to *prove* non-caching use `+cache="session"`.
+- **Every identified work item becomes an issue — or is explicitly dropped.** Any API chunk, extension, or capability surfaced during design (steps 2–7) is *work*. The flow is **not complete** until each such item is either captured in a created GitHub issue or explicitly dropped by the user. Nothing survives as prose-only — a sentence like "TLS support can come in a follow-up" is not a plan, it's a leak. The chained `Ci` builder is the canonical item that gets mentioned and then lost (it had to be retrofitted onto zig and others as a later story instead of falling out of the original design pass); treat it as a first-class follow-up issue every time it comes up. The step-9 completeness gate enforces this.
 
 ## The nine steps
 
@@ -88,7 +89,11 @@ Same loop as step 4. Apply feedback, restate the affected entries, re-ask. Wait 
 
 ### Step 7 — Propose GitHub issues
 
-Render the work as one or more story issues. Most new modules ship as **one main issue** covering the whole API and a possible **follow-up** for clearly separable extensions (TLS support, additional security profiles, optional integrations). When in doubt, use one issue. Issue #11 / #16 (kafka main) and #17 (kafka isolated-defaults follow-up) are good shape references.
+Render the work as one or more story issues. Most new modules ship as **one main issue** covering the whole API and a **separate follow-up issue for each clearly separable extension** (TLS support, additional security profiles, optional integrations, the chained `Ci` builder). When in doubt about whether a chunk belongs in the main issue or its own, that's a question for the user — but it must land in *some* issue. Issue #11 / #16 (kafka main) and #17 (kafka isolated-defaults follow-up) are good shape references.
+
+**Every separable extension gets its own fully drafted issue — title + complete body — not a sentence buried in the main issue's Description.** The recurring failure this skill exists to prevent: flagging something like "a chained `Ci` builder would be a natural follow-up" in prose, then never creating an issue for it. The `Ci` builder is the canonical offender; it has been deferred-and-forgotten across multiple module designs and only got tracked when retrofitted after the fact. If you mention an extension as future work *anywhere* in steps 2–7, you owe it a drafted issue here (or an explicit drop from the user at the step-9 gate).
+
+**Follow-up title format:** `story(issue-<main#>): <short description>`, where `<main#>` is the main issue's number. That number isn't known until the main issue is actually created — so draft follow-up titles with an `issue-<main#>` placeholder now, and step 9 fills in the real number after creating the main issue. Each follow-up's `### Related Issues` section references the main issue.
 
 **Title format — exactly:** `story(<subject>): <short description>`
 
@@ -125,11 +130,18 @@ Output the full proposed title and body for each issue. **Stop. Ask for feedback
 
 ### Step 8 — Refine issues
 
-Same loop as steps 4 and 6. Apply feedback to title/body/split, restate, re-ask. Wait for explicit approval — every issue must be individually approved before step 9. If the user wants to drop one of the proposed issues, drop it; if they want to add one, add it and run it through step 7's format.
+Same loop as steps 4 and 6. Apply feedback to title/body/split, restate, re-ask. Wait for explicit approval — **the main issue and every follow-up must each be individually approved** before step 9; blanket "looks good" on the bundle is fine only if you restate the full list (main + each follow-up) so the user is approving every item knowingly. If the user wants to drop one of the proposed issues, drop it (record it as an explicit drop for the step-9 gate); if they want to add one, add it and run it through step 7's format.
 
-### Step 9 — Create issues on GitHub
+### Step 9 — Gate completeness, then create issues on GitHub
 
-Only after step 8 approval, for each approved issue, run:
+**First, the completeness gate. Do this before any `gh issue create`.** Restate the full list of *every* work item identified across steps 2–7 — the main API surface, each separable extension, the chained `Ci` builder, and anything you flagged as future/follow-up work in prose anywhere in the design conversation. For each item, force a binary outcome:
+
+- **an approved issue exists for it** (main or a step-8-approved follow-up), or
+- **the user explicitly drops it** ("skip the `Ci` builder for now").
+
+Do not proceed while any item is unresolved, and do not let an item slip by unmentioned. If you're unsure whether something counts as work, list it and ask — the cost of an extra line in the gate is trivial; the cost of a silently-lost follow-up is a retrofit story months later. This gate is the whole point of the skill: **nothing surfaced during design disappears without a decision.**
+
+Once every item is either an approved issue or an explicit drop, create the issues. **Create the main issue first**, capture its number from the returned URL, then create each approved follow-up — substituting the real main issue number into its `story(issue-<main#>): ...` title and its `### Related Issues` reference.
 
 ```bash
 gh issue create --title "story(<subject>): <description>" --body "$(cat <<'EOF'
@@ -151,6 +163,8 @@ EOF
 Use a HEREDOC so markdown formatting (lists, code fences) survives shell quoting. Do not pass `--assignee`, `--label`, or `--milestone` unless the user asked for them. Print the returned issue URL after each `gh issue create` succeeds.
 
 If `gh issue create` fails, surface the error to the user and ask how to proceed — do **not** retry blindly or fall back to `curl` against the GitHub API.
+
+**The flow is complete only when every gated item is either a printed issue URL or an explicit drop.** Declaring the design done while a flagged extension still lives only in prose is the exact failure mode this skill exists to prevent — do not do it.
 
 ## Constraints
 
