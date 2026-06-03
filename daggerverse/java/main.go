@@ -203,7 +203,7 @@ func majorJava(v string) string {
 	v = strings.TrimSpace(v)
 	// Pull the first dotted-numeric run out of the string (handles prefixes
 	// like "temurin-" in .java-version files).
-	m := regexp.MustCompile(`[0-9]+(?:\.[0-9]+)*`).FindString(v)
+	m := dottedNumericRe.FindString(v)
 	if m == "" {
 		return ""
 	}
@@ -224,6 +224,7 @@ func parseJavaVersionFile(content string) string {
 }
 
 var (
+	dottedNumericRe      = regexp.MustCompile(`[0-9]+(?:\.[0-9]+)*`)
 	pomReleaseRe         = regexp.MustCompile(`<maven\.compiler\.release>\s*([0-9.]+)\s*</maven\.compiler\.release>`)
 	pomBareReleaseRe     = regexp.MustCompile(`<release>\s*([0-9.]+)\s*</release>`)
 	pomJavaVersionRe     = regexp.MustCompile(`<java\.version>\s*([0-9.]+)\s*</java\.version>`)
