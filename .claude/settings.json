@@ -6,5 +6,8 @@
         "repo": "z5labs/devex"
       }
     }
+  },
+  "enabledPlugins": {
+    "daggerverse@z5labs-devex": true
   }
 }

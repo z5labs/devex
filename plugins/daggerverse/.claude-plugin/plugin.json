@@ -1,0 +1,6 @@
+{
+  "name": "daggerverse",
+  "description": "Claude Code tooling for designing and building daggerverse modules",
+  "version": "0.1.0",
+  "author": { "name": "z5labs" }
+}
