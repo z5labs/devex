@@ -1,0 +1,10 @@
+{
+  "extraKnownMarketplaces": {
+    "z5labs-devex": {
+      "source": {
+        "source": "github",
+        "repo": "z5labs/devex"
+      }
+    }
+  }
+}

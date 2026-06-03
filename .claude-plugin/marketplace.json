@@ -1,0 +1,10 @@
+{
+  "name": "z5labs-devex",
+  "owner": {
+    "name": "z5labs"
+  },
+  "metadata": {
+    "description": "z5labs developer-experience plugins for Claude Code"
+  },
+  "plugins": []
+}
