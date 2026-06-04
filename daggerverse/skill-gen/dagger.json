@@ -1,0 +1,16 @@
+{
+  "name": "skill-gen",
+  "engineVersion": "v0.21.3",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "postgres",
+      "source": "../postgres"
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}

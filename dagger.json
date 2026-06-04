@@ -58,6 +58,10 @@
       "source": "daggerverse/random/tests"
     },
     {
+      "name": "skill-gen-tests",
+      "source": "daggerverse/skill-gen/tests"
+    },
+    {
       "name": "z5labs-tests",
       "source": "daggerverse/z5labs/tests"
     },

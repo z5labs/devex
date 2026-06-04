@@ -52,6 +52,10 @@ type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.g
 	apacheJvm                                          *Void
 	apicurioSchemaRegistryRegisterLookupRoundTrip      *Void
 	autoCreateTopicsDisabled                           *Void
+	avroBytesFieldRoundTrip                            *Void
+	avroConsumeUnframedErrors                          *Void
+	avroFramedProduceConsumeRoundTrip                  *Void
+	avroSerializeRequiresSchemaId                      *Void
 	bindBrokersExposesBothListeners                    *Void
 	clusterClientCanListTopicsOnFreshCluster           *Void
 	confluent                                          *Void
@@ -246,15 +250,15 @@ func (r *KafkaTests) ApacheClusterTLSRoundTrip(ctx context.Context, opts ...Kafk
 type KafkaTestsApacheJvmOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:266:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:278:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:268:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:280:2)
 }
 
 // ApacheJVM runs the three apache/kafka JVM-image round-trip tests.
 // Each test owns a fresh ApacheCluster, so the group holds no shared
 // clusters of its own.
-func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:263:1)
+func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:275:1)
 	if r.apacheJvm != nil {
 		return nil
 	}
@@ -277,7 +281,7 @@ func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmO
 type KafkaTestsApicurioSchemaRegistryRegisterLookupRoundTripOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:151:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:156:2)
 }
 
 // ApicurioSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path
@@ -287,7 +291,7 @@ type KafkaTestsApicurioSchemaRegistryRegisterLookupRoundTripOpts struct {
 // set/get-compatibility → delete against its Confluent-compatible REST
 // surface — mirroring SchemaRegistryRegisterLookupRoundTrip to prove the
 // shared *SchemaRegistryClient drives Apicurio unchanged.
-func (r *KafkaTests) ApicurioSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsApicurioSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:148:1)
+func (r *KafkaTests) ApicurioSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsApicurioSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:153:1)
 	if r.apicurioSchemaRegistryRegisterLookupRoundTrip != nil {
 		return nil
 	}
@@ -324,6 +328,104 @@ func (r *KafkaTests) AutoCreateTopicsDisabled(ctx context.Context, opts ...Kafka
 			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
 		}
 	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsAvroBytesFieldRoundTripOpts contains options for KafkaTests.AvroBytesFieldRoundTrip
+type KafkaTestsAvroBytesFieldRoundTripOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:919:2)
+}
+
+// AvroBytesFieldRoundTrip pins the Avro-spec JSON encoding of a bytes field.
+// Per the Avro specification, the JSON encoding of bytes (and fixed) is a
+// string whose characters are the byte values as Unicode code points 0-255 —
+// one character per byte, NOT base64. The input value here contains byte 0xFF
+// (code point U+00FF), which is outside the base64 alphabet, so a round-trip
+// that preserves it byte-for-byte proves the one-char-per-byte mapping and
+// would be impossible under a base64 interpretation.
+func (r *KafkaTests) AvroBytesFieldRoundTrip(ctx context.Context, opts ...KafkaTestsAvroBytesFieldRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:916:1)
+	if r.avroBytesFieldRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("avroBytesFieldRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsAvroConsumeUnframedErrorsOpts contains options for KafkaTests.AvroConsumeUnframedErrors
+type KafkaTestsAvroConsumeUnframedErrorsOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:759:2)
+}
+
+// AvroConsumeUnframedErrors pins the negative consume path: a record produced
+// without a Confluent wire header, consumed with valueDeserializeAs="AVRO" +
+// schemaRegistryAware=true, must error out pointing at the missing header. The
+// header check fires before any schema lookup, so the registry service never
+// has to start.
+func (r *KafkaTests) AvroConsumeUnframedErrors(ctx context.Context, opts ...KafkaTestsAvroConsumeUnframedErrorsOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:756:1)
+	if r.avroConsumeUnframedErrors != nil {
+		return nil
+	}
+	q := r.query.Select("avroConsumeUnframedErrors")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsAvroFramedProduceConsumeRoundTripOpts contains options for KafkaTests.AvroFramedProduceConsumeRoundTrip
+type KafkaTestsAvroFramedProduceConsumeRoundTripOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:818:2)
+}
+
+// AvroFramedProduceConsumeRoundTrip is the happy-path data round-trip for AVRO
+// serde: register an Avro record schema to get an id, Produce a JSON document
+// with valueSerializeAs="AVRO"then framed), and Consume it back with valueDeserializeAs="AVRO" +
+// schemaRegistryAware=true. The asserted invariant is byte-equality of the
+// consumed value to the canonical JSON form of the original input, proving the
+// JSON->Avro-binary->JSON pipeline preserves the datum.
+func (r *KafkaTests) AvroFramedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsAvroFramedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:815:1)
+	if r.avroFramedProduceConsumeRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("avroFramedProduceConsumeRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// AvroSerializeRequiresSchemaID pins the up-front validation contract of
+// valueSerializeAs="AVRO": Produce must reject a zero schema id before any
+// broker or registry I/O. dag.Kafka().Client(...) builds without I/O, so no
+// cluster boots — the failure is purely the missing-id guard on the AVRO
+// serializer.
+func (r *KafkaTests) AvroSerializeRequiresSchemaID(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:729:1)
+	if r.avroSerializeRequiresSchemaId != nil {
+		return nil
+	}
+	q := r.query.Select("avroSerializeRequiresSchemaId")
 
 	return q.Execute(ctx)
 }
@@ -386,14 +488,14 @@ func (r *KafkaTests) ClusterClientCanListTopicsOnFreshCluster(ctx context.Contex
 type KafkaTestsConfluentOpts struct {
 
 	// Default: "8.2.0"
-	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:298:2)
+	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:310:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:300:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:312:2)
 }
 
 // Confluent runs the three confluentinc/cp-kafka round-trip tests.
 // Each test owns a fresh ConfluentCluster.
-func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:295:1)
+func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:307:1)
 	if r.confluent != nil {
 		return nil
 	}
@@ -653,7 +755,7 @@ func (r *KafkaTests) InternalListenersAreEncrypted(ctx context.Context, opts ...
 type KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:279:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:284:2)
 }
 
 // KarapaceSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path
@@ -663,7 +765,7 @@ type KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts struct {
 // against its Confluent-compatible REST surface — mirroring
 // SchemaRegistryRegisterLookupRoundTrip to prove the shared
 // *SchemaRegistryClient drives Karapace unchanged.
-func (r *KafkaTests) KarapaceSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:276:1)
+func (r *KafkaTests) KarapaceSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:281:1)
 	if r.karapaceSchemaRegistryRegisterLookupRoundTrip != nil {
 		return nil
 	}
@@ -760,16 +862,16 @@ func (r *KafkaTests) MultiControllerIsRejected(ctx context.Context, opts ...Kafk
 type KafkaTestsNativeOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:157:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:169:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:159:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:171:2)
 }
 
 // Native runs every apache/kafka-native test as one group. It boots
 // the three shared ApacheNativeClusters up front, fans the shared-cluster
 // and fresh-cluster native tests across a par pool capped at parallel,
 // and tears the shared clusters down on return.
-func (r *KafkaTests) Native(ctx context.Context, opts ...KafkaTestsNativeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:154:1)
+func (r *KafkaTests) Native(ctx context.Context, opts ...KafkaTestsNativeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:166:1)
 	if r.native != nil {
 		return nil
 	}
@@ -1001,15 +1103,15 @@ func (r *KafkaTests) PropertiesFileContainsTLSSettings(ctx context.Context, opts
 type KafkaTestsRedpandaOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:331:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:343:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:333:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:345:2)
 }
 
 // Redpanda runs the redpandadata/redpanda round-trip tests — the two
 // Kafka-wire round-trips, the PLAINTEXT and TLS bundled-Schema-Registry
 // round-trips, and the bundled-registry Stop-is-a-no-op lifecycle test.
-func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:328:1)
+func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:340:1)
 	if r.redpanda != nil {
 		return nil
 	}
@@ -1206,7 +1308,7 @@ func (r *KafkaTests) SchemaRegistry(ctx context.Context, opts ...KafkaTestsSchem
 type KafkaTestsSchemaRegistryFramedProduceConsumeRoundTripOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:405:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:410:2)
 }
 
 // SchemaRegistryFramedProduceConsumeRoundTrip exercises the data path of the
@@ -1214,7 +1316,7 @@ type KafkaTestsSchemaRegistryFramedProduceConsumeRoundTripOpts struct {
 // produce a record whose value is framed with that ID, then consume with
 // schemaRegistryAware=true and assert the parsed ID matches and the value
 // bytes are stripped back to the original payload.
-func (r *KafkaTests) SchemaRegistryFramedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryFramedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:402:1)
+func (r *KafkaTests) SchemaRegistryFramedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryFramedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:407:1)
 	if r.schemaRegistryFramedProduceConsumeRoundTrip != nil {
 		return nil
 	}
@@ -1233,7 +1335,7 @@ func (r *KafkaTests) SchemaRegistryFramedProduceConsumeRoundTrip(ctx context.Con
 type KafkaTestsSchemaRegistryJsonframedProduceConsumeRoundTripOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:628:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:633:2)
 }
 
 // SchemaRegistryJSONFramedProduceConsumeRoundTrip composes the framing
@@ -1243,7 +1345,7 @@ type KafkaTestsSchemaRegistryJsonframedProduceConsumeRoundTripOpts struct {
 // asserted invariant is byte-equality of the consumed value to the canonical
 // JSON form of the original input — proving frame strip and JSON validation
 // compose without corrupting the payload.
-func (r *KafkaTests) SchemaRegistryJsonframedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryJsonframedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:625:1)
+func (r *KafkaTests) SchemaRegistryJsonframedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryJsonframedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:630:1)
 	if r.schemaRegistryJsonframedProduceConsumeRoundTrip != nil {
 		return nil
 	}
@@ -1263,7 +1365,7 @@ func (r *KafkaTests) SchemaRegistryJsonframedProduceConsumeRoundTrip(ctx context
 // malformed JSON payload before any broker I/O. dag.Kafka().Client(...)
 // builds without I/O, so no cluster boots — the failure is purely a
 // payload-validation failure on the canonicalising serializer.
-func (r *KafkaTests) SchemaRegistryJsonserializeRejectsMalformedInput(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:597:1)
+func (r *KafkaTests) SchemaRegistryJsonserializeRejectsMalformedInput(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:602:1)
 	if r.schemaRegistryJsonserializeRejectsMalformedInput != nil {
 		return nil
 	}
@@ -1276,13 +1378,13 @@ func (r *KafkaTests) SchemaRegistryJsonserializeRejectsMalformedInput(ctx contex
 type KafkaTestsSchemaRegistryPlaintextConsumeUnframedOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:500:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:505:2)
 }
 
 // SchemaRegistryPlaintextConsumeUnframed verifies the negative path: a record
 // produced without framing, consumed with schemaRegistryAware=true, must
 // surface ValueSchemaID=0 and pass the value bytes through unchanged.
-func (r *KafkaTests) SchemaRegistryPlaintextConsumeUnframed(ctx context.Context, opts ...KafkaTestsSchemaRegistryPlaintextConsumeUnframedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:497:1)
+func (r *KafkaTests) SchemaRegistryPlaintextConsumeUnframed(ctx context.Context, opts ...KafkaTestsSchemaRegistryPlaintextConsumeUnframedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:502:1)
 	if r.schemaRegistryPlaintextConsumeUnframed != nil {
 		return nil
 	}
@@ -1301,7 +1403,7 @@ func (r *KafkaTests) SchemaRegistryPlaintextConsumeUnframed(ctx context.Context,
 type KafkaTestsSchemaRegistryRegisterLookupRoundTripOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:23:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:28:2)
 }
 
 // SchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path test
@@ -1309,7 +1411,7 @@ type KafkaTestsSchemaRegistryRegisterLookupRoundTripOpts struct {
 // a fresh cluster, then exercise register → lookup-by-id →
 // lookup-latest-by-subject → list-subjects → set/get-compatibility →
 // delete against it — covering every SchemaRegistryClient operation.
-func (r *KafkaTests) SchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:20:1)
+func (r *KafkaTests) SchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:25:1)
 	if r.schemaRegistryRegisterLookupRoundTrip != nil {
 		return nil
 	}
@@ -1328,7 +1430,7 @@ func (r *KafkaTests) SchemaRegistryRegisterLookupRoundTrip(ctx context.Context, 
 type KafkaTestsSchemaRegistryRejectsNonPlaintextClusterOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:574:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:579:2)
 }
 
 // SchemaRegistryRejectsNonPlaintextCluster pins the PLAINTEXT-only contract
@@ -1336,7 +1438,7 @@ type KafkaTestsSchemaRegistryRejectsNonPlaintextClusterOpts struct {
 // listener runs TLS rather than silently producing a broken registry. The
 // constructor errors before any service boots, so the TLS cluster never
 // has to start.
-func (r *KafkaTests) SchemaRegistryRejectsNonPlaintextCluster(ctx context.Context, opts ...KafkaTestsSchemaRegistryRejectsNonPlaintextClusterOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:571:1)
+func (r *KafkaTests) SchemaRegistryRejectsNonPlaintextCluster(ctx context.Context, opts ...KafkaTestsSchemaRegistryRejectsNonPlaintextClusterOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_schema_registry.go:576:1)
 	if r.schemaRegistryRejectsNonPlaintextCluster != nil {
 		return nil
 	}
