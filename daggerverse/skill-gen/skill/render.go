@@ -33,7 +33,7 @@ type tmplData struct {
 	DB             string
 	SkillDir       string
 	TopTablesProse string
-	TopTable       string
+	RowCountQuery  string
 	TableCount     int
 	ViewCount      int
 	EnumCount      int
@@ -60,7 +60,11 @@ func Render(m *Model) (map[string]string, error) {
 		DB:             m.DBName,
 		SkillDir:       skillDir,
 		TopTablesProse: m.topTablesProse(),
-		TopTable:       m.topTableSQL(),
+		// Fully shell-quoted SQL argument: the inner identifier is SQL
+		// double-quoted (e.g. "public"."users"), so the whole argument is
+		// single-quoted for the shell — copy-pasteable and safe even if the
+		// table name contains spaces or a quote.
+		RowCountQuery: shellSingleQuote("SELECT count(*) FROM " + m.topTableSQL()),
 		TableCount:     len(tables),
 		ViewCount:      len(m.Views),
 		EnumCount:      len(enumTypes),

@@ -64,7 +64,7 @@ If this fails, the wrapper or the `.env` is misconfigured — fix it before runn
 ### Quick row count from a real table
 
 ```bash
-bash {{.SkillDir}}/scripts/query.sh "SELECT count(*) FROM {{.TopTable}}"
+bash {{.SkillDir}}/scripts/query.sh {{.RowCountQuery}}
 ```
 
 ### Multi-statement scripts via stdin
@@ -78,7 +78,7 @@ Useful for `.sql` files you already have on disk, multi-line SQL that's awkward 
 ### Per-environment
 
 ```bash
-bash {{.SkillDir}}/scripts/query.sh --env-file .env.prod "SELECT count(*) FROM {{.TopTable}}"
+bash {{.SkillDir}}/scripts/query.sh --env-file .env.prod {{.RowCountQuery}}
 ```
 
 Or set `PG_ENV_FILE` once per shell:

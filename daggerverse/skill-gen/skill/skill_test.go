@@ -170,6 +170,31 @@ func TestRenderEscapesShellMetacharacters(t *testing.T) {
 	}
 }
 
+// TestRowCountExampleIsShellSafe pins that the README row-count sample wraps the
+// SQL in single quotes so the SQL-double-quoted identifier survives, rather than
+// nesting double quotes (which collapses "public"."users" and breaks on a table
+// name with a space).
+func TestRowCountExampleIsShellSafe(t *testing.T) {
+	readme := mustRender(t, fixtureModel())[PathREADME]
+	want := `bash pg-shop/scripts/query.sh 'SELECT count(*) FROM "public"."users"'`
+	if !strings.Contains(readme, want) {
+		t.Errorf("README missing single-quoted row-count example %q", want)
+	}
+	// No double-quoted SELECT example should remain (the broken nested form).
+	if strings.Contains(readme, `query.sh "SELECT count(*)`) {
+		t.Errorf("README still uses a double-quoted SELECT example:\n%s", readme)
+	}
+}
+
+func mustRender(t *testing.T, m *Model) map[string]string {
+	t.Helper()
+	files, err := Render(m)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	return files
+}
+
 func TestVerifyPositive(t *testing.T) {
 	files, err := Render(fixtureModel())
 	if err != nil {

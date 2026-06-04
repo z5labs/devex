@@ -64,7 +64,7 @@ If this fails, the wrapper or the `.env` is misconfigured — fix it before runn
 ### Quick row count from a real table
 
 ```bash
-bash pg-shop/scripts/query.sh "SELECT count(*) FROM "public"."users""
+bash pg-shop/scripts/query.sh 'SELECT count(*) FROM "public"."users"'
 ```
 
 ### Multi-statement scripts via stdin
@@ -78,7 +78,7 @@ Useful for `.sql` files you already have on disk, multi-line SQL that's awkward 
 ### Per-environment
 
 ```bash
-bash pg-shop/scripts/query.sh --env-file .env.prod "SELECT count(*) FROM "public"."users""
+bash pg-shop/scripts/query.sh --env-file .env.prod 'SELECT count(*) FROM "public"."users"'
 ```
 
 Or set `PG_ENV_FILE` once per shell:
