@@ -51,6 +51,9 @@ type JavaTests struct { // java-tests (../../../daggerverse/java/tests/main.go:1
 	containerUsesPinnedJdkVersion            *Void
 	gradleAssembleProducesJar                *Void
 	gradleBuildProducesArtifacts             *Void
+	gradleCiCheckRunsChecksAndSkipsBuild     *Void
+	gradleCiRunAllStagesProducesJar          *Void
+	gradleCiRunFailingTestAggregates         *Void
 	gradleContainerHasGradle                 *Void
 	gradleDisableWrapperUsesSystemGradle     *Void
 	gradleInfersJdkFromBuildGradle           *Void
@@ -58,6 +61,9 @@ type JavaTests struct { // java-tests (../../../daggerverse/java/tests/main.go:1
 	gradleTestPasses                         *Void
 	gradleUsesWrapperWhenPresent             *Void
 	id                                       *ID
+	mavenCiCheckRunsChecksAndSkipsPackage    *Void
+	mavenCiRunAllStagesProducesJar           *Void
+	mavenCiRunFailingTestAggregates          *Void
 	mavenCompileProducesClasses              *Void
 	mavenContainerHasMaven                   *Void
 	mavenDisableWrapperUsesSystemMaven       *Void
@@ -105,7 +111,7 @@ func (r *JavaTests) All(ctx context.Context, opts ...JavaTestsAllOpts) error { /
 
 // ContainerHasJdk proves the base container is reachable, source is mounted,
 // and the JDK's `java` runs. Canary for every other test.
-func (r *JavaTests) ContainerHasJdk(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:92:1)
+func (r *JavaTests) ContainerHasJdk(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:99:1)
 	if r.containerHasJdk != nil {
 		return nil
 	}
@@ -116,7 +122,7 @@ func (r *JavaTests) ContainerHasJdk(ctx context.Context) error { // java-tests (
 
 // ContainerInfersJdkFromJavaVersionFile asserts .java-version (17) wins over
 // the conflicting pom (21).
-func (r *JavaTests) ContainerInfersJdkFromJavaVersionFile(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:146:1)
+func (r *JavaTests) ContainerInfersJdkFromJavaVersionFile(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:153:1)
 	if r.containerInfersJdkFromJavaVersionFile != nil {
 		return nil
 	}
@@ -126,7 +132,7 @@ func (r *JavaTests) ContainerInfersJdkFromJavaVersionFile(ctx context.Context) e
 }
 
 // ContainerUsesPinnedJdkVersion asserts New("17") overrides the pom's 21.
-func (r *JavaTests) ContainerUsesPinnedJdkVersion(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:133:1)
+func (r *JavaTests) ContainerUsesPinnedJdkVersion(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:140:1)
 	if r.containerUsesPinnedJdkVersion != nil {
 		return nil
 	}
@@ -136,7 +142,7 @@ func (r *JavaTests) ContainerUsesPinnedJdkVersion(ctx context.Context) error { /
 }
 
 // GradleAssembleProducesJar asserts `gradle assemble` produces a jar.
-func (r *JavaTests) GradleAssembleProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:302:1)
+func (r *JavaTests) GradleAssembleProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:309:1)
 	if r.gradleAssembleProducesJar != nil {
 		return nil
 	}
@@ -146,7 +152,7 @@ func (r *JavaTests) GradleAssembleProducesJar(ctx context.Context) error { // ja
 }
 
 // GradleBuildProducesArtifacts asserts `gradle build` produces artifacts.
-func (r *JavaTests) GradleBuildProducesArtifacts(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:277:1)
+func (r *JavaTests) GradleBuildProducesArtifacts(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:284:1)
 	if r.gradleBuildProducesArtifacts != nil {
 		return nil
 	}
@@ -155,8 +161,51 @@ func (r *JavaTests) GradleBuildProducesArtifacts(ctx context.Context) error { //
 	return q.Execute(ctx)
 }
 
+// GradleCiCheckRunsChecksAndSkipsBuild exercises the checks-only path: it runs
+// both checks against the clean hello fixture via Check (not Run) and asserts
+// no error. Check runs just the parallel check stages (Test, Check) and returns
+// their aggregated result, so a nil return proves both enabled checks passed.
+// The build (assemble) is not part of Check's implementation, so there is no
+// artifact to observe here.
+func (r *JavaTests) GradleCiCheckRunsChecksAndSkipsBuild(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:475:1)
+	if r.gradleCiCheckRunsChecksAndSkipsBuild != nil {
+		return nil
+	}
+	q := r.query.Select("gradleCiCheckRunsChecksAndSkipsBuild")
+
+	return q.Execute(ctx)
+}
+
+// GradleCiRunAllStagesProducesJar runs the Gradle Ci pipeline with both checks
+// enabled against the clean hello fixture and asserts Run produces a jar under
+// build/libs.
+func (r *JavaTests) GradleCiRunAllStagesProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:457:1)
+	if r.gradleCiRunAllStagesProducesJar != nil {
+		return nil
+	}
+	q := r.query.Select("gradleCiRunAllStagesProducesJar")
+
+	return q.Execute(ctx)
+}
+
+// GradleCiRunFailingTestAggregates runs the Gradle Ci pipeline against the
+// failtest fixture with both checks enabled and asserts Run fails at the check
+// stage and that BOTH enabled checks (Test, Check) failed rather than
+// short-circuiting on the first. The parallel aggregator joins each job's raw
+// error (job names live in trace spans, not the Go-level string), so each
+// failing `gradle` exec surfaces as a separate "exit code" line. Counting those
+// occurrences confirms both checks ran and both failures propagated through Run.
+func (r *JavaTests) GradleCiRunFailingTestAggregates(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:489:1)
+	if r.gradleCiRunFailingTestAggregates != nil {
+		return nil
+	}
+	q := r.query.Select("gradleCiRunFailingTestAggregates")
+
+	return q.Execute(ctx)
+}
+
 // GradleContainerHasGradle proves the Gradle container has a working `gradle`.
-func (r *JavaTests) GradleContainerHasGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:252:1)
+func (r *JavaTests) GradleContainerHasGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:259:1)
 	if r.gradleContainerHasGradle != nil {
 		return nil
 	}
@@ -166,7 +215,7 @@ func (r *JavaTests) GradleContainerHasGradle(ctx context.Context) error { // jav
 }
 
 // GradleDisableWrapperUsesSystemGradle asserts disableWrapper bypasses gradlew.
-func (r *JavaTests) GradleDisableWrapperUsesSystemGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:357:1)
+func (r *JavaTests) GradleDisableWrapperUsesSystemGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:364:1)
 	if r.gradleDisableWrapperUsesSystemGradle != nil {
 		return nil
 	}
@@ -177,7 +226,7 @@ func (r *JavaTests) GradleDisableWrapperUsesSystemGradle(ctx context.Context) er
 
 // GradleInfersJdkFromBuildGradle asserts the Gradle container's JDK is inferred
 // from build.gradle.
-func (r *JavaTests) GradleInfersJdkFromBuildGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:173:1)
+func (r *JavaTests) GradleInfersJdkFromBuildGradle(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:180:1)
 	if r.gradleInfersJdkFromBuildGradle != nil {
 		return nil
 	}
@@ -187,7 +236,7 @@ func (r *JavaTests) GradleInfersJdkFromBuildGradle(ctx context.Context) error { 
 }
 
 // GradleTasksPassThrough proves arbitrary tasks pass through to gradle.
-func (r *JavaTests) GradleTasksPassThrough(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:265:1)
+func (r *JavaTests) GradleTasksPassThrough(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:272:1)
 	if r.gradleTasksPassThrough != nil {
 		return nil
 	}
@@ -197,7 +246,7 @@ func (r *JavaTests) GradleTasksPassThrough(ctx context.Context) error { // java-
 }
 
 // GradleTestPasses asserts `gradle test` succeeds on the hello fixture.
-func (r *JavaTests) GradleTestPasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:290:1)
+func (r *JavaTests) GradleTestPasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:297:1)
 	if r.gradleTestPasses != nil {
 		return nil
 	}
@@ -207,7 +256,7 @@ func (r *JavaTests) GradleTestPasses(ctx context.Context) error { // java-tests 
 }
 
 // GradleUsesWrapperWhenPresent asserts the in-repo gradlew is used by default.
-func (r *JavaTests) GradleUsesWrapperWhenPresent(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:345:1)
+func (r *JavaTests) GradleUsesWrapperWhenPresent(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:352:1)
 	if r.gradleUsesWrapperWhenPresent != nil {
 		return nil
 	}
@@ -265,8 +314,51 @@ func (r *JavaTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MavenCiCheckRunsChecksAndSkipsPackage exercises the checks-only path: it runs
+// both checks against the clean hello fixture via Check (not Run) and asserts
+// no error. Check runs just the parallel check stages (Test, Verify) and
+// returns their aggregated result, so a nil return proves both enabled checks
+// passed. Packaging is not part of Check's implementation, so there is no
+// artifact to observe here.
+func (r *JavaTests) MavenCiCheckRunsChecksAndSkipsPackage(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:428:1)
+	if r.mavenCiCheckRunsChecksAndSkipsPackage != nil {
+		return nil
+	}
+	q := r.query.Select("mavenCiCheckRunsChecksAndSkipsPackage")
+
+	return q.Execute(ctx)
+}
+
+// MavenCiRunAllStagesProducesJar runs the Maven Ci pipeline with both checks
+// enabled against the clean hello fixture and asserts Run produces a jar under
+// target/.
+func (r *JavaTests) MavenCiRunAllStagesProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:410:1)
+	if r.mavenCiRunAllStagesProducesJar != nil {
+		return nil
+	}
+	q := r.query.Select("mavenCiRunAllStagesProducesJar")
+
+	return q.Execute(ctx)
+}
+
+// MavenCiRunFailingTestAggregates runs the Maven Ci pipeline against the
+// failtest fixture with both checks enabled and asserts Run fails at the check
+// stage and that BOTH enabled checks (Test, Verify) failed rather than
+// short-circuiting on the first. The parallel aggregator joins each job's raw
+// error (job names live in trace spans, not the Go-level string), so each
+// failing `mvn` exec surfaces as a separate "exit code" line. Counting those
+// occurrences confirms both checks ran and both failures propagated through Run.
+func (r *JavaTests) MavenCiRunFailingTestAggregates(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:442:1)
+	if r.mavenCiRunFailingTestAggregates != nil {
+		return nil
+	}
+	q := r.query.Select("mavenCiRunFailingTestAggregates")
+
+	return q.Execute(ctx)
+}
+
 // MavenCompileProducesClasses asserts `mvn compile` produces .class files.
-func (r *JavaTests) MavenCompileProducesClasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:212:1)
+func (r *JavaTests) MavenCompileProducesClasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:219:1)
 	if r.mavenCompileProducesClasses != nil {
 		return nil
 	}
@@ -276,7 +368,7 @@ func (r *JavaTests) MavenCompileProducesClasses(ctx context.Context) error { // 
 }
 
 // MavenContainerHasMaven proves the Maven container has a working `mvn`.
-func (r *JavaTests) MavenContainerHasMaven(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:187:1)
+func (r *JavaTests) MavenContainerHasMaven(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:194:1)
 	if r.mavenContainerHasMaven != nil {
 		return nil
 	}
@@ -286,7 +378,7 @@ func (r *JavaTests) MavenContainerHasMaven(ctx context.Context) error { // java-
 }
 
 // MavenDisableWrapperUsesSystemMaven asserts disableWrapper bypasses mvnw.
-func (r *JavaTests) MavenDisableWrapperUsesSystemMaven(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:329:1)
+func (r *JavaTests) MavenDisableWrapperUsesSystemMaven(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:336:1)
 	if r.mavenDisableWrapperUsesSystemMaven != nil {
 		return nil
 	}
@@ -296,7 +388,7 @@ func (r *JavaTests) MavenDisableWrapperUsesSystemMaven(ctx context.Context) erro
 }
 
 // MavenGoalsPassThrough proves arbitrary goals/flags pass through to mvn.
-func (r *JavaTests) MavenGoalsPassThrough(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:200:1)
+func (r *JavaTests) MavenGoalsPassThrough(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:207:1)
 	if r.mavenGoalsPassThrough != nil {
 		return nil
 	}
@@ -306,7 +398,7 @@ func (r *JavaTests) MavenGoalsPassThrough(ctx context.Context) error { // java-t
 }
 
 // MavenInfersJdkFromPom asserts the Maven container's JDK is inferred from pom.
-func (r *JavaTests) MavenInfersJdkFromPom(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:160:1)
+func (r *JavaTests) MavenInfersJdkFromPom(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:167:1)
 	if r.mavenInfersJdkFromPom != nil {
 		return nil
 	}
@@ -316,7 +408,7 @@ func (r *JavaTests) MavenInfersJdkFromPom(ctx context.Context) error { // java-t
 }
 
 // MavenPackageProducesJar asserts `mvn package` produces a jar.
-func (r *JavaTests) MavenPackageProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:237:1)
+func (r *JavaTests) MavenPackageProducesJar(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:244:1)
 	if r.mavenPackageProducesJar != nil {
 		return nil
 	}
@@ -327,7 +419,7 @@ func (r *JavaTests) MavenPackageProducesJar(ctx context.Context) error { // java
 
 // MavenPackageRunsTestsByDefault asserts the failing test runs (package fails)
 // when skipTests is not set.
-func (r *JavaTests) MavenPackageRunsTestsByDefault(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:376:1)
+func (r *JavaTests) MavenPackageRunsTestsByDefault(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:383:1)
 	if r.mavenPackageRunsTestsByDefault != nil {
 		return nil
 	}
@@ -338,7 +430,7 @@ func (r *JavaTests) MavenPackageRunsTestsByDefault(ctx context.Context) error { 
 
 // MavenPackageSkipTestsBypassesFailingTest asserts skipTests produces a jar
 // despite the failing test.
-func (r *JavaTests) MavenPackageSkipTestsBypassesFailingTest(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:386:1)
+func (r *JavaTests) MavenPackageSkipTestsBypassesFailingTest(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:393:1)
 	if r.mavenPackageSkipTestsBypassesFailingTest != nil {
 		return nil
 	}
@@ -348,7 +440,7 @@ func (r *JavaTests) MavenPackageSkipTestsBypassesFailingTest(ctx context.Context
 }
 
 // MavenTestPasses asserts `mvn test` succeeds on the hello fixture.
-func (r *JavaTests) MavenTestPasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:225:1)
+func (r *JavaTests) MavenTestPasses(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:232:1)
 	if r.mavenTestPasses != nil {
 		return nil
 	}
@@ -358,7 +450,7 @@ func (r *JavaTests) MavenTestPasses(ctx context.Context) error { // java-tests (
 }
 
 // MavenUsesWrapperWhenPresent asserts the in-repo mvnw is used by default.
-func (r *JavaTests) MavenUsesWrapperWhenPresent(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:317:1)
+func (r *JavaTests) MavenUsesWrapperWhenPresent(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:324:1)
 	if r.mavenUsesWrapperWhenPresent != nil {
 		return nil
 	}
@@ -369,7 +461,7 @@ func (r *JavaTests) MavenUsesWrapperWhenPresent(ctx context.Context) error { // 
 
 // RunJarPrintsOutput builds a runnable jar from the run-jar fixture inside the
 // JDK container, then runs it via Java.Run and checks its stdout.
-func (r *JavaTests) RunJarPrintsOutput(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:117:1)
+func (r *JavaTests) RunJarPrintsOutput(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:124:1)
 	if r.runJarPrintsOutput != nil {
 		return nil
 	}
@@ -379,7 +471,7 @@ func (r *JavaTests) RunJarPrintsOutput(ctx context.Context) error { // java-test
 }
 
 // ToolVersionReportsJdk asserts ToolVersion reports the pinned JDK major.
-func (r *JavaTests) ToolVersionReportsJdk(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:104:1)
+func (r *JavaTests) ToolVersionReportsJdk(ctx context.Context) error { // java-tests (../../../daggerverse/java/tests/main.go:111:1)
 	if r.toolVersionReportsJdk != nil {
 		return nil
 	}

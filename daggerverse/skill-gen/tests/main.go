@@ -2,8 +2,9 @@
 // standalone dagger function so it can be invoked individually during TDD;
 // All wires them up for parallel execution under `dagger call all`.
 //
-// Every password, cluster name, table, and database name is minted at runtime
-// via dag.Random().Sha256 — no literals enter git.
+// Every password, cluster name, and database name is minted at runtime via
+// dag.Random().Sha256 — no secret literals enter git. The schema DDL (table and
+// column names) is fixed test input, not a secret, so it stays inline below.
 package main
 
 import (

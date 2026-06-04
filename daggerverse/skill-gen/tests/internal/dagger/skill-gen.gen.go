@@ -117,13 +117,17 @@ func (r *SkillGen) UnmarshalJSON(bs []byte) error {
 type SkillGenPostgresOpts struct {
 
 	// Default: 5432
-	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:42:2)
+	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:46:2)
 }
 
 // Postgres introspects the PostgreSQL database at host:port and returns a
-// generated `pg-<db>` Claude Code skill as a *dagger.Directory. The function
-// never touches the host filesystem — the caller exports the returned tree
-// wherever they want (e.g. `export --path .claude/skills/pg-<db>`).
+// generated `pg-<db>` Claude Code skill as a *dagger.Directory. The returned
+// tree is the skill directory itself (SKILL.md at its root) with no enclosing
+// `.claude/skills/` wrapper, so it can be dropped straight into Claude Code,
+// Copilot, or any other gen-AI environment. The function never touches the
+// host filesystem — the caller exports the tree wherever they want (e.g.
+// `export --path pg-<db>` for Copilot, or `export --path .claude/skills/pg-<db>`
+// for Claude Code).
 //
 // Introspection is delegated to the postgres module's pgx-backed
 // Client.QueryJSON; only core types cross this module's boundary
@@ -132,7 +136,7 @@ type SkillGenPostgresOpts struct {
 // `name: pg-<db>` frontmatter and into filenames. Any introspection failure
 // aborts with a non-zero error and no partial output. Plaintext only (mirrors
 // the postgres module's v1); TLS lands in a follow-up.
-func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:38:1)
+func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:42:1)
 	assertNotNil("password", password)
 	q := r.query.Select("postgres")
 	for i := len(opts) - 1; i >= 0; i-- {

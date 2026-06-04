@@ -105,13 +105,13 @@ Before writing a non-trivial query, consult the relevant reference under `refere
 Schemas drift. To pull in changes, re-run the generator and export over this directory:
 
 ```bash
-dagger call skill-gen postgres --host db.internal --port 5432 --user analyst --db shop --password env:PGPASSWORD export --path pg-shop
+dagger call skill-gen postgres --host 'db.internal' --port 5432 --user 'analyst' --db 'shop' --password env:PGPASSWORD export --path pg-shop
 ```
 
 Preview drift first (a CI staleness gate) — the changeset is empty when the schema is unchanged:
 
 ```bash
-dagger call skill-gen postgres --host db.internal --port 5432 --user analyst --db shop --password env:PGPASSWORD changes --from pg-shop is-empty
+dagger call skill-gen postgres --host 'db.internal' --port 5432 --user 'analyst' --db 'shop' --password env:PGPASSWORD changes --from pg-shop is-empty
 ```
 
 Regeneration **overwrites** every file under `pg-shop/` — keep any project-specific guidance somewhere else (top-level `CLAUDE.md`, a sibling skill, etc.) so it survives regeneration.

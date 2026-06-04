@@ -79,12 +79,15 @@ if [ -n "$ENV_FILE" ]; then
 fi
 
 # Fall back to generation-time values for any key the .env didn't supply.
-: "${PGHOST:=<host>}"
-: "${PGPORT:=<port>}"
-: "${PGUSER:=<user>}"
+# Host/user/db are baked in as single-quoted literals (escaped at generation
+# time), and assigned outside a ${:=} default word, so an unusual introspected
+# value can't trigger command/parameter substitution when this script runs.
+[ -n "${PGHOST:-}" ] || PGHOST=<host>
+[ -n "${PGPORT:-}" ] || PGPORT=<port>
+[ -n "${PGUSER:-}" ] || PGUSER=<user>
 : "${PGPASSWORD:=}"
 # PGDATABASE is hardcoded — this skill is schema-specific by design.
-PGDATABASE="<dbname>"
+PGDATABASE=<dbname>
 export PGHOST PGPORT PGUSER PGPASSWORD PGDATABASE
 
 # Forward every libpq env var (PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD plus

@@ -125,6 +125,51 @@ func TestMarkdownEscaping(t *testing.T) {
 	}
 }
 
+func TestShellSingleQuote(t *testing.T) {
+	cases := map[string]string{
+		`plain`:       `'plain'`,
+		`a b`:         `'a b'`,
+		`$(whoami)`:   `'$(whoami)'`,
+		"`id`":        "'`id`'",
+		`it's`:        `'it'\''s'`,
+		`a";rm -rf /`: `'a";rm -rf /'`,
+	}
+	for in, want := range cases {
+		if got := shellSingleQuote(in); got != want {
+			t.Errorf("shellSingleQuote(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestRenderEscapesShellMetacharacters pins that host/user values carrying shell
+// metacharacters are emitted as inert single-quoted literals — never in a
+// ${:=} default word, where the shell would expand them — so the generated
+// query.sh and README regen command stay safe to run/paste.
+func TestRenderEscapesShellMetacharacters(t *testing.T) {
+	m := fixtureModel()
+	m.Host = "h$(touch /tmp/pwn)"
+	m.User = "u`id`"
+	files, err := Render(m)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	q := files[PathQuery]
+	if !strings.Contains(q, `PGHOST='h$(touch /tmp/pwn)'`) {
+		t.Errorf("query.sh did not single-quote host:\n%s", q)
+	}
+	if !strings.Contains(q, "PGUSER='u`id`'") {
+		t.Errorf("query.sh did not single-quote user:\n%s", q)
+	}
+	// The unsafe context this fix removed: a raw value inside a ${:=} default
+	// word undergoes command substitution even within double quotes.
+	if strings.Contains(q, "${PGHOST:=") || strings.Contains(q, "${PGUSER:=") {
+		t.Errorf("query.sh still assigns host/user via a ${:=} default word:\n%s", q)
+	}
+	if !strings.Contains(files[PathREADME], `--host 'h$(touch /tmp/pwn)'`) {
+		t.Errorf("README regen command did not single-quote host:\n%s", files[PathREADME])
+	}
+}
+
 func TestVerifyPositive(t *testing.T) {
 	files, err := Render(fixtureModel())
 	if err != nil {

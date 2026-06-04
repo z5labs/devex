@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type SkillGenTests
-func (r *Binding) AsSkillGenTests() *SkillGenTests { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:17:6)
+func (r *Binding) AsSkillGenTests() *SkillGenTests { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:18:6)
 	q := r.query.Select("asSkillGenTests")
 
 	return &SkillGenTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsSkillGenTests() *SkillGenTests { // skill-gen-tests (../../.
 }
 
 // Create or update a binding of type SkillGenTests in the environment
-func (r *Env) WithSkillGenTestsInput(name string, value *SkillGenTests, description string) *Env { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:17:6)
+func (r *Env) WithSkillGenTestsInput(name string, value *SkillGenTests, description string) *Env { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:18:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withSkillGenTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithSkillGenTestsInput(name string, value *SkillGenTests, descript
 }
 
 // Declare a desired SkillGenTests output to be assigned in the environment
-func (r *Env) WithSkillGenTestsOutput(name string, description string) *Env { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:17:6)
+func (r *Env) WithSkillGenTestsOutput(name string, description string) *Env { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:18:6)
 	q := r.query.Select("withSkillGenTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -46,9 +46,10 @@ func (r *Env) WithSkillGenTestsOutput(name string, description string) *Env { //
 // standalone dagger function so it can be invoked individually during TDD;
 // All wires them up for parallel execution under `dagger call all`.
 //
-// Every password, cluster name, table, and database name is minted at runtime
-// via dag.Random().Sha256 — no literals enter git.
-func (r *Query) SkillGenTests() *SkillGenTests { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:17:6)
+// Every password, cluster name, and database name is minted at runtime via
+// dag.Random().Sha256 — no secret literals enter git. The schema DDL (table and
+// column names) is fixed test input, not a secret, so it stays inline below.
+func (r *Query) SkillGenTests() *SkillGenTests { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:18:6)
 	q := r.query.Select("skillGenTests")
 
 	return &SkillGenTests{
@@ -56,7 +57,7 @@ func (r *Query) SkillGenTests() *SkillGenTests { // skill-gen-tests (../../../da
 	}
 }
 
-type SkillGenTests struct { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:17:6)
+type SkillGenTests struct { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:18:6)
 	query *querybuilder.Selection
 
 	all                               *Void
@@ -77,11 +78,11 @@ func (r *SkillGenTests) WithGraphQLQuery(q *querybuilder.Selection) *SkillGenTes
 
 // SkillGenTestsAllOpts contains options for SkillGenTests.All
 type SkillGenTestsAllOpts struct {
-	Parallel int // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:26:2)
+	Parallel int // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:27:2)
 }
 
 // All runs every skill-gen test for local `dagger call all`.
-func (r *SkillGenTests) All(ctx context.Context, opts ...SkillGenTestsAllOpts) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:23:1)
+func (r *SkillGenTests) All(ctx context.Context, opts ...SkillGenTestsAllOpts) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/main.go:24:1)
 	if r.all != nil {
 		return nil
 	}
@@ -99,7 +100,7 @@ func (r *SkillGenTests) All(ctx context.Context, opts ...SkillGenTestsAllOpts) e
 // GeneratesPgSkillFromCluster pins the happy path: the full tree is present and
 // fully substituted, the frontmatter is correct and model-invocable, and
 // enums.md exists because the schema defines an enum.
-func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:171:1)
+func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:176:1)
 	if r.generatesPgSkillFromCluster != nil {
 		return nil
 	}
@@ -160,7 +161,7 @@ func (r *SkillGenTests) UnmarshalJSON(bs []byte) error {
 // IntrospectionFailureAborts pins that an introspection failure (here, a wrong
 // password against a live cluster) aborts with a non-zero error and yields no
 // Directory.
-func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:143:1)
+func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:148:1)
 	if r.introspectionFailureAborts != nil {
 		return nil
 	}
@@ -169,8 +170,10 @@ func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { 
 	return q.Execute(ctx)
 }
 
-// PostgresShouldNotBeCached pinschange reflects the change rather than serving a stale cached Directory.
-func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:242:1)
+// PostgresShouldNotBeCached pins the non-caching contract: regenerating after a
+// schema change reflects the change rather than serving a stale cached
+// Directory.
+func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:248:1)
 	if r.postgresShouldNotBeCached != nil {
 		return nil
 	}
@@ -181,7 +184,7 @@ func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { /
 
 // RegenChangesetEmptyWhenUnchanged pins byte-stability: two generations over an
 // unchanged schema produce an empty changeset.
-func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:283:1)
+func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:289:1)
 	if r.regenChangesetEmptyWhenUnchanged != nil {
 		return nil
 	}
@@ -193,7 +196,7 @@ func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) er
 // RegenChangesetReflectsSchemaDrift pins that a schema change yields a non-empty
 // changeset: a new table modifies the references, and adding the first enum
 // adds references/enums.md as a brand-new path.
-func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:314:1)
+func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:320:1)
 	if r.regenChangesetReflectsSchemaDrift != nil {
 		return nil
 	}
@@ -205,7 +208,7 @@ func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) e
 // RejectsInvalidDbName pins that a db name violating ^[A-Za-z0-9_-]+$ is
 // rejected before any introspection (no cluster needed — validation precedes
 // the network).
-func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:121:1)
+func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:126:1)
 	if r.rejectsInvalidDbName != nil {
 		return nil
 	}

@@ -17,7 +17,12 @@ import (
 // -----------------------------------------------------------------------------
 
 // bootCluster mints a fresh single-node primary (not yet started) and the
-// password it was provisioned with.
+// password it was provisioned with. We deliberately do NOT defer Stop: the
+// runtime-random cluster name folds into Postgres.Cluster's +cache="session"
+// key, so each cluster is bound to this engine session and torn down with it.
+// This mirrors postgres/tests' own bootCluster, which documents the same
+// choice; an explicit per-test Stop would only matter for an invariant that
+// asserts restart behaviour, which none of these tests do.
 func bootCluster(ctx context.Context) (*dagger.PostgresCluster, *dagger.Secret, error) {
 	name, err := randHex(ctx)
 	if err != nil {
@@ -235,8 +240,9 @@ func (t *Tests) GeneratesPgSkillFromCluster(ctx context.Context) error {
 	return nil
 }
 
-// PostgresShouldNotBeCached pins +cache="never": regenerating after a schema
-// change reflects the change rather than serving a stale cached Directory.
+// PostgresShouldNotBeCached pins the non-caching contract: regenerating after a
+// schema change reflects the change rather than serving a stale cached
+// Directory.
 //
 // +cache="never"
 func (t *Tests) PostgresShouldNotBeCached(ctx context.Context) error {

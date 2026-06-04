@@ -91,11 +91,14 @@ func Render(m *Model) (map[string]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Host/user/db flow into a bash script and an .env example, so they are
+	// substituted as single-quoted shell literals; port is a rendered integer
+	// and needs no quoting.
 	subst := strings.NewReplacer(
-		"<host>", m.Host,
+		"<host>", shellSingleQuote(m.Host),
 		"<port>", fmt.Sprintf("%d", m.Port),
-		"<user>", m.User,
-		"<dbname>", m.DBName,
+		"<user>", shellSingleQuote(m.User),
+		"<dbname>", shellSingleQuote(m.DBName),
 	)
 
 	files := map[string]string{
@@ -136,10 +139,12 @@ func baseName(p string) string {
 // regenCommand builds a deterministic `dagger call` regeneration command with
 // the given trailing subcommand. The password is referenced as
 // env:PGPASSWORD — never the secret value — so the command is safe to commit.
+// Host/user/db are single-quoted so a value with shell metacharacters stays a
+// single, inert argument when the command is copy-pasted from the README.
 func (m *Model) regenCommand(_ string, trailer string) string {
 	return fmt.Sprintf(
 		"dagger call skill-gen postgres --host %s --port %d --user %s --db %s --password env:PGPASSWORD %s",
-		m.Host, m.Port, m.User, m.DBName, trailer,
+		shellSingleQuote(m.Host), m.Port, shellSingleQuote(m.User), shellSingleQuote(m.DBName), trailer,
 	)
 }
 
