@@ -40,10 +40,17 @@ func bootCluster(ctx context.Context) (*dagger.PostgresCluster, *dagger.Secret, 
 	return cluster, pass, nil
 }
 
-// applyDDL runs each statement on the cluster's primary, starting the service
-// on the first call so its hostname becomes session-reachable.
+// applyDDL runs each statement on the cluster's primary over a plaintext
+// client, starting the service on the first call so its hostname becomes
+// session-reachable.
 func applyDDL(ctx context.Context, cluster *dagger.PostgresCluster, stmts ...string) error {
-	client := cluster.Client(dag.Postgres().PlaintextClientSecurity())
+	return applyDDLSec(ctx, cluster, dag.Postgres().PlaintextClientSecurity(), stmts...)
+}
+
+// applyDDLSec is applyDDL over a caller-supplied ClientSecurity, so TLS / mTLS
+// clusters can be seeded with the matching transport before introspection.
+func applyDDLSec(ctx context.Context, cluster *dagger.PostgresCluster, security *dagger.PostgresClientSecurity, stmts ...string) error {
+	client := cluster.Client(security)
 	for _, s := range stmts {
 		if _, err := client.Exec(ctx, s); err != nil {
 			return fmt.Errorf("apply DDL %q: %w", s, err)
@@ -75,14 +82,27 @@ func coords(ctx context.Context, cluster *dagger.PostgresCluster) (host string, 
 	return host, port, user, db, nil
 }
 
-// genSkill generates a skill Directory for the cluster's database using the
-// given password (pass a wrong secret to exercise the auth-failure path).
+// genSkill generates a skill Directory for the cluster's database over a
+// plaintext connection using the given password (pass a wrong secret to
+// exercise the auth-failure path).
 func genSkill(ctx context.Context, cluster *dagger.PostgresCluster, pass *dagger.Secret) (*dagger.Directory, string, error) {
+	return genSkillSec(ctx, cluster, pass, nil, nil, nil)
+}
+
+// genSkillSec is genSkill with explicit TLS material. Omitting all three cert
+// args is plaintext; serverCa alone is one-way TLS; serverCa + clientCert +
+// clientKey is mTLS. The skill-gen module infers the mode from what is set.
+func genSkillSec(ctx context.Context, cluster *dagger.PostgresCluster, pass *dagger.Secret, serverCa, clientCert *dagger.File, clientKey *dagger.Secret) (*dagger.Directory, string, error) {
 	host, port, user, db, err := coords(ctx, cluster)
 	if err != nil {
 		return nil, "", err
 	}
-	dir := dag.SkillGen().Postgres(host, user, db, pass, dagger.SkillGenPostgresOpts{Port: port})
+	dir := dag.SkillGen().Postgres(host, user, db, pass, dagger.SkillGenPostgresOpts{
+		Port:       port,
+		ServerCa:   serverCa,
+		ClientCert: clientCert,
+		ClientKey:  clientKey,
+	})
 	return dir, db, nil
 }
 
@@ -185,7 +205,15 @@ func (t *Tests) GeneratesPgSkillFromCluster(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return assertPgSkillTree(ctx, dir, db)
+}
 
+// assertPgSkillTree verifies the generated skill Directory has the full,
+// fully-substituted tree (top-level files, references/, scripts/), correct
+// model-invocable frontmatter, and the FK-hub table 'authors' ranked into
+// SKILL.md. Shared by the plaintext, TLS, and mTLS happy-path tests, which
+// all generate from the same ddlFull schema.
+func assertPgSkillTree(ctx context.Context, dir *dagger.Directory, db string) error {
 	// Top-level + references entries present. Directory entries carry a
 	// trailing slash, so compare on the trimmed name.
 	top, err := dir.Entries(ctx)
@@ -373,6 +401,136 @@ func (t *Tests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error {
 	}
 	if !strings.Contains(patch, "publishers") {
 		return fmt.Errorf("patch does not mention the new 'publishers' table")
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// TLS / mTLS round-trip tests. Each mints a per-test CA + leaf certs at runtime,
+// boots a TLS-required cluster whose listener refuses plaintext, and proves
+// SkillGen.Postgres introspects it over the encrypted transport.
+// -----------------------------------------------------------------------------
+
+// GeneratesPgSkillOverTls pins that SkillGen.Postgres introspects a one-way-TLS
+// cluster (sslmode=verify-full) when handed only the server CA, producing the
+// full skill tree. The server cert's SAN must cover the dialed clusterHost.
+//
+// +cache="never"
+func (t *Tests) GeneratesPgSkillOverTls(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "skillgen-tls")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, clusterHost(name), "skillgen-tls-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().TLSServerSecurity(cert, key),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	if err := applyDDLSec(ctx, cluster, dag.Postgres().TLSClientSecurity(ca.CertPemFile()), ddlFull...); err != nil {
+		return err
+	}
+	dir, db, err := genSkillSec(ctx, cluster, pass, ca.CertPemFile(), nil, nil)
+	if err != nil {
+		return err
+	}
+	return assertPgSkillTree(ctx, dir, db)
+}
+
+// GeneratesPgSkillOverMtls pins that SkillGen.Postgres introspects a mutual-TLS
+// cluster when handed the server CA plus a client cert/key whose CN matches the
+// role (clientcert=verify-full), producing the full skill tree.
+//
+// +cache="never"
+func (t *Tests) GeneratesPgSkillOverMtls(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	// One CA both signs the server leaf and anchors the accepted client certs.
+	ca, err := freshCa(ctx, "skillgen-mtls")
+	if err != nil {
+		return err
+	}
+	serverCert, serverKey, err := issueServerCert(ctx, ca, clusterHost(name), "skillgen-mtls-server")
+	if err != nil {
+		return err
+	}
+	// CN must equal the DB role ("postgres", the Cluster default) or the
+	// primary rejects the cert with a misleading 28P01 auth failure.
+	clientCert, clientKey, err := issueClientCert(ctx, ca, "postgres", "skillgen-mtls-client")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	clientSec := dag.Postgres().MtlsClientSecurity(ca.CertPemFile(), clientCert, clientKey)
+	if err := applyDDLSec(ctx, cluster, clientSec, ddlFull...); err != nil {
+		return err
+	}
+	dir, db, err := genSkillSec(ctx, cluster, pass, ca.CertPemFile(), clientCert, clientKey)
+	if err != nil {
+		return err
+	}
+	return assertPgSkillTree(ctx, dir, db)
+}
+
+// PlaintextParamsAgainstTlsAbort pins that introspecting a TLS-required cluster
+// with no cert params (plaintext) aborts: the primary's hostssl-only pg_hba.conf
+// refuses the unencrypted connection, so generation fails and yields no
+// Directory rather than silently producing partial output.
+//
+// +cache="never"
+func (t *Tests) PlaintextParamsAgainstTlsAbort(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "skillgen-tls-neg")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, clusterHost(name), "skillgen-tls-neg-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().TLSServerSecurity(cert, key),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	// Seed over TLS so the service is up and rejects on transport, not on dial.
+	if err := applyDDLSec(ctx, cluster, dag.Postgres().TLSClientSecurity(ca.CertPemFile()), "SELECT 1"); err != nil {
+		return err
+	}
+	dir, _, err := genSkill(ctx, cluster, pass) // no cert params → plaintext
+	if err != nil {
+		return err
+	}
+	if _, err := dir.Sync(ctx); err == nil {
+		return fmt.Errorf("expected plaintext introspection of a TLS-required cluster to fail, got nil error")
 	}
 	return nil
 }

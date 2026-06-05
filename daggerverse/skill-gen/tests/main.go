@@ -38,6 +38,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("postgres-should-not-be-cached", t.PostgresShouldNotBeCached)
 	jobs = jobs.WithJob("regen-changeset-empty-when-unchanged", t.RegenChangesetEmptyWhenUnchanged)
 	jobs = jobs.WithJob("regen-changeset-reflects-schema-drift", t.RegenChangesetReflectsSchemaDrift)
+	jobs = jobs.WithJob("generates-pg-skill-over-tls", t.GeneratesPgSkillOverTls)
+	jobs = jobs.WithJob("generates-pg-skill-over-mtls", t.GeneratesPgSkillOverMtls)
+	jobs = jobs.WithJob("plaintext-params-against-tls-abort", t.PlaintextParamsAgainstTlsAbort)
 	return jobs.Run(ctx)
 }
 

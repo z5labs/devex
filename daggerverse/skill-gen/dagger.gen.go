@@ -233,7 +233,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
 				}
 			}
-			return (*SkillGen).Postgres(&parent, ctx, host, port, user, db, password)
+			var serverCa *dagger.File
+			if inputArgs["serverCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCa"]), &serverCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCa", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*SkillGen).Postgres(&parent, ctx, host, port, user, db, password, serverCa, clientCert, clientKey)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
