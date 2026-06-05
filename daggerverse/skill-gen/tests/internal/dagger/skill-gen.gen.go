@@ -117,7 +117,19 @@ func (r *SkillGen) UnmarshalJSON(bs []byte) error {
 type SkillGenPostgresOpts struct {
 
 	// Default: 5432
-	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:46:2)
+	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:57:2)
+	//
+	// serverCa pins the server's CA (sslmode=verify-full). Required for TLS/mTLS; omit for plaintext.
+	//
+	ServerCa *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:63:2)
+	//
+	// clientCert is the PEM client leaf for mTLS; its CN must equal `user`. Provide with clientKey.
+	//
+	ClientCert *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:66:2)
+	//
+	// clientKey is the PEM PKCS#8 client private key for mTLS. Provide with clientCert.
+	//
+	ClientKey *Secret // skill-gen (../../../../../daggerverse/skill-gen/main.go:69:2)
 }
 
 // Postgres introspects the PostgreSQL database at host:port and returns a
@@ -131,18 +143,41 @@ type SkillGenPostgresOpts struct {
 //
 // Introspection is delegated to the postgres module's pgx-backed
 // Client.QueryJSON; only core types cross this module's boundary
-// (*dagger.Secret in, *dagger.Directory out). `db` is validated against
-// ^[A-Za-z0-9_-]+$ before any network I/O, because it flows into the skill's
-// `name: pg-<db>` frontmatter and into filenames. Any introspection failure
-// aborts with a non-zero error and no partial output. Plaintext only (mirrors
-// the postgres module's v1); TLS lands in a follow-up.
-func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:42:1)
+// (*dagger.Secret/*dagger.File in, *dagger.Directory out). `db` is validated
+// against ^[A-Za-z0-9_-]+$ before any network I/O, because it flows into the
+// skill's `name: pg-<db>` frontmatter and into filenames. Any introspection
+// failure aborts with a non-zero error and no partial output.
+//
+// The transport security mode is inferred from the supplied cert params, so it
+// can never disagree with the material actually provided:
+//
+//   - none → plaintext (scram-sha-256 over an unencrypted TCP connection).
+//   - serverCa only → one-way TLS (sslmode=verify-full against serverCa).
+//   - serverCa + clientCert + clientKey → mTLS; the client presents its leaf
+//     to satisfy the server's clientcert=verify-full. The client cert's CN
+//     must equal `user`, or the server rejects it with a misleading 28P01.
+//
+// serverCa and clientCert are public PEM certs (*dagger.File); clientKey is the
+// PEM PKCS#8 private key kept as a *dagger.Secret end-to-end.
+func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:53:1)
 	assertNotNil("password", password)
 	q := r.query.Select("postgres")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `port` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Port) {
 			q = q.Arg("port", opts[i].Port)
+		}
+		// `serverCa` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ServerCa) {
+			q = q.Arg("serverCa", opts[i].ServerCa)
+		}
+		// `clientCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientCert) {
+			q = q.Arg("clientCert", opts[i].ClientCert)
+		}
+		// `clientKey` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientKey) {
+			q = q.Arg("clientKey", opts[i].ClientKey)
 		}
 	}
 	q = q.Arg("host", host)

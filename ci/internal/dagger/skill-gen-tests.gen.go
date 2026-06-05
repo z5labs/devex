@@ -62,8 +62,11 @@ type SkillGenTests struct { // skill-gen-tests (../../../daggerverse/skill-gen/t
 
 	all                               *Void
 	generatesPgSkillFromCluster       *Void
+	generatesPgSkillOverMtls          *Void
+	generatesPgSkillOverTls           *Void
 	id                                *ID
 	introspectionFailureAborts        *Void
+	plaintextParamsAgainstTlsAbort    *Void
 	postgresShouldNotBeCached         *Void
 	regenChangesetEmptyWhenUnchanged  *Void
 	regenChangesetReflectsSchemaDrift *Void
@@ -100,11 +103,35 @@ func (r *SkillGenTests) All(ctx context.Context, opts ...SkillGenTestsAllOpts) e
 // GeneratesPgSkillFromCluster pins the happy path: the full tree is present and
 // fully substituted, the frontmatter is correct and model-invocable, and
 // enums.md exists because the schema defines an enum.
-func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:176:1)
+func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:196:1)
 	if r.generatesPgSkillFromCluster != nil {
 		return nil
 	}
 	q := r.query.Select("generatesPgSkillFromCluster")
+
+	return q.Execute(ctx)
+}
+
+// GeneratesPgSkillOverMtls pins that SkillGen.Postgres introspects a mutual-TLS
+// cluster when handed the server CA plus a client cert/key whose CN matches the
+// role (clientcert=verify-full), producing the full skill tree.
+func (r *SkillGenTests) GeneratesPgSkillOverMtls(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:456:1)
+	if r.generatesPgSkillOverMtls != nil {
+		return nil
+	}
+	q := r.query.Select("generatesPgSkillOverMtls")
+
+	return q.Execute(ctx)
+}
+
+// GeneratesPgSkillOverTls pins that SkillGen.Postgres introspects a one-way-TLS
+// cluster (sslmode=verify-full) when handed only the server CA, producing the
+// full skill tree. The server cert's SAN must cover the dialed clusterHost.
+func (r *SkillGenTests) GeneratesPgSkillOverTLS(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:419:1)
+	if r.generatesPgSkillOverTls != nil {
+		return nil
+	}
+	q := r.query.Select("generatesPgSkillOverTls")
 
 	return q.Execute(ctx)
 }
@@ -161,7 +188,7 @@ func (r *SkillGenTests) UnmarshalJSON(bs []byte) error {
 // IntrospectionFailureAborts pins that an introspection failure (here, a wrong
 // password against a live cluster) aborts with a non-zero error and yields no
 // Directory.
-func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:148:1)
+func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:168:1)
 	if r.introspectionFailureAborts != nil {
 		return nil
 	}
@@ -170,10 +197,23 @@ func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { 
 	return q.Execute(ctx)
 }
 
+// PlaintextParamsAgainstTlsAbort pins that introspecting a TLS-required cluster
+// with no cert params (plaintext) aborts: the primary's hostssl-only pg_hba.conf
+// refuses the unencrypted connection, so generation fails and yields no
+// Directory rather than silently producing partial output.
+func (r *SkillGenTests) PlaintextParamsAgainstTLSAbort(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:502:1)
+	if r.plaintextParamsAgainstTlsAbort != nil {
+		return nil
+	}
+	q := r.query.Select("plaintextParamsAgainstTlsAbort")
+
+	return q.Execute(ctx)
+}
+
 // PostgresShouldNotBeCached pins the non-caching contract: regenerating after a
 // schema change reflects the change rather than serving a stale cached
 // Directory.
-func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:248:1)
+func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:276:1)
 	if r.postgresShouldNotBeCached != nil {
 		return nil
 	}
@@ -184,7 +224,7 @@ func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { /
 
 // RegenChangesetEmptyWhenUnchanged pins byte-stability: two generations over an
 // unchanged schema produce an empty changeset.
-func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:289:1)
+func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:317:1)
 	if r.regenChangesetEmptyWhenUnchanged != nil {
 		return nil
 	}
@@ -196,7 +236,7 @@ func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) er
 // RegenChangesetReflectsSchemaDrift pins that a schema change yields a non-empty
 // changeset: a new table modifies the references, and adding the first enum
 // adds references/enums.md as a brand-new path.
-func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:320:1)
+func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:348:1)
 	if r.regenChangesetReflectsSchemaDrift != nil {
 		return nil
 	}
@@ -208,7 +248,7 @@ func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) e
 // RejectsInvalidDbName pins that a db name violating ^[A-Za-z0-9_-]+$ is
 // rejected before any introspection (no cluster needed — validation precedes
 // the network).
-func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:126:1)
+func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:146:1)
 	if r.rejectsInvalidDbName != nil {
 		return nil
 	}

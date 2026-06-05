@@ -213,6 +213,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GeneratesPgSkillFromCluster(&parent, ctx)
+		case "GeneratesPgSkillOverMtls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeneratesPgSkillOverMtls(&parent, ctx)
+		case "GeneratesPgSkillOverTls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeneratesPgSkillOverTls(&parent, ctx)
 		case "IntrospectionFailureAborts":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -220,6 +234,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).IntrospectionFailureAborts(&parent, ctx)
+		case "PlaintextParamsAgainstTlsAbort":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlaintextParamsAgainstTlsAbort(&parent, ctx)
 		case "PostgresShouldNotBeCached":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

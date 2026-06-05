@@ -158,6 +158,21 @@ type BindingID string
 type CacheVolumeID string
 
 // A unique identifier for an object.
+type CertificateManagementCertificateAuthorityID string
+
+// A unique identifier for an object.
+type CertificateManagementID string
+
+// A unique identifier for an object.
+type CertificateManagementIssuedCertificateID string
+
+// A unique identifier for an object.
+type CertificateManagementKeyStoreID string
+
+// A unique identifier for an object.
+type CertificateManagementTrustStoreID string
+
+// A unique identifier for an object.
 type ChangesetID string
 
 // A unique identifier for an object.
@@ -174,6 +189,18 @@ type CloudID string
 
 // A unique identifier for an object.
 type ContainerID string
+
+// A unique identifier for an object.
+type CryptoEcdsaKeyID string
+
+// A unique identifier for an object.
+type CryptoEd25519KeyID string
+
+// A unique identifier for an object.
+type CryptoID string
+
+// A unique identifier for an object.
+type CryptoRsaKeyID string
 
 // A unique identifier for an object.
 type CurrentModuleID string
@@ -12780,6 +12807,56 @@ func (r *Query) LoadCacheVolumeFromID(id CacheVolumeID) *CacheVolume {
 	}
 }
 
+// Load a CertificateManagementCertificateAuthority from its ID.
+func (r *Query) LoadCertificateManagementCertificateAuthorityFromID(id CertificateManagementCertificateAuthorityID) *CertificateManagementCertificateAuthority {
+	q := r.query.Select("loadCertificateManagementCertificateAuthorityFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementCertificateAuthority{
+		query: q,
+	}
+}
+
+// Load a CertificateManagement from its ID.
+func (r *Query) LoadCertificateManagementFromID(id CertificateManagementID) *CertificateManagement {
+	q := r.query.Select("loadCertificateManagementFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagement{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementIssuedCertificate from its ID.
+func (r *Query) LoadCertificateManagementIssuedCertificateFromID(id CertificateManagementIssuedCertificateID) *CertificateManagementIssuedCertificate {
+	q := r.query.Select("loadCertificateManagementIssuedCertificateFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementIssuedCertificate{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementKeyStore from its ID.
+func (r *Query) LoadCertificateManagementKeyStoreFromID(id CertificateManagementKeyStoreID) *CertificateManagementKeyStore {
+	q := r.query.Select("loadCertificateManagementKeyStoreFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementKeyStore{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementTrustStore from its ID.
+func (r *Query) LoadCertificateManagementTrustStoreFromID(id CertificateManagementTrustStoreID) *CertificateManagementTrustStore {
+	q := r.query.Select("loadCertificateManagementTrustStoreFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementTrustStore{
+		query: q,
+	}
+}
+
 // Load a Changeset from its ID.
 func (r *Query) LoadChangesetFromID(id ChangesetID) *Changeset {
 	q := r.query.Select("loadChangesetFromID")
@@ -12836,6 +12913,46 @@ func (r *Query) LoadContainerFromID(id ContainerID) *Container {
 	q = q.Arg("id", id)
 
 	return &Container{
+		query: q,
+	}
+}
+
+// Load a CryptoEcdsaKey from its ID.
+func (r *Query) LoadCryptoEcdsaKeyFromID(id CryptoEcdsaKeyID) *CryptoEcdsaKey {
+	q := r.query.Select("loadCryptoEcdsaKeyFromID")
+	q = q.Arg("id", id)
+
+	return &CryptoEcdsaKey{
+		query: q,
+	}
+}
+
+// Load a CryptoEd25519Key from its ID.
+func (r *Query) LoadCryptoEd25519KeyFromID(id CryptoEd25519KeyID) *CryptoEd25519Key {
+	q := r.query.Select("loadCryptoEd25519KeyFromID")
+	q = q.Arg("id", id)
+
+	return &CryptoEd25519Key{
+		query: q,
+	}
+}
+
+// Load a Crypto from its ID.
+func (r *Query) LoadCryptoFromID(id CryptoID) *Crypto {
+	q := r.query.Select("loadCryptoFromID")
+	q = q.Arg("id", id)
+
+	return &Crypto{
+		query: q,
+	}
+}
+
+// Load a CryptoRsaKey from its ID.
+func (r *Query) LoadCryptoRsaKeyFromID(id CryptoRsaKeyID) *CryptoRsaKey {
+	q := r.query.Select("loadCryptoRsaKeyFromID")
+	q = q.Arg("id", id)
+
+	return &CryptoRsaKey{
 		query: q,
 	}
 }
