@@ -6,18 +6,47 @@ on [`github.com/jackc/pgx/v5`](https://github.com/jackc/pgx)) that can
 target either the local cluster or a remote PostgreSQL (e.g. AWS RDS,
 Cloud SQL).
 
-This story is **plaintext-only**: scram-sha-256 password auth over an
-unencrypted TCP listener. TLS / mTLS and primary/replica streaming
-replication land in follow-ups; the empty-struct security profile types
-are kept distinct so future constructors slot in without changing the
-`Cluster` / `Client` signatures.
+The client listener supports three security modes: plaintext
+(scram-sha-256 password auth over an unencrypted TCP listener), one-way
+TLS, and mutual TLS. Primary/replica streaming replication lands in a
+follow-up.
 
 ## Security profiles
 
+A `*ServerSecurity` configures the primary's `:5432` listener; a matching
+`*ClientSecurity` configures how a client connects. Cert material is
+caller-supplied PEM — PostgreSQL reads it natively (`ssl_cert_file` /
+`ssl_key_file` / `ssl_ca_file`) and pgx verifies against PEM roots.
+
 ```go
+// Plaintext — scram-sha-256 over an unencrypted TCP listener.
 Postgres.PlaintextServerSecurity() *ServerSecurity
 Postgres.PlaintextClientSecurity() *ClientSecurity
+
+// One-way TLS — the primary presents serverCert; clients still
+// authenticate with the password. Plaintext TCP is refused.
+Postgres.TlsServerSecurity(serverCert *dagger.File, serverKey *dagger.Secret) *ServerSecurity
+Postgres.TlsClientSecurity(serverCa *dagger.File) *ClientSecurity
+
+// Mutual TLS — clients must additionally present a cert signed by
+// clientCa (clientcert=verify-full) on top of the password.
+Postgres.MtlsServerSecurity(serverCert *dagger.File, serverKey *dagger.Secret, clientCa *dagger.File) *ServerSecurity
+Postgres.MtlsClientSecurity(serverCa *dagger.File, clientCert *dagger.File, clientKey *dagger.Secret) *ClientSecurity
 ```
+
+For TLS / mTLS, `serverCert`'s SAN must cover the hostname the client
+dials — `sslmode=verify-full` checks the SAN against that host. The
+cluster hostname is `postgres-<sha12(name)>`, derived from `name` alone
+so a caller can predict it when minting the certificate. With
+`clientcert=verify-full`, the mTLS client certificate's Common Name must
+also equal the connecting role.
+
+**Mode coupling.** `Cluster.Client(security)` validates that the client's
+mode exactly matches the cluster's listener mode and otherwise returns an
+error naming both modes (e.g. *"client uses plaintext but cluster
+listener is mTLS"*). The standalone `Postgres.Client(...)` has no cluster
+reference, so it cannot cross-validate — a mismatched standalone client
+fails at the wire instead.
 
 ## Cluster
 
@@ -46,8 +75,9 @@ Cluster.Stop(ctx) error
 ```
 
 Rejected inputs (each a descriptive error rather than a half-broken
-boot): `password == nil`, `clientListenerSecurity == nil` or a
-non-`PLAINTEXT` mode, `user == ""`, `db == ""`.
+boot): `password == nil`, `clientListenerSecurity == nil`, an incomplete
+TLS / mTLS profile (missing cert, key, or client CA), `user == ""`,
+`db == ""`.
 
 `Cluster()` is `+cache="session"` so a single test's chained
 `Client.Exec` → `Client.Scalar` calls observe the same backing service
@@ -90,5 +120,4 @@ strings, `--` line comments, `/* */` (nesting) block comments, and
 
 ## Follow-ups
 
-TLS / mTLS listeners and client connections; primary/replica streaming
-replication; connection pooling.
+Primary/replica streaming replication; connection pooling.

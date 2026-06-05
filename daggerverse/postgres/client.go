@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -32,6 +34,12 @@ type Client struct {
 	Pass *dagger.Secret
 	// +private
 	SecurityMode string
+	// +private
+	ServerCa *dagger.File // TLS + MTLS: PEM root used to verify the server.
+	// +private
+	ClientCert *dagger.File // MTLS: PEM leaf client certificate.
+	// +private
+	ClientKey *dagger.Secret // MTLS: PEM PKCS#8 client private key.
 }
 
 // Client constructs a pgx-backed PostgreSQL client targeting host:port
@@ -65,20 +73,18 @@ func clientFrom(host string, port int, user, db string, password *dagger.Secret,
 	}
 	if security != nil {
 		c.SecurityMode = security.Mode
+		c.ServerCa = security.ServerCa
+		c.ClientCert = security.ClientCert
+		c.ClientKey = security.ClientKey
 	}
 	return c
 }
 
 // dial opens one pgx connection using the client's stored credentials
 // and returns a cleanup func that closes it. Callers must defer the
-// cleanup.
+// cleanup. For TLS / MTLS clients it materialises a *tls.Config from the
+// client's PEM material first.
 func (c *Client) dial(ctx context.Context) (*pgx.Conn, func(), error) {
-	if c.SecurityMode != "PLAINTEXT" {
-		return nil, nil, fmt.Errorf(
-			"only PLAINTEXT client security is supported in this story, got %q; TLS / mTLS land in a follow-up",
-			c.SecurityMode,
-		)
-	}
 	if c.Pass == nil {
 		return nil, nil, fmt.Errorf("client has no password configured")
 	}
@@ -86,7 +92,11 @@ func (c *Client) dial(ctx context.Context) (*pgx.Conn, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("read password: %w", err)
 	}
-	conn, err := pgConnect(ctx, c.Host, c.Port, c.UserName, c.DbName, password)
+	tlsCfg, err := c.buildTLSConfig(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	conn, err := pgConnect(ctx, c.Host, c.Port, c.UserName, c.DbName, password, tlsCfg)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -94,15 +104,85 @@ func (c *Client) dial(ctx context.Context) (*pgx.Conn, func(), error) {
 	return conn, cleanup, nil
 }
 
-// pgConnect opens a single pgx connection over a plaintext TCP listener
-// (sslmode=disable). scram-sha-256 password auth happens independently
-// of transport encryption, so a plaintext listener still authenticates.
-func pgConnect(ctx context.Context, host string, port int, user, db, password string) (*pgx.Conn, error) {
+// buildTLSConfig materialises the client-side *tls.Config from the
+// client's PEM material. Returns (nil, nil) for PLAINTEXT mode (pgConnect
+// then uses sslmode=disable). For TLS / MTLS it pins the server CA in
+// RootCAs and sets ServerName to the dialed host — yielding
+// sslmode=verify-full semantics. MTLS additionally loads the client
+// leaf cert + key so the client can satisfy clientcert=verify-full.
+func (c *Client) buildTLSConfig(ctx context.Context) (*tls.Config, error) {
+	if c.SecurityMode == "PLAINTEXT" {
+		return nil, nil
+	}
+	if c.ServerCa == nil {
+		return nil, fmt.Errorf("%s client security requires a server CA", c.SecurityMode)
+	}
+	caPEM, err := c.ServerCa.Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read server CA: %w", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
+		return nil, fmt.Errorf("server CA contains no PEM certificates")
+	}
+	cfg := &tls.Config{
+		RootCAs:    pool,
+		ServerName: c.Host,
+		MinVersion: tls.VersionTLS12,
+	}
+
+	if c.SecurityMode == "MTLS" {
+		if c.ClientCert == nil || c.ClientKey == nil {
+			return nil, fmt.Errorf("MTLS client security requires both clientCert and clientKey")
+		}
+		certPEM, err := c.ClientCert.Contents(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read client cert: %w", err)
+		}
+		keyPEM, err := c.ClientKey.Plaintext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read client key: %w", err)
+		}
+		pair, err := tls.X509KeyPair([]byte(certPEM), []byte(keyPEM))
+		if err != nil {
+			return nil, fmt.Errorf("load client keypair: %w", err)
+		}
+		cfg.Certificates = []tls.Certificate{pair}
+	}
+	return cfg, nil
+}
+
+// pgConnect opens a single pgx connection. With a nil tlsCfg it dials a
+// plaintext TCP listener (sslmode=disable) — scram-sha-256 password auth
+// happens independently of transport encryption. With a tlsCfg it dials
+// over TLS by handing the config to pgconn via pgconn.Config.TLSConfig
+// and clearing the fallback chain so there is no silent downgrade to
+// plaintext.
+func pgConnect(ctx context.Context, host string, port int, user, db, password string, tlsCfg *tls.Config) (*pgx.Conn, error) {
+	if tlsCfg == nil {
+		dsn := fmt.Sprintf(
+			"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+			dsnEscape(host), port, dsnEscape(user), dsnEscape(password), dsnEscape(db),
+		)
+		conn, err := pgx.Connect(ctx, dsn)
+		if err != nil {
+			return nil, fmt.Errorf("connect %s:%d: %w", host, port, err)
+		}
+		return conn, nil
+	}
+
 	dsn := fmt.Sprintf(
-		"host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		dsnEscape(host), port, dsnEscape(user), dsnEscape(password), dsnEscape(db),
+		"host=%s port=%d user=%s dbname=%s sslmode=verify-full",
+		dsnEscape(host), port, dsnEscape(user), dsnEscape(db),
 	)
-	conn, err := pgx.Connect(ctx, dsn)
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse config %s:%d: %w", host, port, err)
+	}
+	cfg.Password = password
+	cfg.TLSConfig = tlsCfg
+	cfg.Fallbacks = nil
+	conn, err := pgx.ConnectConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("connect %s:%d: %w", host, port, err)
 	}

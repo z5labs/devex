@@ -19,7 +19,7 @@ func (r *Binding) AsPostgres() *Postgres { // postgres (../../../../../daggerver
 }
 
 // Retrieve the binding value, as type PostgresClient
-func (r *Binding) AsPostgresClient() *PostgresClient { // postgres (../../../../../daggerverse/postgres/client.go:22:6)
+func (r *Binding) AsPostgresClient() *PostgresClient { // postgres (../../../../../daggerverse/postgres/client.go:24:6)
 	q := r.query.Select("asPostgresClient")
 
 	return &PostgresClient{
@@ -28,7 +28,7 @@ func (r *Binding) AsPostgresClient() *PostgresClient { // postgres (../../../../
 }
 
 // Retrieve the binding value, as type PostgresClientSecurity
-func (r *Binding) AsPostgresClientSecurity() *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
+func (r *Binding) AsPostgresClientSecurity() *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:36:6)
 	q := r.query.Select("asPostgresClientSecurity")
 
 	return &PostgresClientSecurity{
@@ -46,7 +46,7 @@ func (r *Binding) AsPostgresCluster() *PostgresCluster { // postgres (../../../.
 }
 
 // Retrieve the binding value, as type PostgresServerSecurity
-func (r *Binding) AsPostgresServerSecurity() *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
+func (r *Binding) AsPostgresServerSecurity() *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:20:6)
 	q := r.query.Select("asPostgresServerSecurity")
 
 	return &PostgresServerSecurity{
@@ -55,7 +55,7 @@ func (r *Binding) AsPostgresServerSecurity() *PostgresServerSecurity { // postgr
 }
 
 // Create or update a binding of type PostgresClient in the environment
-func (r *Env) WithPostgresClientInput(name string, value *PostgresClient, description string) *Env { // postgres (../../../../../daggerverse/postgres/client.go:22:6)
+func (r *Env) WithPostgresClientInput(name string, value *PostgresClient, description string) *Env { // postgres (../../../../../daggerverse/postgres/client.go:24:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPostgresClientInput")
 	q = q.Arg("name", name)
@@ -68,7 +68,7 @@ func (r *Env) WithPostgresClientInput(name string, value *PostgresClient, descri
 }
 
 // Declare a desired PostgresClient output to be assigned in the environment
-func (r *Env) WithPostgresClientOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/client.go:22:6)
+func (r *Env) WithPostgresClientOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/client.go:24:6)
 	q := r.query.Select("withPostgresClientOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -79,7 +79,7 @@ func (r *Env) WithPostgresClientOutput(name string, description string) *Env { /
 }
 
 // Create or update a binding of type PostgresClientSecurity in the environment
-func (r *Env) WithPostgresClientSecurityInput(name string, value *PostgresClientSecurity, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
+func (r *Env) WithPostgresClientSecurityInput(name string, value *PostgresClientSecurity, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:36:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPostgresClientSecurityInput")
 	q = q.Arg("name", name)
@@ -92,7 +92,7 @@ func (r *Env) WithPostgresClientSecurityInput(name string, value *PostgresClient
 }
 
 // Declare a desired PostgresClientSecurity output to be assigned in the environment
-func (r *Env) WithPostgresClientSecurityOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
+func (r *Env) WithPostgresClientSecurityOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:36:6)
 	q := r.query.Select("withPostgresClientSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -151,7 +151,7 @@ func (r *Env) WithPostgresOutput(name string, description string) *Env { // post
 }
 
 // Create or update a binding of type PostgresServerSecurity in the environment
-func (r *Env) WithPostgresServerSecurityInput(name string, value *PostgresServerSecurity, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
+func (r *Env) WithPostgresServerSecurityInput(name string, value *PostgresServerSecurity, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:20:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPostgresServerSecurityInput")
 	q = q.Arg("name", name)
@@ -164,7 +164,7 @@ func (r *Env) WithPostgresServerSecurityInput(name string, value *PostgresServer
 }
 
 // Declare a desired PostgresServerSecurity output to be assigned in the environment
-func (r *Env) WithPostgresServerSecurityOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
+func (r *Env) WithPostgresServerSecurityOutput(name string, description string) *Env { // postgres (../../../../../daggerverse/postgres/security.go:20:6)
 	q := r.query.Select("withPostgresServerSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -194,7 +194,7 @@ func (r *Postgres) WithGraphQLQuery(q *querybuilder.Selection) *Postgres {
 type PostgresClientOpts struct {
 
 	// Default: 5432
-	Port int // postgres (../../../../../daggerverse/postgres/client.go:48:2)
+	Port int // postgres (../../../../../daggerverse/postgres/client.go:56:2)
 }
 
 // Client constructs a pgx-backed PostgreSQL client targeting host:port
@@ -203,7 +203,7 @@ type PostgresClientOpts struct {
 // reachable remote PostgreSQL — AWS RDS, Cloud SQL, an existing
 // self-hosted primary, anything that speaks the PostgreSQL wire
 // protocol with scram-sha-256 password auth.
-func (r *Postgres) Client(host string, user string, db string, password *Secret, security *PostgresClientSecurity, opts ...PostgresClientOpts) *PostgresClient { // postgres (../../../../../daggerverse/postgres/client.go:45:1)
+func (r *Postgres) Client(host string, user string, db string, password *Secret, security *PostgresClientSecurity, opts ...PostgresClientOpts) *PostgresClient { // postgres (../../../../../daggerverse/postgres/client.go:53:1)
 	assertNotNil("password", password)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
@@ -226,19 +226,19 @@ func (r *Postgres) Client(host string, user string, db string, password *Secret,
 
 // PostgresClusterOpts contains options for Postgres.Cluster
 type PostgresClusterOpts struct {
-	Name string // postgres (../../../../../daggerverse/postgres/cluster.go:69:2)
+	Name string // postgres (../../../../../daggerverse/postgres/cluster.go:71:2)
 
 	// Default: "docker.io"
-	Registry string // postgres (../../../../../daggerverse/postgres/cluster.go:71:2)
+	Registry string // postgres (../../../../../daggerverse/postgres/cluster.go:73:2)
 
 	// Default: "17"
-	Tag string // postgres (../../../../../daggerverse/postgres/cluster.go:73:2)
+	Tag string // postgres (../../../../../daggerverse/postgres/cluster.go:75:2)
 
 	// Default: "postgres"
-	User string // postgres (../../../../../daggerverse/postgres/cluster.go:75:2)
+	User string // postgres (../../../../../daggerverse/postgres/cluster.go:77:2)
 
 	// Default: "postgres"
-	Db string // postgres (../../../../../daggerverse/postgres/cluster.go:77:2)
+	Db string // postgres (../../../../../daggerverse/postgres/cluster.go:79:2)
 }
 
 // Cluster spins up a single-node PostgreSQL primary listening on 5432
@@ -275,7 +275,7 @@ type PostgresClusterOpts struct {
 // cache-hits, which is what a single test's chained Client.Exec →
 // Client.Scalar sequence needs. Leaving the default empty is fine for
 // ad-hoc `dagger call` use where only one cluster is in play.
-func (r *Postgres) Cluster(password *Secret, clientListenerSecurity *PostgresServerSecurity, opts ...PostgresClusterOpts) *PostgresCluster { // postgres (../../../../../daggerverse/postgres/cluster.go:66:1)
+func (r *Postgres) Cluster(password *Secret, clientListenerSecurity *PostgresServerSecurity, opts ...PostgresClusterOpts) *PostgresCluster { // postgres (../../../../../daggerverse/postgres/cluster.go:68:1)
 	assertNotNil("password", password)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("cluster")
@@ -358,9 +358,45 @@ func (r *Postgres) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MtlsClientSecurity returns a ClientSecurity profile that opens a
+// mutual-TLS connection: the server is verified against serverCa and the
+// client presents clientCert + clientKey to satisfy the primary's
+// clientcert=verify-full requirement.
+func (r *Postgres) MtlsClientSecurity(serverCa *File, clientCert *File, clientKey *Secret) *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:101:1)
+	assertNotNil("serverCa", serverCa)
+	assertNotNil("clientCert", clientCert)
+	assertNotNil("clientKey", clientKey)
+	q := r.query.Select("mtlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+	q = q.Arg("clientCert", clientCert)
+	q = q.Arg("clientKey", clientKey)
+
+	return &PostgresClientSecurity{
+		query: q,
+	}
+}
+
+// MtlsServerSecurity returns a ServerSecurity profile that terminates
+// mutual TLS. In addition to the server leaf (serverCertclientCa is mounted as ssl_ca_file and the pg_hba.conf line carries
+// `clientcert=verify-full`, so connecting clients must present a cert
+// signed by clientCa AND the correct password.
+func (r *Postgres) MtlsServerSecurity(serverCert *File, serverKey *Secret, clientCa *File) *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:72:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	assertNotNil("clientCa", clientCa)
+	q := r.query.Select("mtlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
+	q = q.Arg("clientCa", clientCa)
+
+	return &PostgresServerSecurity{
+		query: q,
+	}
+}
+
 // PlaintextClientSecurity returns a ClientSecurity profile configured
 // for scram-sha-256 password auth over an unencrypted TCP connection.
-func (r *Postgres) PlaintextClientSecurity() *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:32:1)
+func (r *Postgres) PlaintextClientSecurity() *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:83:1)
 	q := r.query.Select("plaintextClientSecurity")
 
 	return &PostgresClientSecurity{
@@ -370,8 +406,39 @@ func (r *Postgres) PlaintextClientSecurity() *PostgresClientSecurity { // postgr
 
 // PlaintextServerSecurity returns a ServerSecurity profile configured
 // for scram-sha-256 password auth over an unencrypted TCP listener.
-func (r *Postgres) PlaintextServerSecurity() *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:26:1)
+func (r *Postgres) PlaintextServerSecurity() *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:49:1)
 	q := r.query.Select("plaintextServerSecurity")
+
+	return &PostgresServerSecurity{
+		query: q,
+	}
+}
+
+// TlsClientSecurity returns a ClientSecurity profile that opens a
+// one-way TLS connection and verifies the server against serverCa
+// (sslmode=verify-full with the supplied root).
+func (r *Postgres) TLSClientSecurity(serverCa *File) *PostgresClientSecurity { // postgres (../../../../../daggerverse/postgres/security.go:90:1)
+	assertNotNil("serverCa", serverCa)
+	q := r.query.Select("tlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+
+	return &PostgresClientSecurity{
+		query: q,
+	}
+}
+
+// TlsServerSecurity returns a ServerSecurity profile that terminates
+// one-way TLS on the primary's :5432 listener. serverCert is the PEM
+// leaf certificate (its SAN must cover the cluster hostname the client
+// dials) and serverKey is the matching PEM PKCS#8 private key. The
+// primary starts with `ssl=on` and a pg_hba.conf that accepts only
+// `hostssl … scram-sha-256` — plaintext TCP is refused.
+func (r *Postgres) TLSServerSecurity(serverCert *File, serverKey *Secret) *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:59:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	q := r.query.Select("tlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
 
 	return &PostgresServerSecurity{
 		query: q,
@@ -390,7 +457,7 @@ func (r *Postgres) AsNode() Node {
 // connection so the function call is stateless from Dagger's
 // perspective; ApplyFile is the exception — it runs every statement on
 // one connection.
-type PostgresClient struct { // postgres (../../../../../daggerverse/postgres/client.go:22:6)
+type PostgresClient struct { // postgres (../../../../../daggerverse/postgres/client.go:24:6)
 	query *querybuilder.Selection
 
 	applyFile *Void
@@ -410,7 +477,7 @@ func (r *PostgresClient) WithGraphQLQuery(q *querybuilder.Selection) *PostgresCl
 // connection, in order. Statements are split on `;` outside of single-
 // and double-quoted strings, line (`--`) and block (`/* */`) comments,
 // and dollar-quoted strings (`$$ ... $$` / `$tag$ ... $tag$`).
-func (r *PostgresClient) ApplyFile(ctx context.Context, file *File) error { // postgres (../../../../../daggerverse/postgres/client.go:203:1)
+func (r *PostgresClient) ApplyFile(ctx context.Context, file *File) error { // postgres (../../../../../daggerverse/postgres/client.go:283:1)
 	assertNotNil("file", file)
 	if r.applyFile != nil {
 		return nil
@@ -423,7 +490,7 @@ func (r *PostgresClient) ApplyFile(ctx context.Context, file *File) error { // p
 
 // Exec runs a SQL statement and returns the affected-row count
 // (INSERT/UPDATE/DELETE rows, or 0 for DDL).
-func (r *PostgresClient) Exec(ctx context.Context, sql string) (int, error) { // postgres (../../../../../daggerverse/postgres/client.go:146:1)
+func (r *PostgresClient) Exec(ctx context.Context, sql string) (int, error) { // postgres (../../../../../daggerverse/postgres/client.go:226:1)
 	if r.exec != nil {
 		return *r.exec, nil
 	}
@@ -487,7 +554,7 @@ func (r *PostgresClient) UnmarshalJSON(bs []byte) error {
 
 // Ping opens a connection and verifies the server is reachable and
 // accepting authenticated queries.
-func (r *PostgresClient) Ping(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/client.go:133:1)
+func (r *PostgresClient) Ping(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/client.go:213:1)
 	if r.ping != nil {
 		return nil
 	}
@@ -499,7 +566,7 @@ func (r *PostgresClient) Ping(ctx context.Context) error { // postgres (../../..
 // QueryJSON runs a query and returns the result set as a *dagger.File
 // containing a JSON array of objects — one per row, keyed by column
 // name.
-func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../../daggerverse/postgres/client.go:228:1)
+func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../../daggerverse/postgres/client.go:308:1)
 	q := r.query.Select("queryJson")
 	q = q.Arg("sql", sql)
 
@@ -512,7 +579,7 @@ func (r *PostgresClient) QueryJSON(sql string) *File { // postgres (../../../../
 // a string. Errors if the query returns zero rows, or if that first
 // column is SQL NULL (rather than silently returning the string
 // "<nil>").
-func (r *PostgresClient) Scalar(ctx context.Context, sql string) (string, error) { // postgres (../../../../../daggerverse/postgres/client.go:165:1)
+func (r *PostgresClient) Scalar(ctx context.Context, sql string) (string, error) { // postgres (../../../../../daggerverse/postgres/client.go:245:1)
 	if r.scalar != nil {
 		return *r.scalar, nil
 	}
@@ -534,9 +601,11 @@ func (r *PostgresClient) AsNode() Node {
 }
 
 // ClientSecurity describes how a pgx client authenticates to a Postgres
-// primary. PLAINTEXT only in this story; TLS / mTLS land in a
-// follow-up.
-type PostgresClientSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:19:6)
+// primary. PLAINTEXT connects over an unencrypted TCP listener; TLS pins
+// the server CA (sslmode=verify-full); MTLS additionally presents a
+// client certificate + key. The client builds a *tls.Config from this
+// PEM material and hands it to pgx via pgconn.Config.TLSConfig.
+type PostgresClientSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:36:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -628,7 +697,7 @@ func (r *PostgresCluster) WithGraphQLQuery(q *querybuilder.Selection) *PostgresC
 // BindPrimary attaches the primary service to the given container under
 // the same hostname Endpoint reports, so the container can dial the
 // primary at `Endpoint()` (e.g. `pg_isready -h <host>`).
-func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (../../../../../daggerverse/postgres/cluster.go:190:1)
+func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (../../../../../daggerverse/postgres/cluster.go:194:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindPrimary")
 	q = q.Arg("ctr", ctr)
@@ -640,7 +709,14 @@ func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (
 
 // Client starts the primary and returns a pgx Client wired with its
 // endpoint, superuser role, default database, and password.
-func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClient { // postgres (../../../../../daggerverse/postgres/cluster.go:198:1)
+//
+// The supplied ClientSecurity mode must match the cluster's listener
+// mode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming both
+// modes rather than failing opaquely at the wire. Readiness is then
+// probed with the client itself, so a TLS / mTLS listener is polled over
+// TLS using the caller's own cert material — the only way to
+// authenticate the probe against an mTLS listener.
+func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClient { // postgres (../../../../../daggerverse/postgres/cluster.go:209:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -652,7 +728,7 @@ func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClie
 
 // Database returns the default database name the cluster was
 // provisioned with.
-func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:172:1)
+func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:176:1)
 	if r.database != nil {
 		return *r.database, nil
 	}
@@ -675,7 +751,7 @@ func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // pos
 // would register the service in the module's DNS domain, which the
 // binding's host-file lookup can't resolve from a session-domain
 // consumer — so the start must be driven by the binding, not here.
-func (r *PostgresCluster) Endpoint(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:156:1)
+func (r *PostgresCluster) Endpoint(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:160:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -739,7 +815,7 @@ func (r *PostgresCluster) UnmarshalJSON(bs []byte) error {
 // Password returns the superuser password secret the cluster was
 // provisioned with, so callers can re-use it via Postgres.Client
 // against the same endpoint.
-func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../daggerverse/postgres/cluster.go:181:1)
+func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../daggerverse/postgres/cluster.go:185:1)
 	q := r.query.Select("password")
 
 	return &Secret{
@@ -751,7 +827,7 @@ func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../dagge
 // should call this in a defer so the service span closes when the test
 // returns. SIGKILL skips graceful shutdown — Postgres' checkpoint-on-
 // shutdown path is wasted work for a torn-down test cluster.
-func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/cluster.go:211:1)
+func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/cluster.go:260:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -762,7 +838,7 @@ func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../.
 
 // User returns the superuser role name the cluster was provisioned
 // with.
-func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:164:1)
+func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:168:1)
 	if r.user != nil {
 		return *r.user, nil
 	}
@@ -783,14 +859,21 @@ func (r *PostgresCluster) AsNode() Node {
 }
 
 // ServerSecurity describes how a Postgres cluster's client-facing
-// listener authenticates and encrypts traffic. In this story only
-// PLAINTEXT is supported (scram-sha-256 password auth over an
-// unencrypted TCP listener); TLS / mTLS variants land in a follow-up.
+// listener authenticates and encrypts traffic. Three modes are
+// supported:
 //
-// The empty-but-distinct struct exists so future constructors
-// (TlsServerSecurity, MtlsServerSecurity) can land without changing
-// Cluster's signature.
-type PostgresServerSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:11:6)
+//   - PLAINTEXT — scram-sha-256 password auth over an unencrypted TCP
+//     listener.
+//   - TLS — one-way TLS: the primary presents a server certificate and
+//     clients still authenticate with scram-sha-256. Plaintext TCP is
+//     refused.
+//   - MTLS — mutual TLS: connecting clients must additionally present a
+//     certificate signed by ClientCa (clientcert=verify-full) on top of
+//     the password.
+//
+// The cert material is caller-supplied PEM: PostgreSQL reads it natively
+// via ssl_cert_file / ssl_key_file / ssl_ca_file.
+type PostgresServerSecurity struct { // postgres (../../../../../daggerverse/postgres/security.go:20:6)
 	query *querybuilder.Selection
 
 	id *ID
