@@ -95,6 +95,17 @@ func (p *Postgres) Cluster(
 	if db == "" {
 		return nil, fmt.Errorf("db must not be empty")
 	}
+	// For TLS / mTLS the hostname is derived from `name` alone (so the
+	// caller can mint a server cert whose SAN matches the dialed host).
+	// An empty `name` collapses every such cluster onto the same
+	// sha256("") hostname, colliding within one engine session and
+	// inviting the wrong cert/SAN to be reused — so require a discriminator.
+	if name == "" && clientListenerSecurity.Mode != "PLAINTEXT" {
+		return nil, fmt.Errorf(
+			"name must not be empty for %s clusters: the hostname derives from name and the server certificate's SAN must match it, so each TLS/mTLS cluster needs a unique name",
+			securityModeLabel(clientListenerSecurity.Mode),
+		)
+	}
 
 	image := fmt.Sprintf("%s/library/postgres:%s", registry, tag)
 

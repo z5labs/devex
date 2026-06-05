@@ -65,7 +65,7 @@ func (p *Postgres) TlsServerSecurity(serverCert *dagger.File, serverKey *dagger.
 }
 
 // MtlsServerSecurity returns a ServerSecurity profile that terminates
-// mutual TLS. In addition to the server leaf (serverCert + serverKey),
+// mutual TLS. In addition to the server leaf (serverCert and serverKey),
 // clientCa is mounted as ssl_ca_file and the pg_hba.conf line carries
 // `clientcert=verify-full`, so connecting clients must present a cert
 // signed by clientCa AND the correct password.

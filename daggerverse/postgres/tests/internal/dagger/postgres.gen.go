@@ -377,7 +377,8 @@ func (r *Postgres) MtlsClientSecurity(serverCa *File, clientCert *File, clientKe
 }
 
 // MtlsServerSecurity returns a ServerSecurity profile that terminates
-// mutual TLS. In addition to the server leaf (serverCertclientCa is mounted as ssl_ca_file and the pg_hba.conf line carries
+// mutual TLS. In addition to the server leaf (serverCert and serverKey),
+// clientCa is mounted as ssl_ca_file and the pg_hba.conf line carries
 // `clientcert=verify-full`, so connecting clients must present a cert
 // signed by clientCa AND the correct password.
 func (r *Postgres) MtlsServerSecurity(serverCert *File, serverKey *Secret, clientCa *File) *PostgresServerSecurity { // postgres (../../../../../daggerverse/postgres/security.go:72:1)
@@ -697,7 +698,7 @@ func (r *PostgresCluster) WithGraphQLQuery(q *querybuilder.Selection) *PostgresC
 // BindPrimary attaches the primary service to the given container under
 // the same hostname Endpoint reports, so the container can dial the
 // primary at `Endpoint()` (e.g. `pg_isready -h <host>`).
-func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (../../../../../daggerverse/postgres/cluster.go:194:1)
+func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (../../../../../daggerverse/postgres/cluster.go:205:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindPrimary")
 	q = q.Arg("ctr", ctr)
@@ -716,7 +717,7 @@ func (r *PostgresCluster) BindPrimary(ctr *Container) *Container { // postgres (
 // probed with the client itself, so a TLS / mTLS listener is polled over
 // TLS using the caller's own cert material — the only way to
 // authenticate the probe against an mTLS listener.
-func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClient { // postgres (../../../../../daggerverse/postgres/cluster.go:209:1)
+func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClient { // postgres (../../../../../daggerverse/postgres/cluster.go:220:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -728,7 +729,7 @@ func (r *PostgresCluster) Client(security *PostgresClientSecurity) *PostgresClie
 
 // Database returns the default database name the cluster was
 // provisioned with.
-func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:176:1)
+func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:187:1)
 	if r.database != nil {
 		return *r.database, nil
 	}
@@ -751,7 +752,7 @@ func (r *PostgresCluster) Database(ctx context.Context) (string, error) { // pos
 // would register the service in the module's DNS domain, which the
 // binding's host-file lookup can't resolve from a session-domain
 // consumer — so the start must be driven by the binding, not here.
-func (r *PostgresCluster) Endpoint(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:160:1)
+func (r *PostgresCluster) Endpoint(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:171:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -815,7 +816,7 @@ func (r *PostgresCluster) UnmarshalJSON(bs []byte) error {
 // Password returns the superuser password secret the cluster was
 // provisioned with, so callers can re-use it via Postgres.Client
 // against the same endpoint.
-func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../daggerverse/postgres/cluster.go:185:1)
+func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../daggerverse/postgres/cluster.go:196:1)
 	q := r.query.Select("password")
 
 	return &Secret{
@@ -827,7 +828,7 @@ func (r *PostgresCluster) Password() *Secret { // postgres (../../../../../dagge
 // should call this in a defer so the service span closes when the test
 // returns. SIGKILL skips graceful shutdown — Postgres' checkpoint-on-
 // shutdown path is wasted work for a torn-down test cluster.
-func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/cluster.go:260:1)
+func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../../../../daggerverse/postgres/cluster.go:271:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -838,7 +839,7 @@ func (r *PostgresCluster) Stop(ctx context.Context) error { // postgres (../../.
 
 // User returns the superuser role name the cluster was provisioned
 // with.
-func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:168:1)
+func (r *PostgresCluster) User(ctx context.Context) (string, error) { // postgres (../../../../../daggerverse/postgres/cluster.go:179:1)
 	if r.user != nil {
 		return *r.user, nil
 	}

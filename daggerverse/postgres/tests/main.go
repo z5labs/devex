@@ -130,6 +130,7 @@ func (t *Tests) Security(
 	jobs = jobs.WithJob("cluster-mtls-round-trip-from-client", t.ClusterMtlsRoundTripFromClient)
 	jobs = jobs.WithJob("tls-cluster-rejects-plaintext-client", t.TlsClusterRejectsPlaintextClient)
 	jobs = jobs.WithJob("mtls-cluster-rejects-tls-only-client", t.MtlsClusterRejectsTlsOnlyClient)
+	jobs = jobs.WithJob("tls-cluster-rejects-empty-name", t.TlsClusterRejectsEmptyName)
 	jobs = jobs.WithJob("bind-primary-resolves-from-user-container-tls", t.BindPrimaryResolvesFromUserContainerTls)
 	return jobs.Run(ctx)
 }
@@ -913,6 +914,42 @@ func (t *Tests) TlsClusterRejectsPlaintextClient(ctx context.Context) error {
 	msg := err.Error()
 	if !strings.Contains(msg, "plaintext") || !strings.Contains(msg, "TLS") {
 		return fmt.Errorf("expected mode-mismatch error naming both modes, got: %v", err)
+	}
+	return nil
+}
+
+// TlsClusterRejectsEmptyName verifies a TLS cluster rejects an empty
+// `name`. The cluster hostname — and therefore the SAN the server cert
+// must carry — derives from `name` alone, so an empty name would
+// collapse every TLS/mTLS cluster onto the same sha256("") host and
+// invite cert/SAN reuse. The guard fires in the constructor, before any
+// service starts, so a placeholder SAN on the cert is fine here.
+//
+// +cache="never"
+func (t *Tests) TlsClusterRejectsEmptyName(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-tls-emptyname")
+	if err != nil {
+		return err
+	}
+	// SAN value is irrelevant: the empty-name guard rejects before any
+	// dial or TLS handshake.
+	cert, key, err := issueServerCert(ctx, ca, "postgres-placeholder", "pg-tls-emptyname-server")
+	if err != nil {
+		return err
+	}
+	// No Name opt → defaults to "".
+	cluster := dag.Postgres().Cluster(pass, dag.Postgres().TLSServerSecurity(cert, key))
+	_, err = cluster.Endpoint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected TLS cluster with empty name to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "name") || !strings.Contains(msg, "TLS") {
+		return fmt.Errorf("expected empty-name rejection naming TLS, got: %v", err)
 	}
 	return nil
 }
