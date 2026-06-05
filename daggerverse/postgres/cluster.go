@@ -25,6 +25,8 @@ type Cluster struct {
 	DbName string
 	// +private
 	Pass *dagger.Secret
+	// +private
+	ClientListenerMode string // PLAINTEXT | TLS | MTLS — drives Client coupling validation.
 }
 
 // Cluster spins up a single-node PostgreSQL primary listening on 5432
@@ -84,11 +86,8 @@ func (p *Postgres) Cluster(
 	if clientListenerSecurity == nil {
 		return nil, fmt.Errorf("clientListenerSecurity must not be nil; pass PlaintextServerSecurity() explicitly")
 	}
-	if clientListenerSecurity.Mode != "PLAINTEXT" {
-		return nil, fmt.Errorf(
-			"only PLAINTEXT clientListenerSecurity is supported in this story, got %q",
-			clientListenerSecurity.Mode,
-		)
+	if err := validateServerSecurity(clientListenerSecurity); err != nil {
+		return nil, err
 	}
 	if user == "" {
 		return nil, fmt.Errorf("user must not be empty")
@@ -96,47 +95,63 @@ func (p *Postgres) Cluster(
 	if db == "" {
 		return nil, fmt.Errorf("db must not be empty")
 	}
+	// For TLS / mTLS the hostname is derived from `name` alone (so the
+	// caller can mint a server cert whose SAN matches the dialed host).
+	// An empty `name` collapses every such cluster onto the same
+	// sha256("") hostname, colliding within one engine session and
+	// inviting the wrong cert/SAN to be reused — so require a discriminator.
+	if name == "" && clientListenerSecurity.Mode != "PLAINTEXT" {
+		return nil, fmt.Errorf(
+			"name must not be empty for %s clusters: the hostname derives from name and the server certificate's SAN must match it, so each TLS/mTLS cluster needs a unique name",
+			securityModeLabel(clientListenerSecurity.Mode),
+		)
+	}
 
 	image := fmt.Sprintf("%s/library/postgres:%s", registry, tag)
 
 	// Stable hostname is scoped per-cluster so parallel invocations don't
-	// collide on a single `postgres` alias. The suffix is a deterministic
-	// hash over every argument that distinguishes one session-cache entry
-	// from another — including the password secret's ID and the listener
-	// security mode, not just name/registry/tag/user/db — so two distinct
-	// cache entries can never share a hostname within one engine session,
-	// while identical-arg calls reuse the cached entry (and this value)
-	// without re-running this path.
-	passID, err := password.ID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("resolve password secret id: %w", err)
-	}
-	keyBytes := sha256.Sum256(fmt.Appendf(nil, "%s|%s|%s|%s|%s|%s|%s",
-		name, registry, tag, user, db, clientListenerSecurity.Mode, passID,
-	))
+	// collide on a single `postgres` alias. It is derived from `name`
+	// alone so a caller minting a TLS server certificate can predict the
+	// hostname and embed it as the cert's SAN (sslmode=verify-full checks
+	// the SAN against the dialed host). This mirrors the kafka module,
+	// whose broker hostnames derive purely from the caller-supplied
+	// clusterId. `name` does not need to feed the +cache="session" key —
+	// Dagger derives that from the full argument set independently — so
+	// dropping registry/tag/user/db/mode/passwordID from the hostname
+	// hash is safe as long as callers pass a unique `name` per cluster
+	// (already the documented expectation, and what every test does).
+	keyBytes := sha256.Sum256([]byte(name))
 	host := "postgres-" + hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
 
-	svc := dag.Container().
+	ctr := dag.Container().
 		From(image).
 		WithSecretVariable("POSTGRES_PASSWORD", password).
 		WithEnvVariable("POSTGRES_USER", user).
 		WithEnvVariable("POSTGRES_DB", db).
-		WithExposedPort(5432).
-		// The postgres image bootstraps the data directory, superuser,
-		// and default database in its docker-entrypoint.sh, then execs
-		// the `postgres` server. UseEntrypoint runs that script (without
-		// it Dagger would launch `postgres` raw, skipping initdb). When
-		// POSTGRES_PASSWORD is set the image defaults host auth to
-		// scram-sha-256, which is exactly this story's security mode.
-		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}).
+		WithExposedPort(5432)
+
+	// Render the TLS cert mounts and the postgres startup args matching
+	// the listener mode. PLAINTEXT leaves the image defaults untouched
+	// (scram-sha-256 over a plaintext TCP listener); TLS / MTLS mount the
+	// caller-supplied PEM material and a custom pg_hba.conf.
+	ctr, args := applyServerSecurity(ctr, clientListenerSecurity)
+
+	// The postgres image bootstraps the data directory, superuser, and
+	// default database in its docker-entrypoint.sh, then execs the
+	// `postgres` server. UseEntrypoint runs that script (without it Dagger
+	// would launch `postgres` raw, skipping initdb). When POSTGRES_PASSWORD
+	// is set the image defaults host auth to scram-sha-256.
+	svc := ctr.
+		AsService(dagger.ContainerAsServiceOpts{Args: args, UseEntrypoint: true}).
 		WithHostname(host)
 
 	return &Cluster{
-		Svc:      svc,
-		Host:     host,
-		UserName: user,
-		DbName:   db,
-		Pass:     password,
+		Svc:                svc,
+		Host:               host,
+		UserName:           user,
+		DbName:             db,
+		Pass:               password,
+		ClientListenerMode: clientListenerSecurity.Mode,
 	}, nil
 }
 
@@ -194,12 +209,57 @@ func (c *Cluster) BindPrimary(ctr *dagger.Container) *dagger.Container {
 // Client starts the primary and returns a pgx Client wired with its
 // endpoint, superuser role, default database, and password.
 //
+// The supplied ClientSecurity mode must match the cluster's listener
+// mode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming both
+// modes rather than failing opaquely at the wire. Readiness is then
+// probed with the client itself, so a TLS / mTLS listener is polled over
+// TLS using the caller's own cert material — the only way to
+// authenticate the probe against an mTLS listener.
+//
 // +cache="never"
 func (c *Cluster) Client(ctx context.Context, security *ClientSecurity) (*Client, error) {
-	if err := c.start(ctx); err != nil {
+	if err := c.requireMode(security); err != nil {
 		return nil, err
 	}
-	return clientFrom(c.Host, 5432, c.UserName, c.DbName, c.Pass, security), nil
+	client := clientFrom(c.Host, 5432, c.UserName, c.DbName, c.Pass, security)
+	if err := c.start(ctx, client); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// requireMode validates that the client's security mode exactly matches
+// the cluster's client-facing listener mode. Postgres.Client (the
+// standalone constructor) has no cluster reference and therefore cannot
+// perform this check — callers reaching a listener via a mismatched
+// standalone client fail at the wire instead.
+func (c *Cluster) requireMode(security *ClientSecurity) error {
+	clientMode := "PLAINTEXT"
+	if security != nil {
+		clientMode = security.Mode
+	}
+	if clientMode != c.ClientListenerMode {
+		return fmt.Errorf(
+			"client uses %s but cluster listener is %s",
+			securityModeLabel(clientMode), securityModeLabel(c.ClientListenerMode),
+		)
+	}
+	return nil
+}
+
+// securityModeLabel renders a mode constant as the spelling used in
+// user-facing error messages.
+func securityModeLabel(mode string) string {
+	switch mode {
+	case "PLAINTEXT":
+		return "plaintext"
+	case "TLS":
+		return "TLS"
+	case "MTLS":
+		return "mTLS"
+	default:
+		return mode
+	}
 }
 
 // Stop tears down the service container backing this cluster. Tests
@@ -219,24 +279,24 @@ func (c *Cluster) Stop(ctx context.Context) error {
 }
 
 // start explicitly Starts the primary service so its WithHostname alias
-// becomes session-reachable from the postgres module runtime, then
-// polls a real pgx connection until the server accepts queries.
+// becomes session-reachable from the postgres module runtime, then polls
+// the supplied probe Client until the server accepts authenticated
+// queries. Probing through the Client means the dial honours the
+// listener's security mode (plaintext / TLS / mTLS) using the caller's
+// own cert material.
 //
 // The postgres entrypoint listens on 5432 only after initdb completes
 // and it has restarted into normal operation, so an early dial returns
-// "connection refused" or "the database system is starting up"; the
-// retry loop absorbs both. This is the pure-Go analogue of dgraph's
-// HTTP /health poll — no helper container in the module runtime.
-func (c *Cluster) start(ctx context.Context) error {
+// "connection refused" or "the database system is starting up" (and, on
+// a TLS listener, a transient handshake error); the retry loop absorbs
+// all of them. This is the pure-Go analogue of dgraph's HTTP /health
+// poll — no helper container in the module runtime.
+func (c *Cluster) start(ctx context.Context, probe *Client) error {
 	if c.Svc == nil {
 		return fmt.Errorf("cluster has no backing service")
 	}
 	if _, err := c.Svc.Start(ctx); err != nil {
 		return fmt.Errorf("start postgres: %w", err)
-	}
-	password, err := c.Pass.Plaintext(ctx)
-	if err != nil {
-		return fmt.Errorf("read password: %w", err)
 	}
 
 	deadline := time.Now().Add(120 * time.Second)
@@ -246,19 +306,12 @@ func (c *Cluster) start(ctx context.Context) error {
 			return err
 		}
 		attemptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		conn, err := pgConnect(attemptCtx, c.Host, 5432, c.UserName, c.DbName, password)
+		err := probe.Ping(attemptCtx)
+		cancel()
 		if err == nil {
-			pingErr := conn.Ping(attemptCtx)
-			_ = conn.Close(attemptCtx)
-			cancel()
-			if pingErr == nil {
-				return nil
-			}
-			lastErr = pingErr
-		} else {
-			cancel()
-			lastErr = err
+			return nil
 		}
+		lastErr = err
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

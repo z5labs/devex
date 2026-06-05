@@ -10,9 +10,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	par "github.com/dagger/dagger/util/parallel"
 
@@ -44,6 +47,9 @@ func (t *Tests) All(
 	})
 	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
 		return t.Cluster(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Security", func(ctx context.Context) error {
+		return t.Security(ctx, parallel)
 	})
 	return jobs.Run(ctx)
 }
@@ -98,6 +104,34 @@ func (t *Tests) Cluster(
 	jobs = jobs.WithJob("exec-scalar-round-trip", t.ExecScalarRoundTrip)
 	jobs = jobs.WithJob("apply-file-round-trip", t.ApplyFileRoundTrip)
 	jobs = jobs.WithJob("query-json-returns-row-objects", t.QueryJSONReturnsRowObjects)
+	return jobs.Run(ctx)
+}
+
+// Security runs the TLS / mTLS listener + client tests. Each test mints
+// its own CA, leaf certs, password, and cluster name at runtime (no
+// literal credentials or PEM blobs), and folds a unique name into the
+// cluster's session-cache key, so the tests fan out without sharing
+// state.
+//
+// +check
+// +cache="session"
+func (t *Tests) Security(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("cluster-tls-round-trip-from-client", t.ClusterTlsRoundTripFromClient)
+	jobs = jobs.WithJob("cluster-mtls-round-trip-from-client", t.ClusterMtlsRoundTripFromClient)
+	jobs = jobs.WithJob("tls-cluster-rejects-plaintext-client", t.TlsClusterRejectsPlaintextClient)
+	jobs = jobs.WithJob("mtls-cluster-rejects-tls-only-client", t.MtlsClusterRejectsTlsOnlyClient)
+	jobs = jobs.WithJob("tls-cluster-rejects-empty-name", t.TlsClusterRejectsEmptyName)
+	jobs = jobs.WithJob("bind-primary-resolves-from-user-container-tls", t.BindPrimaryResolvesFromUserContainerTls)
 	return jobs.Run(ctx)
 }
 
@@ -166,6 +200,126 @@ func bootCluster(ctx context.Context) (*dagger.PostgresCluster, *dagger.Secret, 
 func hostOf(endpoint string) string {
 	host, _, _ := strings.Cut(endpoint, ":")
 	return host
+}
+
+// clusterHost reproduces Postgres.Cluster's hostname derivation
+// (`postgres-` + the first 12 hex chars of sha256(name)). Tests need it
+// to mint a server certificate whose SAN matches the hostname clients
+// dial — sslmode=verify-full checks the SAN against the dialed host, and
+// the psql test cannot override ServerName.
+func clusterHost(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return "postgres-" + hex.EncodeToString(sum[:6])
+}
+
+// randNamedSecret mints a uniquely-named *dagger.Secret holding fresh
+// random bytes. Used for the throwaway PKCS#12 passwords the
+// certificate-management leaf issuers require (we consume the PEM cert /
+// key directly, never the PKCS#12 archive, so the value is irrelevant).
+func randNamedSecret(ctx context.Context, label string) (*dagger.Secret, error) {
+	h, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 32})
+	if err != nil {
+		return nil, err
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.SetSecret(label+"-"+suffix, h), nil
+}
+
+// freshCa mints a fresh per-test root CA via the certificate-management
+// module from a runtime-random RSA key, password, and serial.
+func freshCa(ctx context.Context, label string) (*dagger.CertificateManagementCertificateAuthority, error) {
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca key: %w", label, err)
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := dag.SetSecret(label+"-ca-key-"+suffix, keyPem)
+	pwd, err := randNamedSecret(ctx, label+"-ca-pwd")
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca password: %w", label, err)
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	return dag.CertificateManagement().CreateCertificateAuthority(nb, serial, pwd, key,
+		dagger.CertificateManagementCreateCertificateAuthorityOpts{
+			CommonName:   "pg test ca " + label,
+			ValidityDays: 30,
+		}), nil
+}
+
+// leafKey mints a fresh RSA private key for a leaf certificate, wrapped
+// in a uniquely-named *dagger.Secret (PEM PKCS#8, as the issuer expects).
+func leafKey(ctx context.Context, label string) (*dagger.Secret, error) {
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s leaf key: %w", label, err)
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.SetSecret(label+"-leaf-key-"+suffix, keyPem), nil
+}
+
+// issueServerCert signs a server leaf certificate carrying host (and
+// localhost / 127.0.0.1) as SANs, returning the PEM cert file and PEM
+// key secret to hand to TlsServerSecurity / MtlsServerSecurity.
+func issueServerCert(ctx context.Context, ca *dagger.CertificateManagementCertificateAuthority, host, label string) (*dagger.File, *dagger.Secret, error) {
+	key, err := leafKey(ctx, label)
+	if err != nil {
+		return nil, nil, err
+	}
+	pwd, err := randNamedSecret(ctx, label+"-leaf-pwd")
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	issued := ca.IssueServerCertificate(host, nb, serial, pwd, key,
+		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
+			DNSSans:      []string{host, "localhost"},
+			IPSans:       []string{"127.0.0.1"},
+			ValidityDays: 30,
+		})
+	return issued.CertPemFile(), issued.PrivateKeyPem(), nil
+}
+
+// issueClientCert signs a client leaf certificate, returning the PEM
+// cert file and PEM key secret to hand to MtlsClientSecurity. The
+// certificate's Common Name is set to user because the primary's
+// pg_hba.conf uses clientcert=verify-full, which additionally requires
+// the client cert CN to match the PostgreSQL role being authenticated.
+func issueClientCert(ctx context.Context, ca *dagger.CertificateManagementCertificateAuthority, user, label string) (*dagger.File, *dagger.Secret, error) {
+	key, err := leafKey(ctx, label)
+	if err != nil {
+		return nil, nil, err
+	}
+	pwd, err := randNamedSecret(ctx, label+"-leaf-pwd")
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	issued := ca.IssueClientCertificate(user, nb, serial, pwd, key,
+		dagger.CertificateManagementCertificateAuthorityIssueClientCertificateOpts{
+			ValidityDays: 30,
+		})
+	return issued.CertPemFile(), issued.PrivateKeyPem(), nil
 }
 
 // -----------------------------------------------------------------------------
@@ -611,6 +765,320 @@ func (t *Tests) QueryJSONReturnsRowObjects(ctx context.Context) error {
 	}
 	if label, _ := rows[0]["label"].(string); label != "lucky" {
 		return fmt.Errorf("expected label 'lucky', got %q (%q)", label, contents)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Security tests — TLS / mTLS listeners and clients. CA + leaf certs,
+// passwords, and cluster names are all minted at runtime.
+// -----------------------------------------------------------------------------
+
+// ClusterTlsRoundTripFromClient boots a one-way-TLS primary and proves a
+// matching TLS client can Exec + Scalar against it over the encrypted
+// listener.
+//
+// +cache="never"
+func (t *Tests) ClusterTlsRoundTripFromClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-tls")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, clusterHost(name), "pg-tls-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().TLSServerSecurity(cert, key),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	clientSec := dag.Postgres().TLSClientSecurity(ca.CertPemFile())
+
+	table, err := randIdent(ctx, "t_")
+	if err != nil {
+		return err
+	}
+	writer := cluster.Client(clientSec)
+	if _, err := writer.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id int)", table)); err != nil {
+		return fmt.Errorf("create table over TLS: %w", err)
+	}
+	if _, err := writer.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id) VALUES (1), (2), (3)", table)); err != nil {
+		return fmt.Errorf("insert over TLS: %w", err)
+	}
+	count, err := cluster.Client(clientSec).Scalar(ctx, fmt.Sprintf("SELECT count(*) FROM %s", table))
+	if err != nil {
+		return fmt.Errorf("scalar over TLS: %w", err)
+	}
+	if count != "3" {
+		return fmt.Errorf("expected count 3 over TLS round trip, got %q", count)
+	}
+	return nil
+}
+
+// ClusterMtlsRoundTripFromClient boots a mutual-TLS primary and proves a
+// matching mTLS client (presenting a client cert signed by the trusted
+// CA) can round-trip Exec + Scalar.
+//
+// +cache="never"
+func (t *Tests) ClusterMtlsRoundTripFromClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	// One CA both signs the server leaf and anchors the accepted client
+	// certs — the simplest symmetric mTLS trust setup.
+	ca, err := freshCa(ctx, "pg-mtls")
+	if err != nil {
+		return err
+	}
+	serverCert, serverKey, err := issueServerCert(ctx, ca, clusterHost(name), "pg-mtls-server")
+	if err != nil {
+		return err
+	}
+	clientCert, clientKey, err := issueClientCert(ctx, ca, "postgres", "pg-mtls-client")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	clientSec := dag.Postgres().MtlsClientSecurity(ca.CertPemFile(), clientCert, clientKey)
+
+	table, err := randIdent(ctx, "t_")
+	if err != nil {
+		return err
+	}
+	writer := cluster.Client(clientSec)
+	if _, err := writer.Exec(ctx, fmt.Sprintf("CREATE TABLE %s (id int)", table)); err != nil {
+		return fmt.Errorf("create table over mTLS: %w", err)
+	}
+	if _, err := writer.Exec(ctx, fmt.Sprintf("INSERT INTO %s (id) VALUES (1), (2)", table)); err != nil {
+		return fmt.Errorf("insert over mTLS: %w", err)
+	}
+	count, err := cluster.Client(clientSec).Scalar(ctx, fmt.Sprintf("SELECT count(*) FROM %s", table))
+	if err != nil {
+		return fmt.Errorf("scalar over mTLS: %w", err)
+	}
+	if count != "2" {
+		return fmt.Errorf("expected count 2 over mTLS round trip, got %q", count)
+	}
+	return nil
+}
+
+// TlsClusterRejectsPlaintextClient verifies the mode-coupling check:
+// asking a TLS cluster for a plaintext client returns an error naming
+// both modes, before any wire activity.
+//
+// +cache="never"
+func (t *Tests) TlsClusterRejectsPlaintextClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-tls-reject")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, clusterHost(name), "pg-tls-reject-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().TLSServerSecurity(cert, key),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	err = cluster.Client(dag.Postgres().PlaintextClientSecurity()).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected plaintext client against TLS cluster to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "plaintext") || !strings.Contains(msg, "TLS") {
+		return fmt.Errorf("expected mode-mismatch error naming both modes, got: %v", err)
+	}
+	return nil
+}
+
+// TlsClusterRejectsEmptyName verifies a TLS cluster rejects an empty
+// `name`. The cluster hostname — and therefore the SAN the server cert
+// must carry — derives from `name` alone, so an empty name would
+// collapse every TLS/mTLS cluster onto the same sha256("") host and
+// invite cert/SAN reuse. The guard fires in the constructor, before any
+// service starts, so a placeholder SAN on the cert is fine here.
+//
+// +cache="never"
+func (t *Tests) TlsClusterRejectsEmptyName(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-tls-emptyname")
+	if err != nil {
+		return err
+	}
+	// SAN value is irrelevant: the empty-name guard rejects before any
+	// dial or TLS handshake.
+	cert, key, err := issueServerCert(ctx, ca, "postgres-placeholder", "pg-tls-emptyname-server")
+	if err != nil {
+		return err
+	}
+	// No Name opt → defaults to "".
+	cluster := dag.Postgres().Cluster(pass, dag.Postgres().TLSServerSecurity(cert, key))
+	_, err = cluster.Endpoint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected TLS cluster with empty name to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "name") || !strings.Contains(msg, "TLS") {
+		return fmt.Errorf("expected empty-name rejection naming TLS, got: %v", err)
+	}
+	return nil
+}
+
+// MtlsClusterRejectsTlsOnlyClient boots an mTLS primary (started via a
+// valid mTLS client so the service is ready), then dials it with a
+// TLS-only standalone client that presents no client certificate. The
+// standalone Postgres.Client has no cluster reference, so it bypasses the
+// coupling check and reaches the wire, where the listener's
+// clientcert=verify-full rejects it with a TLS/cert error.
+//
+// +cache="never"
+func (t *Tests) MtlsClusterRejectsTlsOnlyClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-mtls-reject")
+	if err != nil {
+		return err
+	}
+	serverCert, serverKey, err := issueServerCert(ctx, ca, clusterHost(name), "pg-mtls-reject-server")
+	if err != nil {
+		return err
+	}
+	clientCert, clientKey, err := issueClientCert(ctx, ca, "postgres", "pg-mtls-reject-client")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+	// Start + ready the primary using a valid mTLS client.
+	mtlsSec := dag.Postgres().MtlsClientSecurity(ca.CertPemFile(), clientCert, clientKey)
+	if err := cluster.Client(mtlsSec).Ping(ctx); err != nil {
+		return fmt.Errorf("expected valid mTLS client to connect: %w", err)
+	}
+
+	ep, err := cluster.Endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoint: %w", err)
+	}
+	user, err := cluster.User(ctx)
+	if err != nil {
+		return err
+	}
+	db, err := cluster.Database(ctx)
+	if err != nil {
+		return err
+	}
+	// TLS-only: trusts the server CA but presents no client cert.
+	tlsOnly := dag.Postgres().TLSClientSecurity(ca.CertPemFile())
+	err = dag.Postgres().Client(hostOf(ep), user, db, pass, tlsOnly).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected TLS-only client to be rejected by the mTLS listener")
+	}
+	low := strings.ToLower(err.Error())
+	if !strings.Contains(low, "certificate") &&
+		!strings.Contains(low, "tls") &&
+		!strings.Contains(low, "ssl") {
+		return fmt.Errorf("expected a TLS/certificate error, got: %v", err)
+	}
+	return nil
+}
+
+// BindPrimaryResolvesFromUserContainerTls binds a TLS primary into an
+// alpine container running psql: a verify-full connection with the right
+// CA succeeds, and the same connection without sslrootcert fails (it
+// cannot verify the server).
+//
+// +cache="never"
+func (t *Tests) BindPrimaryResolvesFromUserContainerTls(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "pg-tls-bind")
+	if err != nil {
+		return err
+	}
+	host := clusterHost(name)
+	cert, key, err := issueServerCert(ctx, ca, host, "pg-tls-bind-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Postgres().Cluster(
+		pass,
+		dag.Postgres().TLSServerSecurity(cert, key),
+		dagger.PostgresClusterOpts{Name: name},
+	)
+
+	base := cluster.BindPrimary(dag.Container().From("alpine:3")).
+		WithExec([]string{"apk", "add", "--no-cache", "postgresql-client"}).
+		WithFile("/tmp/ca.crt", ca.CertPemFile()).
+		WithSecretVariable("PGPASSWORD", pass)
+
+	// verify-full WITH the CA succeeds (retried: the primary flaps its
+	// listener once during initdb before settling).
+	okCmd := fmt.Sprintf(
+		"for i in $(seq 1 30); do "+
+			"psql 'host=%s port=5432 user=postgres dbname=postgres sslmode=verify-full sslrootcert=/tmp/ca.crt' -tAc 'SELECT 1' && exit 0; "+
+			"sleep 1; done; echo TIMEOUT; exit 1",
+		host,
+	)
+	out, err := base.WithExec([]string{"sh", "-c", okCmd}).Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("verify-full psql with sslrootcert should succeed: %w", err)
+	}
+	if !strings.Contains(out, "1") {
+		return fmt.Errorf("expected psql to return 1, got %q", out)
+	}
+
+	// verify-full WITHOUT the CA fails: it cannot verify the server cert.
+	failCmd := fmt.Sprintf(
+		"psql 'host=%s port=5432 user=postgres dbname=postgres sslmode=verify-full' -tAc 'SELECT 1'",
+		host,
+	)
+	if _, err := base.WithExec([]string{"sh", "-c", failCmd}).Sync(ctx); err == nil {
+		return fmt.Errorf("expected verify-full without sslrootcert to fail, but it succeeded")
 	}
 	return nil
 }
