@@ -42,6 +42,10 @@
       "source": "daggerverse/kafka/tests"
     },
     {
+      "name": "kubernetes-tests",
+      "source": "daggerverse/kubernetes/tests"
+    },
+    {
       "name": "otel-tests",
       "source": "daggerverse/otel/tests"
     },

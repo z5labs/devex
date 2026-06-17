@@ -1,0 +1,20 @@
+{
+  "name": "tests",
+  "engineVersion": "v0.20.8",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "kubernetes",
+      "source": ".."
+    },
+    {
+      "name": "random",
+      "source": "../../random"
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
