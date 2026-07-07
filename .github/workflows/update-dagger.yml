@@ -61,7 +61,19 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Verify CLI version
-        run: dagger version
+        # Assert PATH resolves to the binary we just installed AND that it reports
+        # the exact target -- a stray dagger earlier in PATH (or a bad install)
+        # would otherwise silently regenerate the tree with the wrong engine.
+        env:
+          BARE: ${{ steps.resolve.outputs.bare }}
+        run: |
+          set -euo pipefail
+          RESOLVED="$(command -v dagger)"
+          [ "$RESOLVED" = "$HOME/.local/bin/dagger" ] \
+            || { echo "dagger resolves to '$RESOLVED', not the freshly installed binary" >&2; exit 1; }
+          GOT="$(dagger version | awk '{print $2}')"   # e.g. v0.21.7
+          [ "$GOT" = "v${BARE}" ] \
+            || { echo "dagger version is '$GOT', expected 'v${BARE}'" >&2; exit 1; }
 
       - name: Regenerate every module (leaf -> tests -> root)
         # tests/ load their parent module and root ci generates its
@@ -91,6 +103,11 @@ jobs:
           set -euo pipefail
           sed -i -E "s/(DAGGER_VERSION:[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")/\1${BARE}\2/" \
             .github/workflows/ci.yml
+          # Fail fast if the pin didn't actually land on the target -- a drifted
+          # env-line format makes the sed a silent no-op, which would otherwise
+          # open a PR carrying a stale ci.yml pin.
+          grep -Eq "DAGGER_VERSION:[[:space:]]*\"${BARE//./\\.}\"" .github/workflows/ci.yml \
+            || { echo "ci.yml DAGGER_VERSION pin was not updated to ${BARE}" >&2; exit 1; }
 
       - name: Open upgrade PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
