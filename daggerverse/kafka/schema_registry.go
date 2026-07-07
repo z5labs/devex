@@ -714,7 +714,11 @@ func (c *SchemaRegistryClient) do(ctx context.Context, method, path string, reqB
 	}
 	httpClient := http.DefaultClient
 	if cfg != nil {
-		httpClient = &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}}
+		// Clone DefaultTransport so we keep its proxy handling, dial/keepalive
+		// timeouts, and HTTP/2 settings, overriding only the TLS config.
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = cfg
+		httpClient = &http.Client{Transport: transport}
 	}
 
 	var body []byte

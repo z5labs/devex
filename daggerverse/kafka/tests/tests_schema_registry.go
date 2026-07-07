@@ -425,7 +425,7 @@ func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject,avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
@@ -651,7 +651,7 @@ func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
 	subject += "-value"
 
 	const jsonSchema = `{"type":"object","properties":{"x":{"type":"string"}},"required":["x"]}`
-	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject,jsonSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, jsonSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "JSON",
 	})
 	if err != nil {
@@ -835,7 +835,7 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject,avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
@@ -936,7 +936,7 @@ func (t *Tests) AvroBytesFieldRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject,avroBytesSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroBytesSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
