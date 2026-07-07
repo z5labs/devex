@@ -335,17 +335,30 @@ func renderRedpandaYaml(brokerHost string, withTls bool) ([]byte, error) {
 			RequireClientAuth: false,
 		}}
 	}
-	full := map[string]any{
-		"redpanda":   rpCfg,
-		"pandaproxy": map[string]any{},
-		// Bundle the Schema Registry on a plain-HTTP listener — parallels
-		// the PLAINTEXT path's --schema-registry-addr flag. The SR REST
-		// API stays HTTP regardless of the Kafka listener's TLS mode.
-		"schema_registry": map[string]any{
-			"schema_registry_api": []addr{
-				{Address: "0.0.0.0", Port: schemaRegistryPort},
-			},
+	// Bundle the Schema Registry REST listener. On a TLS cluster it reuses
+	// the broker's own server leaf (already mounted at /etc/redpanda/certs)
+	// to terminate HTTPS — the leaf's DNS SAN is brokerHost, which is also
+	// the registry's advertised host — so a TLS Redpanda cluster serves its
+	// bundled Schema Registry over HTTPS. (SR-REST mTLS is not reachable:
+	// Redpanda has no cluster-level mTLS mode.)
+	srBlock := map[string]any{
+		"schema_registry_api": []addr{
+			{Address: "0.0.0.0", Port: schemaRegistryPort, Name: "external"},
 		},
+	}
+	if withTls {
+		srBlock["schema_registry_api_tls"] = []tlsEntry{{
+			Name:              "external",
+			Enabled:           true,
+			CertFile:          "/etc/redpanda/certs/server.crt",
+			KeyFile:           "/etc/redpanda/certs/server.key",
+			RequireClientAuth: false,
+		}}
+	}
+	full := map[string]any{
+		"redpanda":        rpCfg,
+		"pandaproxy":      map[string]any{},
+		"schema_registry": srBlock,
 		"rpk": map[string]any{
 			"coredump_dir": "/var/lib/redpanda/coredump",
 		},
@@ -379,9 +392,14 @@ func (r *RedpandaCluster) BootstrapServers() []string {
 // `rpk redpanda start` runs a Schema Registry inside the broker process on
 // :8081 — no extra container — so the returned *SchemaRegistry points at the
 // broker service itself. Redpanda's SR speaks the Confluent Schema Registry
-// REST API, so the *SchemaRegistryClient from Client() works unchanged. The
-// REST endpoint is plain HTTP regardless of the cluster's Kafka-listener
-// security mode, so this never fails.
+// REST API, so the *SchemaRegistryClient from Client() works unchanged.
+//
+// security must match the cluster's mode (PLAINTEXT or TLS — Redpanda has no
+// mTLS): on a TLS cluster the bundled SR REST endpoint terminates HTTPS
+// reusing the broker's server leaf (configured at cluster-build time in
+// renderRedpandaYaml), so the caller must pass a TLS profile to get an HTTPS
+// client. The profile's CA keystore is unused here (the leaf is already
+// minted); it is required only for API uniformity with the other registries.
 //
 // The returned registry is Bundled: its service is the broker itself, so
 // Stop is a no-op on it — call cluster.Stop to tear the registry down with
@@ -389,13 +407,20 @@ func (r *RedpandaCluster) BootstrapServers() []string {
 // *SchemaRegistry type therefore can't accidentally kill the cluster.
 //
 // +cache="never"
-func (r *RedpandaCluster) SchemaRegistry(ctx context.Context) *SchemaRegistry {
+func (r *RedpandaCluster) SchemaRegistry(ctx context.Context, security *SchemaRegistrySecurity) (*SchemaRegistry, error) {
+	if r == nil || r.BrokerSvc == nil {
+		return nil, fmt.Errorf("RedpandaCluster.SchemaRegistry: cluster has no broker service")
+	}
+	if err := validateRegistrySecurity("RedpandaCluster.SchemaRegistry", security, r.ClientSecurityMode); err != nil {
+		return nil, err
+	}
 	return &SchemaRegistry{
 		SchemaRegistrySvc: r.BrokerSvc,
 		AdvertisedHost:    r.BrokerHost,
 		AdvertisedPort:    schemaRegistryPort,
 		Bundled:           true,
-	}
+		SecurityMode:      security.Mode,
+	}, nil
 }
 
 // BindBrokers binds the single Redpanda broker service into the given

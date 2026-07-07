@@ -33,10 +33,10 @@ func (t *Tests) SchemaRegistryRegisterLookupRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
-	client := sr.Client()
+	client := sr.Client(plaintextSchemaRegistryClientSecurity())
 
 	subject, err := randomTopicName(ctx)
 	if err != nil {
@@ -161,10 +161,10 @@ func (t *Tests) ApicurioSchemaRegistryRegisterLookupRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ApicurioSchemaRegistry(cluster)
+	sr := dag.Kafka().ApicurioSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
-	client := sr.Client()
+	client := sr.Client(plaintextSchemaRegistryClientSecurity())
 
 	subject, err := randomTopicName(ctx)
 	if err != nil {
@@ -289,10 +289,10 @@ func (t *Tests) KarapaceSchemaRegistryRegisterLookupRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().KarapaceSchemaRegistry(cluster)
+	sr := dag.Kafka().KarapaceSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
-	client := sr.Client()
+	client := sr.Client(plaintextSchemaRegistryClientSecurity())
 
 	subject, err := randomTopicName(ctx)
 	if err != nil {
@@ -415,7 +415,7 @@ func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
 	subject, err := randomTopicName(ctx)
@@ -425,7 +425,7 @@ func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client().RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
@@ -568,12 +568,13 @@ func (t *Tests) SchemaRegistryPlaintextConsumeUnframed(
 	return nil
 }
 
-// SchemaRegistryRejectsNonPlaintextCluster pins the PLAINTEXT-only contract
-// of this story: ConfluentSchemaRegistry must reject a cluster whose client
-// listener runs TLS rather than silently producing a broken registry. The
-// constructor errors before any service boots, so the TLS cluster never
-// has to start.
-func (t *Tests) SchemaRegistryRejectsNonPlaintextCluster(
+// SchemaRegistryRejectsClusterModeMismatch pins the mode-match contract: a
+// registry's security profile must match its backing cluster's client-listener
+// mode, so the registry's kafka-storage connection authenticates against the
+// broker. Here a PLAINTEXT registry security is paired with a TLS cluster and
+// must be rejected with an error naming both modes. The constructor errors
+// before any service boots, so the TLS cluster never has to start.
+func (t *Tests) SchemaRegistryRejectsClusterModeMismatch(
 	ctx context.Context,
 	// +default="4.2.0"
 	kafkaImageTag string,
@@ -584,12 +585,13 @@ func (t *Tests) SchemaRegistryRejectsNonPlaintextCluster(
 	}
 	defer cluster.Stop(ctx)
 
-	_, err = dag.Kafka().ConfluentSchemaRegistry(cluster).Endpoint(ctx)
+	_, err = dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity()).Endpoint(ctx)
 	if err == nil {
-		return fmt.Errorf("expected ConfluentSchemaRegistry to reject a non-PLAINTEXT cluster, got nil error")
+		return fmt.Errorf("expected ConfluentSchemaRegistry to reject a PLAINTEXT registry on a TLS cluster, got nil error")
 	}
-	if !strings.Contains(err.Error(), "PLAINTEXT") {
-		return fmt.Errorf("expected rejection error to mention PLAINTEXT, got: %v", err)
+	// The mismatch error names both modes; PLAINTEXT is the registry side.
+	if !strings.Contains(err.Error(), "PLAINTEXT") || !strings.Contains(err.Error(), "TLS") {
+		return fmt.Errorf("expected mode-mismatch error to name both PLAINTEXT and TLS, got: %v", err)
 	}
 	return nil
 }
@@ -638,7 +640,7 @@ func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
 	subject, err := randomTopicName(ctx)
@@ -649,7 +651,7 @@ func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
 	subject += "-value"
 
 	const jsonSchema = `{"type":"object","properties":{"x":{"type":"string"}},"required":["x"]}`
-	id, err := sr.Client().RegisterSchema(ctx, subject, jsonSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, jsonSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "JSON",
 	})
 	if err != nil {
@@ -764,7 +766,7 @@ func (t *Tests) AvroConsumeUnframedErrors(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
 	client := cluster.Client(dag.Kafka().PlaintextClientSecurity())
@@ -823,7 +825,7 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
 	subject, err := randomTopicName(ctx)
@@ -833,7 +835,7 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client().RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
@@ -924,7 +926,7 @@ func (t *Tests) AvroBytesFieldRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := dag.Kafka().ConfluentSchemaRegistry(cluster)
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, plaintextSchemaRegistrySecurity())
 	defer sr.Stop(ctx)
 
 	subject, err := randomTopicName(ctx)
@@ -934,7 +936,7 @@ func (t *Tests) AvroBytesFieldRoundTrip(
 	topic := subject
 	subject += "-value"
 
-	id, err := sr.Client().RegisterSchema(ctx, subject, avroBytesSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+	id, err := sr.Client(plaintextSchemaRegistryClientSecurity()).RegisterSchema(ctx, subject, avroBytesSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
 		SchemaType: "AVRO",
 	})
 	if err != nil {
@@ -993,4 +995,206 @@ func (t *Tests) AvroBytesFieldRoundTrip(
 		return fmt.Errorf("value mismatch: want canonical %q, got %q", wantCanonical, gotVal)
 	}
 	return nil
+}
+
+// freshTlsRegistryStack mints one CA, stands up a single-broker TLS Apache
+// cluster from it, and returns the cluster plus a TLS SchemaRegistrySecurity
+// (server) and a TLS SchemaRegistryClientSecurity (client) all rooted at that
+// CA. The single-CA convention means the cluster's broker leaves, the
+// registry's REST leaf + kafkastore truststore, and the REST client's trust
+// anchor all chain to the same root, so a TLS registry authenticates its
+// storage connection and the client verifies the HTTPS endpoint.
+func freshTlsRegistryStack(ctx context.Context, kafkaImageTag string) (
+	*dagger.KafkaCluster, *dagger.KafkaSchemaRegistrySecurity, *dagger.KafkaSchemaRegistryClientSecurity, error,
+) {
+	ca, err := freshCa(ctx, "tls-sr")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	k := dag.Kafka()
+	cluster := k.ApacheNativeCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
+		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	srSec := k.TLSSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password())
+	clientSec := k.TLSSchemaRegistryClientSecurity(ts.Pkcs12(), ts.Password())
+	return cluster, srSec, clientSec, nil
+}
+
+// freshMtlsRegistryStack is the mTLS counterpart of freshTlsRegistryStack. A
+// single CA does quadruple duty: it signs the broker server leaves, is the
+// broker's client-trust anchor, signs the registry's REST + kafkastore leaves,
+// is the registry's REST client-trust anchor, and signs the REST client's own
+// leaf — so every mTLS handshake in the chain validates against one root.
+func freshMtlsRegistryStack(ctx context.Context, kafkaImageTag string) (
+	*dagger.KafkaCluster, *dagger.KafkaSchemaRegistrySecurity, *dagger.KafkaSchemaRegistryClientSecurity, error,
+) {
+	ca, err := freshCa(ctx, "mtls-sr")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	k := dag.Kafka()
+	cluster := k.ApacheNativeCluster(clusterId,
+		k.MtlsServerSecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password()),
+		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	srSec := k.MtlsSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password())
+
+	clientKs, clientKsPwd, err := issueClientKeystore(ctx, ca, "sr-rest-client")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	clientSec := k.MtlsSchemaRegistryClientSecurity(clientKs, clientKsPwd, ts.Pkcs12(), ts.Password())
+	return cluster, srSec, clientSec, nil
+}
+
+// schemaRegistryRoundTripOn exercises the core register → lookup-by-id →
+// lookup-latest → list-subjects contract against sr using clientSec, proving a
+// registration reaches the `_schemas` store and reads back over the (possibly
+// TLS/mTLS) REST endpoint. Shared by the Confluent/Apicurio/Karapace TLS and
+// mTLS round-trip tests so every backend covers the same assertion set.
+func schemaRegistryRoundTripOn(ctx context.Context, sr *dagger.KafkaSchemaRegistry, clientSec *dagger.KafkaSchemaRegistryClientSecurity) error {
+	client := sr.Client(clientSec)
+
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	subject += "-value"
+
+	id, err := client.RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	got := client.LookupSchemaByID(id)
+	gotSubject, err := got.Subject(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup schema by id: %w", err)
+	}
+	if gotSubject != subject {
+		return fmt.Errorf("lookup-by-id subject mismatch: want %q, got %q", subject, gotSubject)
+	}
+
+	latest := client.LookupLatestBySubject(subject)
+	latestVersion, err := latest.Version(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup latest by subject: %w", err)
+	}
+	if latestVersion != 1 {
+		return fmt.Errorf("lookup-latest version mismatch: want 1, got %d", latestVersion)
+	}
+	latestID, err := latest.SchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read latest schema id: %w", err)
+	}
+	if latestID != id {
+		return fmt.Errorf("lookup-latest schemaID mismatch: want %d, got %d", id, latestID)
+	}
+
+	subjects, err := client.ListSubjects(ctx)
+	if err != nil {
+		return fmt.Errorf("list subjects: %w", err)
+	}
+	if !contains(subjects, subject) {
+		return fmt.Errorf("expected subject %q in %v after register", subject, subjects)
+	}
+	return nil
+}
+
+// ConfluentSchemaRegistryTlsRegisterLookupRoundTrip is the canonical TLS test:
+// a TLS cp-schema-registry terminates HTTPS on its REST endpoint and talks SSL
+// to a TLS cluster's brokers for the `_schemas` topic, and the round-trip
+// succeeds over an HTTPS client verifying the registry cert against the
+// shared CA.
+func (t *Tests) ConfluentSchemaRegistryTlsRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, clientSec, err := freshTlsRegistryStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create tls registry stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return schemaRegistryRoundTripOn(ctx, sr, clientSec)
+}
+
+// ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip is the mTLS counterpart:
+// the REST endpoint requires a client certificate and the registry presents
+// its own leaf to the mTLS broker for the kafkastore connection, all rooted at
+// one CA.
+func (t *Tests) ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, clientSec, err := freshMtlsRegistryStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create mtls registry stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return schemaRegistryRoundTripOn(ctx, sr, clientSec)
+}
+
+// ApicurioSchemaRegistryTlsRegisterLookupRoundTrip drives the Apicurio TLS
+// path (Quarkus HTTPS REST + kafkasql SSL storage) end-to-end.
+func (t *Tests) ApicurioSchemaRegistryTlsRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, clientSec, err := freshTlsRegistryStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create tls registry stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ApicurioSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return schemaRegistryRoundTripOn(ctx, sr, clientSec)
+}
+
+// KarapaceSchemaRegistryTlsRegisterLookupRoundTrip drives the Karapace TLS
+// path (PEM REST listener + aiokafka SSL storage) end-to-end.
+func (t *Tests) KarapaceSchemaRegistryTlsRegisterLookupRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, clientSec, err := freshTlsRegistryStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create tls registry stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().KarapaceSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return schemaRegistryRoundTripOn(ctx, sr, clientSec)
 }

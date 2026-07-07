@@ -304,6 +304,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).ApicurioSchemaRegistryRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ApicurioSchemaRegistryTlsRegisterLookupRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ApicurioSchemaRegistryTlsRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
 		case "AutoCreateTopicsDisabled":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -458,6 +472,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).ConfluentClusterTlsRoundTrip(&parent, ctx, confluentImageTag)
+		case "ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ConfluentSchemaRegistryTlsRegisterLookupRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ConfluentSchemaRegistryTlsRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
 		case "ConsumerGroupOnSingleBrokerWorks":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -528,6 +570,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).KarapaceSchemaRegistryRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
+		case "KarapaceSchemaRegistryTlsRegisterLookupRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).KarapaceSchemaRegistryTlsRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
 		case "MtlsRequiresClientCert":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -885,7 +941,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).SchemaRegistryRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
-		case "SchemaRegistryRejectsNonPlaintextCluster":
+		case "SchemaRegistryRejectsClusterModeMismatch":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
@@ -898,7 +954,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Tests).SchemaRegistryRejectsNonPlaintextCluster(&parent, ctx, kafkaImageTag)
+			return nil, (*Tests).SchemaRegistryRejectsClusterModeMismatch(&parent, ctx, kafkaImageTag)
 		case "SingleNodeClusterStarts":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

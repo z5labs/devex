@@ -131,3 +131,42 @@ func contains(haystack []string, needle string) bool {
 	}
 	return false
 }
+
+// plaintextSchemaRegistrySecurity / plaintextSchemaRegistryClientSecurity are
+// shorthand for the unencrypted registry profiles the PLAINTEXT round-trip
+// tests pass to the registry constructors and Client().
+func plaintextSchemaRegistrySecurity() *dagger.KafkaSchemaRegistrySecurity {
+	return dag.Kafka().PlaintextSchemaRegistrySecurity()
+}
+
+func plaintextSchemaRegistryClientSecurity() *dagger.KafkaSchemaRegistryClientSecurity {
+	return dag.Kafka().PlaintextSchemaRegistryClientSecurity()
+}
+
+// issueClientKeystore mints a client leaf (clientAuth EKU) signed by ca with
+// the given common name and returns its PKCS#12 keystore + password, mirroring
+// freshMtlsCluster's client-leaf minting. Used to build an mTLS REST client
+// profile for the Schema Registry mTLS tests.
+func issueClientKeystore(ctx context.Context, ca *dagger.CertificateManagementCertificateAuthority, cn string) (*dagger.File, *dagger.Secret, error) {
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate %s client leaf key: %w", cn, err)
+	}
+	key := dag.SetSecret("sr-client-leaf-key-"+suffix, keyPem)
+	pwdHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate %s client leaf password: %w", cn, err)
+	}
+	pwd := dag.SetSecret("sr-client-leaf-pwd-"+suffix, pwdHex)
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("generate %s client leaf serial: %w", cn, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	ks := ca.IssueClientCertificate(cn, nb, serial, pwd, key).KeyStore()
+	return ks.Pkcs12(), ks.Password(), nil
+}

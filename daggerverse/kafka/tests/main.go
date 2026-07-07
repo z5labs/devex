@@ -119,8 +119,20 @@ func (t *Tests) SchemaRegistry(
 	jobs = jobs.WithJob("SchemaRegistryRegisterLookupRoundTrip", func(ctx context.Context) error {
 		return t.SchemaRegistryRegisterLookupRoundTrip(ctx, kafkaImageTag)
 	})
-	jobs = jobs.WithJob("SchemaRegistryRejectsNonPlaintextCluster", func(ctx context.Context) error {
-		return t.SchemaRegistryRejectsNonPlaintextCluster(ctx, kafkaImageTag)
+	jobs = jobs.WithJob("SchemaRegistryRejectsClusterModeMismatch", func(ctx context.Context) error {
+		return t.SchemaRegistryRejectsClusterModeMismatch(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ConfluentSchemaRegistryTlsRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.ConfluentSchemaRegistryTlsRegisterLookupRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ApicurioSchemaRegistryTlsRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.ApicurioSchemaRegistryTlsRegisterLookupRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("KarapaceSchemaRegistryTlsRegisterLookupRoundTrip", func(ctx context.Context) error {
+		return t.KarapaceSchemaRegistryTlsRegisterLookupRoundTrip(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("ApicurioSchemaRegistryRegisterLookupRoundTrip", func(ctx context.Context) error {
 		return t.ApicurioSchemaRegistryRegisterLookupRoundTrip(ctx, kafkaImageTag)

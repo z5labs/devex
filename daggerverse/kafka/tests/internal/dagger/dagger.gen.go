@@ -314,7 +314,13 @@ type KafkaRegisteredSchemaID string
 type KafkaSchemaRegistryClientID string
 
 // A unique identifier for an object.
+type KafkaSchemaRegistryClientSecurityID string
+
+// A unique identifier for an object.
 type KafkaSchemaRegistryID string
+
+// A unique identifier for an object.
+type KafkaSchemaRegistrySecurityID string
 
 // A unique identifier for an object.
 type KafkaServerSecurityID string
@@ -13318,12 +13324,32 @@ func (r *Query) LoadKafkaSchemaRegistryClientFromID(id KafkaSchemaRegistryClient
 	}
 }
 
+// Load a KafkaSchemaRegistryClientSecurity from its ID.
+func (r *Query) LoadKafkaSchemaRegistryClientSecurityFromID(id KafkaSchemaRegistryClientSecurityID) *KafkaSchemaRegistryClientSecurity {
+	q := r.query.Select("loadKafkaSchemaRegistryClientSecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
 // Load a KafkaSchemaRegistry from its ID.
 func (r *Query) LoadKafkaSchemaRegistryFromID(id KafkaSchemaRegistryID) *KafkaSchemaRegistry {
 	q := r.query.Select("loadKafkaSchemaRegistryFromID")
 	q = q.Arg("id", id)
 
 	return &KafkaSchemaRegistry{
+		query: q,
+	}
+}
+
+// Load a KafkaSchemaRegistrySecurity from its ID.
+func (r *Query) LoadKafkaSchemaRegistrySecurityFromID(id KafkaSchemaRegistrySecurityID) *KafkaSchemaRegistrySecurity {
+	q := r.query.Select("loadKafkaSchemaRegistrySecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistrySecurity{
 		query: q,
 	}
 }
