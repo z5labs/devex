@@ -12,13 +12,17 @@ import (
 // helper and hands its PKCS#12 archive to Kafka.RedpandaTlsServerSecurity;
 // the cluster constructor extracts PEM internally for redpanda.yaml. The
 // matching truststore is returned so the franz-go client can verify the
-// broker leaf.
+// broker leaf, plus the CA keystore so the bundled Schema Registry can be
+// handed a matching TLS SchemaRegistrySecurity.
 func freshTlsRedpandaCluster(ctx context.Context, redpandaImageTag string) (
-	*dagger.KafkaRedpandaCluster, *dagger.File, *dagger.Secret, error,
+	cluster *dagger.KafkaRedpandaCluster,
+	trustStore *dagger.File, trustStorePwd *dagger.Secret,
+	caKeyStore *dagger.File, caKeyStorePwd *dagger.Secret,
+	err error,
 ) {
 	ca, err := freshCa(ctx, "tls-redpanda")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
 	caKs := ca.KeyStore()
 	serverSec := dag.Kafka().RedpandaTLSServerSecurity(caKs.Pkcs12(), caKs.Password())
@@ -26,12 +30,12 @@ func freshTlsRedpandaCluster(ctx context.Context, redpandaImageTag string) (
 
 	clusterId, err := newClusterId(ctx)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, nil, err
 	}
-	cluster := dag.Kafka().RedpandaCluster(clusterId, serverSec, dagger.KafkaRedpandaClusterOpts{
+	cluster = dag.Kafka().RedpandaCluster(clusterId, serverSec, dagger.KafkaRedpandaClusterOpts{
 		Tag: redpandaImageTag,
 	})
-	return cluster, ts.Pkcs12(), ts.Password(), nil
+	return cluster, ts.Pkcs12(), ts.Password(), caKs.Pkcs12(), caKs.Password(), nil
 }
 
 // freshRedpandaCluster spins up a single-node Redpanda cluster on PLAINTEXT
@@ -108,7 +112,7 @@ func (t *Tests) RedpandaClusterTlsRoundTrip(
 	// +default="v26.1.7"
 	redpandaImageTag string,
 ) error {
-	cluster, ts, tsPwd, err := freshTlsRedpandaCluster(ctx, redpandaImageTag)
+	cluster, ts, tsPwd, _, _, err := freshTlsRedpandaCluster(ctx, redpandaImageTag)
 	if err != nil {
 		return fmt.Errorf("create redpanda tls cluster: %w", err)
 	}
@@ -174,8 +178,8 @@ func redpandaClusterTlsRoundTripOn(
 // lookup-by-id contract — positive id, Subject, SchemaType, and SchemaID.
 // Shared by the PLAINTEXT and TLS Redpanda SR tests so both paths cover the
 // identical assertion set; mirrors the redpandaCluster...RoundTripOn split.
-func redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx context.Context, sr *dagger.KafkaSchemaRegistry) error {
-	client := sr.Client()
+func redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx context.Context, sr *dagger.KafkaSchemaRegistry, clientSec *dagger.KafkaSchemaRegistryClientSecurity) error {
+	client := sr.Client(clientSec)
 
 	subject, err := randomTopicName(ctx)
 	if err != nil {
@@ -237,28 +241,36 @@ func (t *Tests) RedpandaSchemaRegistryRegisterLookupRoundTrip(
 	}
 	defer cluster.Stop(ctx)
 
-	return redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx, cluster.SchemaRegistry())
+	return redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx,
+		cluster.SchemaRegistry(plaintextSchemaRegistrySecurity()),
+		plaintextSchemaRegistryClientSecurity())
 }
 
 // RedpandaSchemaRegistryTlsRegisterLookupRoundTrip is the TLS-cluster
 // counterpart of RedpandaSchemaRegistryRegisterLookupRoundTrip. A TLS
-// Redpanda cluster configures its bundled Schema Registry through a
-// separately-rendered redpanda.yaml (the schema_registry_api block) rather
-// than the PLAINTEXT path's --schema-registry-addr flag, so this exercises
-// that YAML path end-to-end. The SR REST endpoint is plain HTTP regardless
-// of the Kafka listener's TLS mode, so the truststore is unused here.
+// Redpanda cluster terminates HTTPS on its bundled Schema Registry REST
+// endpoint, reusing the broker's server leaf (configured through the
+// separately-rendered redpanda.yaml schema_registry_api_tls block), so this
+// exercises that YAML path end-to-end and drives register/lookup over HTTPS,
+// verifying the SR cert against the cluster CA truststore.
 func (t *Tests) RedpandaSchemaRegistryTlsRegisterLookupRoundTrip(
 	ctx context.Context,
 	// +default="v26.1.7"
 	redpandaImageTag string,
 ) error {
-	cluster, _, _, err := freshTlsRedpandaCluster(ctx, redpandaImageTag)
+	cluster, ts, tsPwd, caKs, caKsPwd, err := freshTlsRedpandaCluster(ctx, redpandaImageTag)
 	if err != nil {
 		return fmt.Errorf("create redpanda tls cluster: %w", err)
 	}
 	defer cluster.Stop(ctx)
 
-	return redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx, cluster.SchemaRegistry())
+	// The bundled SR reuses the broker leaf; the caller still passes a TLS
+	// SchemaRegistrySecurity (its CA keystore is unused here) so the mode
+	// matches the TLS cluster, and a TLS client profile built from the same
+	// cluster CA truststore verifies the HTTPS endpoint.
+	srSec := dag.Kafka().TLSSchemaRegistrySecurity(caKs, caKsPwd)
+	clientSec := dag.Kafka().TLSSchemaRegistryClientSecurity(ts, tsPwd)
+	return redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx, cluster.SchemaRegistry(srSec), clientSec)
 }
 
 // RedpandaSchemaRegistryBundledStopIsNoOp pins the bundled-registry lifecycle
@@ -278,8 +290,8 @@ func (t *Tests) RedpandaSchemaRegistryBundledStopIsNoOp(
 	}
 	defer cluster.Stop(ctx)
 
-	sr := cluster.SchemaRegistry()
-	if err := redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx, sr); err != nil {
+	sr := cluster.SchemaRegistry(plaintextSchemaRegistrySecurity())
+	if err := redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx, sr, plaintextSchemaRegistryClientSecurity()); err != nil {
 		return fmt.Errorf("round-trip before sr.Stop: %w", err)
 	}
 
@@ -293,7 +305,7 @@ func (t *Tests) RedpandaSchemaRegistryBundledStopIsNoOp(
 	// fresh register/lookup-by-id round-trip would not prove this: the
 	// registry dedups by schema content, so re-registering avroTestSchema
 	// returns the first id, whose lookup resolves to the first subject.)
-	client := sr.Client()
+	client := sr.Client(plaintextSchemaRegistryClientSecurity())
 	subject, err := randomTopicName(ctx)
 	if err != nil {
 		return err

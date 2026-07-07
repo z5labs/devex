@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,15 +17,34 @@ import (
 	"time"
 
 	"dagger/kafka/internal/dagger"
+
+	"software.sslmate.com/src/go-pkcs12"
 )
 
-// schemaRegistryPort is the HTTP port the Confluent Schema Registry REST
-// API listens on, both inside the container and as advertised to callers.
+// schemaRegistryPort is the HTTP(S) port the Schema Registry REST API listens
+// on, both inside the container and as advertised to callers.
 const schemaRegistryPort = 8081
 
 // srContentType is the versioned media type the Schema Registry REST API
 // expects on requests and returns on responses.
 const srContentType = "application/vnd.schemaregistry.v1+json"
+
+// Schema Registry TLS material mount paths inside the registry containers.
+// PKCS#12 for the Java (Confluent) and Quarkus (Apicurio) images; PEM for the
+// Python (Karapace) image.
+const (
+	srServerKeystorePath       = "/etc/schema-registry/secrets/server-keystore.p12"
+	srRestTruststorePath       = "/etc/schema-registry/secrets/rest-truststore.p12"
+	srKafkastoreTruststorePath = "/etc/schema-registry/secrets/kafkastore-truststore.p12"
+	srKafkastoreKeystorePath   = "/etc/schema-registry/secrets/kafkastore-keystore.p12"
+
+	karapaceServerCertPath = "/etc/karapace/certs/server.crt"
+	karapaceServerKeyPath  = "/etc/karapace/certs/server.key"
+	karapaceStorageCaPath  = "/etc/karapace/certs/storage-ca.crt"
+	karapaceRestCaPath     = "/etc/karapace/certs/rest-ca.crt"
+	karapaceClientCertPath = "/etc/karapace/certs/client.crt"
+	karapaceClientKeyPath  = "/etc/karapace/certs/client.key"
+)
 
 // SchemaRegistry is the module's shared Schema Registry abstraction, bound
 // to a Kafka cluster's brokers. It stores schemas in the cluster's `_schemas`
@@ -62,6 +83,13 @@ type SchemaRegistry struct {
 	//
 	// +private
 	BasePath string
+	// SecurityMode records how the registry's REST endpoint is secured
+	// (PLAINTEXT | TLS | MTLS). Client() reads it to choose the URL scheme
+	// (http vs https) and to validate the caller's client-security profile
+	// matches the server side.
+	//
+	// +private
+	SecurityMode string
 }
 
 // SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's
@@ -72,6 +100,16 @@ type SchemaRegistryClient struct {
 	Svc *dagger.Service
 	// +private
 	BaseURL string
+	// +private
+	SecurityMode string // PLAINTEXT | TLS | MTLS
+	// +private
+	TrustStore *dagger.File // PKCS#12 CA(s) verifying the registry REST cert (TLS+MTLS)
+	// +private
+	TrustStorePassword *dagger.Secret
+	// +private
+	KeyStore *dagger.File // PKCS#12 client leaf presented to the registry (MTLS)
+	// +private
+	KeyStorePassword *dagger.Secret
 }
 
 // RegisteredSchema is one schema version as the Confluent Schema Registry
@@ -87,6 +125,97 @@ type RegisteredSchema struct {
 	SchemaID   int    // globally-unique registry schema id
 	Definition string // the schema text itself (Avro / JSON Schema / Protobuf)
 	SchemaType string // AVRO | JSON | PROTOBUF
+}
+
+// validateRegistrySecurity checks a registry constructor's security profile is
+// present, has a known mode, carries the material that mode requires, and
+// matches the backing cluster's security mode. name is the constructor name for
+// error messages. A matching mode means a PLAINTEXT registry pairs with a
+// PLAINTEXT cluster (reproducing pre-TLS behaviour) and a TLS/mTLS registry
+// pairs with a same-mode cluster so its kafka-storage connection authenticates.
+func validateRegistrySecurity(name string, security *SchemaRegistrySecurity, clusterMode string) error {
+	if security == nil {
+		return fmt.Errorf("%s: security must not be nil (use Kafka.PlaintextSchemaRegistrySecurity() for an unencrypted registry)", name)
+	}
+	switch security.Mode {
+	case "PLAINTEXT", "TLS", "MTLS":
+	default:
+		return fmt.Errorf("%s: unknown security mode %q (want PLAINTEXT|TLS|MTLS)", name, security.Mode)
+	}
+	if security.Mode != clusterMode {
+		return fmt.Errorf(
+			"%s: registry security is %q but the cluster client listener is %q; they must match "+
+				"so the registry's kafka-storage connection authenticates against the broker",
+			name, security.Mode, clusterMode,
+		)
+	}
+	if (security.Mode == "TLS" || security.Mode == "MTLS") && (security.CaKeyStore == nil || security.CaKeyStorePassword == nil) {
+		return fmt.Errorf("%s: %s security requires a CA keystore and password", name, security.Mode)
+	}
+	if security.Mode == "MTLS" && (security.ClientTrustStore == nil || security.ClientTrustStorePassword == nil) {
+		return fmt.Errorf("%s: MTLS security requires a client trust store and password", name)
+	}
+	return nil
+}
+
+// applyConfluentSchemaRegistryTls mounts the registry's REST server leaf and
+// broker-facing truststore/keystore onto a cp-schema-registry container and
+// sets the SSL env vars for both surfaces: the Jetty REST endpoint
+// (SCHEMA_REGISTRY_SSL_*) and the kafkastore client connection
+// (SCHEMA_REGISTRY_KAFKASTORE_SSL_*). All material is PKCS#12. Assumes the
+// caller has already switched SCHEMA_REGISTRY_LISTENERS to https and the
+// kafkastore bootstrap scheme to SSL://.
+func applyConfluentSchemaRegistryTls(ctx context.Context, ctr *dagger.Container, security *SchemaRegistrySecurity, srHost string) (*dagger.Container, error) {
+	leaf, err := mintServiceLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-confluent-rest")
+	if err != nil {
+		return nil, fmt.Errorf("mint schema registry REST leaf: %w", err)
+	}
+	tsFile, tsPwd, err := caTrustStorePkcs12(ctx, security.CaKeyStore, security.CaKeyStorePassword)
+	if err != nil {
+		return nil, fmt.Errorf("derive kafkastore truststore: %w", err)
+	}
+	ctr = ctr.
+		// REST endpoint TLS termination.
+		WithFile(srServerKeystorePath, leaf.KeyStoreFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithEnvVariable("SCHEMA_REGISTRY_SSL_KEYSTORE_LOCATION", srServerKeystorePath).
+		WithSecretVariable("SCHEMA_REGISTRY_SSL_KEYSTORE_PASSWORD", leaf.KeyStorePassword).
+		WithEnvVariable("SCHEMA_REGISTRY_SSL_KEYSTORE_TYPE", "PKCS12").
+		WithSecretVariable("SCHEMA_REGISTRY_SSL_KEY_PASSWORD", leaf.KeyStorePassword).
+		// The inter-instance listener (used for leader coordination) defaults
+		// to the http scheme; with an https-only listener it must be pointed
+		// at https or startup fails with "No listener configured with
+		// requested scheme http".
+		WithEnvVariable("SCHEMA_REGISTRY_INTER_INSTANCE_PROTOCOL", "https").
+		// kafkastore connection verifies the broker against the cluster CA.
+		WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL", "SSL").
+		WithFile(srKafkastoreTruststorePath, tsFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION", srKafkastoreTruststorePath).
+		WithSecretVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD", tsPwd).
+		WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_TYPE", "PKCS12")
+
+	if security.Mode == "MTLS" {
+		// REST endpoint requires client certs, trusted via ClientTrustStore.
+		ctr = ctr.
+			WithEnvVariable("SCHEMA_REGISTRY_SSL_CLIENT_AUTHENTICATION", "REQUIRED").
+			WithFile(srRestTruststorePath, security.ClientTrustStore, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithEnvVariable("SCHEMA_REGISTRY_SSL_TRUSTSTORE_LOCATION", srRestTruststorePath).
+			WithSecretVariable("SCHEMA_REGISTRY_SSL_TRUSTSTORE_PASSWORD", security.ClientTrustStorePassword).
+			WithEnvVariable("SCHEMA_REGISTRY_SSL_TRUSTSTORE_TYPE", "PKCS12")
+
+		// kafkastore connection presents the registry's own client leaf to
+		// the mTLS broker (signed by the same CA the broker trusts).
+		clientLeaf, err := mintClientLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-confluent-kafkastore")
+		if err != nil {
+			return nil, fmt.Errorf("mint schema registry kafkastore client leaf: %w", err)
+		}
+		ctr = ctr.
+			WithFile(srKafkastoreKeystorePath, clientLeaf.KeyStoreFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_KEYSTORE_LOCATION", srKafkastoreKeystorePath).
+			WithSecretVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_KEYSTORE_PASSWORD", clientLeaf.KeyStorePassword).
+			WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_KEYSTORE_TYPE", "PKCS12").
+			WithSecretVariable("SCHEMA_REGISTRY_KAFKASTORE_SSL_KEY_PASSWORD", clientLeaf.KeyStorePassword)
+	}
+	return ctr, nil
 }
 
 // ConfluentSchemaRegistry spins up a Confluent Schema Registry service
@@ -111,6 +240,7 @@ func (k *Kafka) ConfluentSchemaRegistry(
 	registry string,
 	// +default="8.2.0"
 	tag string,
+	security *SchemaRegistrySecurity,
 ) (*SchemaRegistry, error) {
 	if cluster == nil {
 		return nil, fmt.Errorf("Kafka.ConfluentSchemaRegistry: cluster must not be nil")
@@ -118,15 +248,10 @@ func (k *Kafka) ConfluentSchemaRegistry(
 	if len(cluster.BrokerSvcs) == 0 {
 		return nil, fmt.Errorf("Kafka.ConfluentSchemaRegistry: cluster has no brokers")
 	}
-	if cluster.ClientSecurityMode != "PLAINTEXT" {
-		return nil, fmt.Errorf(
-			"Kafka.ConfluentSchemaRegistry: cluster client listener is %q; only PLAINTEXT "+
-				"is supported in this story. TLS / mTLS Schema Registry "+
-				"(SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL=SSL plus keystore mounts) "+
-				"is a follow-up story.",
-			cluster.ClientSecurityMode,
-		)
+	if err := validateRegistrySecurity("Kafka.ConfluentSchemaRegistry", security, cluster.ClientSecurityMode); err != nil {
+		return nil, err
 	}
+	tls := security.Mode != "PLAINTEXT"
 
 	image := fmt.Sprintf("%s/confluentinc/cp-schema-registry:%s", registry, tag)
 	// `csr-` (confluent schema registry) keeps the hostname short — a
@@ -136,11 +261,16 @@ func (k *Kafka) ConfluentSchemaRegistry(
 	srHost := "csr-" + clusterHostSuffix(cluster.ClusterID)
 
 	// cp-schema-registry wants its bootstrap servers scheme-prefixed;
-	// Cluster.BootstrapServers reports bare host:port.
+	// Cluster.BootstrapServers reports bare host:port. On a TLS/mTLS cluster
+	// the kafkastore connection dials the broker's SSL listener.
+	storeScheme := "PLAINTEXT"
+	if tls {
+		storeScheme = "SSL"
+	}
 	bootstrap := cluster.BootstrapServers()
 	kafkastore := make([]string, len(bootstrap))
 	for i, b := range bootstrap {
-		kafkastore[i] = "PLAINTEXT://" + b
+		kafkastore[i] = storeScheme + "://" + b
 	}
 
 	// The brokers run with KAFKA_AUTO_CREATE_TOPICS_ENABLE=false and
@@ -153,13 +283,24 @@ func (k *Kafka) ConfluentSchemaRegistry(
 		rf = 3
 	}
 
+	listenerScheme := "http"
+	if tls {
+		listenerScheme = "https"
+	}
 	ctr := dag.Container().
 		From(image).
 		WithEnvVariable("SCHEMA_REGISTRY_HOST_NAME", srHost).
-		WithEnvVariable("SCHEMA_REGISTRY_LISTENERS", fmt.Sprintf("http://0.0.0.0:%d", schemaRegistryPort)).
+		WithEnvVariable("SCHEMA_REGISTRY_LISTENERS", fmt.Sprintf("%s://0.0.0.0:%d", listenerScheme, schemaRegistryPort)).
 		WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS", strings.Join(kafkastore, ",")).
 		WithEnvVariable("SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR", strconv.Itoa(rf)).
 		WithExposedPort(schemaRegistryPort)
+	if tls {
+		var err error
+		ctr, err = applyConfluentSchemaRegistryTls(ctx, ctr, security, srHost)
+		if err != nil {
+			return nil, err
+		}
+	}
 	ctr = cluster.BindBrokers(ctr)
 
 	srSvc := ctr.
@@ -170,7 +311,64 @@ func (k *Kafka) ConfluentSchemaRegistry(
 		SchemaRegistrySvc: srSvc,
 		AdvertisedHost:    srHost,
 		AdvertisedPort:    schemaRegistryPort,
+		SecurityMode:      security.Mode,
 	}, nil
+}
+
+// applyApicurioSchemaRegistryTls terminates TLS on Apicurio's Quarkus REST
+// endpoint (PKCS#12 keystore) and secures its kafkasql storage connection to
+// the broker.
+//
+// NOTE: the kafkasql storage SSL env-var surface is the least-certain knob in
+// this feature (Apicurio 2.6 has shifted it across `KAFKA_SSL_*`,
+// `REGISTRY_KAFKASQL_SECURITY_*`, and `apicurio.kafka.common.*` between minor
+// builds); it is validated by the Apicurio TLS round-trip test and iterated
+// under TDD. PKCS#12 (not PEM) is fed to the storage truststore to avoid
+// Apicurio's PEM-truststore-plus-password startup failure (Apicurio #4975).
+func applyApicurioSchemaRegistryTls(ctx context.Context, ctr *dagger.Container, security *SchemaRegistrySecurity, srHost string) (*dagger.Container, error) {
+	leaf, err := mintServiceLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-apicurio-rest")
+	if err != nil {
+		return nil, fmt.Errorf("mint apicurio REST leaf: %w", err)
+	}
+	tsFile, tsPwd, err := caTrustStorePkcs12(ctx, security.CaKeyStore, security.CaKeyStorePassword)
+	if err != nil {
+		return nil, fmt.Errorf("derive kafkasql truststore: %w", err)
+	}
+	ctr = ctr.
+		// Quarkus REST TLS: serve HTTPS only on schemaRegistryPort.
+		WithFile(srServerKeystorePath, leaf.KeyStoreFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithEnvVariable("QUARKUS_HTTP_SSL_PORT", strconv.Itoa(schemaRegistryPort)).
+		WithEnvVariable("QUARKUS_HTTP_INSECURE_REQUESTS", "disabled").
+		WithEnvVariable("QUARKUS_HTTP_SSL_CERTIFICATE_KEY_STORE_FILE", srServerKeystorePath).
+		WithSecretVariable("QUARKUS_HTTP_SSL_CERTIFICATE_KEY_STORE_PASSWORD", leaf.KeyStorePassword).
+		WithEnvVariable("QUARKUS_HTTP_SSL_CERTIFICATE_KEY_STORE_FILE_TYPE", "PKCS12").
+		// kafkasql storage over SSL, PKCS#12 truststore.
+		WithFile(srKafkastoreTruststorePath, tsFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithEnvVariable("KAFKA_SECURITY_PROTOCOL", "SSL").
+		WithEnvVariable("KAFKA_SSL_TRUSTSTORE_LOCATION", srKafkastoreTruststorePath).
+		WithSecretVariable("KAFKA_SSL_TRUSTSTORE_PASSWORD", tsPwd).
+		WithEnvVariable("KAFKA_SSL_TRUSTSTORE_TYPE", "PKCS12")
+
+	if security.Mode == "MTLS" {
+		ctr = ctr.
+			WithEnvVariable("QUARKUS_HTTP_SSL_CLIENT_AUTH", "required").
+			WithFile(srRestTruststorePath, security.ClientTrustStore, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithEnvVariable("QUARKUS_HTTP_SSL_CERTIFICATE_TRUST_STORE_FILE", srRestTruststorePath).
+			WithSecretVariable("QUARKUS_HTTP_SSL_CERTIFICATE_TRUST_STORE_PASSWORD", security.ClientTrustStorePassword).
+			WithEnvVariable("QUARKUS_HTTP_SSL_CERTIFICATE_TRUST_STORE_FILE_TYPE", "PKCS12")
+
+		clientLeaf, err := mintClientLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-apicurio-kafkasql")
+		if err != nil {
+			return nil, fmt.Errorf("mint apicurio kafkasql client leaf: %w", err)
+		}
+		ctr = ctr.
+			WithFile(srKafkastoreKeystorePath, clientLeaf.KeyStoreFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithEnvVariable("KAFKA_SSL_KEYSTORE_LOCATION", srKafkastoreKeystorePath).
+			WithSecretVariable("KAFKA_SSL_KEYSTORE_PASSWORD", clientLeaf.KeyStorePassword).
+			WithEnvVariable("KAFKA_SSL_KEYSTORE_TYPE", "PKCS12").
+			WithSecretVariable("KAFKA_SSL_KEY_PASSWORD", clientLeaf.KeyStorePassword)
+	}
+	return ctr, nil
 }
 
 // ApicurioSchemaRegistry spins up an Apicurio Registry service
@@ -185,8 +383,10 @@ func (k *Kafka) ConfluentSchemaRegistry(
 // Protobuf, OpenAPI, AsyncAPI, GraphQL, WSDL, XSD); over the CSR-compat
 // surface only the AVRO / JSON / PROTOBUF subset is reachable.
 //
-// Only PLAINTEXT clusters are supported in this story: the constructor
-// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+// security must match the backing cluster's mode: a PLAINTEXT profile keeps
+// the REST endpoint on HTTP and the kafkasql connection unencrypted; a TLS /
+// mTLS profile terminates HTTPS on the REST endpoint and secures the kafkasql
+// connection against a matching-mode cluster.
 //
 // Session-cached for the same reason ConfluentSchemaRegistry is — a
 // `+cache="never"` directive here would mint a brand-new registry service
@@ -200,6 +400,7 @@ func (k *Kafka) ApicurioSchemaRegistry(
 	registry string,
 	// +default="2.6.13.Final"
 	tag string,
+	security *SchemaRegistrySecurity,
 ) (*SchemaRegistry, error) {
 	if cluster == nil {
 		return nil, fmt.Errorf("Kafka.ApicurioSchemaRegistry: cluster must not be nil")
@@ -207,15 +408,10 @@ func (k *Kafka) ApicurioSchemaRegistry(
 	if len(cluster.BrokerSvcs) == 0 {
 		return nil, fmt.Errorf("Kafka.ApicurioSchemaRegistry: cluster has no brokers")
 	}
-	if cluster.ClientSecurityMode != "PLAINTEXT" {
-		return nil, fmt.Errorf(
-			"Kafka.ApicurioSchemaRegistry: cluster client listener is %q; only PLAINTEXT "+
-				"is supported in this story. TLS / mTLS Schema Registry "+
-				"(KAFKA_SSL_* / REGISTRY_KAFKASQL_SECURITY_PROTOCOL plus keystore mounts) "+
-				"is a follow-up story.",
-			cluster.ClientSecurityMode,
-		)
+	if err := validateRegistrySecurity("Kafka.ApicurioSchemaRegistry", security, cluster.ClientSecurityMode); err != nil {
+		return nil, err
 	}
+	tls := security.Mode != "PLAINTEXT"
 
 	image := fmt.Sprintf("%s/apicurio/apicurio-registry-kafkasql:%s", registry, tag)
 	// `asr-` (apicurio schema registry) keeps the hostname short — a longer
@@ -230,10 +426,21 @@ func (k *Kafka) ApicurioSchemaRegistry(
 	ctr := dag.Container().
 		From(image).
 		WithEnvVariable("KAFKA_BOOTSTRAP_SERVERS", strings.Join(cluster.BootstrapServers(), ",")).
-		// Apicurio is a Quarkus app listening on 8080 by default; pin it to
-		// schemaRegistryPort so the advertised port matches cp-schema-registry.
-		WithEnvVariable("QUARKUS_HTTP_PORT", strconv.Itoa(schemaRegistryPort)).
 		WithExposedPort(schemaRegistryPort)
+	// Apicurio is a Quarkus app listening on 8080 by default; pin it to
+	// schemaRegistryPort so the advertised port matches cp-schema-registry.
+	// Under TLS the port is the HTTPS SSL port (set in the tls helper) and the
+	// plaintext HTTP port is disabled, so only pin QUARKUS_HTTP_PORT here for
+	// the plaintext path.
+	if !tls {
+		ctr = ctr.WithEnvVariable("QUARKUS_HTTP_PORT", strconv.Itoa(schemaRegistryPort))
+	} else {
+		var err error
+		ctr, err = applyApicurioSchemaRegistryTls(ctx, ctr, security, srHost)
+		if err != nil {
+			return nil, err
+		}
+	}
 	ctr = cluster.BindBrokers(ctr)
 
 	srSvc := ctr.
@@ -246,8 +453,57 @@ func (k *Kafka) ApicurioSchemaRegistry(
 		AdvertisedPort:    schemaRegistryPort,
 		// Apicurio serves the Confluent-compatible REST API under this
 		// prefix rather than at the root.
-		BasePath: "/apis/ccompat/v7",
+		BasePath:     "/apis/ccompat/v7",
+		SecurityMode: security.Mode,
 	}, nil
+}
+
+// applyKarapaceSchemaRegistryTls terminates TLS on Karapace's REST endpoint
+// and secures its aiokafka storage connection to the broker. Karapace is a
+// Python service that consumes PEM material only (no PKCS#12), so the leaf's
+// PEM cert/key and the CA cert PEM are mounted rather than keystores; the
+// private keys cross as *dagger.Secret so their plaintext never lands on disk.
+func applyKarapaceSchemaRegistryTls(ctx context.Context, ctr *dagger.Container, security *SchemaRegistrySecurity, srHost string) (*dagger.Container, error) {
+	leaf, err := mintServiceLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-karapace-rest")
+	if err != nil {
+		return nil, fmt.Errorf("mint karapace REST leaf: %w", err)
+	}
+	caPem, err := caCertPem(ctx, security.CaKeyStore, security.CaKeyStorePassword)
+	if err != nil {
+		return nil, fmt.Errorf("derive karapace storage CA: %w", err)
+	}
+	ctr = ctr.
+		// REST endpoint TLS termination (PEM).
+		WithFile(karapaceServerCertPath, leaf.CertPemFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithMountedSecret(karapaceServerKeyPath, leaf.PrivateKeyPem, dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
+		WithEnvVariable("KARAPACE_SERVER_TLS_CERTFILE", karapaceServerCertPath).
+		WithEnvVariable("KARAPACE_SERVER_TLS_KEYFILE", karapaceServerKeyPath).
+		// aiokafka storage connection verifies the broker against the cluster CA.
+		WithEnvVariable("KARAPACE_SECURITY_PROTOCOL", "SSL").
+		WithFile(karapaceStorageCaPath, caPem, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+		WithEnvVariable("KARAPACE_SSL_CAFILE", karapaceStorageCaPath)
+
+	if security.Mode == "MTLS" {
+		// REST endpoint requires client certs; Karapace needs the trust anchor
+		// in PEM, so convert the caller's PKCS#12 client trust store.
+		restCa, err := pkcs12TruststorePem(ctx, security.ClientTrustStore, security.ClientTrustStorePassword)
+		if err != nil {
+			return nil, fmt.Errorf("derive karapace REST client-auth CA: %w", err)
+		}
+		clientLeaf, err := mintClientLeaf(ctx, security.CaKeyStore, security.CaKeyStorePassword, srHost, "sr-karapace-storage")
+		if err != nil {
+			return nil, fmt.Errorf("mint karapace storage client leaf: %w", err)
+		}
+		ctr = ctr.
+			WithFile(karapaceRestCaPath, restCa, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithEnvVariable("KARAPACE_SERVER_TLS_CAFILE", karapaceRestCaPath).
+			WithEnvVariable("KARAPACE_SERVER_TLS_CLIENT_AUTH", "required").
+			WithFile(karapaceClientCertPath, clientLeaf.CertPemFile, dagger.ContainerWithFileOpts{Permissions: 0o644}).
+			WithMountedSecret(karapaceClientKeyPath, clientLeaf.PrivateKeyPem, dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
+			WithEnvVariable("KARAPACE_SSL_CERTFILE", karapaceClientCertPath).
+			WithEnvVariable("KARAPACE_SSL_KEYFILE", karapaceClientKeyPath)
+	}
+	return ctr, nil
 }
 
 // KarapaceSchemaRegistry spins up a Karapace service
@@ -263,8 +519,10 @@ func (k *Kafka) ApicurioSchemaRegistry(
 // which also keeps CI clear of Docker Hub rate limits and Confluent's image
 // licensing.
 //
-// Only PLAINTEXT clusters are supported in this story: the constructor
-// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+// security must match the backing cluster's mode. Karapace consumes PEM (not
+// PKCS#12) for its own listener and aiokafka storage; the module extracts PEM
+// from the supplied CA internally, so callers pass the same PKCS#12 profile
+// shape as the other registries.
 //
 // Session-cached for the same reason ConfluentSchemaRegistry is — a
 // `+cache="never"` directive here would mint a brand-new registry service
@@ -278,6 +536,7 @@ func (k *Kafka) KarapaceSchemaRegistry(
 	registry string,
 	// +default="6.1.4"
 	tag string,
+	security *SchemaRegistrySecurity,
 ) (*SchemaRegistry, error) {
 	if cluster == nil {
 		return nil, fmt.Errorf("Kafka.KarapaceSchemaRegistry: cluster must not be nil")
@@ -285,15 +544,10 @@ func (k *Kafka) KarapaceSchemaRegistry(
 	if len(cluster.BrokerSvcs) == 0 {
 		return nil, fmt.Errorf("Kafka.KarapaceSchemaRegistry: cluster has no brokers")
 	}
-	if cluster.ClientSecurityMode != "PLAINTEXT" {
-		return nil, fmt.Errorf(
-			"Kafka.KarapaceSchemaRegistry: cluster client listener is %q; only PLAINTEXT "+
-				"is supported in this story. TLS / mTLS Schema Registry "+
-				"(KARAPACE_SECURITY_PROTOCOL=SSL plus keystore mounts) "+
-				"is a follow-up story.",
-			cluster.ClientSecurityMode,
-		)
+	if err := validateRegistrySecurity("Kafka.KarapaceSchemaRegistry", security, cluster.ClientSecurityMode); err != nil {
+		return nil, err
 	}
+	tls := security.Mode != "PLAINTEXT"
 
 	image := fmt.Sprintf("%s/aiven-open/karapace:%s", registry, tag)
 	// `ksr-` (karapace schema registry) keeps the hostname short — a longer
@@ -335,6 +589,13 @@ func (k *Kafka) KarapaceSchemaRegistry(
 		// instead.
 		WithoutDockerHealthcheck().
 		WithExposedPort(schemaRegistryPort)
+	if tls {
+		var err error
+		ctr, err = applyKarapaceSchemaRegistryTls(ctx, ctr, security, srHost)
+		if err != nil {
+			return nil, err
+		}
+	}
 	ctr = cluster.BindBrokers(ctr)
 
 	// Karapace's production image ships no ENTRYPOINT/CMD. The schema
@@ -350,6 +611,7 @@ func (k *Kafka) KarapaceSchemaRegistry(
 		SchemaRegistrySvc: srSvc,
 		AdvertisedHost:    srHost,
 		AdvertisedPort:    schemaRegistryPort,
+		SecurityMode:      security.Mode,
 	}, nil
 }
 
@@ -375,13 +637,29 @@ func (s *SchemaRegistry) BindTo(ctr *dagger.Container) *dagger.Container {
 	return ctr.WithServiceBinding(s.AdvertisedHost, s.SchemaRegistrySvc)
 }
 
-// Client returns a typed HTTP client targeting this registry's REST API.
-// No I/O happens at construction time.
-func (s *SchemaRegistry) Client() *SchemaRegistryClient {
-	return &SchemaRegistryClient{
-		Svc:     s.SchemaRegistrySvc,
-		BaseURL: fmt.Sprintf("http://%s:%d%s", s.AdvertisedHost, s.AdvertisedPort, s.BasePath),
+// Client returns a typed HTTP client targeting this registry's REST API. The
+// URL scheme (http vs https) follows the registry's own security mode; the
+// supplied security profile must match it (a TLS/mTLS registry needs a TLS/mTLS
+// client profile, verified when the first request runs). No I/O happens at
+// construction time.
+func (s *SchemaRegistry) Client(security *SchemaRegistryClientSecurity) *SchemaRegistryClient {
+	scheme := "http"
+	if s.SecurityMode == "TLS" || s.SecurityMode == "MTLS" {
+		scheme = "https"
 	}
+	c := &SchemaRegistryClient{
+		Svc:          s.SchemaRegistrySvc,
+		BaseURL:      fmt.Sprintf("%s://%s:%d%s", scheme, s.AdvertisedHost, s.AdvertisedPort, s.BasePath),
+		SecurityMode: "PLAINTEXT",
+	}
+	if security != nil {
+		c.SecurityMode = security.Mode
+		c.TrustStore = security.TrustStore
+		c.TrustStorePassword = security.TrustStorePassword
+		c.KeyStore = security.KeyStore
+		c.KeyStorePassword = security.KeyStorePassword
+	}
+	return c
 }
 
 // Stop tears down the Schema Registry service. Kill is set so the stop
@@ -420,8 +698,23 @@ func (c *SchemaRegistryClient) do(ctx context.Context, method, path string, reqB
 	if c.Svc == nil {
 		return nil, 0, fmt.Errorf("schema registry client has no service")
 	}
+	https := strings.HasPrefix(c.BaseURL, "https://")
+	if https && c.SecurityMode == "PLAINTEXT" {
+		return nil, 0, fmt.Errorf("schema registry serves HTTPS but the client security is PLAINTEXT; pass a TLS or mTLS SchemaRegistryClientSecurity")
+	}
+	if !https && c.SecurityMode != "PLAINTEXT" {
+		return nil, 0, fmt.Errorf("schema registry serves plain HTTP but the client security is %s; pass PlaintextSchemaRegistryClientSecurity", c.SecurityMode)
+	}
 	if _, err := c.Svc.Start(ctx); err != nil {
 		return nil, 0, fmt.Errorf("start schema registry service: %w", err)
+	}
+	cfg, err := c.tlsConfig(ctx)
+	if err != nil {
+		return nil, 0, fmt.Errorf("build tls config: %w", err)
+	}
+	httpClient := http.DefaultClient
+	if cfg != nil {
+		httpClient = &http.Client{Transport: &http.Transport{TLSClientConfig: cfg}}
 	}
 
 	var body []byte
@@ -460,7 +753,7 @@ func (c *SchemaRegistryClient) do(ctx context.Context, method, path string, reqB
 			req.Header.Set("Content-Type", srContentType)
 		}
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			// The registry container may still be starting its HTTP
 			// listener; connection-level failures are retryable.
@@ -486,6 +779,63 @@ func (c *SchemaRegistryClient) do(ctx context.Context, method, path string, reqB
 		return respBody, resp.StatusCode, nil
 	}
 	return nil, 0, fmt.Errorf("%s %s: schema registry not ready after %d attempts: %w", method, path, attempts, lastErr)
+}
+
+// tlsConfig materializes the client-side *tls.Config from the client's PKCS#12
+// truststore (and, for mTLS, keystore), mirroring Client.tlsConfig on the
+// franz-go path. Returns (nil, nil) for a plaintext registry client.
+func (c *SchemaRegistryClient) tlsConfig(ctx context.Context) (*tls.Config, error) {
+	if c.SecurityMode == "PLAINTEXT" {
+		return nil, nil
+	}
+	if c.TrustStore == nil || c.TrustStorePassword == nil {
+		return nil, fmt.Errorf("%s registry client requires a trust store and password", c.SecurityMode)
+	}
+	tsBytes, err := dagFileBytes(ctx, c.TrustStore)
+	if err != nil {
+		return nil, fmt.Errorf("export truststore: %w", err)
+	}
+	tsPwd, err := c.TrustStorePassword.Plaintext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read truststore password: %w", err)
+	}
+	rootCerts, err := pkcs12.DecodeTrustStore(tsBytes, tsPwd)
+	if err != nil {
+		return nil, fmt.Errorf("decode truststore: %w", err)
+	}
+	pool := x509.NewCertPool()
+	for _, ca := range rootCerts {
+		pool.AddCert(ca)
+	}
+	cfg := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+
+	if c.SecurityMode == "MTLS" {
+		if c.KeyStore == nil || c.KeyStorePassword == nil {
+			return nil, fmt.Errorf("MTLS registry client requires a key store and password")
+		}
+		ksBytes, err := dagFileBytes(ctx, c.KeyStore)
+		if err != nil {
+			return nil, fmt.Errorf("export keystore: %w", err)
+		}
+		ksPwd, err := c.KeyStorePassword.Plaintext(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read keystore password: %w", err)
+		}
+		priv, leaf, chain, err := pkcs12.DecodeChain(ksBytes, ksPwd)
+		if err != nil {
+			return nil, fmt.Errorf("decode keystore: %w", err)
+		}
+		certBytes := [][]byte{leaf.Raw}
+		for _, link := range chain {
+			certBytes = append(certBytes, link.Raw)
+		}
+		cfg.Certificates = []tls.Certificate{{
+			Certificate: certBytes,
+			PrivateKey:  priv,
+			Leaf:        leaf,
+		}}
+	}
+	return cfg, nil
 }
 
 // isConnRefused reports whether err is a connection-refused dial failure,

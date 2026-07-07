@@ -70,7 +70,12 @@ func (a *avroSchemas) get(ctx context.Context, id int) (*avroSchema, error) {
 	if a.registry == nil {
 		return nil, fmt.Errorf("AVRO mode requires a schema registry to resolve schema id %d", id)
 	}
-	rs, err := a.registry.Client().LookupSchemaByID(ctx, id)
+	// The franz-go avro path resolves schemas over the registry's REST API.
+	// It currently assumes a plaintext registry; wiring a TLS/mTLS client
+	// profile through Produce/Consume is a follow-up (#141). A TLS registry
+	// here surfaces a clear "serves HTTPS but client is PLAINTEXT" error from
+	// do().
+	rs, err := a.registry.Client(nil).LookupSchemaByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("resolve schema id %d: %w", id, err)
 	}

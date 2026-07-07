@@ -139,12 +139,13 @@ cluster := dag.Kafka().ConfluentCluster(clusterId, dag.Kafka().PlaintextServerSe
 
 sr := dag.Kafka().ConfluentSchemaRegistry(
     cluster,
+    dag.Kafka().PlaintextSchemaRegistrySecurity(),
     dagger.KafkaConfluentSchemaRegistryOpts{
         Tag:      "8.2.0",
         Registry: "docker.io",
     },
 )
-client := sr.Client()
+client := sr.Client(dag.Kafka().PlaintextSchemaRegistryClientSecurity())
 ```
 
 The registry composes on top of **any** `*Cluster` — it talks the Kafka
@@ -157,16 +158,27 @@ observe the same underlying service. It binds every broker via
 `cluster.BindBrokers` and wires `SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS`
 from `cluster.BootstrapServers()`.
 
-**PLAINTEXT only** in this story — the constructor rejects a cluster whose
-client listener runs TLS or mTLS. TLS / mTLS Schema Registry is a follow-up.
+**TLS / mTLS** — the required `security *SchemaRegistrySecurity` argument (from
+`Kafka.{Plaintext,Tls,Mtls}SchemaRegistrySecurity`) must **match the cluster's
+mode**: a PLAINTEXT registry pairs with a PLAINTEXT cluster (today's behaviour),
+and a TLS/mTLS registry pairs with a same-mode cluster so its kafka-storage
+connection authenticates against the broker. A mismatch returns an error naming
+both modes. Under TLS/mTLS the constructor mints a per-registry REST server leaf
+(DNS SAN = the registry's service hostname) from the supplied CA and derives the
+broker-facing truststore from the same CA — so pass the **same CA** to the
+cluster, the registry, and the client (the single-CA convention, see the
+[TLS / mTLS notes](#tls--mtls-notes)). See `SchemaRegistryClient` for the
+matching client profile.
 
 - `SchemaRegistry.Endpoint(ctx) (string, error)` — the `host:port` other
   containers (and the module runtime) reach the REST API on.
 - `SchemaRegistry.BindTo(c *dagger.Container) *dagger.Container` —
   `WithServiceBinding` so a caller's container resolves the registry at the
   same hostname `Endpoint` reports.
-- `SchemaRegistry.Client() *SchemaRegistryClient` — a pure-Go `net/http`
-  admin client; no helper containers.
+- `SchemaRegistry.Client(security *SchemaRegistryClientSecurity) *SchemaRegistryClient`
+  — a pure-Go `net/http` admin client (no helper containers); the client
+  profile must match the registry's mode (HTTP vs HTTPS, plus a client cert for
+  mTLS).
 - `SchemaRegistry.Stop(ctx) error` — tears the registry service down.
 
 ### ApicurioSchemaRegistry
@@ -203,8 +215,12 @@ Confluent-compatible surface only speaks `AVRO`, `JSON`, and `PROTOBUF` (the
 `schemaType` values `SchemaRegistryClient` already accepts). Apicurio's other
 artifact types are not reachable through this constructor.
 
-**PLAINTEXT only** in this story, matching `ConfluentSchemaRegistry` — the
-constructor rejects a cluster whose client listener runs TLS or mTLS.
+**TLS / mTLS**, matching `ConfluentSchemaRegistry`: pass a
+`security *SchemaRegistrySecurity` that matches the cluster's mode. Apicurio is
+a Quarkus app, so TLS terminates on the Quarkus HTTP layer
+(`QUARKUS_HTTP_SSL_*`, PKCS#12 keystore) while its kafkasql storage connection
+uses the Kafka client SSL config (`KAFKA_SECURITY_PROTOCOL=SSL` + PKCS#12
+truststore, fed PKCS#12 to avoid a PEM-truststore-plus-password startup bug).
 
 ### KarapaceSchemaRegistry
 
@@ -212,21 +228,22 @@ constructor rejects a cluster whose client listener runs TLS or mTLS.
 `ghcr.io/aiven-open/karapace` image. Karapace is Aiven's drop-in Python
 reimplementation of the Confluent Schema Registry — identical wire surface,
 different runtime. It takes the **same parameters** as `ConfluentSchemaRegistry`
-(`cluster`, plus optional `registry` / `tag`) and returns the **same
-`*SchemaRegistry` type**, so `Client()`, `Endpoint()`, `BindTo()`, and `Stop()`
-are all shared code.
+(`cluster`, the required `security *SchemaRegistrySecurity`, plus optional
+`registry` / `tag`) and returns the **same `*SchemaRegistry` type**, so
+`Client()`, `Endpoint()`, `BindTo()`, and `Stop()` are all shared code.
 
 ```go
 cluster := dag.Kafka().ConfluentCluster(clusterId, dag.Kafka().PlaintextServerSecurity())
 
 sr := dag.Kafka().KarapaceSchemaRegistry(
     cluster,
+    dag.Kafka().PlaintextSchemaRegistrySecurity(),
     dagger.KafkaKarapaceSchemaRegistryOpts{
         Tag:      "6.1.4",
         Registry: "ghcr.io",
     },
 )
-client := sr.Client()
+client := sr.Client(dag.Kafka().PlaintextSchemaRegistryClientSecurity())
 ```
 
 Unlike `ConfluentSchemaRegistry` and `ApicurioSchemaRegistry`, `registry`
@@ -237,8 +254,13 @@ image licensing. Karapace stores schemas in the cluster's `_schemas` topic
 its Confluent-compatible REST API **at the root**, so the same
 `SchemaRegistryClient` drives it unchanged.
 
-**PLAINTEXT only** in this story, matching `ConfluentSchemaRegistry` — the
-constructor rejects a cluster whose client listener runs TLS or mTLS.
+**TLS / mTLS**, matching `ConfluentSchemaRegistry`: pass a matching-mode
+`security *SchemaRegistrySecurity`. Karapace is a Python service that consumes
+**PEM** (not PKCS#12) for both its REST listener (`KARAPACE_SERVER_TLS_*`) and
+its aiokafka storage connection (`KARAPACE_SECURITY_PROTOCOL=SSL` +
+`KARAPACE_SSL_CAFILE`); the module extracts PEM from the supplied CA
+internally, so callers still pass the same PKCS#12 profile shape as the other
+registries.
 
 ### SchemaRegistryClient
 
@@ -258,6 +280,14 @@ level, err := client.GetCompatibility(ctx, "my-subject-value")
 `schemaType` accepts `AVRO`, `JSON`, or `PROTOBUF`. Compatibility `level`
 accepts `NONE`, `BACKWARD`, `BACKWARD_TRANSITIVE`, `FORWARD`,
 `FORWARD_TRANSITIVE`, `FULL`, or `FULL_TRANSITIVE`.
+
+`sr.Client(security)` picks its URL scheme from the registry's mode: a TLS/mTLS
+registry serves HTTPS and needs a matching `SchemaRegistryClientSecurity` (a
+truststore for the registry's cert, plus a client keystore for mTLS); the
+underlying `*http.Client` materialises a `tls.Config` from those PKCS#12
+archives the same way the franz-go `Client` does. A scheme/mode mismatch
+(HTTPS registry with a PLAINTEXT client, or vice versa) fails with a clear
+error on the first request.
 
 `RegisteredSchema` carries `Subject`, `Version`, `SchemaID`, `Definition`
 (the schema text), and `SchemaType`. The `SchemaID` / `Definition` names
@@ -346,8 +376,8 @@ separate-container registries are interchangeable from a caller's
 perspective:
 
 ```go
-sr := cluster.SchemaRegistry()
-client := sr.Client()
+sr := cluster.SchemaRegistry(dag.Kafka().PlaintextSchemaRegistrySecurity())
+client := sr.Client(dag.Kafka().PlaintextSchemaRegistryClientSecurity())
 
 id, err := client.RegisterSchema(ctx, "my-subject-value", avroSchema,
     dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{SchemaType: "AVRO"})
@@ -373,10 +403,16 @@ the whole `*SchemaRegistry` surface behaves identically to the
 `*SchemaRegistry`, and the `*SchemaRegistryClient` returned by
 `Client()`.
 
-The registry's REST endpoint is plain HTTP regardless of the cluster's
-Kafka-listener security mode, so `SchemaRegistry()` works on both
-PLAINTEXT and TLS Redpanda clusters. (Securing the SR endpoint itself
-with TLS is a follow-up, matching `ConfluentSchemaRegistry`.)
+`SchemaRegistry(security)` takes a `security *SchemaRegistrySecurity` matching
+the cluster's mode (Redpanda supports PLAINTEXT or TLS — it has no cluster-level
+mTLS). On a TLS cluster the bundled SR REST endpoint terminates **HTTPS**,
+reusing the broker's own server leaf (whose DNS SAN is the broker/registry host)
+via the `schema_registry_api_tls` block rendered into `redpanda.yaml` at
+cluster-build time — so no per-registry leaf is minted and the profile's CA
+keystore is unused (required only for API uniformity). Pass a matching TLS
+`SchemaRegistryClientSecurity` (a truststore from the cluster CA) to `Client()`
+to drive the HTTPS endpoint. SR-REST mTLS is not reachable, as it would require
+a cluster-level mTLS mode Redpanda does not have.
 
 ## Client
 
@@ -519,6 +555,34 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
   the returned `*dagger.File` (`.Contents(ctx)` / `.Export(ctx)`).
   Export the resulting directory with restrictive permissions if you
   persist it.
+
+### Schema Registry TLS / mTLS
+
+- A TLS/mTLS Schema Registry secures **two** surfaces: its REST endpoint
+  (registry as server) and its kafka-storage connection to the broker (registry
+  as client). The constructor mints a **per-registry REST server leaf** from the
+  supplied CA — DNS SAN = the registry's service hostname (`csr-`/`asr-`/`ksr-`
+  + a per-cluster suffix) — exactly as the brokers mint their external leaves
+  (`mintServiceLeaf`, shared with the broker path). Redpanda's bundled registry
+  is the exception: it reuses the broker's own leaf, so no per-registry leaf is
+  minted.
+- **Security-mode coupling.** The registry's `SchemaRegistrySecurity` mode must
+  match the backing cluster's client-listener mode; a mismatch is rejected with
+  an error naming both modes. This guarantees the registry's kafka-storage
+  connection uses the same protocol the broker's client listener speaks.
+- **Single-CA convention.** Because the cluster does not carry its CA across the
+  API, the registry derives its broker-facing truststore from the CA the caller
+  re-supplies. Pass the **same CA** to the cluster (`TlsServerSecurity`), the
+  registry (`TlsSchemaRegistrySecurity`), and the client
+  (`TlsSchemaRegistryClientSecurity`) so every handshake chains to one root. For
+  mTLS the registry also mints its own client leaf from that CA to present to
+  the broker.
+- **PKCS#12 vs PEM per image.** Confluent (`cp-schema-registry`, Java) and
+  Apicurio (Quarkus) consume **PKCS#12** keystores/truststores via env vars;
+  Karapace (Python) and Redpanda consume **PEM** — the module extracts PEM from
+  the supplied PKCS#12 CA internally, so callers always pass the same profile
+  shape. Feed Apicurio's kafkasql storage PKCS#12 (not PEM) to avoid a
+  PEM-truststore-plus-password startup bug.
 
 ## Image source
 

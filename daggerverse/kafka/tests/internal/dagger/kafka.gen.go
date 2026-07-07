@@ -64,7 +64,7 @@ func (r *Binding) AsKafkaRedpandaServerSecurity() *KafkaRedpandaServerSecurity {
 }
 
 // Retrieve the binding value, as type KafkaRegisteredSchema
-func (r *Binding) AsKafkaRegisteredSchema() *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
+func (r *Binding) AsKafkaRegisteredSchema() *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:122:6)
 	q := r.query.Select("asKafkaRegisteredSchema")
 
 	return &KafkaRegisteredSchema{
@@ -73,7 +73,7 @@ func (r *Binding) AsKafkaRegisteredSchema() *KafkaRegisteredSchema { // kafka (.
 }
 
 // Retrieve the binding value, as type KafkaSchemaRegistry
-func (r *Binding) AsKafkaSchemaRegistry() *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
+func (r *Binding) AsKafkaSchemaRegistry() *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:63:6)
 	q := r.query.Select("asKafkaSchemaRegistry")
 
 	return &KafkaSchemaRegistry{
@@ -82,10 +82,28 @@ func (r *Binding) AsKafkaSchemaRegistry() *KafkaSchemaRegistry { // kafka (../..
 }
 
 // Retrieve the binding value, as type KafkaSchemaRegistryClient
-func (r *Binding) AsKafkaSchemaRegistryClient() *KafkaSchemaRegistryClient { // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
+func (r *Binding) AsKafkaSchemaRegistryClient() *KafkaSchemaRegistryClient { // kafka (../../../../../daggerverse/kafka/schema_registry.go:98:6)
 	q := r.query.Select("asKafkaSchemaRegistryClient")
 
 	return &KafkaSchemaRegistryClient{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type KafkaSchemaRegistryClientSecurity
+func (r *Binding) AsKafkaSchemaRegistryClientSecurity() *KafkaSchemaRegistryClientSecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:28:6)
+	q := r.query.Select("asKafkaSchemaRegistryClientSecurity")
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type KafkaSchemaRegistrySecurity
+func (r *Binding) AsKafkaSchemaRegistrySecurity() *KafkaSchemaRegistrySecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:12:6)
+	q := r.query.Select("asKafkaSchemaRegistrySecurity")
+
+	return &KafkaSchemaRegistrySecurity{
 		query: q,
 	}
 }
@@ -244,7 +262,7 @@ func (r *Env) WithKafkaRedpandaServerSecurityOutput(name string, description str
 }
 
 // Create or update a binding of type KafkaRegisteredSchema in the environment
-func (r *Env) WithKafkaRegisteredSchemaInput(name string, value *KafkaRegisteredSchema, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
+func (r *Env) WithKafkaRegisteredSchemaInput(name string, value *KafkaRegisteredSchema, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:122:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaRegisteredSchemaInput")
 	q = q.Arg("name", name)
@@ -257,7 +275,7 @@ func (r *Env) WithKafkaRegisteredSchemaInput(name string, value *KafkaRegistered
 }
 
 // Declare a desired KafkaRegisteredSchema output to be assigned in the environment
-func (r *Env) WithKafkaRegisteredSchemaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
+func (r *Env) WithKafkaRegisteredSchemaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:122:6)
 	q := r.query.Select("withKafkaRegisteredSchemaOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -268,7 +286,7 @@ func (r *Env) WithKafkaRegisteredSchemaOutput(name string, description string) *
 }
 
 // Create or update a binding of type KafkaSchemaRegistryClient in the environment
-func (r *Env) WithKafkaSchemaRegistryClientInput(name string, value *KafkaSchemaRegistryClient, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
+func (r *Env) WithKafkaSchemaRegistryClientInput(name string, value *KafkaSchemaRegistryClient, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:98:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaSchemaRegistryClientInput")
 	q = q.Arg("name", name)
@@ -281,7 +299,7 @@ func (r *Env) WithKafkaSchemaRegistryClientInput(name string, value *KafkaSchema
 }
 
 // Declare a desired KafkaSchemaRegistryClient output to be assigned in the environment
-func (r *Env) WithKafkaSchemaRegistryClientOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
+func (r *Env) WithKafkaSchemaRegistryClientOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:98:6)
 	q := r.query.Select("withKafkaSchemaRegistryClientOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -291,8 +309,32 @@ func (r *Env) WithKafkaSchemaRegistryClientOutput(name string, description strin
 	}
 }
 
+// Create or update a binding of type KafkaSchemaRegistryClientSecurity in the environment
+func (r *Env) WithKafkaSchemaRegistryClientSecurityInput(name string, value *KafkaSchemaRegistryClientSecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:28:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withKafkaSchemaRegistryClientSecurityInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired KafkaSchemaRegistryClientSecurity output to be assigned in the environment
+func (r *Env) WithKafkaSchemaRegistryClientSecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:28:6)
+	q := r.query.Select("withKafkaSchemaRegistryClientSecurityOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
 // Create or update a binding of type KafkaSchemaRegistry in the environment
-func (r *Env) WithKafkaSchemaRegistryInput(name string, value *KafkaSchemaRegistry, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
+func (r *Env) WithKafkaSchemaRegistryInput(name string, value *KafkaSchemaRegistry, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:63:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaSchemaRegistryInput")
 	q = q.Arg("name", name)
@@ -305,8 +347,32 @@ func (r *Env) WithKafkaSchemaRegistryInput(name string, value *KafkaSchemaRegist
 }
 
 // Declare a desired KafkaSchemaRegistry output to be assigned in the environment
-func (r *Env) WithKafkaSchemaRegistryOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
+func (r *Env) WithKafkaSchemaRegistryOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/schema_registry.go:63:6)
 	q := r.query.Select("withKafkaSchemaRegistryOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type KafkaSchemaRegistrySecurity in the environment
+func (r *Env) WithKafkaSchemaRegistrySecurityInput(name string, value *KafkaSchemaRegistrySecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:12:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withKafkaSchemaRegistrySecurityInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired KafkaSchemaRegistrySecurity output to be assigned in the environment
+func (r *Env) WithKafkaSchemaRegistrySecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:12:6)
+	q := r.query.Select("withKafkaSchemaRegistrySecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -485,10 +551,10 @@ func (r *Kafka) ApacheNativeCluster(clusterId string, clientListenerSecurity *Ka
 type KafkaApicurioSchemaRegistryOpts struct {
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:200:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:400:2)
 
 	// Default: "2.6.13.Final"
-	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:202:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:402:2)
 }
 
 // ApicurioSchemaRegistry spins up an Apicurio Registry service
@@ -503,13 +569,16 @@ type KafkaApicurioSchemaRegistryOpts struct {
 // Protobuf, OpenAPI, AsyncAPI, GraphQL, WSDL, XSD); over the CSR-compat
 // surface only the AVRO / JSON / PROTOBUF subset is reachable.
 //
-// Only PLAINTEXT clusters are supported in this story: the constructor
-// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+// security must match the backing cluster's mode: a PLAINTEXT profile keeps
+// the REST endpoint on HTTP and the kafkasql connection unencrypted; a TLS /
+// mTLS profile terminates HTTPS on the REST endpoint and secures the kafkasql
+// connection against a matching-mode cluster.
 //
 // Session-cached for the same reason ConfluentSchemaRegistry is — a
 // `for every chained client call.
-func (r *Kafka) ApicurioSchemaRegistry(cluster *KafkaCluster, opts ...KafkaApicurioSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:196:1)
+func (r *Kafka) ApicurioSchemaRegistry(cluster *KafkaCluster, security *KafkaSchemaRegistrySecurity, opts ...KafkaApicurioSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:396:1)
 	assertNotNil("cluster", cluster)
+	assertNotNil("security", security)
 	q := r.query.Select("apicurioSchemaRegistry")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -522,6 +591,7 @@ func (r *Kafka) ApicurioSchemaRegistry(cluster *KafkaCluster, opts ...KafkaApicu
 		}
 	}
 	q = q.Arg("cluster", cluster)
+	q = q.Arg("security", security)
 
 	return &KafkaSchemaRegistry{
 		query: q,
@@ -602,10 +672,10 @@ func (r *Kafka) ConfluentCluster(clusterId string, clientListenerSecurity *Kafka
 type KafkaConfluentSchemaRegistryOpts struct {
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:111:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:240:2)
 
 	// Default: "8.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:113:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:242:2)
 }
 
 // ConfluentSchemaRegistry spins up a Confluent Schema Registry service
@@ -620,8 +690,9 @@ type KafkaConfluentSchemaRegistryOpts struct {
 //
 // Session-cached for the same reason the cluster constructors are — a
 // `for every chained client call.
-func (r *Kafka) ConfluentSchemaRegistry(cluster *KafkaCluster, opts ...KafkaConfluentSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:107:1)
+func (r *Kafka) ConfluentSchemaRegistry(cluster *KafkaCluster, security *KafkaSchemaRegistrySecurity, opts ...KafkaConfluentSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:236:1)
 	assertNotNil("cluster", cluster)
+	assertNotNil("security", security)
 	q := r.query.Select("confluentSchemaRegistry")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -634,6 +705,7 @@ func (r *Kafka) ConfluentSchemaRegistry(cluster *KafkaCluster, opts ...KafkaConf
 		}
 	}
 	q = q.Arg("cluster", cluster)
+	q = q.Arg("security", security)
 
 	return &KafkaSchemaRegistry{
 		query: q,
@@ -693,10 +765,10 @@ func (r *Kafka) UnmarshalJSON(bs []byte) error {
 type KafkaKarapaceSchemaRegistryOpts struct {
 
 	// Default: "ghcr.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:278:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/schema_registry.go:536:2)
 
 	// Default: "6.1.4"
-	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:280:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/schema_registry.go:538:2)
 }
 
 // KarapaceSchemaRegistry spins up a Karapace service
@@ -712,13 +784,16 @@ type KafkaKarapaceSchemaRegistryOpts struct {
 // which also keeps CI clear of Docker Hub rate limits and Confluent's image
 // licensing.
 //
-// Only PLAINTEXT clusters are supported in this story: the constructor
-// rejects TLS / mTLS clusters and points callers at the TLS follow-up.
+// security must match the backing cluster's mode. Karapace consumes PEM (not
+// PKCS#12) for its own listener and aiokafka storage; the module extracts PEM
+// from the supplied CA internally, so callers pass the same PKCS#12 profile
+// shape as the other registries.
 //
 // Session-cached for the same reason ConfluentSchemaRegistry is — a
 // `for every chained client call.
-func (r *Kafka) KarapaceSchemaRegistry(cluster *KafkaCluster, opts ...KafkaKarapaceSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:274:1)
+func (r *Kafka) KarapaceSchemaRegistry(cluster *KafkaCluster, security *KafkaSchemaRegistrySecurity, opts ...KafkaKarapaceSchemaRegistryOpts) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/schema_registry.go:532:1)
 	assertNotNil("cluster", cluster)
+	assertNotNil("security", security)
 	q := r.query.Select("karapaceSchemaRegistry")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -731,6 +806,7 @@ func (r *Kafka) KarapaceSchemaRegistry(cluster *KafkaCluster, opts ...KafkaKarap
 		}
 	}
 	q = q.Arg("cluster", cluster)
+	q = q.Arg("security", security)
 
 	return &KafkaSchemaRegistry{
 		query: q,
@@ -753,6 +829,49 @@ func (r *Kafka) MtlsClientSecurity(keyStore *File, keyStorePassword *Secret, tru
 	q = q.Arg("trustStorePassword", trustStorePassword)
 
 	return &KafkaClientSecurity{
+		query: q,
+	}
+}
+
+// MtlsSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity
+// profile that opens an mTLS HTTPS connection: the registry presents its REST
+// server cert (verified against trustStore) and the client presents its own
+// leaf cert from keyStore (signed by a CA the registry trusts via its
+// clientTrustStore).
+func (r *Kafka) MtlsSchemaRegistryClientSecurity(keyStore *File, keyStorePassword *Secret, trustStore *File, trustStorePassword *Secret) *KafkaSchemaRegistryClientSecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:113:1)
+	assertNotNil("keyStore", keyStore)
+	assertNotNil("keyStorePassword", keyStorePassword)
+	assertNotNil("trustStore", trustStore)
+	assertNotNil("trustStorePassword", trustStorePassword)
+	q := r.query.Select("mtlsSchemaRegistryClientSecurity")
+	q = q.Arg("keyStore", keyStore)
+	q = q.Arg("keyStorePassword", keyStorePassword)
+	q = q.Arg("trustStore", trustStore)
+	q = q.Arg("trustStorePassword", trustStorePassword)
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// MtlsSchemaRegistrySecurity returns a SchemaRegistrySecurity profile that
+// terminates mTLS on the registry REST endpoint. caKeyStore signs the
+// registry's server leaf (and the registry's own client leaf presented to the
+// broker over mTLS); clientTrustStore holds the CA(s) the registry accepts
+// incoming REST client certs from. Pair with an MTLS cluster minted from the
+// same CA.
+func (r *Kafka) MtlsSchemaRegistrySecurity(caKeyStore *File, caKeyStorePassword *Secret, clientTrustStore *File, clientTrustStorePassword *Secret) *KafkaSchemaRegistrySecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:71:1)
+	assertNotNil("caKeyStore", caKeyStore)
+	assertNotNil("caKeyStorePassword", caKeyStorePassword)
+	assertNotNil("clientTrustStore", clientTrustStore)
+	assertNotNil("clientTrustStorePassword", clientTrustStorePassword)
+	q := r.query.Select("mtlsSchemaRegistrySecurity")
+	q = q.Arg("caKeyStore", caKeyStore)
+	q = q.Arg("caKeyStorePassword", caKeyStorePassword)
+	q = q.Arg("clientTrustStore", clientTrustStore)
+	q = q.Arg("clientTrustStorePassword", clientTrustStorePassword)
+
+	return &KafkaSchemaRegistrySecurity{
 		query: q,
 	}
 }
@@ -784,6 +903,27 @@ func (r *Kafka) PlaintextClientSecurity() *KafkaClientSecurity { // kafka (../..
 	q := r.query.Select("plaintextClientSecurity")
 
 	return &KafkaClientSecurity{
+		query: q,
+	}
+}
+
+// PlaintextSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity
+// profile configured for unencrypted HTTP traffic.
+func (r *Kafka) PlaintextSchemaRegistryClientSecurity() *KafkaSchemaRegistryClientSecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:88:1)
+	q := r.query.Select("plaintextSchemaRegistryClientSecurity")
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// PlaintextSchemaRegistrySecurity returns a SchemaRegistrySecurity profile
+// configured for unencrypted, unauthenticated traffic on the registry REST
+// endpoint. It pairs with a PLAINTEXT cluster.
+func (r *Kafka) PlaintextSchemaRegistrySecurity() *KafkaSchemaRegistrySecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:44:1)
+	q := r.query.Select("plaintextSchemaRegistrySecurity")
+
+	return &KafkaSchemaRegistrySecurity{
 		query: q,
 	}
 }
@@ -897,6 +1037,41 @@ func (r *Kafka) TLSClientSecurity(trustStore *File, trustStorePassword *Secret) 
 	q = q.Arg("trustStorePassword", trustStorePassword)
 
 	return &KafkaClientSecurity{
+		query: q,
+	}
+}
+
+// TlsSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity
+// profile that opens an HTTPS connection to the registry. trustStore is a
+// PKCS#12 archive of the CA(s) the client uses to verify the registry's REST
+// leaf certificate (typically the truststore that pairs with the CA passed to
+// TlsSchemaRegistrySecurity on the server side).
+func (r *Kafka) TLSSchemaRegistryClientSecurity(trustStore *File, trustStorePassword *Secret) *KafkaSchemaRegistryClientSecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:97:1)
+	assertNotNil("trustStore", trustStore)
+	assertNotNil("trustStorePassword", trustStorePassword)
+	q := r.query.Select("tlsSchemaRegistryClientSecurity")
+	q = q.Arg("trustStore", trustStore)
+	q = q.Arg("trustStorePassword", trustStorePassword)
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// TlsSchemaRegistrySecurity returns a SchemaRegistrySecurity profile that
+// terminates TLS on the registry REST endpoint. caKeyStore is a PKCS#12
+// archive containing the CA cert + private key the registry uses to mint its
+// per-registry server leaf (bound to the registry's service hostname as a DNS
+// SAN) and to derive the truststore its kafka-storage connection uses to
+// verify the backing broker. Pair with a TLS cluster minted from the same CA.
+func (r *Kafka) TLSSchemaRegistrySecurity(caKeyStore *File, caKeyStorePassword *Secret) *KafkaSchemaRegistrySecurity { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:54:1)
+	assertNotNil("caKeyStore", caKeyStore)
+	assertNotNil("caKeyStorePassword", caKeyStorePassword)
+	q := r.query.Select("tlsSchemaRegistrySecurity")
+	q = q.Arg("caKeyStore", caKeyStore)
+	q = q.Arg("caKeyStorePassword", caKeyStorePassword)
+
+	return &KafkaSchemaRegistrySecurity{
 		query: q,
 	}
 }
@@ -1505,7 +1680,7 @@ func (r *KafkaRedpandaCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kafk
 
 // BindBrokers binds the single Redpanda broker service into the given
 // container so the container can reach it by hostname.
-func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:405:1)
+func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:430:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1517,7 +1692,7 @@ func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka
 
 // BootstrapServers returns the bootstrap address (single broker:9092) for
 // this Redpanda cluster.
-func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:371:1)
+func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:384:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1529,7 +1704,7 @@ func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, 
 // Client starts the Redpanda broker service and returns a franz-go-backed
 // *Client targeting it. The Kafka wire protocol matches Apache Kafka, so
 // the existing *Client + *ClientSecurity (PKCS#12) are reused unchanged.
-func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:414:1)
+func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:439:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1595,16 +1770,23 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 // `rpk redpanda start` runs a Schema Registry inside the broker process on
 // :8081 — no extra container — so the returned *SchemaRegistry points at the
 // broker service itself. Redpanda's SR speaks the Confluent Schema Registry
-// REST API, so the *SchemaRegistryClient from Client() works unchanged. The
-// REST endpoint is plain HTTP regardless of the cluster's Kafka-listener
-// security mode, so this never fails.
+// REST API, so the *SchemaRegistryClient from Client() works unchanged.
+//
+// security must match the cluster's mode (PLAINTEXT or TLS — Redpanda has no
+// mTLS): on a TLS cluster the bundled SR REST endpoint terminates HTTPS
+// reusing the broker's server leaf (configured at cluster-build time in
+// renderRedpandaYaml), so the caller must pass a TLS profile to get an HTTPS
+// client. The profile's CA keystore is unused here (the leaf is already
+// minted); it is required only for API uniformity with the other registries.
 //
 // The returned registry is Bundled: its service is the broker itself, so
 // Stop is a no-op on it — call cluster.Stop to tear the registry down with
 // the cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
 // *SchemaRegistry type therefore can't accidentally kill the cluster.
-func (r *KafkaRedpandaCluster) SchemaRegistry() *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:392:1)
+func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecurity) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:410:1)
+	assertNotNil("security", security)
 	q := r.query.Select("schemaRegistry")
+	q = q.Arg("security", security)
 
 	return &KafkaSchemaRegistry{
 		query: q,
@@ -1615,7 +1797,7 @@ func (r *KafkaRedpandaCluster) SchemaRegistry() *KafkaSchemaRegistry { // kafka 
 // Tests should call this in a defer so the broker `Container.asService`
 // span closes when the test work is done. Kill is set so Service.Stop
 // skips graceful shutdown — see Cluster.Stop for the rationale.
-func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:430:1)
+func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:455:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1713,7 +1895,7 @@ func (r *KafkaRedpandaServerSecurity) AsNode() Node {
 // (`id`, `schema`): an exported `ID` field collides with the synthetic
 // Dagger object `id`, and `Schema` is a GraphQL keyword that breaks
 // consumer-module codegen — see daggerverse/CLAUDE.md.
-type KafkaRegisteredSchema struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:84:6)
+type KafkaRegisteredSchema struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:122:6)
 	query *querybuilder.Selection
 
 	definition *string
@@ -1731,7 +1913,7 @@ func (r *KafkaRegisteredSchema) WithGraphQLQuery(q *querybuilder.Selection) *Kaf
 }
 
 // the schema text itself (Avro / JSON Schema / Protobuf)
-func (r *KafkaRegisteredSchema) Definition(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:88:2)
+func (r *KafkaRegisteredSchema) Definition(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:126:2)
 	if r.definition != nil {
 		return *r.definition, nil
 	}
@@ -1793,7 +1975,7 @@ func (r *KafkaRegisteredSchema) UnmarshalJSON(bs []byte) error {
 }
 
 // globally-unique registry schema id
-func (r *KafkaRegisteredSchema) SchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:87:2)
+func (r *KafkaRegisteredSchema) SchemaID(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:125:2)
 	if r.schemaId != nil {
 		return *r.schemaId, nil
 	}
@@ -1806,7 +1988,7 @@ func (r *KafkaRegisteredSchema) SchemaID(ctx context.Context) (int, error) { // 
 }
 
 // AVRO | JSON | PROTOBUF
-func (r *KafkaRegisteredSchema) SchemaType(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:89:2)
+func (r *KafkaRegisteredSchema) SchemaType(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:127:2)
 	if r.schemaType != nil {
 		return *r.schemaType, nil
 	}
@@ -1819,7 +2001,7 @@ func (r *KafkaRegisteredSchema) SchemaType(ctx context.Context) (string, error) 
 }
 
 // registry subject the schema is registered under
-func (r *KafkaRegisteredSchema) Subject(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:85:2)
+func (r *KafkaRegisteredSchema) Subject(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:123:2)
 	if r.subject != nil {
 		return *r.subject, nil
 	}
@@ -1832,7 +2014,7 @@ func (r *KafkaRegisteredSchema) Subject(ctx context.Context) (string, error) { /
 }
 
 // monotonic version within the subject
-func (r *KafkaRegisteredSchema) Version(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:86:2)
+func (r *KafkaRegisteredSchema) Version(ctx context.Context) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:124:2)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -1866,7 +2048,7 @@ func (r *KafkaRegisteredSchema) AsNode() Node {
 // The constructor is session-cached so chained calls
 // (Client().RegisterSchema(...) → LookupSchemaByID(...)) all observe the
 // same underlying service.
-type KafkaSchemaRegistry struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:42:6)
+type KafkaSchemaRegistry struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:63:6)
 	query *querybuilder.Selection
 
 	endpoint *string
@@ -1883,7 +2065,7 @@ func (r *KafkaSchemaRegistry) WithGraphQLQuery(q *querybuilder.Selection) *Kafka
 // BindTo attaches the Schema Registry service to the given container under
 // the same hostname Endpoint reports, so the container resolves the
 // registry at that address.
-func (r *KafkaSchemaRegistry) BindTo(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/schema_registry.go:374:1)
+func (r *KafkaSchemaRegistry) BindTo(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/schema_registry.go:636:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindTo")
 	q = q.Arg("ctr", ctr)
@@ -1893,10 +2075,15 @@ func (r *KafkaSchemaRegistry) BindTo(ctr *Container) *Container { // kafka (../.
 	}
 }
 
-// Client returns a typed HTTP client targeting this registry's REST API.
-// No I/O happens at construction time.
-func (r *KafkaSchemaRegistry) Client() *KafkaSchemaRegistryClient { // kafka (../../../../../daggerverse/kafka/schema_registry.go:380:1)
+// Client returns a typed HTTP client targeting this registry's REST API. The
+// URL scheme (http vs https) follows the registry's own security mode; the
+// supplied security profile must match it (a TLS/mTLS registry needs a TLS/mTLS
+// client profile, verified when the first request runs). No I/O happens at
+// construction time.
+func (r *KafkaSchemaRegistry) Client(security *KafkaSchemaRegistryClientSecurity) *KafkaSchemaRegistryClient { // kafka (../../../../../daggerverse/kafka/schema_registry.go:645:1)
+	assertNotNil("security", security)
 	q := r.query.Select("client")
+	q = q.Arg("security", security)
 
 	return &KafkaSchemaRegistryClient{
 		query: q,
@@ -1905,7 +2092,7 @@ func (r *KafkaSchemaRegistry) Client() *KafkaSchemaRegistryClient { // kafka (..
 
 // Endpoint returns the host:port other containers (and the module runtime)
 // can reach the Schema Registry REST API on.
-func (r *KafkaSchemaRegistry) Endpoint(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:360:1)
+func (r *KafkaSchemaRegistry) Endpoint(ctx context.Context) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:622:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -1974,7 +2161,7 @@ func (r *KafkaSchemaRegistry) UnmarshalJSON(bs []byte) error {
 // owning cluster, so Stop is a no-op: the cluster owns that lifecycle and
 // stopping it here would tear the whole cluster down. Callers that uniformly
 // `defer sr.Stop(ctx)` stay safe regardless of which registry they hold.
-func (r *KafkaSchemaRegistry) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:397:1)
+func (r *KafkaSchemaRegistry) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:675:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1994,7 +2181,7 @@ func (r *KafkaSchemaRegistry) AsNode() Node {
 // SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's
 // admin REST API. Each method opens a fresh request so the function call is
 // stateless from Dagger's perspective.
-type KafkaSchemaRegistryClient struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:70:6)
+type KafkaSchemaRegistryClient struct { // kafka (../../../../../daggerverse/kafka/schema_registry.go:98:6)
 	query *querybuilder.Selection
 
 	getCompatibility *string
@@ -2011,7 +2198,7 @@ func (r *KafkaSchemaRegistryClient) WithGraphQLQuery(q *querybuilder.Selection) 
 
 // DeleteSubject deletes every version of the given subject and returns the
 // version numbers that were deleted.
-func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject string) ([]int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:661:1)
+func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject string) ([]int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1011:1)
 	q := r.query.Select("deleteSubject")
 	q = q.Arg("subject", subject)
 
@@ -2024,7 +2211,7 @@ func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject s
 // GetCompatibility returns the compatibility level configured for the given
 // subject, falling back to the registry-wide default when the subject has
 // no explicit configuration.
-func (r *KafkaSchemaRegistryClient) GetCompatibility(ctx context.Context, subject string) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:701:1)
+func (r *KafkaSchemaRegistryClient) GetCompatibility(ctx context.Context, subject string) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1051:1)
 	if r.getCompatibility != nil {
 		return *r.getCompatibility, nil
 	}
@@ -2087,7 +2274,7 @@ func (r *KafkaSchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 }
 
 // ListSubjects returns the names of every subject registered.
-func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:645:1)
+func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:995:1)
 	q := r.query.Select("listSubjects")
 
 	var response []string
@@ -2098,7 +2285,7 @@ func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string,
 
 // LookupLatestBySubject returns the latest registered schema version for
 // the given subject.
-func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:615:1)
+func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:965:1)
 	q := r.query.Select("lookupLatestBySubject")
 	q = q.Arg("subject", subject)
 
@@ -2113,7 +2300,7 @@ func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *Kafka
 // text and type, so a second call to GET /schemas/ids/{id}/versions
 // resolves the subject and version. When an id maps to more than one
 // subject/version pair, the first association is returned.
-func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:574:1)
+func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:924:1)
 	q := r.query.Select("lookupSchemaById")
 	q = q.Arg("id", id)
 
@@ -2126,13 +2313,13 @@ func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSch
 type KafkaSchemaRegistryClientRegisterSchemaOpts struct {
 
 	// Default: "AVRO"
-	SchemaType string // kafka (../../../../../daggerverse/kafka/schema_registry.go:544:2)
+	SchemaType string // kafka (../../../../../daggerverse/kafka/schema_registry.go:894:2)
 }
 
 // RegisterSchema registers schema under subject and returns the globally
 // unique schema id the registry assigned. schemaType must be one of AVRO,
 // JSON, or PROTOBUF.
-func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject string, schema string, opts ...KafkaSchemaRegistryClientRegisterSchemaOpts) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:539:1)
+func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject string, schema string, opts ...KafkaSchemaRegistryClientRegisterSchemaOpts) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:889:1)
 	if r.registerSchema != nil {
 		return *r.registerSchema, nil
 	}
@@ -2155,7 +2342,7 @@ func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject 
 // SetCompatibility sets the compatibility level for the given subject.
 // level must be one of NONE, BACKWARD, BACKWARD_TRANSITIVE, FORWARD,
 // FORWARD_TRANSITIVE, FULL, or FULL_TRANSITIVE.
-func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subject string, level string) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:681:1)
+func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subject string, level string) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1031:1)
 	if r.setCompatibility != nil {
 		return nil
 	}
@@ -2169,6 +2356,154 @@ func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subjec
 // AsNode returns this KafkaSchemaRegistryClient as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *KafkaSchemaRegistryClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// SchemaRegistryClientSecurity describes how a SchemaRegistryClient's HTTP
+// client authenticates to a Schema Registry's REST endpoint, mirroring
+// *ClientSecurity on the broker side.
+type KafkaSchemaRegistryClientSecurity struct { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:28:6)
+	query *querybuilder.Selection
+
+	id *ID
+}
+
+func (r *KafkaSchemaRegistryClientSecurity) WithGraphQLQuery(q *querybuilder.Selection) *KafkaSchemaRegistryClientSecurity {
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// A unique identifier for this KafkaSchemaRegistryClientSecurity.
+func (r *KafkaSchemaRegistryClientSecurity) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *KafkaSchemaRegistryClientSecurity) XXX_GraphQLType() string {
+	return "KafkaSchemaRegistryClientSecurity"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *KafkaSchemaRegistryClientSecurity) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *KafkaSchemaRegistryClientSecurity) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *KafkaSchemaRegistryClientSecurity) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *KafkaSchemaRegistryClientSecurity) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = KafkaSchemaRegistryClientSecurity{query: selectNode(dag.query, id, "KafkaSchemaRegistryClientSecurity")}
+	return nil
+}
+
+// AsNode returns this KafkaSchemaRegistryClientSecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaSchemaRegistryClientSecurity) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// SchemaRegistrySecurity describes how a Schema Registry's REST endpoint
+// authenticates and encrypts traffic from clients, mirroring *ServerSecurity
+// on the broker side. The same profile also parameterises the registry's
+// kafka-storage connection to the backing cluster: the CA it carries doubles
+// as the trust anchor the registry uses to dial the cluster's TLS/mTLS client
+// listener (the single-CA convention — pass the same CA to the cluster and the
+// registry).
+type KafkaSchemaRegistrySecurity struct { // kafka (../../../../../daggerverse/kafka/security_schema_registry.go:12:6)
+	query *querybuilder.Selection
+
+	id *ID
+}
+
+func (r *KafkaSchemaRegistrySecurity) WithGraphQLQuery(q *querybuilder.Selection) *KafkaSchemaRegistrySecurity {
+	return &KafkaSchemaRegistrySecurity{
+		query: q,
+	}
+}
+
+// A unique identifier for this KafkaSchemaRegistrySecurity.
+func (r *KafkaSchemaRegistrySecurity) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *KafkaSchemaRegistrySecurity) XXX_GraphQLType() string {
+	return "KafkaSchemaRegistrySecurity"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *KafkaSchemaRegistrySecurity) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *KafkaSchemaRegistrySecurity) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *KafkaSchemaRegistrySecurity) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *KafkaSchemaRegistrySecurity) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = KafkaSchemaRegistrySecurity{query: selectNode(dag.query, id, "KafkaSchemaRegistrySecurity")}
+	return nil
+}
+
+// AsNode returns this KafkaSchemaRegistrySecurity as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KafkaSchemaRegistrySecurity) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}

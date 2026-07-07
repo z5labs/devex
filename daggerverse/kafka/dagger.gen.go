@@ -152,12 +152,14 @@ func (r SchemaRegistry) MarshalJSON() ([]byte, error) {
 		AdvertisedPort    int
 		Bundled           bool
 		BasePath          string
+		SecurityMode      string
 	}
 	concrete.SchemaRegistrySvc = r.SchemaRegistrySvc
 	concrete.AdvertisedHost = r.AdvertisedHost
 	concrete.AdvertisedPort = r.AdvertisedPort
 	concrete.Bundled = r.Bundled
 	concrete.BasePath = r.BasePath
+	concrete.SecurityMode = r.SecurityMode
 	return json.Marshal(&concrete)
 }
 
@@ -168,6 +170,7 @@ func (r *SchemaRegistry) UnmarshalJSON(bs []byte) error {
 		AdvertisedPort    int
 		Bundled           bool
 		BasePath          string
+		SecurityMode      string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -178,6 +181,43 @@ func (r *SchemaRegistry) UnmarshalJSON(bs []byte) error {
 	r.AdvertisedPort = concrete.AdvertisedPort
 	r.Bundled = concrete.Bundled
 	r.BasePath = concrete.BasePath
+	r.SecurityMode = concrete.SecurityMode
+	return nil
+}
+
+func (r SchemaRegistrySecurity) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Mode                     string
+		CaKeyStore               *dagger.File
+		CaKeyStorePassword       *dagger.Secret
+		ClientTrustStore         *dagger.File
+		ClientTrustStorePassword *dagger.Secret
+	}
+	concrete.Mode = r.Mode
+	concrete.CaKeyStore = r.CaKeyStore
+	concrete.CaKeyStorePassword = r.CaKeyStorePassword
+	concrete.ClientTrustStore = r.ClientTrustStore
+	concrete.ClientTrustStorePassword = r.ClientTrustStorePassword
+	return json.Marshal(&concrete)
+}
+
+func (r *SchemaRegistrySecurity) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Mode                     string
+		CaKeyStore               *dagger.File
+		CaKeyStorePassword       *dagger.Secret
+		ClientTrustStore         *dagger.File
+		ClientTrustStorePassword *dagger.Secret
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Mode = concrete.Mode
+	r.CaKeyStore = concrete.CaKeyStore
+	r.CaKeyStorePassword = concrete.CaKeyStorePassword
+	r.ClientTrustStore = concrete.ClientTrustStore
+	r.ClientTrustStorePassword = concrete.ClientTrustStorePassword
 	return nil
 }
 
@@ -238,6 +278,42 @@ func (r ClientSecurity) MarshalJSON() ([]byte, error) {
 }
 
 func (r *ClientSecurity) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Mode               string
+		TrustStore         *dagger.File
+		TrustStorePassword *dagger.Secret
+		KeyStore           *dagger.File
+		KeyStorePassword   *dagger.Secret
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Mode = concrete.Mode
+	r.TrustStore = concrete.TrustStore
+	r.TrustStorePassword = concrete.TrustStorePassword
+	r.KeyStore = concrete.KeyStore
+	r.KeyStorePassword = concrete.KeyStorePassword
+	return nil
+}
+
+func (r SchemaRegistryClientSecurity) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Mode               string
+		TrustStore         *dagger.File
+		TrustStorePassword *dagger.Secret
+		KeyStore           *dagger.File
+		KeyStorePassword   *dagger.Secret
+	}
+	concrete.Mode = r.Mode
+	concrete.TrustStore = r.TrustStore
+	concrete.TrustStorePassword = r.TrustStorePassword
+	concrete.KeyStore = r.KeyStore
+	concrete.KeyStorePassword = r.KeyStorePassword
+	return json.Marshal(&concrete)
+}
+
+func (r *SchemaRegistryClientSecurity) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Mode               string
 		TrustStore         *dagger.File
@@ -319,18 +395,33 @@ func (r *RedpandaServerSecurity) UnmarshalJSON(bs []byte) error {
 
 func (r SchemaRegistryClient) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Svc     *dagger.Service
-		BaseURL string
+		Svc                *dagger.Service
+		BaseURL            string
+		SecurityMode       string
+		TrustStore         *dagger.File
+		TrustStorePassword *dagger.Secret
+		KeyStore           *dagger.File
+		KeyStorePassword   *dagger.Secret
 	}
 	concrete.Svc = r.Svc
 	concrete.BaseURL = r.BaseURL
+	concrete.SecurityMode = r.SecurityMode
+	concrete.TrustStore = r.TrustStore
+	concrete.TrustStorePassword = r.TrustStorePassword
+	concrete.KeyStore = r.KeyStore
+	concrete.KeyStorePassword = r.KeyStorePassword
 	return json.Marshal(&concrete)
 }
 
 func (r *SchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Svc     *dagger.Service
-		BaseURL string
+		Svc                *dagger.Service
+		BaseURL            string
+		SecurityMode       string
+		TrustStore         *dagger.File
+		TrustStorePassword *dagger.Secret
+		KeyStore           *dagger.File
+		KeyStorePassword   *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -338,6 +429,11 @@ func (r *SchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 	}
 	r.Svc = concrete.Svc
 	r.BaseURL = concrete.BaseURL
+	r.SecurityMode = concrete.SecurityMode
+	r.TrustStore = concrete.TrustStore
+	r.TrustStorePassword = concrete.TrustStorePassword
+	r.KeyStore = concrete.KeyStore
+	r.KeyStorePassword = concrete.KeyStorePassword
 	return nil
 }
 
@@ -883,7 +979,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
 				}
 			}
-			return (*Kafka).ApicurioSchemaRegistry(&parent, ctx, cluster, registry, tag)
+			var security *SchemaRegistrySecurity
+			if inputArgs["security"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["security"]), &security)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg security", err))
+				}
+			}
+			return (*Kafka).ApicurioSchemaRegistry(&parent, ctx, cluster, registry, tag, security)
 		case "Client":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -981,7 +1084,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
 				}
 			}
-			return (*Kafka).ConfluentSchemaRegistry(&parent, ctx, cluster, registry, tag)
+			var security *SchemaRegistrySecurity
+			if inputArgs["security"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["security"]), &security)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg security", err))
+				}
+			}
+			return (*Kafka).ConfluentSchemaRegistry(&parent, ctx, cluster, registry, tag, security)
 		case "KarapaceSchemaRegistry":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1009,7 +1119,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
 				}
 			}
-			return (*Kafka).KarapaceSchemaRegistry(&parent, ctx, cluster, registry, tag)
+			var security *SchemaRegistrySecurity
+			if inputArgs["security"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["security"]), &security)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg security", err))
+				}
+			}
+			return (*Kafka).KarapaceSchemaRegistry(&parent, ctx, cluster, registry, tag, security)
 		case "MtlsClientSecurity":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1045,6 +1162,76 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Kafka).MtlsClientSecurity(&parent, keyStore, keyStorePassword, trustStore, trustStorePassword), nil
+		case "MtlsSchemaRegistryClientSecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var keyStore *dagger.File
+			if inputArgs["keyStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyStore"]), &keyStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyStore", err))
+				}
+			}
+			var keyStorePassword *dagger.Secret
+			if inputArgs["keyStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyStorePassword"]), &keyStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyStorePassword", err))
+				}
+			}
+			var trustStore *dagger.File
+			if inputArgs["trustStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trustStore"]), &trustStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trustStore", err))
+				}
+			}
+			var trustStorePassword *dagger.Secret
+			if inputArgs["trustStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trustStorePassword"]), &trustStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trustStorePassword", err))
+				}
+			}
+			return (*Kafka).MtlsSchemaRegistryClientSecurity(&parent, keyStore, keyStorePassword, trustStore, trustStorePassword), nil
+		case "MtlsSchemaRegistrySecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var caKeyStore *dagger.File
+			if inputArgs["caKeyStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caKeyStore"]), &caKeyStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caKeyStore", err))
+				}
+			}
+			var caKeyStorePassword *dagger.Secret
+			if inputArgs["caKeyStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caKeyStorePassword"]), &caKeyStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caKeyStorePassword", err))
+				}
+			}
+			var clientTrustStore *dagger.File
+			if inputArgs["clientTrustStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientTrustStore"]), &clientTrustStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientTrustStore", err))
+				}
+			}
+			var clientTrustStorePassword *dagger.Secret
+			if inputArgs["clientTrustStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientTrustStorePassword"]), &clientTrustStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientTrustStorePassword", err))
+				}
+			}
+			return (*Kafka).MtlsSchemaRegistrySecurity(&parent, caKeyStore, caKeyStorePassword, clientTrustStore, clientTrustStorePassword), nil
 		case "MtlsServerSecurity":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1087,6 +1274,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Kafka).PlaintextClientSecurity(&parent), nil
+		case "PlaintextSchemaRegistryClientSecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Kafka).PlaintextSchemaRegistryClientSecurity(&parent), nil
+		case "PlaintextSchemaRegistrySecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Kafka).PlaintextSchemaRegistrySecurity(&parent), nil
 		case "PlaintextServerSecurity":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1192,6 +1393,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Kafka).TlsClientSecurity(&parent, trustStore, trustStorePassword), nil
+		case "TlsSchemaRegistryClientSecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var trustStore *dagger.File
+			if inputArgs["trustStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trustStore"]), &trustStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trustStore", err))
+				}
+			}
+			var trustStorePassword *dagger.Secret
+			if inputArgs["trustStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trustStorePassword"]), &trustStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trustStorePassword", err))
+				}
+			}
+			return (*Kafka).TlsSchemaRegistryClientSecurity(&parent, trustStore, trustStorePassword), nil
+		case "TlsSchemaRegistrySecurity":
+			var parent Kafka
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var caKeyStore *dagger.File
+			if inputArgs["caKeyStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caKeyStore"]), &caKeyStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caKeyStore", err))
+				}
+			}
+			var caKeyStorePassword *dagger.Secret
+			if inputArgs["caKeyStorePassword"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caKeyStorePassword"]), &caKeyStorePassword)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caKeyStorePassword", err))
+				}
+			}
+			return (*Kafka).TlsSchemaRegistrySecurity(&parent, caKeyStore, caKeyStorePassword), nil
 		case "TlsServerSecurity":
 			var parent Kafka
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1259,7 +1502,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*RedpandaCluster).SchemaRegistry(&parent, ctx), nil
+			var security *SchemaRegistrySecurity
+			if inputArgs["security"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["security"]), &security)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg security", err))
+				}
+			}
+			return (*RedpandaCluster).SchemaRegistry(&parent, ctx, security)
 		case "Stop":
 			var parent RedpandaCluster
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1292,7 +1542,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*SchemaRegistry).Client(&parent), nil
+			var security *SchemaRegistryClientSecurity
+			if inputArgs["security"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["security"]), &security)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg security", err))
+				}
+			}
+			return (*SchemaRegistry).Client(&parent, security), nil
 		case "Endpoint":
 			var parent SchemaRegistry
 			err = json.Unmarshal(parentJSON, &parent)
