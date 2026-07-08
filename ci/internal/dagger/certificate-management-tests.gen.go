@@ -69,7 +69,7 @@ func (r *CertificateManagementTests) All(ctx context.Context, opts ...Certificat
 // CreateCaProducesUsableKeyStore checks that a freshly created CA's keystore
 // decodes successfully under its bound password and yields a CA-flagged
 // certificate.
-func (r *CertificateManagementTests) CreateCaProducesUsableKeyStore(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:59:1)
+func (r *CertificateManagementTests) CreateCaProducesUsableKeyStore(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:60:1)
 	if r.createCaProducesUsableKeyStore != nil {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (r *CertificateManagementTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *CertificateManagementTests) IssueClientCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:162:1)
+func (r *CertificateManagementTests) IssueClientCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:163:1)
 	if r.issueClientCertificateChainsToCa != nil {
 		return nil
 	}
@@ -136,7 +136,7 @@ func (r *CertificateManagementTests) IssueClientCertificateChainsToCa(ctx contex
 	return q.Execute(ctx)
 }
 
-func (r *CertificateManagementTests) IssueMutualTLSCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:170:1)
+func (r *CertificateManagementTests) IssueMutualTLSCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:171:1)
 	if r.issueMutualTlsCertificateChainsToCa != nil {
 		return nil
 	}
@@ -145,7 +145,7 @@ func (r *CertificateManagementTests) IssueMutualTLSCertificateChainsToCa(ctx con
 	return q.Execute(ctx)
 }
 
-func (r *CertificateManagementTests) IssueServerCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:151:1)
+func (r *CertificateManagementTests) IssueServerCertificateChainsToCa(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:152:1)
 	if r.issueServerCertificateChainsToCa != nil {
 		return nil
 	}
@@ -156,7 +156,7 @@ func (r *CertificateManagementTests) IssueServerCertificateChainsToCa(ctx contex
 
 // IssueServerCertificateWithEcdsaKey exercises the caller-chosen-algorithm
 // capability by signing the CA and leaf with ECDSA P-256 keys.
-func (r *CertificateManagementTests) IssueServerCertificateWithEcdsaKey(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:183:1)
+func (r *CertificateManagementTests) IssueServerCertificateWithEcdsaKey(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:184:1)
 	if r.issueServerCertificateWithEcdsaKey != nil {
 		return nil
 	}
@@ -167,7 +167,7 @@ func (r *CertificateManagementTests) IssueServerCertificateWithEcdsaKey(ctx cont
 
 // IssueServerCertificateWithEd25519Key exercises the caller-chosen-algorithm
 // capability by signing the CA and leaf with Ed25519 keys.
-func (r *CertificateManagementTests) IssueServerCertificateWithEd25519Key(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:196:1)
+func (r *CertificateManagementTests) IssueServerCertificateWithEd25519Key(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:197:1)
 	if r.issueServerCertificateWithEd25519Key != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (r *CertificateManagementTests) IssueServerCertificateWithEd25519Key(ctx co
 // LoadCertificateAuthorityRoundTrip creates a CA, exports its keystore as a
 // file, reloads it via LoadCertificateAuthority, then issues a server cert
 // from the reloaded CA and verifies it chains to the original.
-func (r *CertificateManagementTests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:91:1)
+func (r *CertificateManagementTests) LoadCertificateAuthorityRoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:92:1)
 	if r.loadCertificateAuthorityRoundTrip != nil {
 		return nil
 	}
@@ -191,7 +191,7 @@ func (r *CertificateManagementTests) LoadCertificateAuthorityRoundTrip(ctx conte
 // LoadKeyStoreFromPkcs12RoundTrip exercises LoadKeyStoreFromPkcs12 by
 // re-wrapping an issued cert's keystore and asserting its PKCS#12 still
 // decodes with the original password.
-func (r *CertificateManagementTests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:210:1)
+func (r *CertificateManagementTests) LoadKeyStoreFromPkcs12RoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:211:1)
 	if r.loadKeyStoreFromPkcs12RoundTrip != nil {
 		return nil
 	}
@@ -202,7 +202,7 @@ func (r *CertificateManagementTests) LoadKeyStoreFromPkcs12RoundTrip(ctx context
 
 // LoadTrustStoreFromPkcs12RoundTrip exercises LoadTrustStoreFromPkcs12 by
 // re-wrapping a CA's truststore.
-func (r *CertificateManagementTests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:256:1)
+func (r *CertificateManagementTests) LoadTrustStoreFromPkcs12RoundTrip(ctx context.Context) error { // certificate-management-tests (../../../daggerverse/certificate-management/tests/main.go:257:1)
 	if r.loadTrustStoreFromPkcs12RoundTrip != nil {
 		return nil
 	}
