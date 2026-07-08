@@ -1,5 +1,5 @@
 {
-  "name": "tests",
+  "name": "ci",
   "engineVersion": "v0.21.7",
   "sdk": {
     "source": "go"
@@ -7,37 +7,38 @@
   "dependencies": [
     {
       "name": "z5labs",
-      "source": "../../../daggerverse/z5labs"
+      "source": "../../daggerverse/z5labs"
     },
     {
       "name": "kafka",
-      "source": "../../../daggerverse/kafka"
+      "source": "../../daggerverse/kafka"
     },
     {
       "name": "otel",
-      "source": "../../../daggerverse/otel"
+      "source": "../../daggerverse/otel"
     },
     {
       "name": "grafana-stack",
-      "source": "../../../daggerverse/grafana-stack"
+      "source": "../../daggerverse/grafana-stack"
     },
     {
       "name": "certificate-management",
-      "source": "../../../daggerverse/certificate-management"
+      "source": "../../daggerverse/certificate-management"
     },
     {
       "name": "crypto",
-      "source": "../../../daggerverse/crypto"
+      "source": "../../daggerverse/crypto"
     },
     {
       "name": "random",
-      "source": "../../../daggerverse/random"
+      "source": "../../daggerverse/random"
     },
     {
       "name": "go",
-      "source": "../../../daggerverse/go"
+      "source": "../../daggerverse/go"
     }
   ],
+  "source": "ci",
   "codegen": {
     "automaticGitignore": false
   }

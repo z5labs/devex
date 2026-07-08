@@ -1,5 +1,13 @@
-// Package main is the kafka-consumer-example tests Dagger module. It exercises
-// the runnable example under examples/kafka-consumer/ end to end:
+// Package main is the kafka-consumer-example `ci` Dagger module. It is rooted at
+// the example root (dagger.json lives at examples/kafka-consumer/, source "ci")
+// so `dagger call` works from anywhere in the example, and it codifies the
+// example's run configuration alongside its checks:
+//
+//   - RunAgainst().Local() stands up the whole stack locally (Redpanda + bundled
+//     Schema Registry over TLS, plus an OpenTelemetry collector) and runs the
+//     example consumer against it — a Dagger-native replacement for make+compose.
+//
+// It also exercises the runnable example under examples/kafka-consumer/ end to end:
 //
 //   - GoAppCi builds it through the z5labs GoApp archetype (fmt/vet/lint/test
 //     -race + multi-arch build). This is the only +check — it runs in CI.
@@ -25,13 +33,12 @@ package main
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
-	"dagger/tests/internal/dagger"
+	"dagger/ci/internal/dagger"
 )
 
-type Tests struct{}
+type Ci struct{}
 
 // recordCount is how many framed Avro records the harness produces and the
 // consumer is asked to decode before it flushes telemetry and exits.
@@ -46,10 +53,10 @@ const avroSchema = `{"type":"record","name":"Event","namespace":"com.z5labs.deve
 //
 // +check
 // +cache="never"
-func (t *Tests) GoAppCi(
+func (c *Ci) GoAppCi(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
-	// +ignore=["tests"]
+	// +ignore=["ci"]
 	source *dagger.Directory,
 ) error {
 	src, err := gitFixture(ctx, source, "main")
@@ -70,10 +77,10 @@ func (t *Tests) GoAppCi(
 // with `dagger call mtls-avro-consume`; promote back to +check once #147 lands.
 //
 // +cache="never"
-func (t *Tests) MtlsAvroConsume(
+func (c *Ci) MtlsAvroConsume(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
-	// +ignore=["tests"]
+	// +ignore=["ci"]
 	source *dagger.Directory,
 	// +default="4.2.0"
 	kafkaImageTag string,
@@ -85,10 +92,10 @@ func (t *Tests) MtlsAvroConsume(
 // Like MtlsAvroConsume it currently reproduces #147 and is not a +check.
 //
 // +cache="never"
-func (t *Tests) TlsAvroConsume(
+func (c *Ci) TlsAvroConsume(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
-	// +ignore=["tests"]
+	// +ignore=["ci"]
 	source *dagger.Directory,
 	// +default="4.2.0"
 	kafkaImageTag string,
@@ -98,18 +105,18 @@ func (t *Tests) TlsAvroConsume(
 
 // All runs the suite sequentially, for local `dagger call all`. CI runs only
 // GoAppCi (the sole +check); the integration round-trip is blocked by #147.
-func (t *Tests) All(
+func (c *Ci) All(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
-	// +ignore=["tests"]
+	// +ignore=["ci"]
 	source *dagger.Directory,
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	if err := t.GoAppCi(ctx, source); err != nil {
+	if err := c.GoAppCi(ctx, source); err != nil {
 		return err
 	}
-	return t.MtlsAvroConsume(ctx, source, kafkaImageTag)
+	return c.MtlsAvroConsume(ctx, source, kafkaImageTag)
 }
 
 // avroConsume stands up the integration stack, produces framed Avro records,
@@ -241,30 +248,32 @@ func avroConsume(ctx context.Context, source *dagger.Directory, kafkaImageTag st
 	}
 	serviceName := "kafka-consumer-" + mark
 
-	runner := dag.Container().From(alpineImage).
-		WithFile("/usr/local/bin/consumer", bin).
-		WithFile("/certs/truststore.p12", ts.Pkcs12()).
-		WithSecretVariable("TRUSTSTORE_PASSWORD", ts.Password()).
-		WithEnvVariable("BROKERS", strings.Join(brokers, ",")).
-		WithEnvVariable("REGISTRY_URL", "https://"+srEndpoint).
-		WithEnvVariable("TRUSTSTORE", "/certs/truststore.p12").
-		WithEnvVariable("TOPIC", topic).
-		WithEnvVariable("GROUP", serviceName).
-		WithEnvVariable("MAX_RECORDS", strconv.Itoa(recordCount)).
-		WithEnvVariable("TIMEOUT", "90s").
-		WithEnvVariable("OTEL_EXPORTER_OTLP_ENDPOINT", "http://col:4317").
-		WithEnvVariable("OTEL_EXPORTER_OTLP_INSECURE", "true").
-		WithEnvVariable("OTEL_SERVICE_NAME", serviceName)
+	// For mTLS the consumer also presents a client leaf on both hops.
+	var (
+		consumerKs  *dagger.File
+		consumerPwd *dagger.Secret
+	)
 	if mtls {
-		consumerKs, consumerPwd, err := issueClientKeystore(ctx, ca, "kafka-consumer")
+		consumerKs, consumerPwd, err = issueClientKeystore(ctx, ca, "kafka-consumer")
 		if err != nil {
 			return err
 		}
-		runner = runner.
-			WithFile("/certs/keystore.p12", consumerKs).
-			WithSecretVariable("KEYSTORE_PASSWORD", consumerPwd).
-			WithEnvVariable("KEYSTORE", "/certs/keystore.p12")
 	}
+	runner := consumerRunner(consumerRunnerConfig{
+		bin:          bin,
+		brokers:      brokers,
+		registryURL:  "https://" + srEndpoint,
+		trustStore:   ts.Pkcs12(),
+		trustStorePw: ts.Password(),
+		keyStore:     consumerKs,
+		keyStorePw:   consumerPwd,
+		topic:        topic,
+		group:        serviceName,
+		serviceName:  serviceName,
+		maxRecords:   recordCount,
+		timeout:      "90s",
+		otelEndpoint: "http://col:4317",
+	})
 	runner = cluster.BindBrokers(runner)
 	runner = sr.BindTo(runner)
 	runner = runner.WithServiceBinding("col", col.Service())
