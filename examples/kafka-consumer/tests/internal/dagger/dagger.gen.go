@@ -158,7 +158,19 @@ type BindingID string
 type CacheVolumeID string
 
 // A unique identifier for an object.
-type CertificateManagementTestsID string
+type CertificateManagementCertificateAuthorityID string
+
+// A unique identifier for an object.
+type CertificateManagementID string
+
+// A unique identifier for an object.
+type CertificateManagementIssuedCertificateID string
+
+// A unique identifier for an object.
+type CertificateManagementKeyStoreID string
+
+// A unique identifier for an object.
+type CertificateManagementTrustStoreID string
 
 // A unique identifier for an object.
 type ChangesetID string
@@ -179,13 +191,19 @@ type CloudID string
 type ContainerID string
 
 // A unique identifier for an object.
-type CryptoTestsID string
+type CryptoEcdsaKeyID string
+
+// A unique identifier for an object.
+type CryptoEd25519KeyID string
+
+// A unique identifier for an object.
+type CryptoID string
+
+// A unique identifier for an object.
+type CryptoRsaKeyID string
 
 // A unique identifier for an object.
 type CurrentModuleID string
-
-// A unique identifier for an object.
-type DgraphTestsID string
 
 // A unique identifier for an object.
 type DiffStatID string
@@ -209,9 +227,6 @@ type EnvID string
 type EnvVariableID string
 
 // A unique identifier for an object.
-type EnvoyTestsID string
-
-// A unique identifier for an object.
 type ErrorID string
 
 // A unique identifier for an object.
@@ -225,9 +240,6 @@ type FieldTypeDefID string
 
 // A unique identifier for an object.
 type FileID string
-
-// A unique identifier for an object.
-type FlashTestsID string
 
 // A unique identifier for an object.
 type FunctionArgID string
@@ -257,10 +269,25 @@ type GitRefID string
 type GitRepositoryID string
 
 // A unique identifier for an object.
-type GoTestsID string
+type GoCiID string
 
 // A unique identifier for an object.
-type GrafanaStackTestsID string
+type GoID string
+
+// A unique identifier for an object.
+type GrafanaStackGrafanaID string
+
+// A unique identifier for an object.
+type GrafanaStackID string
+
+// A unique identifier for an object.
+type GrafanaStackLokiID string
+
+// A unique identifier for an object.
+type GrafanaStackMimirID string
+
+// A unique identifier for an object.
+type GrafanaStackTempoID string
 
 // A unique identifier for an object.
 type HTTPStateID string
@@ -284,16 +311,40 @@ type JSON string
 type JSONValueID string
 
 // A unique identifier for an object.
-type JavaTestsID string
+type KafkaClientID string
 
 // A unique identifier for an object.
-type KafkaConsumerTestsID string
+type KafkaClientSecurityID string
 
 // A unique identifier for an object.
-type KafkaTestsID string
+type KafkaClusterID string
 
 // A unique identifier for an object.
-type KicadTestsID string
+type KafkaID string
+
+// A unique identifier for an object.
+type KafkaRedpandaClusterID string
+
+// A unique identifier for an object.
+type KafkaRedpandaServerSecurityID string
+
+// A unique identifier for an object.
+type KafkaRegisteredSchemaID string
+
+// A unique identifier for an object.
+type KafkaSchemaRegistryClientID string
+
+// A unique identifier for an object.
+type KafkaSchemaRegistryClientSecurityID string
+
+// A unique identifier for an object.
+type KafkaSchemaRegistryID string
+
+// A unique identifier for an object.
+type KafkaSchemaRegistrySecurityID string
+
+// A unique identifier for an object.
+type KafkaServerSecurityID string
 
 // A unique identifier for an object.
 type LLMID string
@@ -320,7 +371,25 @@ type ModuleSourceID string
 type ObjectTypeDefID string
 
 // A unique identifier for an object.
-type OtelTestsID string
+type OtelContribCollectorID string
+
+// A unique identifier for an object.
+type OtelCoreCollectorID string
+
+// A unique identifier for an object.
+type OtelExporterID string
+
+// A unique identifier for an object.
+type OtelID string
+
+// A unique identifier for an object.
+type OtelPipelineID string
+
+// A unique identifier for an object.
+type OtelProcessorID string
+
+// A unique identifier for an object.
+type OtelReceiverID string
 
 // The platform config OS and architecture in a Container.
 //
@@ -331,13 +400,7 @@ type Platform string
 type PortID string
 
 // A unique identifier for an object.
-type PostgresTestsID string
-
-// A unique identifier for an object.
-type QemuTestsID string
-
-// A unique identifier for an object.
-type RandomTestsID string
+type RandomID string
 
 // A unique identifier for an object.
 type RemoteGitMirrorID string
@@ -359,9 +422,6 @@ type SecretID string
 
 // A unique identifier for an object.
 type ServiceID string
-
-// A unique identifier for an object.
-type SkillGenTestsID string
 
 // A unique identifier for an object.
 type SocketID string
@@ -396,10 +456,16 @@ type Void string
 type WorkspaceID string
 
 // A unique identifier for an object.
-type Z5LabsTestsID string
+type Z5LabsBuilderID string
 
 // A unique identifier for an object.
-type ZigTestsID string
+type Z5LabsGoAppID string
+
+// A unique identifier for an object.
+type Z5LabsGoLibID string
+
+// A unique identifier for an object.
+type Z5LabsID string
 
 // Key value object that represents a build argument.
 type BuildArg struct {
@@ -12864,12 +12930,52 @@ func (r *Query) LoadCacheVolumeFromID(id CacheVolumeID) *CacheVolume {
 	}
 }
 
-// Load a CertificateManagementTests from its ID.
-func (r *Query) LoadCertificateManagementTestsFromID(id CertificateManagementTestsID) *CertificateManagementTests {
-	q := r.query.Select("loadCertificateManagementTestsFromID")
+// Load a CertificateManagementCertificateAuthority from its ID.
+func (r *Query) LoadCertificateManagementCertificateAuthorityFromID(id CertificateManagementCertificateAuthorityID) *CertificateManagementCertificateAuthority {
+	q := r.query.Select("loadCertificateManagementCertificateAuthorityFromID")
 	q = q.Arg("id", id)
 
-	return &CertificateManagementTests{
+	return &CertificateManagementCertificateAuthority{
+		query: q,
+	}
+}
+
+// Load a CertificateManagement from its ID.
+func (r *Query) LoadCertificateManagementFromID(id CertificateManagementID) *CertificateManagement {
+	q := r.query.Select("loadCertificateManagementFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagement{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementIssuedCertificate from its ID.
+func (r *Query) LoadCertificateManagementIssuedCertificateFromID(id CertificateManagementIssuedCertificateID) *CertificateManagementIssuedCertificate {
+	q := r.query.Select("loadCertificateManagementIssuedCertificateFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementIssuedCertificate{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementKeyStore from its ID.
+func (r *Query) LoadCertificateManagementKeyStoreFromID(id CertificateManagementKeyStoreID) *CertificateManagementKeyStore {
+	q := r.query.Select("loadCertificateManagementKeyStoreFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementKeyStore{
+		query: q,
+	}
+}
+
+// Load a CertificateManagementTrustStore from its ID.
+func (r *Query) LoadCertificateManagementTrustStoreFromID(id CertificateManagementTrustStoreID) *CertificateManagementTrustStore {
+	q := r.query.Select("loadCertificateManagementTrustStoreFromID")
+	q = q.Arg("id", id)
+
+	return &CertificateManagementTrustStore{
 		query: q,
 	}
 }
@@ -12934,12 +13040,42 @@ func (r *Query) LoadContainerFromID(id ContainerID) *Container {
 	}
 }
 
-// Load a CryptoTests from its ID.
-func (r *Query) LoadCryptoTestsFromID(id CryptoTestsID) *CryptoTests {
-	q := r.query.Select("loadCryptoTestsFromID")
+// Load a CryptoEcdsaKey from its ID.
+func (r *Query) LoadCryptoEcdsaKeyFromID(id CryptoEcdsaKeyID) *CryptoEcdsaKey {
+	q := r.query.Select("loadCryptoEcdsaKeyFromID")
 	q = q.Arg("id", id)
 
-	return &CryptoTests{
+	return &CryptoEcdsaKey{
+		query: q,
+	}
+}
+
+// Load a CryptoEd25519Key from its ID.
+func (r *Query) LoadCryptoEd25519KeyFromID(id CryptoEd25519KeyID) *CryptoEd25519Key {
+	q := r.query.Select("loadCryptoEd25519KeyFromID")
+	q = q.Arg("id", id)
+
+	return &CryptoEd25519Key{
+		query: q,
+	}
+}
+
+// Load a Crypto from its ID.
+func (r *Query) LoadCryptoFromID(id CryptoID) *Crypto {
+	q := r.query.Select("loadCryptoFromID")
+	q = q.Arg("id", id)
+
+	return &Crypto{
+		query: q,
+	}
+}
+
+// Load a CryptoRsaKey from its ID.
+func (r *Query) LoadCryptoRsaKeyFromID(id CryptoRsaKeyID) *CryptoRsaKey {
+	q := r.query.Select("loadCryptoRsaKeyFromID")
+	q = q.Arg("id", id)
+
+	return &CryptoRsaKey{
 		query: q,
 	}
 }
@@ -12950,16 +13086,6 @@ func (r *Query) LoadCurrentModuleFromID(id CurrentModuleID) *CurrentModule {
 	q = q.Arg("id", id)
 
 	return &CurrentModule{
-		query: q,
-	}
-}
-
-// Load a DgraphTests from its ID.
-func (r *Query) LoadDgraphTestsFromID(id DgraphTestsID) *DgraphTests {
-	q := r.query.Select("loadDgraphTestsFromID")
-	q = q.Arg("id", id)
-
-	return &DgraphTests{
 		query: q,
 	}
 }
@@ -13034,16 +13160,6 @@ func (r *Query) LoadEnvVariableFromID(id EnvVariableID) *EnvVariable {
 	}
 }
 
-// Load a EnvoyTests from its ID.
-func (r *Query) LoadEnvoyTestsFromID(id EnvoyTestsID) *EnvoyTests {
-	q := r.query.Select("loadEnvoyTestsFromID")
-	q = q.Arg("id", id)
-
-	return &EnvoyTests{
-		query: q,
-	}
-}
-
 // Load a Error from its ID.
 func (r *Query) LoadErrorFromID(id ErrorID) *Error {
 	q := r.query.Select("loadErrorFromID")
@@ -13089,16 +13205,6 @@ func (r *Query) LoadFileFromID(id FileID) *File {
 	q = q.Arg("id", id)
 
 	return &File{
-		query: q,
-	}
-}
-
-// Load a FlashTests from its ID.
-func (r *Query) LoadFlashTestsFromID(id FlashTestsID) *FlashTests {
-	q := r.query.Select("loadFlashTestsFromID")
-	q = q.Arg("id", id)
-
-	return &FlashTests{
 		query: q,
 	}
 }
@@ -13193,22 +13299,72 @@ func (r *Query) LoadGitRepositoryFromID(id GitRepositoryID) *GitRepository {
 	}
 }
 
-// Load a GoTests from its ID.
-func (r *Query) LoadGoTestsFromID(id GoTestsID) *GoTests {
-	q := r.query.Select("loadGoTestsFromID")
+// Load a GoCi from its ID.
+func (r *Query) LoadGoCiFromID(id GoCiID) *GoCi {
+	q := r.query.Select("loadGoCiFromID")
 	q = q.Arg("id", id)
 
-	return &GoTests{
+	return &GoCi{
 		query: q,
 	}
 }
 
-// Load a GrafanaStackTests from its ID.
-func (r *Query) LoadGrafanaStackTestsFromID(id GrafanaStackTestsID) *GrafanaStackTests {
-	q := r.query.Select("loadGrafanaStackTestsFromID")
+// Load a Go from its ID.
+func (r *Query) LoadGoFromID(id GoID) *Go {
+	q := r.query.Select("loadGoFromID")
 	q = q.Arg("id", id)
 
-	return &GrafanaStackTests{
+	return &Go{
+		query: q,
+	}
+}
+
+// Load a GrafanaStack from its ID.
+func (r *Query) LoadGrafanaStackFromID(id GrafanaStackID) *GrafanaStack {
+	q := r.query.Select("loadGrafanaStackFromID")
+	q = q.Arg("id", id)
+
+	return &GrafanaStack{
+		query: q,
+	}
+}
+
+// Load a GrafanaStackGrafana from its ID.
+func (r *Query) LoadGrafanaStackGrafanaFromID(id GrafanaStackGrafanaID) *GrafanaStackGrafana {
+	q := r.query.Select("loadGrafanaStackGrafanaFromID")
+	q = q.Arg("id", id)
+
+	return &GrafanaStackGrafana{
+		query: q,
+	}
+}
+
+// Load a GrafanaStackLoki from its ID.
+func (r *Query) LoadGrafanaStackLokiFromID(id GrafanaStackLokiID) *GrafanaStackLoki {
+	q := r.query.Select("loadGrafanaStackLokiFromID")
+	q = q.Arg("id", id)
+
+	return &GrafanaStackLoki{
+		query: q,
+	}
+}
+
+// Load a GrafanaStackMimir from its ID.
+func (r *Query) LoadGrafanaStackMimirFromID(id GrafanaStackMimirID) *GrafanaStackMimir {
+	q := r.query.Select("loadGrafanaStackMimirFromID")
+	q = q.Arg("id", id)
+
+	return &GrafanaStackMimir{
+		query: q,
+	}
+}
+
+// Load a GrafanaStackTempo from its ID.
+func (r *Query) LoadGrafanaStackTempoFromID(id GrafanaStackTempoID) *GrafanaStackTempo {
+	q := r.query.Select("loadGrafanaStackTempoFromID")
+	q = q.Arg("id", id)
+
+	return &GrafanaStackTempo{
 		query: q,
 	}
 }
@@ -13263,42 +13419,122 @@ func (r *Query) LoadJSONValueFromID(id JSONValueID) *JSONValue {
 	}
 }
 
-// Load a JavaTests from its ID.
-func (r *Query) LoadJavaTestsFromID(id JavaTestsID) *JavaTests {
-	q := r.query.Select("loadJavaTestsFromID")
+// Load a KafkaClient from its ID.
+func (r *Query) LoadKafkaClientFromID(id KafkaClientID) *KafkaClient {
+	q := r.query.Select("loadKafkaClientFromID")
 	q = q.Arg("id", id)
 
-	return &JavaTests{
+	return &KafkaClient{
 		query: q,
 	}
 }
 
-// Load a KafkaConsumerTests from its ID.
-func (r *Query) LoadKafkaConsumerTestsFromID(id KafkaConsumerTestsID) *KafkaConsumerTests {
-	q := r.query.Select("loadKafkaConsumerTestsFromID")
+// Load a KafkaClientSecurity from its ID.
+func (r *Query) LoadKafkaClientSecurityFromID(id KafkaClientSecurityID) *KafkaClientSecurity {
+	q := r.query.Select("loadKafkaClientSecurityFromID")
 	q = q.Arg("id", id)
 
-	return &KafkaConsumerTests{
+	return &KafkaClientSecurity{
 		query: q,
 	}
 }
 
-// Load a KafkaTests from its ID.
-func (r *Query) LoadKafkaTestsFromID(id KafkaTestsID) *KafkaTests {
-	q := r.query.Select("loadKafkaTestsFromID")
+// Load a KafkaCluster from its ID.
+func (r *Query) LoadKafkaClusterFromID(id KafkaClusterID) *KafkaCluster {
+	q := r.query.Select("loadKafkaClusterFromID")
 	q = q.Arg("id", id)
 
-	return &KafkaTests{
+	return &KafkaCluster{
 		query: q,
 	}
 }
 
-// Load a KicadTests from its ID.
-func (r *Query) LoadKicadTestsFromID(id KicadTestsID) *KicadTests {
-	q := r.query.Select("loadKicadTestsFromID")
+// Load a Kafka from its ID.
+func (r *Query) LoadKafkaFromID(id KafkaID) *Kafka {
+	q := r.query.Select("loadKafkaFromID")
 	q = q.Arg("id", id)
 
-	return &KicadTests{
+	return &Kafka{
+		query: q,
+	}
+}
+
+// Load a KafkaRedpandaCluster from its ID.
+func (r *Query) LoadKafkaRedpandaClusterFromID(id KafkaRedpandaClusterID) *KafkaRedpandaCluster {
+	q := r.query.Select("loadKafkaRedpandaClusterFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaRedpandaCluster{
+		query: q,
+	}
+}
+
+// Load a KafkaRedpandaServerSecurity from its ID.
+func (r *Query) LoadKafkaRedpandaServerSecurityFromID(id KafkaRedpandaServerSecurityID) *KafkaRedpandaServerSecurity {
+	q := r.query.Select("loadKafkaRedpandaServerSecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaRedpandaServerSecurity{
+		query: q,
+	}
+}
+
+// Load a KafkaRegisteredSchema from its ID.
+func (r *Query) LoadKafkaRegisteredSchemaFromID(id KafkaRegisteredSchemaID) *KafkaRegisteredSchema {
+	q := r.query.Select("loadKafkaRegisteredSchemaFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaRegisteredSchema{
+		query: q,
+	}
+}
+
+// Load a KafkaSchemaRegistryClient from its ID.
+func (r *Query) LoadKafkaSchemaRegistryClientFromID(id KafkaSchemaRegistryClientID) *KafkaSchemaRegistryClient {
+	q := r.query.Select("loadKafkaSchemaRegistryClientFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistryClient{
+		query: q,
+	}
+}
+
+// Load a KafkaSchemaRegistryClientSecurity from its ID.
+func (r *Query) LoadKafkaSchemaRegistryClientSecurityFromID(id KafkaSchemaRegistryClientSecurityID) *KafkaSchemaRegistryClientSecurity {
+	q := r.query.Select("loadKafkaSchemaRegistryClientSecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistryClientSecurity{
+		query: q,
+	}
+}
+
+// Load a KafkaSchemaRegistry from its ID.
+func (r *Query) LoadKafkaSchemaRegistryFromID(id KafkaSchemaRegistryID) *KafkaSchemaRegistry {
+	q := r.query.Select("loadKafkaSchemaRegistryFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistry{
+		query: q,
+	}
+}
+
+// Load a KafkaSchemaRegistrySecurity from its ID.
+func (r *Query) LoadKafkaSchemaRegistrySecurityFromID(id KafkaSchemaRegistrySecurityID) *KafkaSchemaRegistrySecurity {
+	q := r.query.Select("loadKafkaSchemaRegistrySecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaSchemaRegistrySecurity{
+		query: q,
+	}
+}
+
+// Load a KafkaServerSecurity from its ID.
+func (r *Query) LoadKafkaServerSecurityFromID(id KafkaServerSecurityID) *KafkaServerSecurity {
+	q := r.query.Select("loadKafkaServerSecurityFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaServerSecurity{
 		query: q,
 	}
 }
@@ -13383,12 +13619,72 @@ func (r *Query) LoadObjectTypeDefFromID(id ObjectTypeDefID) *ObjectTypeDef {
 	}
 }
 
-// Load a OtelTests from its ID.
-func (r *Query) LoadOtelTestsFromID(id OtelTestsID) *OtelTests {
-	q := r.query.Select("loadOtelTestsFromID")
+// Load a OtelContribCollector from its ID.
+func (r *Query) LoadOtelContribCollectorFromID(id OtelContribCollectorID) *OtelContribCollector {
+	q := r.query.Select("loadOtelContribCollectorFromID")
 	q = q.Arg("id", id)
 
-	return &OtelTests{
+	return &OtelContribCollector{
+		query: q,
+	}
+}
+
+// Load a OtelCoreCollector from its ID.
+func (r *Query) LoadOtelCoreCollectorFromID(id OtelCoreCollectorID) *OtelCoreCollector {
+	q := r.query.Select("loadOtelCoreCollectorFromID")
+	q = q.Arg("id", id)
+
+	return &OtelCoreCollector{
+		query: q,
+	}
+}
+
+// Load a OtelExporter from its ID.
+func (r *Query) LoadOtelExporterFromID(id OtelExporterID) *OtelExporter {
+	q := r.query.Select("loadOtelExporterFromID")
+	q = q.Arg("id", id)
+
+	return &OtelExporter{
+		query: q,
+	}
+}
+
+// Load a Otel from its ID.
+func (r *Query) LoadOtelFromID(id OtelID) *Otel {
+	q := r.query.Select("loadOtelFromID")
+	q = q.Arg("id", id)
+
+	return &Otel{
+		query: q,
+	}
+}
+
+// Load a OtelPipeline from its ID.
+func (r *Query) LoadOtelPipelineFromID(id OtelPipelineID) *OtelPipeline {
+	q := r.query.Select("loadOtelPipelineFromID")
+	q = q.Arg("id", id)
+
+	return &OtelPipeline{
+		query: q,
+	}
+}
+
+// Load a OtelProcessor from its ID.
+func (r *Query) LoadOtelProcessorFromID(id OtelProcessorID) *OtelProcessor {
+	q := r.query.Select("loadOtelProcessorFromID")
+	q = q.Arg("id", id)
+
+	return &OtelProcessor{
+		query: q,
+	}
+}
+
+// Load a OtelReceiver from its ID.
+func (r *Query) LoadOtelReceiverFromID(id OtelReceiverID) *OtelReceiver {
+	q := r.query.Select("loadOtelReceiverFromID")
+	q = q.Arg("id", id)
+
+	return &OtelReceiver{
 		query: q,
 	}
 }
@@ -13403,32 +13699,12 @@ func (r *Query) LoadPortFromID(id PortID) *Port {
 	}
 }
 
-// Load a PostgresTests from its ID.
-func (r *Query) LoadPostgresTestsFromID(id PostgresTestsID) *PostgresTests {
-	q := r.query.Select("loadPostgresTestsFromID")
+// Load a Random from its ID.
+func (r *Query) LoadRandomFromID(id RandomID) *Random {
+	q := r.query.Select("loadRandomFromID")
 	q = q.Arg("id", id)
 
-	return &PostgresTests{
-		query: q,
-	}
-}
-
-// Load a QemuTests from its ID.
-func (r *Query) LoadQemuTestsFromID(id QemuTestsID) *QemuTests {
-	q := r.query.Select("loadQemuTestsFromID")
-	q = q.Arg("id", id)
-
-	return &QemuTests{
-		query: q,
-	}
-}
-
-// Load a RandomTests from its ID.
-func (r *Query) LoadRandomTestsFromID(id RandomTestsID) *RandomTests {
-	q := r.query.Select("loadRandomTestsFromID")
-	q = q.Arg("id", id)
-
-	return &RandomTests{
+	return &Random{
 		query: q,
 	}
 }
@@ -13499,16 +13775,6 @@ func (r *Query) LoadServiceFromID(id ServiceID) *Service {
 	q = q.Arg("id", id)
 
 	return &Service{
-		query: q,
-	}
-}
-
-// Load a SkillGenTests from its ID.
-func (r *Query) LoadSkillGenTestsFromID(id SkillGenTestsID) *SkillGenTests {
-	q := r.query.Select("loadSkillGenTestsFromID")
-	q = q.Arg("id", id)
-
-	return &SkillGenTests{
 		query: q,
 	}
 }
@@ -13602,22 +13868,42 @@ func (r *Query) LoadWorkspaceFromID(id WorkspaceID) *Workspace {
 	}
 }
 
-// Load a Z5LabsTests from its ID.
-func (r *Query) LoadZ5LabsTestsFromID(id Z5LabsTestsID) *Z5LabsTests {
-	q := r.query.Select("loadZ5LabsTestsFromID")
+// Load a Z5LabsBuilder from its ID.
+func (r *Query) LoadZ5LabsBuilderFromID(id Z5LabsBuilderID) *Z5LabsBuilder {
+	q := r.query.Select("loadZ5LabsBuilderFromID")
 	q = q.Arg("id", id)
 
-	return &Z5LabsTests{
+	return &Z5LabsBuilder{
 		query: q,
 	}
 }
 
-// Load a ZigTests from its ID.
-func (r *Query) LoadZigTestsFromID(id ZigTestsID) *ZigTests {
-	q := r.query.Select("loadZigTestsFromID")
+// Load a Z5Labs from its ID.
+func (r *Query) LoadZ5LabsFromID(id Z5LabsID) *Z5Labs {
+	q := r.query.Select("loadZ5LabsFromID")
 	q = q.Arg("id", id)
 
-	return &ZigTests{
+	return &Z5Labs{
+		query: q,
+	}
+}
+
+// Load a Z5LabsGoApp from its ID.
+func (r *Query) LoadZ5LabsGoAppFromID(id Z5LabsGoAppID) *Z5LabsGoApp {
+	q := r.query.Select("loadZ5LabsGoAppFromID")
+	q = q.Arg("id", id)
+
+	return &Z5LabsGoApp{
+		query: q,
+	}
+}
+
+// Load a Z5LabsGoLib from its ID.
+func (r *Query) LoadZ5LabsGoLibFromID(id Z5LabsGoLibID) *Z5LabsGoLib {
+	q := r.query.Select("loadZ5LabsGoLibFromID")
+	q = q.Arg("id", id)
+
+	return &Z5LabsGoLib{
 		query: q,
 	}
 }
