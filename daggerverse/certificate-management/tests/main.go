@@ -472,9 +472,12 @@ func readPemCert(ctx context.Context, f *dagger.File) (*x509.Certificate, error)
 
 // exampleSmoke runs every examples/go cookbook recipe end-to-end and
 // materializes its PKCS#12 artifact, so the suite fails if the examples rot
-// against the certificate-management API. It is intentionally unexported so it
-// stays out of this module's Dagger schema (and the root ci/ bindings); it is
-// driven only as a job in All.
+// against the certificate-management API. Each recipe's file is exported and
+// asserted to be a non-empty PKCS#12 archive — File.Sync alone would force
+// evaluation without proving any bytes were produced, so a recipe that
+// silently returned an empty file could still pass. It is intentionally
+// unexported so it stays out of this module's Dagger schema (and the root ci/
+// bindings); it is driven only as a job in All.
 func (t *Tests) exampleSmoke(ctx context.Context) error {
 	ex := dag.CertificateManagementExamples()
 	for name, f := range map[string]*dagger.File{
@@ -483,8 +486,12 @@ func (t *Tests) exampleSmoke(ctx context.Context) error {
 		"IssueMutualTlsCertificate": ex.IssueMutualTLSCertificate(),
 		"RoundTripCaThroughPkcs12":  ex.RoundTripCaThroughPkcs12(),
 	} {
-		if _, err := f.Sync(ctx); err != nil {
+		data, err := readPkcs12(ctx, f)
+		if err != nil {
 			return fmt.Errorf("example recipe %s: %w", name, err)
+		}
+		if len(data) == 0 {
+			return fmt.Errorf("example recipe %s: produced an empty PKCS#12 archive", name)
 		}
 	}
 	return nil
