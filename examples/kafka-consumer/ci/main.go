@@ -235,9 +235,9 @@ func avroConsume(ctx context.Context, source *dagger.Directory, kafkaImageTag st
 		WithPipeline(o.Pipeline("metrics", "metrics").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("mimir", "http://mimir:9009/otlp"))).
 		WithPipeline(o.Pipeline("logs", "logs").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")))
 
-	// Build the example through the GoApp archetype (Builder needs no .git) and
-	// run it in a minimal base image against the bound services.
-	bin := dag.Z5Labs().GoApp(source).Builder().Binary()
+	// Run the SAME container GoApp CI builds and publishes (Builder needs no
+	// .git) against the bound services.
+	base := dag.Z5Labs().GoApp(source).Builder().Container()
 	brokers, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap servers: %w", err)
@@ -260,7 +260,7 @@ func avroConsume(ctx context.Context, source *dagger.Directory, kafkaImageTag st
 		}
 	}
 	runner := consumerRunner(consumerRunnerConfig{
-		bin:          bin,
+		base:         base,
 		brokers:      brokers,
 		registryURL:  "https://" + srEndpoint,
 		trustStore:   ts.Pkcs12(),
@@ -278,7 +278,7 @@ func avroConsume(ctx context.Context, source *dagger.Directory, kafkaImageTag st
 	runner = sr.BindTo(runner)
 	runner = runner.WithServiceBinding("col", col.Service())
 
-	out, err := runner.WithExec([]string{"consumer"}).Stdout(ctx)
+	out, err := runner.WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).Stdout(ctx)
 	if err != nil {
 		return fmt.Errorf("run consumer: %w", err)
 	}
