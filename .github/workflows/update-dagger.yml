@@ -109,10 +109,29 @@ jobs:
           grep -Eq "DAGGER_VERSION:[[:space:]]*\"${BARE//./\\.}\"" .github/workflows/ci.yml \
             || { echo "ci.yml DAGGER_VERSION pin was not updated to ${BARE}" >&2; exit 1; }
 
+      - name: Mint a GitHub App installation token
+        # GITHUB_TOKEN is itself a GitHub App installation token, and GitHub
+        # categorically forbids those from creating/updating files under
+        # .github/workflows/ -- so pushing this PR (which bumps the DAGGER_VERSION
+        # pin in ci.yml) fails with the `workflows` permission rejection (#145).
+        # Mint a short-lived token from our own App, which IS installed with
+        # Workflows: write. A non-GITHUB_TOKEN author also makes GitHub fire
+        # `on: pull_request`, so CI validates the regenerated tree automatically.
+        #
+        # One-time setup (see README "CI"): an App installed on this repo with
+        # Contents/Pull requests/Workflows: write, plus two repo secrets:
+        #   UPDATE_DAGGER_APP_ID  -- the App's numeric App ID
+        #   UPDATE_DAGGER_APP_KEY -- the App's PEM private key
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.UPDATE_DAGGER_APP_ID }}
+          private-key: ${{ secrets.UPDATE_DAGGER_APP_KEY }}
+
       - name: Open upgrade PR
         uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
         with:
-          token: ${{ github.token }}
+          token: ${{ steps.app-token.outputs.token }}
           branch: chore/update-dagger-${{ steps.resolve.outputs.bare }}
           delete-branch: true
           commit-message: "chore(ci): upgrade Dagger to ${{ steps.resolve.outputs.vtag }} across all modules"
@@ -124,10 +143,5 @@ jobs:
             regenerated `*.gen.go`, refreshed `go.mod`/`go.sum`, and bumped the
             `DAGGER_VERSION` pin in `ci.yml`.
 
-            > [!IMPORTANT]
-            > **CI will not run automatically on this PR.** It was opened with
-            > `GITHUB_TOKEN`, and GitHub does not fire `on: pull_request`
-            > workflows for token-authored PRs. Nudge it to validate the
-            > regenerated code: push an empty commit
-            > (`git commit --allow-empty -m ci && git push`) or close & reopen
-            > the PR.
+            CI runs automatically on this PR (opened via the update-dagger GitHub
+            App rather than `GITHUB_TOKEN`), validating the regenerated tree.
