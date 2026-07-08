@@ -68,6 +68,21 @@ in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Each module has a
 sibling `tests/` module exposed as a toolchain in
 [`dagger.json`](dagger.json).
 
+The manually-triggered
+[`update-dagger.yml`](.github/workflows/update-dagger.yml) workflow bumps the
+Dagger pin across every module and opens a PR. Its PR edits `ci.yml` (a workflow
+file), which the default `GITHUB_TOKEN` may not push, so it authenticates with a
+dedicated **update-dagger GitHub App** via two repository secrets:
+
+| Secret | Value |
+| ------ | ----- |
+| `UPDATE_DAGGER_APP_ID` | the App's numeric App ID |
+| `UPDATE_DAGGER_APP_KEY` | the App's PEM private key |
+
+Install the App on this repo with `Contents`, `Pull requests`, and `Workflows`
+all set to **Read and write** (`Workflows: write` is what `GITHUB_TOKEN` can't
+have). The short-lived token is minted per run, so nothing needs rotating.
+
 ## License
 
 [MIT](LICENSE) © Z5labs and Contributors
