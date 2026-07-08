@@ -1,0 +1,2 @@
+# compiled binary (name matches the go.mod module basename)
+/kafka-consumer
