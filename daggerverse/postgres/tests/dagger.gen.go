@@ -339,6 +339,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).Security(&parent, ctx, parallel)
+		case "TlsClusterRejectsEmptyName":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TlsClusterRejectsEmptyName(&parent, ctx)
 		case "TlsClusterRejectsPlaintextClient":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
