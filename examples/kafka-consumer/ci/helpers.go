@@ -16,7 +16,6 @@ import (
 // would make these round-trips non-reproducible.
 const (
 	curlImage    = "curlimages/curl:8.10.1"
-	alpineImage  = "alpine:3.22"
 	collectorTag = "0.130.1"
 	tempoTag     = "2.7.1"
 	mimirTag     = "2.15.1"
@@ -160,7 +159,11 @@ func issueClientKeystore(ctx context.Context, ca *dagger.CertificateManagementCe
 // collector) are applied by the caller, which holds the concrete cluster type
 // (Apache Cluster vs RedpandaCluster) and knows how to bind it.
 type consumerRunnerConfig struct {
-	bin          *dagger.File
+	// base is the exact container GoApp CI builds and publishes — the app on its
+	// entrypoint — so we run what ships, not a bespoke image. Get it from
+	// dag.Z5Labs().GoApp(source).Builder().Container(). Run it with
+	// ContainerWithExecOpts{UseEntrypoint: true}.
+	base         *dagger.Container
 	brokers      []string
 	registryURL  string
 	trustStore   *dagger.File
@@ -175,16 +178,18 @@ type consumerRunnerConfig struct {
 	otelEndpoint string
 }
 
-// consumerRunner drops the built example binary into a minimal base image and
-// sets every flag-backing env var the consumer reads (see the example's main.go
+// consumerRunner takes the GoApp-built application container (the same image
+// GoApp CI would publish, app on its entrypoint) and layers on the cert material
+// + every flag-backing env var the consumer reads (see the example's main.go
 // loadConfig: BROKERS, TOPIC, GROUP, REGISTRY_URL, TRUSTSTORE[_PASSWORD],
 // optional KEYSTORE[_PASSWORD] for mTLS, MAX_RECORDS, TIMEOUT, OTEL_*). The
-// caller then binds the broker/registry/collector services and execs "consumer".
+// image is scratch-based with no shell/system CA bundle — that's fine: the app
+// verifies TLS against the mounted PKCS#12 truststore, and the caller runs it via
+// its entrypoint. The caller then binds the broker/registry/collector services.
 // Shared by RunAgainst.Local and avroConsume so the two run configurations
 // cannot drift apart.
 func consumerRunner(cfg consumerRunnerConfig) *dagger.Container {
-	runner := dag.Container().From(alpineImage).
-		WithFile("/usr/local/bin/consumer", cfg.bin).
+	runner := cfg.base.
 		WithFile("/certs/truststore.p12", cfg.trustStore).
 		WithSecretVariable("TRUSTSTORE_PASSWORD", cfg.trustStorePw).
 		WithEnvVariable("BROKERS", strings.Join(cfg.brokers, ",")).
