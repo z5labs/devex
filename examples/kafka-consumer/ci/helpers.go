@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
-	"dagger/tests/internal/dagger"
+	"dagger/ci/internal/dagger"
 )
 
 // Pinned image tags for the integration stack. Never :latest — a moving tag
@@ -151,6 +153,57 @@ func issueClientKeystore(ctx context.Context, ca *dagger.CertificateManagementCe
 	nb := time.Now().UTC().Format(time.RFC3339)
 	ks := ca.IssueClientCertificate(cn, nb, serial, pwd, key).KeyStore()
 	return ks.Pkcs12(), ks.Password(), nil
+}
+
+// consumerRunnerConfig holds everything consumerRunner needs to assemble the
+// example consumer container. The service bindings (brokers, schema registry,
+// collector) are applied by the caller, which holds the concrete cluster type
+// (Apache Cluster vs RedpandaCluster) and knows how to bind it.
+type consumerRunnerConfig struct {
+	bin          *dagger.File
+	brokers      []string
+	registryURL  string
+	trustStore   *dagger.File
+	trustStorePw *dagger.Secret
+	keyStore     *dagger.File   // nil unless mTLS
+	keyStorePw   *dagger.Secret // nil unless mTLS
+	topic        string
+	group        string
+	serviceName  string
+	maxRecords   int
+	timeout      string
+	otelEndpoint string
+}
+
+// consumerRunner drops the built example binary into a minimal base image and
+// sets every flag-backing env var the consumer reads (see the example's main.go
+// loadConfig: BROKERS, TOPIC, GROUP, REGISTRY_URL, TRUSTSTORE[_PASSWORD],
+// optional KEYSTORE[_PASSWORD] for mTLS, MAX_RECORDS, TIMEOUT, OTEL_*). The
+// caller then binds the broker/registry/collector services and execs "consumer".
+// Shared by RunAgainst.Local and avroConsume so the two run configurations
+// cannot drift apart.
+func consumerRunner(cfg consumerRunnerConfig) *dagger.Container {
+	runner := dag.Container().From(alpineImage).
+		WithFile("/usr/local/bin/consumer", cfg.bin).
+		WithFile("/certs/truststore.p12", cfg.trustStore).
+		WithSecretVariable("TRUSTSTORE_PASSWORD", cfg.trustStorePw).
+		WithEnvVariable("BROKERS", strings.Join(cfg.brokers, ",")).
+		WithEnvVariable("REGISTRY_URL", cfg.registryURL).
+		WithEnvVariable("TRUSTSTORE", "/certs/truststore.p12").
+		WithEnvVariable("TOPIC", cfg.topic).
+		WithEnvVariable("GROUP", cfg.group).
+		WithEnvVariable("MAX_RECORDS", strconv.Itoa(cfg.maxRecords)).
+		WithEnvVariable("TIMEOUT", cfg.timeout).
+		WithEnvVariable("OTEL_EXPORTER_OTLP_ENDPOINT", cfg.otelEndpoint).
+		WithEnvVariable("OTEL_EXPORTER_OTLP_INSECURE", "true").
+		WithEnvVariable("OTEL_SERVICE_NAME", cfg.serviceName)
+	if cfg.keyStore != nil {
+		runner = runner.
+			WithFile("/certs/keystore.p12", cfg.keyStore).
+			WithSecretVariable("KEYSTORE_PASSWORD", cfg.keyStorePw).
+			WithEnvVariable("KEYSTORE", "/certs/keystore.p12")
+	}
+	return runner
 }
 
 // assertTelemetry verifies that the consumer's OpenTelemetry reached the

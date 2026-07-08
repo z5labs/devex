@@ -92,37 +92,65 @@ go run . \
 # OTEL_EXPORTER_OTLP_ENDPOINT set in the environment.
 ```
 
-## Run it via Dagger
+## Run it via Dagger — the `ci` module
 
-The `tests/` Dagger module builds this app through the z5labs `GoApp` archetype
-and, in its integration tests, stands up the whole stack (a TLS/mTLS Kafka
-cluster, a TLS/mTLS Schema Registry, and an OpenTelemetry collector wired to
-Tempo/Mimir/Loki), produces framed Avro records, runs this consumer against it,
-and asserts it both decoded the records and exported telemetry.
+The example ships its own Dagger module, rooted at the example directory so
+`dagger call` works from anywhere inside `examples/kafka-consumer/` as if it were
+its own repo. Its `dagger.json` lives at the example root (`source: "ci"`, code in
+`ci/`); the module object is `Ci`. It provides two things: a `run-against` chain
+that codifies how to run the app, and the build/integration checks.
 
 ```sh
-# from the repo root
-dagger -m examples/kafka-consumer/tests call go-app-ci           # GoApp fmt/vet/lint/test + multi-arch build
-dagger -m examples/kafka-consumer/tests call mtls-avro-consume   # full mTLS integration (see #147 below)
-dagger -m examples/kafka-consumer/tests call tls-avro-consume    # server-TLS variant
+cd examples/kafka-consumer
 
-# as CI runs it
-dagger check 'kafka-consumer-tests:go-app-ci'
+dagger call run-against local        # stand up the local stack + run the app (see #147 below)
+dagger call go-app-ci                # GoApp fmt/vet/lint/test -race + multi-arch build (the only +check)
+dagger call mtls-avro-consume        # full mTLS integration (see #147 below)
+dagger call tls-avro-consume         # server-TLS variant
+
+# as CI runs the check
+dagger check 'ci:go-app-ci'
 ```
 
-### Known blocker: the integration tests reproduce #147
+### `run-against local` — the codified run configuration
 
-`mtls-avro-consume` / `tls-avro-consume` currently **fail** at
-`KafkaSchemaRegistry.bindTo`, reproducing
-[#147](https://github.com/z5labs/devex/issues/147): the Schema Registry's
-advertised alias from `SchemaRegistry.BindTo(ctr)` is not resolvable from a
-`WithExec` process (the service handle detaches when it rides on the
-cross-module `SchemaRegistry` object). Every mTLS-capable registry backend
-(Confluent/Apicurio/Karapace) is a separate service reached via `BindTo`, so
-there is no mTLS path that avoids the bug.
+`run-against local` is the Dagger-native replacement for a `make` + docker-compose
+"up": one command spins up every dependency the consumer needs — a single-node
+Redpanda broker with its **bundled** Schema Registry over TLS, and an
+OpenTelemetry collector fronting Tempo/Mimir/Loki — seeds the topic with framed
+Avro records, then builds and runs this consumer against the whole stack,
+returning its stdout. It codifies the "run configuration" you'd otherwise wire up
+by hand in an IDE, so it is reproducible and shareable.
 
-Because of this, only `go-app-ci` is a `+check` (it runs in CI); the integration
-tests are runnable on demand and serve as a faithful, end-to-end reproduction of
-the user experience that triggers #147. They should be promoted back to `+check`
-once #147 lands. The consumer's own TLS/mTLS config, Confluent-header parsing,
-and Avro decoding are covered offline by `main_test.go`.
+The chain is designed to grow a sibling — `run-against non-prod` — that points the
+same consumer container at services already deployed in a non-prod environment
+instead of standing them up locally.
+
+### Known blocker: everything that runs the app end-to-end reproduces #147
+
+`run-against local`, `mtls-avro-consume`, and `tls-avro-consume` all currently
+**fail**, reproducing [#147](https://github.com/z5labs/devex/issues/147): a
+`*dagger.Service` handle carried on a cross-module object detaches (Dagger v0.21
+"ModuleObject is detached"), so a container that binds it fails at hosts-file
+setup with `lookup … no such host`.
+
+- The **mTLS/TLS avro-consume** paths fail at `KafkaSchemaRegistry.bindTo`: every
+  mTLS-capable registry backend (Confluent/Apicurio/Karapace) is a *separate*
+  service reached via `BindTo`, whose advertised alias is unresolvable from a
+  `WithExec`.
+- **`run-against local`** was built on Redpanda's **bundled** Schema Registry
+  specifically to dodge that `BindTo` hop (the SR REST is reached at
+  `broker-host:8081` via `BindBrokers`, not `BindTo`). That dodges #147 for the SR
+  hop *in isolation*, but not for the full flow: seeding the topic with a
+  module-side producer starts the lone Redpanda service and then releases it, so
+  by the time the external consumer container binds the broker the service has
+  detached — the consumer's `WithExec` fails with `lookup redpanda-1-… no such
+  host`. Keeping the broker up to avoid that instead detaches the module-side
+  producer, and a broker restart would drop the seeded records anyway. It is a
+  genuine catch-22 with the current kafka-module API.
+
+`run-against local` is therefore the **most faithful reproduction of real user
+usage** and is the canonical case to reference when planning the #147 fix. None of
+these three is a `+check` — only `go-app-ci` runs in CI; the rest run on demand
+and are promoted once #147 lands. The consumer's own TLS/mTLS config,
+Confluent-header parsing, and Avro decoding are covered offline by `main_test.go`.

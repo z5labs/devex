@@ -287,7 +287,10 @@ type JSONValueID string
 type JavaTestsID string
 
 // A unique identifier for an object.
-type KafkaConsumerTestsID string
+type KafkaConsumerCiID string
+
+// A unique identifier for an object.
+type KafkaConsumerCiRunAgainstID string
 
 // A unique identifier for an object.
 type KafkaTestsID string
@@ -13273,12 +13276,22 @@ func (r *Query) LoadJavaTestsFromID(id JavaTestsID) *JavaTests {
 	}
 }
 
-// Load a KafkaConsumerTests from its ID.
-func (r *Query) LoadKafkaConsumerTestsFromID(id KafkaConsumerTestsID) *KafkaConsumerTests {
-	q := r.query.Select("loadKafkaConsumerTestsFromID")
+// Load a KafkaConsumerCi from its ID.
+func (r *Query) LoadKafkaConsumerCiFromID(id KafkaConsumerCiID) *KafkaConsumerCi {
+	q := r.query.Select("loadKafkaConsumerCiFromID")
 	q = q.Arg("id", id)
 
-	return &KafkaConsumerTests{
+	return &KafkaConsumerCi{
+		query: q,
+	}
+}
+
+// Load a KafkaConsumerCiRunAgainst from its ID.
+func (r *Query) LoadKafkaConsumerCiRunAgainstFromID(id KafkaConsumerCiRunAgainstID) *KafkaConsumerCiRunAgainst {
+	q := r.query.Select("loadKafkaConsumerCiRunAgainstFromID")
+	q = q.Arg("id", id)
+
+	return &KafkaConsumerCiRunAgainst{
 		query: q,
 	}
 }
