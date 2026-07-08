@@ -17,7 +17,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"dagger/tests/internal/dagger"
+	"dagger/ci/internal/dagger"
 
 	"github.com/dagger/querybuilder"
 )
@@ -59,17 +59,37 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 	return out
 }
 
-func (r Tests) MarshalJSON() ([]byte, error) {
+func (r Ci) MarshalJSON() ([]byte, error) {
 	var concrete struct{}
 	return json.Marshal(&concrete)
 }
 
-func (r *Tests) UnmarshalJSON(bs []byte) error {
+func (r *Ci) UnmarshalJSON(bs []byte) error {
 	var concrete struct{}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
 		return err
 	}
+	return nil
+}
+
+func (r RunAgainst) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	concrete.Source = r.Source
+	return json.Marshal(&concrete)
+}
+
+func (r *RunAgainst) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source *dagger.Directory
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
 	return nil
 }
 
@@ -190,10 +210,10 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
-	case "Tests":
+	case "Ci":
 		switch fnName {
 		case "All":
-			var parent Tests
+			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -212,9 +232,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Tests).All(&parent, ctx, source, kafkaImageTag)
+			return nil, (*Ci).All(&parent, ctx, source, kafkaImageTag)
 		case "GoAppCi":
-			var parent Tests
+			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -226,9 +246,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
 				}
 			}
-			return nil, (*Tests).GoAppCi(&parent, ctx, source)
+			return nil, (*Ci).GoAppCi(&parent, ctx, source)
 		case "MtlsAvroConsume":
-			var parent Tests
+			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -247,9 +267,23 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Tests).MtlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+			return nil, (*Ci).MtlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+		case "RunAgainst":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Ci).RunAgainst(&parent, source), nil
 		case "TlsAvroConsume":
-			var parent Tests
+			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -268,7 +302,26 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Tests).TlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+			return nil, (*Ci).TlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "RunAgainst":
+		switch fnName {
+		case "Local":
+			var parent RunAgainst
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaTag string
+			if inputArgs["redpandaTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaTag"]), &redpandaTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaTag", err))
+				}
+			}
+			return (*RunAgainst).Local(&parent, ctx, redpandaTag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
