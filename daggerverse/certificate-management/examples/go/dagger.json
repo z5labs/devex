@@ -1,5 +1,5 @@
 {
-  "name": "tests",
+  "name": "certificate-management-examples",
   "engineVersion": "v0.21.7",
   "sdk": {
     "source": "go"
@@ -7,19 +7,15 @@
   "dependencies": [
     {
       "name": "certificate-management",
-      "source": ".."
+      "source": "../.."
     },
     {
       "name": "random",
-      "source": "../../random"
+      "source": "../../../random"
     },
     {
       "name": "crypto",
-      "source": "../../crypto"
-    },
-    {
-      "name": "certificate-management-examples",
-      "source": "../examples/go"
+      "source": "../../../crypto"
     }
   ],
   "codegen": {

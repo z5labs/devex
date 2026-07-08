@@ -49,6 +49,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("IssueServerCertificateWithEd25519Key", t.IssueServerCertificateWithEd25519Key)
 	jobs = jobs.WithJob("LoadKeyStoreFromPkcs12RoundTrip", t.LoadKeyStoreFromPkcs12RoundTrip)
 	jobs = jobs.WithJob("LoadTrustStoreFromPkcs12RoundTrip", t.LoadTrustStoreFromPkcs12RoundTrip)
+	jobs = jobs.WithJob("ExamplesCookbook", t.exampleSmoke)
 
 	return jobs.Run(ctx)
 }
@@ -467,4 +468,24 @@ func readPemCert(ctx context.Context, f *dagger.File) (*x509.Certificate, error)
 		return nil, fmt.Errorf("parse certificate: %w", err)
 	}
 	return cert, nil
+}
+
+// exampleSmoke runs every examples/go cookbook recipe end-to-end and
+// materializes its PKCS#12 artifact, so the suite fails if the examples rot
+// against the certificate-management API. It is intentionally unexported so it
+// stays out of this module's Dagger schema (and the root ci/ bindings); it is
+// driven only as a job in All.
+func (t *Tests) exampleSmoke(ctx context.Context) error {
+	ex := dag.CertificateManagementExamples()
+	for name, f := range map[string]*dagger.File{
+		"IssueServerCertificate":    ex.IssueServerCertificate(),
+		"IssueClientCertificate":    ex.IssueClientCertificate(),
+		"IssueMutualTlsCertificate": ex.IssueMutualTLSCertificate(),
+		"RoundTripCaThroughPkcs12":  ex.RoundTripCaThroughPkcs12(),
+	} {
+		if _, err := f.Sync(ctx); err != nil {
+			return fmt.Errorf("example recipe %s: %w", name, err)
+		}
+	}
+	return nil
 }

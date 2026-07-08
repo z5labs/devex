@@ -161,9 +161,6 @@ type CacheVolumeID string
 type CertificateManagementCertificateAuthorityID string
 
 // A unique identifier for an object.
-type CertificateManagementExamplesID string
-
-// A unique identifier for an object.
 type CertificateManagementID string
 
 // A unique identifier for an object.
@@ -12849,16 +12846,6 @@ func (r *Query) LoadCertificateManagementCertificateAuthorityFromID(id Certifica
 	q = q.Arg("id", id)
 
 	return &CertificateManagementCertificateAuthority{
-		query: q,
-	}
-}
-
-// Load a CertificateManagementExamples from its ID.
-func (r *Query) LoadCertificateManagementExamplesFromID(id CertificateManagementExamplesID) *CertificateManagementExamples {
-	q := r.query.Select("loadCertificateManagementExamplesFromID")
-	q = q.Arg("id", id)
-
-	return &CertificateManagementExamples{
 		query: q,
 	}
 }
