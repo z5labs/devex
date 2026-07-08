@@ -489,6 +489,10 @@ err = client.Produce(ctx, "my-topic", "k", `{"x":"hello"}`, dagger.KafkaClientPr
     ValueSchemaID:    id,
     ValueSerializeAs: "AVRO", // JSON -> Avro binary, then frame with id
     Registry:         sr,     // *SchemaRegistry: resolves schema text by id
+    // RegistrySecurity: for a TLS/mTLS registry pass the matching client
+    // profile (Kafka.{Tls,Mtls}SchemaRegistryClientSecurity); omit / nil
+    // resolves over plaintext HTTP.
+    RegistrySecurity: srClientSec,
 })
 decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     MaxMessages: 1, Timeout: "10s",
@@ -496,6 +500,7 @@ decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     SchemaRegistryAware: true,        // required: supplies the wire id
     ValueDeserializeAs:  "AVRO",      // Avro binary -> JSON
     Registry:            sr,
+    RegistrySecurity:    srClientSec, // same client profile as Produce
 })
 
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
@@ -522,7 +527,12 @@ document and **Avro-binary-encoded** against the registered schema on
 `Produce`, then framed; on `Consume` the framed Avro-binary payload is
 decoded and re-serialised back to JSON. Both directions resolve the
 schema text by id through the supplied `Registry` (`*SchemaRegistry`),
-caching per id for the duration of the call. `Produce` requires a
+caching per id for the duration of the call. Against a **TLS / mTLS**
+registry, also pass the matching `RegistrySecurity`
+(`*SchemaRegistryClientSecurity` from
+`Kafka.{Tls,Mtls}SchemaRegistryClientSecurity`) so the resolution client
+speaks HTTPS (and, for mTLS, presents its client leaf); a nil / omitted
+profile resolves over plaintext HTTP. `Produce` requires a
 positive `…SchemaID` (it both names the schema and frames the record) and
 errors before any I/O on a zero id; `Consume` requires
 `schemaRegistryAware=true` and errors on an unframed record. The JSON

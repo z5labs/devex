@@ -908,6 +908,152 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	return nil
 }
 
+// AvroTlsFramedProduceConsumeRoundTrip is the TLS counterpart of
+// AvroFramedProduceConsumeRoundTrip: it stands up a TLS cluster and a TLS
+// cp-schema-registry rooted at one CA and drives the same JSON->Avro-binary->
+// JSON round-trip, but every hop is encrypted — the kafka-wire client speaks
+// TLS to the brokers and the Produce/Consume avro path resolves the schema
+// over HTTPS via the threaded RegistrySecurity profile (#141). Without that
+// profile the resolution would fail with "serves HTTPS but client is
+// PLAINTEXT", so a green round-trip proves the profile reaches Client(...).
+func (t *Tests) AvroTlsFramedProduceConsumeRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, registryClientSec, wireClientSec, err := freshTlsAvroStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create tls avro stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return avroFramedRoundTripOn(ctx, cluster, sr, registryClientSec, wireClientSec)
+}
+
+// AvroMtlsFramedProduceConsumeRoundTrip is the mTLS counterpart: the same
+// round-trip where the kafka-wire client and the REST schema-resolution client
+// each present their own leaf (both signed by the single CA). It proves the
+// threaded RegistrySecurity profile also carries a client key store through to
+// the avro path, not just a trust store.
+func (t *Tests) AvroMtlsFramedProduceConsumeRoundTrip(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, srSec, registryClientSec, wireClientSec, err := freshMtlsAvroStack(ctx, kafkaImageTag)
+	if err != nil {
+		return fmt.Errorf("create mtls avro stack: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	sr := dag.Kafka().ConfluentSchemaRegistry(cluster, srSec)
+	defer sr.Stop(ctx)
+
+	return avroFramedRoundTripOn(ctx, cluster, sr, registryClientSec, wireClientSec)
+}
+
+// avroFramedRoundTripOn is the shared body for the plaintext-agnostic avro
+// serde round-trip: register an Avro record schema over registryClientSec,
+// Produce a JSON document with valueSerializeAs="AVRO" (Avro-binary-encoded
+// then framed) over the kafka-wire wireClientSec, and Consume it back with
+// valueDeserializeAs="AVRO" + schemaRegistryAware=true. Both Produce and
+// Consume pass registryClientSec as RegistrySecurity so the schema text is
+// resolved against a (possibly TLS/mTLS) registry. Asserts byte-equality of
+// the consumed value to the canonical JSON form and that the wire schema id
+// survives. Mirrors AvroFramedProduceConsumeRoundTrip so the TLS and mTLS
+// tests differ only in how the stack is minted.
+func avroFramedRoundTripOn(
+	ctx context.Context,
+	cluster *dagger.KafkaCluster,
+	sr *dagger.KafkaSchemaRegistry,
+	registryClientSec *dagger.KafkaSchemaRegistryClientSecurity,
+	wireClientSec *dagger.KafkaClientSecurity,
+) error {
+	subject, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	topic := subject
+	subject += "-value"
+
+	id, err := sr.Client(registryClientSec).RegisterSchema(ctx, subject, avroTestSchema, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+		SchemaType: "AVRO",
+	})
+	if err != nil {
+		return fmt.Errorf("register schema: %w", err)
+	}
+	if id <= 0 {
+		return fmt.Errorf("expected a positive schema id, got %d", id)
+	}
+
+	client := cluster.Client(wireClientSec)
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: 1,
+	}); err != nil {
+		return fmt.Errorf("create topic %q: %w", topic, err)
+	}
+
+	// Whitespace differs from the canonical form so the round-trip proves the
+	// payload is genuinely re-encoded, not passed through.
+	const inputJSON = `{ "x" :  "hello-world" }`
+	const wantCanonical = `{"x":"hello-world"}`
+	const wantKey = "k"
+
+	if err := client.Produce(ctx, topic, wantKey, inputJSON, dagger.KafkaClientProduceOpts{
+		KeyEncoding:      "raw",
+		ValueEncoding:    "raw",
+		ValueSchemaID:    id,
+		ValueSerializeAs: "AVRO",
+		Registry:         sr,
+		RegistrySecurity: registryClientSec,
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:         1,
+		Timeout:             "10s",
+		KeyEncoding:         "raw",
+		ValueEncoding:       "raw",
+		SchemaRegistryAware: true,
+		ValueDeserializeAs:  "AVRO",
+		Registry:            sr,
+		RegistrySecurity:    registryClientSec,
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	gotValID, err := records[0].ValueSchemaID(ctx)
+	if err != nil {
+		return fmt.Errorf("read value schema id: %w", err)
+	}
+	if gotKey != wantKey {
+		return fmt.Errorf("key mismatch: want %q, got %q", wantKey, gotKey)
+	}
+	if gotVal != wantCanonical {
+		return fmt.Errorf("value mismatch: want canonical %q, got %q", wantCanonical, gotVal)
+	}
+	if gotValID != id {
+		return fmt.Errorf("value schema id mismatch: want %d, got %d", id, gotValID)
+	}
+	return nil
+}
+
 // AvroBytesFieldRoundTrip pins the Avro-spec JSON encoding of a bytes field.
 // Per the Avro specification, the JSON encoding of bytes (and fixed) is a
 // string whose characters are the byte values as Unicode code points 0-255 —
@@ -1057,6 +1203,77 @@ func freshMtlsRegistryStack(ctx context.Context, kafkaImageTag string) (
 	}
 	clientSec := k.MtlsSchemaRegistryClientSecurity(clientKs, clientKsPwd, ts.Pkcs12(), ts.Password())
 	return cluster, srSec, clientSec, nil
+}
+
+// freshTlsAvroStack mints one CA and returns everything the avro
+// Produce/Consume TLS round-trip needs, all rooted at that CA: a TLS
+// single-broker cluster, a TLS SchemaRegistrySecurity (server), a TLS
+// SchemaRegistryClientSecurity (the REST profile threaded through the avro
+// path), and a TLS KafkaClientSecurity for the kafka-wire producer/consumer.
+// It differs from freshTlsRegistryStack only by also building the kafka-wire
+// client profile (freshTlsRegistryStack feeds register/lookup tests that never
+// produce or consume, so it does not need one).
+func freshTlsAvroStack(ctx context.Context, kafkaImageTag string) (
+	*dagger.KafkaCluster, *dagger.KafkaSchemaRegistrySecurity, *dagger.KafkaSchemaRegistryClientSecurity, *dagger.KafkaClientSecurity, error,
+) {
+	ca, err := freshCa(ctx, "tls-avro")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	k := dag.Kafka()
+	cluster := k.ApacheNativeCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
+		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	srSec := k.TLSSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password())
+	registryClientSec := k.TLSSchemaRegistryClientSecurity(ts.Pkcs12(), ts.Password())
+	wireClientSec := k.TLSClientSecurity(ts.Pkcs12(), ts.Password())
+	return cluster, srSec, registryClientSec, wireClientSec, nil
+}
+
+// freshMtlsAvroStack is the mTLS counterpart of freshTlsAvroStack. The single
+// CA signs the broker leaves and is the broker's client-trust anchor, signs
+// the registry's REST + kafkastore leaves and is the registry's REST
+// client-trust anchor, and signs two client leaves: one for the kafka-wire
+// producer/consumer and one for the REST schema-resolution client. Both client
+// profiles present a leaf that validates against the same root.
+func freshMtlsAvroStack(ctx context.Context, kafkaImageTag string) (
+	*dagger.KafkaCluster, *dagger.KafkaSchemaRegistrySecurity, *dagger.KafkaSchemaRegistryClientSecurity, *dagger.KafkaClientSecurity, error,
+) {
+	ca, err := freshCa(ctx, "mtls-avro")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	k := dag.Kafka()
+	cluster := k.ApacheNativeCluster(clusterId,
+		k.MtlsServerSecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password()),
+		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	srSec := k.MtlsSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password())
+
+	restKs, restKsPwd, err := issueClientKeystore(ctx, ca, "sr-rest-client")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	registryClientSec := k.MtlsSchemaRegistryClientSecurity(restKs, restKsPwd, ts.Pkcs12(), ts.Password())
+
+	wireKs, wireKsPwd, err := issueClientKeystore(ctx, ca, "kafka-wire-client")
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	wireClientSec := k.MtlsClientSecurity(wireKs, wireKsPwd, ts.Pkcs12(), ts.Password())
+	return cluster, srSec, registryClientSec, wireClientSec, nil
 }
 
 // schemaRegistryRoundTripOn exercises the core register → lookup-by-id →

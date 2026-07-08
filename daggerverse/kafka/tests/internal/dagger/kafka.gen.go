@@ -1124,29 +1124,35 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:644:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:650:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:646:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:652:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:648:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:654:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:650:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:652:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:654:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:660:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:662:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:664:2)
 	//
 	// registry resolves the Avro schema text by id when keyDeserializeAs /
 	// valueDeserializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:663:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:669:2)
+	//
+	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
+	// schema text against a secured registry. Nil (the default) resolves over
+	// plaintext HTTP, reproducing today's behaviour.
+	//
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:675:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
@@ -1189,7 +1195,7 @@ type KafkaClientConsumeOpts struct {
 // per id for the duration of the call. The JSON shape follows the Avro
 // spec's JSON encoding; logical types, decimal, and fixed are not yet
 // supported.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:640:1)
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:646:1)
 	if r.consume != nil {
 		return *r.consume, nil
 	}
@@ -1230,6 +1236,10 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 		// `registry` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Registry) {
 			q = q.Arg("registry", opts[i].Registry)
+		}
+		// `registrySecurity` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
+			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
 	}
 	q = q.Arg("topic", topic)
@@ -1333,7 +1343,7 @@ func (r *KafkaClient) UnmarshalJSON(bs []byte) error {
 }
 
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:777:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:789:1)
 	q := r.query.Select("listTopics")
 
 	var response []string
@@ -1363,6 +1373,12 @@ type KafkaClientProduceOpts struct {
 	// valueSerializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
 	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:540:2)
+	//
+	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
+	// schema text against a secured registry. Nil (the default) resolves over
+	// plaintext HTTP, reproducing today's behaviour.
+	//
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:546:2)
 }
 
 // Produce synchronously writes one record to the topic. Key and value are
@@ -1424,6 +1440,10 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 		// `registry` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Registry) {
 			q = q.Arg("registry", opts[i].Registry)
+		}
+		// `registrySecurity` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
+			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
 	}
 	q = q.Arg("topic", topic)
