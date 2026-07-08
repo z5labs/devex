@@ -374,6 +374,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).AvroFramedProduceConsumeRoundTrip(&parent, ctx, kafkaImageTag)
+		case "AvroMtlsFramedProduceConsumeRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).AvroMtlsFramedProduceConsumeRoundTrip(&parent, ctx, kafkaImageTag)
 		case "AvroSerializeRequiresSchemaID":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -381,6 +395,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AvroSerializeRequiresSchemaID(&parent, ctx)
+		case "AvroTlsFramedProduceConsumeRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).AvroTlsFramedProduceConsumeRoundTrip(&parent, ctx, kafkaImageTag)
 		case "BindBrokersExposesBothListeners":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

@@ -538,6 +538,12 @@ func (c *Client) Produce(
 	//
 	// +optional
 	registry *SchemaRegistry,
+	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
+	// schema text against a secured registry. Nil (the default) resolves over
+	// plaintext HTTP, reproducing today's behaviour.
+	//
+	// +optional
+	registrySecurity *SchemaRegistryClientSecurity,
 ) error {
 	if keySchemaID < 0 {
 		return fmt.Errorf("keySchemaID must be >= 0, got %d", keySchemaID)
@@ -555,7 +561,7 @@ func (c *Client) Produce(
 		return fmt.Errorf("decode value: %w", err)
 	}
 
-	codecs := newAvroSchemas(registry)
+	codecs := newAvroSchemas(registry, registrySecurity)
 	keyBytes, err = serializeField(ctx, keyBytes, keySerializeAs, "key", keySchemaID, codecs)
 	if err != nil {
 		return fmt.Errorf("serialize key: %w", err)
@@ -661,6 +667,12 @@ func (c *Client) Consume(
 	//
 	// +optional
 	registry *SchemaRegistry,
+	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
+	// schema text against a secured registry. Nil (the default) resolves over
+	// plaintext HTTP, reproducing today's behaviour.
+	//
+	// +optional
+	registrySecurity *SchemaRegistryClientSecurity,
 ) (string, error) {
 	if maxMessages <= 0 {
 		return "", fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
@@ -705,7 +717,7 @@ func (c *Client) Consume(
 
 	// One codec cache per call so schema resolution is cached per id across
 	// every record polled (issue: avoid one HTTP round-trip per record).
-	codecs := newAvroSchemas(registry)
+	codecs := newAvroSchemas(registry, registrySecurity)
 
 	out := make([]ConsumedRecord, 0, maxMessages)
 	for len(out) < maxMessages {

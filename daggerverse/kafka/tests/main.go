@@ -161,6 +161,12 @@ func (t *Tests) SchemaRegistry(
 	jobs = jobs.WithJob("AvroFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
 		return t.AvroFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
 	})
+	jobs = jobs.WithJob("AvroTlsFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.AvroTlsFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("AvroMtlsFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.AvroMtlsFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
+	})
 	jobs = jobs.WithJob("AvroBytesFieldRoundTrip", func(ctx context.Context) error {
 		return t.AvroBytesFieldRoundTrip(ctx, kafkaImageTag)
 	})

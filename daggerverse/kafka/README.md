@@ -159,7 +159,7 @@ observe the same underlying service. It binds every broker via
 from `cluster.BootstrapServers()`.
 
 **TLS / mTLS** — the required `security *SchemaRegistrySecurity` argument (from
-`Kafka.{Plaintext,Tls,Mtls}SchemaRegistrySecurity`) must **match the cluster's
+`Kafka.{Plaintext,TLS,Mtls}SchemaRegistrySecurity`) must **match the cluster's
 mode**: a PLAINTEXT registry pairs with a PLAINTEXT cluster (today's behaviour),
 and a TLS/mTLS registry pairs with a same-mode cluster so its kafka-storage
 connection authenticates against the broker. A mismatch returns an error naming
@@ -489,6 +489,10 @@ err = client.Produce(ctx, "my-topic", "k", `{"x":"hello"}`, dagger.KafkaClientPr
     ValueSchemaID:    id,
     ValueSerializeAs: "AVRO", // JSON -> Avro binary, then frame with id
     Registry:         sr,     // *SchemaRegistry: resolves schema text by id
+    // RegistrySecurity: for a TLS/mTLS registry pass the matching client
+    // profile (Kafka.{TLS,Mtls}SchemaRegistryClientSecurity); omit / nil
+    // resolves over plaintext HTTP.
+    RegistrySecurity: srClientSec,
 })
 decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     MaxMessages: 1, Timeout: "10s",
@@ -496,6 +500,7 @@ decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     SchemaRegistryAware: true,        // required: supplies the wire id
     ValueDeserializeAs:  "AVRO",      // Avro binary -> JSON
     Registry:            sr,
+    RegistrySecurity:    srClientSec, // same client profile as Produce
 })
 
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
@@ -522,7 +527,12 @@ document and **Avro-binary-encoded** against the registered schema on
 `Produce`, then framed; on `Consume` the framed Avro-binary payload is
 decoded and re-serialised back to JSON. Both directions resolve the
 schema text by id through the supplied `Registry` (`*SchemaRegistry`),
-caching per id for the duration of the call. `Produce` requires a
+caching per id for the duration of the call. Against a **TLS / mTLS**
+registry, also pass the matching `RegistrySecurity`
+(`*SchemaRegistryClientSecurity` from
+`Kafka.{TLS,Mtls}SchemaRegistryClientSecurity`) so the resolution client
+speaks HTTPS (and, for mTLS, presents its client leaf); a nil / omitted
+profile resolves over plaintext HTTP. `Produce` requires a
 positive `…SchemaID` (it both names the schema and frames the record) and
 errors before any I/O on a zero id; `Consume` requires
 `schemaRegistryAware=true` and errors on an unframed record. The JSON
@@ -572,9 +582,9 @@ Topic auto-creation is disabled on the broker — call `CreateTopic` before
   connection uses the same protocol the broker's client listener speaks.
 - **Single-CA convention.** Because the cluster does not carry its CA across the
   API, the registry derives its broker-facing truststore from the CA the caller
-  re-supplies. Pass the **same CA** to the cluster (`TlsServerSecurity`), the
-  registry (`TlsSchemaRegistrySecurity`), and the client
-  (`TlsSchemaRegistryClientSecurity`) so every handshake chains to one root. For
+  re-supplies. Pass the **same CA** to the cluster (`TLSServerSecurity`), the
+  registry (`TLSSchemaRegistrySecurity`), and the client
+  (`TLSSchemaRegistryClientSecurity`) so every handshake chains to one root. For
   mTLS the registry also mints its own client leaf from that CA to present to
   the broker.
 - **PKCS#12 vs PEM per image.** Confluent (`cp-schema-registry`, Java) and

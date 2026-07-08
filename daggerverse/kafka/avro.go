@@ -43,8 +43,9 @@ import (
 // within one Consume call to avoid an HTTP round-trip per record; the same
 // cache serves Produce's single record.
 type avroSchemas struct {
-	registry *SchemaRegistry
-	byID     map[int]*avroSchema
+	registry         *SchemaRegistry
+	registrySecurity *SchemaRegistryClientSecurity
+	byID             map[int]*avroSchema
 }
 
 // avroSchema is one resolved schema plus its lazily-built name table and
@@ -57,8 +58,8 @@ type avroSchema struct {
 	dec    *generic.Decoder
 }
 
-func newAvroSchemas(registry *SchemaRegistry) *avroSchemas {
-	return &avroSchemas{registry: registry, byID: make(map[int]*avroSchema)}
+func newAvroSchemas(registry *SchemaRegistry, security *SchemaRegistryClientSecurity) *avroSchemas {
+	return &avroSchemas{registry: registry, registrySecurity: security, byID: make(map[int]*avroSchema)}
 }
 
 // get returns the resolved schema for id, fetching its text from the registry
@@ -71,11 +72,11 @@ func (a *avroSchemas) get(ctx context.Context, id int) (*avroSchema, error) {
 		return nil, fmt.Errorf("AVRO mode requires a schema registry to resolve schema id %d", id)
 	}
 	// The franz-go avro path resolves schemas over the registry's REST API.
-	// It currently assumes a plaintext registry; wiring a TLS/mTLS client
-	// profile through Produce/Consume is a follow-up (#141). A TLS registry
-	// here surfaces a clear "serves HTTPS but client is PLAINTEXT" error from
-	// do().
-	rs, err := a.registry.Client(nil).LookupSchemaByID(ctx, id)
+	// registrySecurity is the client profile threaded from Produce/Consume: a
+	// nil profile resolves over plaintext HTTP (today's behaviour), while a
+	// TLS/mTLS profile resolves the schema over HTTPS against a secured
+	// registry (#141).
+	rs, err := a.registry.Client(a.registrySecurity).LookupSchemaByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("resolve schema id %d: %w", id, err)
 	}
