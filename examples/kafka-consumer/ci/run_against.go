@@ -146,9 +146,9 @@ func (ra *RunAgainst) Local(
 		WithPipeline(o.Pipeline("metrics", "metrics").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("mimir", "http://mimir:9009/otlp"))).
 		WithPipeline(o.Pipeline("logs", "logs").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")))
 
-	// Build the example (Builder needs no .git) and run it against the bound
-	// services.
-	bin := dag.Z5Labs().GoApp(ra.Source).Builder().Binary()
+	// Run the SAME container GoApp CI builds and publishes (Builder needs no
+	// .git) against the bound services.
+	base := dag.Z5Labs().GoApp(ra.Source).Builder().Container()
 	brokers, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return "", fmt.Errorf("bootstrap servers: %w", err)
@@ -162,7 +162,7 @@ func (ra *RunAgainst) Local(
 	serviceName := "kafka-consumer-local-" + mark
 
 	runner := consumerRunner(consumerRunnerConfig{
-		bin:          bin,
+		base:         base,
 		brokers:      brokers,
 		registryURL:  fmt.Sprintf("https://%s:8081", brokerHost),
 		trustStore:   ts.Pkcs12(),
@@ -177,7 +177,7 @@ func (ra *RunAgainst) Local(
 	runner = cluster.BindBrokers(runner)
 	runner = runner.WithServiceBinding("col", col.Service())
 
-	out, err := runner.WithExec([]string{"consumer"}).Stdout(ctx)
+	out, err := runner.WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).Stdout(ctx)
 	if err != nil {
 		return "", fmt.Errorf("run consumer: %w", err)
 	}
