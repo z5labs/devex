@@ -2198,7 +2198,7 @@ func (r *KafkaSchemaRegistryClient) WithGraphQLQuery(q *querybuilder.Selection) 
 
 // DeleteSubject deletes every version of the given subject and returns the
 // version numbers that were deleted.
-func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject string) ([]int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1011:1)
+func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject string) ([]int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1015:1)
 	q := r.query.Select("deleteSubject")
 	q = q.Arg("subject", subject)
 
@@ -2211,7 +2211,7 @@ func (r *KafkaSchemaRegistryClient) DeleteSubject(ctx context.Context, subject s
 // GetCompatibility returns the compatibility level configured for the given
 // subject, falling back to the registry-wide default when the subject has
 // no explicit configuration.
-func (r *KafkaSchemaRegistryClient) GetCompatibility(ctx context.Context, subject string) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1051:1)
+func (r *KafkaSchemaRegistryClient) GetCompatibility(ctx context.Context, subject string) (string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1055:1)
 	if r.getCompatibility != nil {
 		return *r.getCompatibility, nil
 	}
@@ -2274,7 +2274,7 @@ func (r *KafkaSchemaRegistryClient) UnmarshalJSON(bs []byte) error {
 }
 
 // ListSubjects returns the names of every subject registered.
-func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:995:1)
+func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:999:1)
 	q := r.query.Select("listSubjects")
 
 	var response []string
@@ -2285,7 +2285,7 @@ func (r *KafkaSchemaRegistryClient) ListSubjects(ctx context.Context) ([]string,
 
 // LookupLatestBySubject returns the latest registered schema version for
 // the given subject.
-func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:965:1)
+func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:969:1)
 	q := r.query.Select("lookupLatestBySubject")
 	q = q.Arg("subject", subject)
 
@@ -2300,7 +2300,7 @@ func (r *KafkaSchemaRegistryClient) LookupLatestBySubject(subject string) *Kafka
 // text and type, so a second call to GET /schemas/ids/{id}/versions
 // resolves the subject and version. When an id maps to more than one
 // subject/version pair, the first association is returned.
-func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:924:1)
+func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSchema { // kafka (../../../../../daggerverse/kafka/schema_registry.go:928:1)
 	q := r.query.Select("lookupSchemaById")
 	q = q.Arg("id", id)
 
@@ -2313,13 +2313,13 @@ func (r *KafkaSchemaRegistryClient) LookupSchemaByID(id int) *KafkaRegisteredSch
 type KafkaSchemaRegistryClientRegisterSchemaOpts struct {
 
 	// Default: "AVRO"
-	SchemaType string // kafka (../../../../../daggerverse/kafka/schema_registry.go:894:2)
+	SchemaType string // kafka (../../../../../daggerverse/kafka/schema_registry.go:898:2)
 }
 
 // RegisterSchema registers schema under subject and returns the globally
 // unique schema id the registry assigned. schemaType must be one of AVRO,
 // JSON, or PROTOBUF.
-func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject string, schema string, opts ...KafkaSchemaRegistryClientRegisterSchemaOpts) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:889:1)
+func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject string, schema string, opts ...KafkaSchemaRegistryClientRegisterSchemaOpts) (int, error) { // kafka (../../../../../daggerverse/kafka/schema_registry.go:893:1)
 	if r.registerSchema != nil {
 		return *r.registerSchema, nil
 	}
@@ -2342,7 +2342,7 @@ func (r *KafkaSchemaRegistryClient) RegisterSchema(ctx context.Context, subject 
 // SetCompatibility sets the compatibility level for the given subject.
 // level must be one of NONE, BACKWARD, BACKWARD_TRANSITIVE, FORWARD,
 // FORWARD_TRANSITIVE, FULL, or FULL_TRANSITIVE.
-func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subject string, level string) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1031:1)
+func (r *KafkaSchemaRegistryClient) SetCompatibility(ctx context.Context, subject string, level string) error { // kafka (../../../../../daggerverse/kafka/schema_registry.go:1035:1)
 	if r.setCompatibility != nil {
 		return nil
 	}

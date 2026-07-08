@@ -905,7 +905,7 @@ func (v QemuArch) Name() string {
 	case QemuArchArm:
 		return "ARM"
 	case QemuArchI386:
-		return "I_386"
+		return "I386"
 	case QemuArchMips:
 		return "MIPS"
 	case QemuArchMipsel:
@@ -919,7 +919,7 @@ func (v QemuArch) Name() string {
 	case QemuArchRiscv64:
 		return "RISCV_64"
 	case QemuArchX8664:
-		return "X_86_64"
+		return "X86_64"
 	default:
 		return ""
 	}
@@ -952,7 +952,7 @@ func (v *QemuArch) UnmarshalJSON(dt []byte) error {
 		*v = QemuArchAarch64
 	case "ARM":
 		*v = QemuArchArm
-	case "I_386":
+	case "I386":
 		*v = QemuArchI386
 	case "MIPS":
 		*v = QemuArchMips
@@ -966,7 +966,7 @@ func (v *QemuArch) UnmarshalJSON(dt []byte) error {
 		*v = QemuArchRiscv32
 	case "RISCV_64":
 		*v = QemuArchRiscv64
-	case "X_86_64":
+	case "X86_64":
 		*v = QemuArchX8664
 	default:
 		return fmt.Errorf("invalid enum value %q", s)
