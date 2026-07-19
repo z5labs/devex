@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "filename": "blinky.kicad_pro",
+    "version": 3
+  },
+  "text_variables": {
+    "LEDCOLOR": "green"
+  }
+}

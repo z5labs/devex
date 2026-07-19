@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "filename": "no-board.kicad_pro",
+    "version": 3
+  },
+  "text_variables": {
+    "LEDCOLOR": "green"
+  }
+}

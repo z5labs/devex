@@ -1,0 +1,26 @@
+{
+  "meta": {
+    "version": 1
+  },
+  "jobs": [
+    {
+      "id": "b0000000-0000-4000-8000-000000000001",
+      "type": "pcb_export_gerbers",
+      "settings": {
+        "description": "Gerbers",
+        "output_filename": ""
+      }
+    }
+  ],
+  "outputs": [
+    {
+      "id": "c0000000-0000-4000-8000-000000000001",
+      "type": "folder",
+      "only": [],
+      "settings": {
+        "description": "fab",
+        "output_path": "fab/"
+      }
+    }
+  ]
+}

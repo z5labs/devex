@@ -1,0 +1,16 @@
+{
+  "board": {
+    "design_settings": {
+      "rule_severities": {
+        "net_conflict": "error"
+      }
+    }
+  },
+  "meta": {
+    "filename": "violations.kicad_pro",
+    "version": 3
+  },
+  "text_variables": {
+    "LEDCOLOR": "green"
+  }
+}

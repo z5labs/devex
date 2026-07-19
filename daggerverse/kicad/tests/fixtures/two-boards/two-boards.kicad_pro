@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "filename": "two-boards.kicad_pro",
+    "version": 3
+  },
+  "text_variables": {
+    "LEDCOLOR": "green"
+  }
+}
