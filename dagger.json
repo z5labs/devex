@@ -42,6 +42,10 @@
       "source": "daggerverse/kafka/tests"
     },
     {
+      "name": "kicad-tests",
+      "source": "daggerverse/kicad/tests"
+    },
+    {
       "name": "otel-tests",
       "source": "daggerverse/otel/tests"
     },
