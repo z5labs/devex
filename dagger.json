@@ -42,6 +42,10 @@
       "source": "daggerverse/kafka/tests"
     },
     {
+      "name": "kafka-consumer-ci",
+      "source": "examples/kafka-consumer"
+    },
+    {
       "name": "kicad-tests",
       "source": "daggerverse/kicad/tests"
     },

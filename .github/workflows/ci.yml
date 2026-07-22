@@ -84,7 +84,13 @@ jobs:
               if $prefix == "ci" then
                 { name: ., module: ".", filter: . }
               else
-                { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])) }
+                # Most toolchain modules root their checks on a `Tests` object, so
+                # the per-module filter is "tests:<method>". The kafka-consumer
+                # example instead roots its module on a `Ci` object (its dagger.json
+                # lives at the example root so `dagger call` works anywhere in the
+                # example), so its checks are addressed as "ci:<method>".
+                ({ "kafka-consumer-ci": "ci" }[$prefix] // "tests") as $object |
+                { name: ., module: $module_for[$prefix], filter: ($object + ":" + (split(":")[1])) }
               end
             )
           ')
