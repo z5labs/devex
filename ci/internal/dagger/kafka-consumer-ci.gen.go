@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type KafkaConsumerCi
-func (r *Binding) AsKafkaConsumerCi() *KafkaConsumerCi { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:41:6)
+func (r *Binding) AsKafkaConsumerCi() *KafkaConsumerCi { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:44:6)
 	q := r.query.Select("asKafkaConsumerCi")
 
 	return &KafkaConsumerCi{
@@ -19,7 +19,7 @@ func (r *Binding) AsKafkaConsumerCi() *KafkaConsumerCi { // kafka-consumer-ci (.
 }
 
 // Retrieve the binding value, as type KafkaConsumerCiRunAgainst
-func (r *Binding) AsKafkaConsumerCiRunAgainst() *KafkaConsumerCiRunAgainst { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:17:6)
+func (r *Binding) AsKafkaConsumerCiRunAgainst() *KafkaConsumerCiRunAgainst { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:16:6)
 	q := r.query.Select("asKafkaConsumerCiRunAgainst")
 
 	return &KafkaConsumerCiRunAgainst{
@@ -28,7 +28,7 @@ func (r *Binding) AsKafkaConsumerCiRunAgainst() *KafkaConsumerCiRunAgainst { // 
 }
 
 // Create or update a binding of type KafkaConsumerCi in the environment
-func (r *Env) WithKafkaConsumerCiInput(name string, value *KafkaConsumerCi, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:41:6)
+func (r *Env) WithKafkaConsumerCiInput(name string, value *KafkaConsumerCi, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:44:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaConsumerCiInput")
 	q = q.Arg("name", name)
@@ -41,7 +41,7 @@ func (r *Env) WithKafkaConsumerCiInput(name string, value *KafkaConsumerCi, desc
 }
 
 // Declare a desired KafkaConsumerCi output to be assigned in the environment
-func (r *Env) WithKafkaConsumerCiOutput(name string, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:41:6)
+func (r *Env) WithKafkaConsumerCiOutput(name string, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:44:6)
 	q := r.query.Select("withKafkaConsumerCiOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -52,7 +52,7 @@ func (r *Env) WithKafkaConsumerCiOutput(name string, description string) *Env { 
 }
 
 // Create or update a binding of type KafkaConsumerCiRunAgainst in the environment
-func (r *Env) WithKafkaConsumerCiRunAgainstInput(name string, value *KafkaConsumerCiRunAgainst, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:17:6)
+func (r *Env) WithKafkaConsumerCiRunAgainstInput(name string, value *KafkaConsumerCiRunAgainst, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:16:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaConsumerCiRunAgainstInput")
 	q = q.Arg("name", name)
@@ -65,7 +65,7 @@ func (r *Env) WithKafkaConsumerCiRunAgainstInput(name string, value *KafkaConsum
 }
 
 // Declare a desired KafkaConsumerCiRunAgainst output to be assigned in the environment
-func (r *Env) WithKafkaConsumerCiRunAgainstOutput(name string, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:17:6)
+func (r *Env) WithKafkaConsumerCiRunAgainstOutput(name string, description string) *Env { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:16:6)
 	q := r.query.Select("withKafkaConsumerCiRunAgainstOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -75,7 +75,7 @@ func (r *Env) WithKafkaConsumerCiRunAgainstOutput(name string, description strin
 	}
 }
 
-type KafkaConsumerCi struct { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:41:6)
+type KafkaConsumerCi struct { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:44:6)
 	query *querybuilder.Selection
 
 	all             *Void
@@ -93,15 +93,16 @@ func (r *KafkaConsumerCi) WithGraphQLQuery(q *querybuilder.Selection) *KafkaCons
 
 // KafkaConsumerCiAllOpts contains options for KafkaConsumerCi.All
 type KafkaConsumerCiAllOpts struct {
-	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:112:2)
+	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:120:2)
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:114:2)
+	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:122:2)
 }
 
-// All runs the suite sequentially, for local `dagger call all`. CI runs only
-// GoAppCi (the sole +check); the integration round-trip is blocked by #147.
-func (r *KafkaConsumerCi) All(ctx context.Context, opts ...KafkaConsumerCiAllOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:108:1)
+// All runs the suite sequentially, for local `dagger call all`. In CI, GoAppCi
+// (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
+// is red until #147 lands.
+func (r *KafkaConsumerCi) All(ctx context.Context, opts ...KafkaConsumerCiAllOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:116:1)
 	if r.all != nil {
 		return nil
 	}
@@ -122,13 +123,13 @@ func (r *KafkaConsumerCi) All(ctx context.Context, opts ...KafkaConsumerCiAllOpt
 
 // KafkaConsumerCiGoAppCiOpts contains options for KafkaConsumerCi.GoAppCi
 type KafkaConsumerCiGoAppCiOpts struct {
-	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:60:2)
+	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:63:2)
 }
 
 // GoAppCi builds the example through the z5labs GoApp archetype: fmt, vet,
 // golangci-lint, `go test -race`, and a multi-arch build. GoApp.Ci requires a
 // git working tree, so the loaded source is wrapped with gitFixture first.
-func (r *KafkaConsumerCi) GoAppCi(ctx context.Context, opts ...KafkaConsumerCiGoAppCiOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:56:1)
+func (r *KafkaConsumerCi) GoAppCi(ctx context.Context, opts ...KafkaConsumerCiGoAppCiOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:59:1)
 	if r.goAppCi != nil {
 		return nil
 	}
@@ -194,19 +195,21 @@ func (r *KafkaConsumerCi) UnmarshalJSON(bs []byte) error {
 
 // KafkaConsumerCiMtlsAvroConsumeOpts contains options for KafkaConsumerCi.MtlsAvroConsume
 type KafkaConsumerCiMtlsAvroConsumeOpts struct {
-	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:84:2)
+	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:90:2)
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:86:2)
+	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:92:2)
 }
 
-// MtlsAvroConsume is the recommended-posture integration test: the whole stack
+// MtlsAvroConsume is the recommended-posture integration check: the whole stack
 // runs with mutual TLS on both the broker and the Schema Registry hops.
 //
-// NOT a +check: it reproduces #147 (SchemaRegistry.BindTo alias unresolvable
-// from WithExec) and fails at `KafkaSchemaRegistry.bindTo`. Run it on demand
-// with `dagger call mtls-avro-consume`; promote back to +check once #147 lands.
-func (r *KafkaConsumerCi) MtlsAvroConsume(ctx context.Context, opts ...KafkaConsumerCiMtlsAvroConsumeOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:80:1)
+// It is a +check that is currently RED by design: it reproduces #147
+// (SchemaRegistry.BindTo alias unresolvable from WithExec) and fails at
+// `KafkaSchemaRegistry.bindTo` with `lookup csr-… no such host` — the Confluent
+// Schema Registry's own DNS alias. Keeping it a +check makes CI a live tracker
+// for #147; it turns green automatically once #147 lands.
+func (r *KafkaConsumerCi) MtlsAvroConsume(ctx context.Context, opts ...KafkaConsumerCiMtlsAvroConsumeOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:86:1)
 	if r.mtlsAvroConsume != nil {
 		return nil
 	}
@@ -227,12 +230,12 @@ func (r *KafkaConsumerCi) MtlsAvroConsume(ctx context.Context, opts ...KafkaCons
 
 // KafkaConsumerCiRunAgainstOpts contains options for KafkaConsumerCi.RunAgainst
 type KafkaConsumerCiRunAgainstOpts struct {
-	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:27:2)
+	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:26:2)
 }
 
 // RunAgainst starts the run-configuration chain. The example source is loaded as
 // a contextual argument so `dagger call run-against local` needs no arguments.
-func (r *KafkaConsumerCi) RunAgainst(opts ...KafkaConsumerCiRunAgainstOpts) *KafkaConsumerCiRunAgainst { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:24:1)
+func (r *KafkaConsumerCi) RunAgainst(opts ...KafkaConsumerCiRunAgainstOpts) *KafkaConsumerCiRunAgainst { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:23:1)
 	q := r.query.Select("runAgainst")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `source` optional argument
@@ -248,15 +251,16 @@ func (r *KafkaConsumerCi) RunAgainst(opts ...KafkaConsumerCiRunAgainstOpts) *Kaf
 
 // KafkaConsumerCiTLSAvroConsumeOpts contains options for KafkaConsumerCi.TLSAvroConsume
 type KafkaConsumerCiTLSAvroConsumeOpts struct {
-	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:99:2)
+	Source *Directory // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:106:2)
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:101:2)
+	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:108:2)
 }
 
-// TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand.
-// Like MtlsAvroConsume it currently reproduces #147 and is not a
-func (r *KafkaConsumerCi) TLSAvroConsume(ctx context.Context, opts ...KafkaConsumerCiTLSAvroConsumeOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:95:1)
+// TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand. It
+// reproduces the same #147 `bindTo` failure as MtlsAvroConsume but is not a
+// +check — MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
+func (r *KafkaConsumerCi) TLSAvroConsume(ctx context.Context, opts ...KafkaConsumerCiTLSAvroConsumeOpts) error { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:102:1)
 	if r.tlsAvroConsume != nil {
 		return nil
 	}
@@ -289,12 +293,11 @@ func (r *KafkaConsumerCi) AsNode() Node {
 // on the local engine (a docker-compose replacement); a future NonProd() will
 // point the same consumer container at an already-deployed non-prod environment
 // instead of spinning services up.
-type KafkaConsumerCiRunAgainst struct { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:17:6)
+type KafkaConsumerCiRunAgainst struct { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:16:6)
 	query *querybuilder.Selection
 
-	id         *ID
-	local      *string
-	localProbe *string
+	id    *ID
+	local *string
 }
 
 func (r *KafkaConsumerCiRunAgainst) WithGraphQLQuery(q *querybuilder.Selection) *KafkaConsumerCiRunAgainst {
@@ -355,35 +358,45 @@ func (r *KafkaConsumerCiRunAgainst) UnmarshalJSON(bs []byte) error {
 // KafkaConsumerCiRunAgainstLocalOpts contains options for KafkaConsumerCiRunAgainst.Local
 type KafkaConsumerCiRunAgainstLocalOpts struct {
 
-	// Default: "v26.1.7"
-	RedpandaTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:116:2)
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:62:2)
 }
 
-// Local stands up a complete local stack — a single-node Redpanda broker with
-// its bundled Schema Registry (server-TLS), plus an OpenTelemetry collector
-// fronting Tempo/Mimir/Loki — produces framed Avro records onto a topic, then
-// builds and runs the example consumer against it, returning the consumer's
-// stdout. It is a Dagger-native replacement for a docker-compose "up": one
-// command brings up every dependency and the app, wired together, runnable from
-// anywhere in the example.
+// Local stands up a complete local stack — a single-node Apache Kafka broker
+// (KRaft) with a *separate* Confluent Schema Registry (server-TLS), plus an
+// OpenTelemetry collector fronting Tempo/Mimir/Loki — produces framed Avro
+// records onto a topic, then builds and runs the example consumer against it,
+// returning the consumer's stdout. It is meant to be a Dagger-native replacement
+// for a docker-compose "up": one command brings up every dependency and the app,
+// wired together, runnable from anywhere in the example.
 //
-// Redpanda's bundled Schema Registry (reached via BindBrokers on :8081) is used
-// deliberately: it sidesteps the kafka-module bug #147 (a separate Confluent SR's
-// advertised alias is unresolvable from a WithExec), so unlike the mTLS
-// avro-consume repros this path actually runs today. Redpanda supports server-TLS
-// but not mTLS, so the local wire + registry hops are server-TLS (trust-only).
+// This models exactly how a developer would run the example locally, and is the
+// canonical reproduction to reference when planning the fix for kafka-module bug
+// #147. It stands up the same topology as the mtls/tls-avro-consume checks —
+// Apache Kafka plus a standalone Confluent Schema Registry — precisely so the
+// registry is its own service reached via SchemaRegistry.BindTo. That BindTo
+// advertises the registry's own DNS alias, and the consumer's WithExec fails at
+// hosts-file setup with "lookup csr-… no such host": the registry hostname, which
+// names exactly the detached-ModuleObject handle #147 is about. (The previous
+// Redpanda build used a *bundled* registry sharing the broker host, so it instead
+// failed on the broker alias "redpanda-1-… no such host" — obscuring which hop
+// #147 actually breaks.) So Local currently FAILS by design; once #147 lands it
+// will run green. See the example README for the full write-up.
 //
+// The wire + registry hops are server-TLS (trust-only) to keep a local run
+// simple; the mutual-TLS posture is exercised by the mtls-avro-consume check.
 // Local does not assert on telemetry — it just returns the consumer's stdout —
-// but the observability backends run so a developer can point a UI at them.
-func (r *KafkaConsumerCiRunAgainst) Local(ctx context.Context, opts ...KafkaConsumerCiRunAgainstLocalOpts) (string, error) { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:113:1)
+// but the observability backends run so a developer (or a future dashboard) can
+// point a UI at them.
+func (r *KafkaConsumerCiRunAgainst) Local(ctx context.Context, opts ...KafkaConsumerCiRunAgainstLocalOpts) (string, error) { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:59:1)
 	if r.local != nil {
 		return *r.local, nil
 	}
 	q := r.query.Select("local")
 	for i := len(opts) - 1; i >= 0; i-- {
-		// `redpandaTag` optional argument
-		if !querybuilder.IsZeroValue(opts[i].RedpandaTag) {
-			q = q.Arg("redpandaTag", opts[i].RedpandaTag)
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
 		}
 	}
 
@@ -393,22 +406,8 @@ func (r *KafkaConsumerCiRunAgainst) Local(ctx context.Context, opts ...KafkaCons
 	return response, q.Execute(ctx)
 }
 
-// LocalProbe is a throwaway diagnostic: create the TLS Redpanda cluster, bind
-// its broker to a bare alpine container, and check DNS + TCP reachability.
-func (r *KafkaConsumerCiRunAgainst) LocalProbe(ctx context.Context) (string, error) { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:36:1)
-	if r.localProbe != nil {
-		return *r.localProbe, nil
-	}
-	q := r.query.Select("localProbe")
-
-	var response string
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
-}
-
 // Source is the example source tree — the app that gets built and run.
-func (r *KafkaConsumerCiRunAgainst) Source() *Directory { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:19:2)
+func (r *KafkaConsumerCiRunAgainst) Source() *Directory { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/run_against.go:18:2)
 	q := r.query.Select("source")
 
 	return &Directory{
@@ -429,32 +428,35 @@ func (r *KafkaConsumerCiRunAgainst) AsNode() Node {
 // so `dagger call` works from anywhere in the example, and it codifies the
 // example's run configuration alongside its checks:
 //
-//   - RunAgainst().Local() stands up the whole stack locally (Redpanda + bundled
-//     Schema Registry over TLS, plus an OpenTelemetry collector) and runs the
-//     example consumer against it — a Dagger-native replacement for make+compose.
+//   - RunAgainst().Local() stands up the whole stack locally (a single-node
+//     Apache Kafka broker plus a separate Confluent Schema Registry over TLS, and
+//     an OpenTelemetry collector) and runs the example consumer against it — a
+//     Dagger-native replacement for make+compose.
 //
 // It also exercises the runnable example under examples/kafka-consumer/ end to end:
 //
 //   - GoAppCi builds it through the z5labs GoApp archetype (fmt/vet/lint/test
-//     -race + multi-arch build). This is the only +check — it runs in CI.
-//   - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Kafka cluster, a
-//     TLS/mTLS Schema Registry, and an OpenTelemetry collector wired to Tempo/
-//     Mimir/Loki, produce framed Avro records, run the example consumer against
-//     the stack, and assert it both decoded the records and exported telemetry.
+//     -race + multi-arch build).
+//   - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka
+//     cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired
+//     to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer
+//     against the stack, and assert it both decoded the records and exported
+//     telemetry.
 //
-// The integration tests are BLOCKED by a known kafka-module bug — #147:
+// The end-to-end integration is BLOCKED by a known kafka-module bug — #147:
 // SchemaRegistry.BindTo's advertised alias is not resolvable from a WithExec
 // process (the service handle detaches when it rides on the cross-module
 // SchemaRegistry object). MtlsAvroConsume fails at exactly `KafkaSchemaRegistry.
-// bindTo`, so it is deliberately NOT a +check (it would be red-by-#147, not
-// red-by-#150). It is kept runnable via `dagger call mtls-avro-consume` as a
-// faithful reproduction of the end-to-end user experience that triggers #147,
-// and should be promoted back to +check once #147 lands. See the example's
-// README for details.
+// bindTo`, where the error names the registry's own DNS alias (`lookup csr-… no
+// such host`). It is intentionally kept as a +check so CI carries a live red
+// signal that tracks #147 — the check turns green once #147 lands. GoAppCi (the
+// build check) stays green throughout. TlsAvroConsume and RunAgainst().Local()
+// are the same reproduction in a server-TLS posture / run-configuration shape,
+// runnable on demand. See the example's README for details.
 //
 // The example source is loaded as a contextual argument (+defaultPath), so the
 // +check function runs under `dagger check` with no CLI arguments.
-func (r *Query) KafkaConsumerCi() *KafkaConsumerCi { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:41:6)
+func (r *Query) KafkaConsumerCi() *KafkaConsumerCi { // kafka-consumer-ci (../../../examples/kafka-consumer/ci/main.go:44:6)
 	q := r.query.Select("kafkaConsumerCi")
 
 	return &KafkaConsumerCi{

@@ -156,8 +156,9 @@ func issueClientKeystore(ctx context.Context, ca *dagger.CertificateManagementCe
 
 // consumerRunnerConfig holds everything consumerRunner needs to assemble the
 // example consumer container. The service bindings (brokers, schema registry,
-// collector) are applied by the caller, which holds the concrete cluster type
-// (Apache Cluster vs RedpandaCluster) and knows how to bind it.
+// collector) are applied by the caller, which holds the concrete Apache Kafka
+// Cluster + Confluent SchemaRegistry and knows how to bind them (BindBrokers +
+// BindTo).
 type consumerRunnerConfig struct {
 	// base is the exact container GoApp CI builds and publishes — the app on its
 	// entrypoint — so we run what ships, not a bespoke image. Get it from

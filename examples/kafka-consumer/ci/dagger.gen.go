@@ -314,14 +314,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			var redpandaTag string
-			if inputArgs["redpandaTag"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["redpandaTag"]), &redpandaTag)
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaTag", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return (*RunAgainst).Local(&parent, ctx, redpandaTag)
+			return (*RunAgainst).Local(&parent, ctx, kafkaImageTag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
