@@ -3,28 +3,31 @@
 // so `dagger call` works from anywhere in the example, and it codifies the
 // example's run configuration alongside its checks:
 //
-//   - RunAgainst().Local() stands up the whole stack locally (Redpanda + bundled
-//     Schema Registry over TLS, plus an OpenTelemetry collector) and runs the
-//     example consumer against it — a Dagger-native replacement for make+compose.
+//   - RunAgainst().Local() stands up the whole stack locally (a single-node
+//     Apache Kafka broker plus a separate Confluent Schema Registry over TLS, and
+//     an OpenTelemetry collector) and runs the example consumer against it — a
+//     Dagger-native replacement for make+compose.
 //
 // It also exercises the runnable example under examples/kafka-consumer/ end to end:
 //
 //   - GoAppCi builds it through the z5labs GoApp archetype (fmt/vet/lint/test
-//     -race + multi-arch build). This is the only +check — it runs in CI.
-//   - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Kafka cluster, a
-//     TLS/mTLS Schema Registry, and an OpenTelemetry collector wired to Tempo/
-//     Mimir/Loki, produce framed Avro records, run the example consumer against
-//     the stack, and assert it both decoded the records and exported telemetry.
+//     -race + multi-arch build).
+//   - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka
+//     cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired
+//     to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer
+//     against the stack, and assert it both decoded the records and exported
+//     telemetry.
 //
-// The integration tests are BLOCKED by a known kafka-module bug — #147:
+// The end-to-end integration is BLOCKED by a known kafka-module bug — #147:
 // SchemaRegistry.BindTo's advertised alias is not resolvable from a WithExec
 // process (the service handle detaches when it rides on the cross-module
 // SchemaRegistry object). MtlsAvroConsume fails at exactly `KafkaSchemaRegistry.
-// bindTo`, so it is deliberately NOT a +check (it would be red-by-#147, not
-// red-by-#150). It is kept runnable via `dagger call mtls-avro-consume` as a
-// faithful reproduction of the end-to-end user experience that triggers #147,
-// and should be promoted back to +check once #147 lands. See the example's
-// README for details.
+// bindTo`, where the error names the registry's own DNS alias (`lookup csr-… no
+// such host`). It is intentionally kept as a +check so CI carries a live red
+// signal that tracks #147 — the check turns green once #147 lands. GoAppCi (the
+// build check) stays green throughout. TlsAvroConsume and RunAgainst().Local()
+// are the same reproduction in a server-TLS posture / run-configuration shape,
+// runnable on demand. See the example's README for details.
 //
 // The example source is loaded as a contextual argument (+defaultPath), so the
 // +check function runs under `dagger check` with no CLI arguments.
@@ -69,13 +72,16 @@ func (c *Ci) GoAppCi(
 	return nil
 }
 
-// MtlsAvroConsume is the recommended-posture integration test: the whole stack
+// MtlsAvroConsume is the recommended-posture integration check: the whole stack
 // runs with mutual TLS on both the broker and the Schema Registry hops.
 //
-// NOT a +check: it reproduces #147 (SchemaRegistry.BindTo alias unresolvable
-// from WithExec) and fails at `KafkaSchemaRegistry.bindTo`. Run it on demand
-// with `dagger call mtls-avro-consume`; promote back to +check once #147 lands.
+// It is a +check that is currently RED by design: it reproduces #147
+// (SchemaRegistry.BindTo alias unresolvable from WithExec) and fails at
+// `KafkaSchemaRegistry.bindTo` with `lookup csr-… no such host` — the Confluent
+// Schema Registry's own DNS alias. Keeping it a +check makes CI a live tracker
+// for #147; it turns green automatically once #147 lands.
 //
+// +check
 // +cache="never"
 func (c *Ci) MtlsAvroConsume(
 	ctx context.Context,
@@ -88,8 +94,9 @@ func (c *Ci) MtlsAvroConsume(
 	return avroConsume(ctx, source, kafkaImageTag, true)
 }
 
-// TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand.
-// Like MtlsAvroConsume it currently reproduces #147 and is not a +check.
+// TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand. It
+// reproduces the same #147 `bindTo` failure as MtlsAvroConsume but is not a
+// +check — MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
 //
 // +cache="never"
 func (c *Ci) TlsAvroConsume(
@@ -103,8 +110,9 @@ func (c *Ci) TlsAvroConsume(
 	return avroConsume(ctx, source, kafkaImageTag, false)
 }
 
-// All runs the suite sequentially, for local `dagger call all`. CI runs only
-// GoAppCi (the sole +check); the integration round-trip is blocked by #147.
+// All runs the suite sequentially, for local `dagger call all`. In CI, GoAppCi
+// (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
+// is red until #147 lands.
 func (c *Ci) All(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"

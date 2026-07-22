@@ -104,23 +104,23 @@ that codifies how to run the app, and the build/integration checks.
 cd examples/kafka-consumer
 
 dagger call run-against local        # stand up the local stack + run the app (see #147 below)
-dagger call go-app-ci                # GoApp fmt/vet/lint/test -race + multi-arch build (the only +check)
-dagger call mtls-avro-consume        # full mTLS integration (see #147 below)
-dagger call tls-avro-consume         # server-TLS variant
+dagger call go-app-ci                # GoApp fmt/vet/lint/test -race + multi-arch build (+check)
+dagger call mtls-avro-consume        # full mTLS integration — +check, red until #147 (see below)
+dagger call tls-avro-consume         # server-TLS variant, on demand
 
-# as CI runs the check
-dagger check 'ci:go-app-ci'
+# the two +checks CI runs
+dagger check 'ci:go-app-ci' 'ci:mtls-avro-consume'
 ```
 
 ### `run-against local` — the codified run configuration
 
 `run-against local` is the Dagger-native replacement for a `make` + docker-compose
 "up": one command spins up every dependency the consumer needs — a single-node
-Redpanda broker with its **bundled** Schema Registry over TLS, and an
-OpenTelemetry collector fronting Tempo/Mimir/Loki — seeds the topic with framed
-Avro records, then builds and runs this consumer against the whole stack,
-returning its stdout. It codifies the "run configuration" you'd otherwise wire up
-by hand in an IDE, so it is reproducible and shareable.
+Apache Kafka broker (KRaft) with a **separate** Confluent Schema Registry over
+TLS, and an OpenTelemetry collector fronting Tempo/Mimir/Loki — seeds the topic
+with framed Avro records, then builds and runs this consumer against the whole
+stack, returning its stdout. It codifies the "run configuration" you'd otherwise
+wire up by hand in an IDE, so it is reproducible and shareable.
 
 The chain is designed to grow a sibling — `run-against non-prod` — that points the
 same consumer container at services already deployed in a non-prod environment
@@ -134,23 +134,28 @@ instead of standing them up locally.
 "ModuleObject is detached"), so a container that binds it fails at hosts-file
 setup with `lookup … no such host`.
 
-- The **mTLS/TLS avro-consume** paths fail at `KafkaSchemaRegistry.bindTo`: every
-  mTLS-capable registry backend (Confluent/Apicurio/Karapace) is a *separate*
-  service reached via `BindTo`, whose advertised alias is unresolvable from a
-  `WithExec`.
-- **`run-against local`** was built on Redpanda's **bundled** Schema Registry
-  specifically to dodge that `BindTo` hop (the SR REST is reached at
-  `broker-host:8081` via `BindBrokers`, not `BindTo`). That dodges #147 for the SR
-  hop *in isolation*, but not for the full flow: seeding the topic with a
-  module-side producer starts the lone Redpanda service and then releases it, so
-  by the time the external consumer container binds the broker the service has
-  detached — the consumer's `WithExec` fails with `lookup redpanda-1-… no such
-  host`. Keeping the broker up to avoid that instead detaches the module-side
-  producer, and a broker restart would drop the seeded records anyway. It is a
-  genuine catch-22 with the current kafka-module API.
+All three stand up **Apache Kafka + a separate Confluent Schema Registry**, so all
+three fail at the same place — `KafkaSchemaRegistry.bindTo`. The registry is its
+own container with its own service alias (`csr-…`), reached via `BindTo`, and that
+advertised alias is unresolvable from the consumer's `WithExec`:
 
-`run-against local` is therefore the **most faithful reproduction of real user
-usage** and is the canonical case to reference when planning the #147 fix. None of
-these three is a `+check` — only `go-app-ci` runs in CI; the rest run on demand
-and are promoted once #147 lands. The consumer's own TLS/mTLS config,
-Confluent-header parsing, and Avro decoding are covered offline by `main_test.go`.
+```
+lookup csr-… for hosts file: ... no such host
+```
+
+Because the registry is a standalone service, the failure names the **Schema
+Registry's** own DNS alias directly — pinpointing the exact cross-module handle
+#147 is about. (An earlier version of `run-against local` ran on Redpanda's
+*bundled* registry, which shares the broker host and reached the REST API at
+`broker-host:8081` via `BindBrokers` instead of `BindTo`. That dodged the SR
+`BindTo` hop, but the full produce→consume flow still detached — on the *broker*
+alias, `lookup redpanda-1-… no such host` — obscuring which hop #147 breaks.
+Switching to a standalone Confluent registry makes the reproduction unambiguous.)
+
+`run-against local` is the **most faithful reproduction of real user usage** and
+the canonical case to reference when planning the #147 fix. `mtls-avro-consume` is
+a `+check`, so CI carries a live **red** signal that tracks #147 and turns green
+the moment it lands; `go-app-ci` (the build check) stays green. `tls-avro-consume`
+and `run-against local` are the same reproduction, runnable on demand. The
+consumer's own TLS/mTLS config, Confluent-header parsing, and Avro decoding are
+covered offline by `main_test.go`.
