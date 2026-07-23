@@ -81,6 +81,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("JobsetRunProducesDeclaredOutputs", t.JobsetRunProducesDeclaredOutputs)
 	jobs = jobs.WithJob("JobsetRejectsMissingFile", t.JobsetRejectsMissingFile)
 
+	jobs = jobs.WithJob("CiCheckRunsErcAndDrc", t.CiCheckRunsErcAndDrc)
+	jobs = jobs.WithJob("CiCheckFailsOnViolations", t.CiCheckFailsOnViolations)
+	jobs = jobs.WithJob("CiRunProducesFabricationOutputs", t.CiRunProducesFabricationOutputs)
+	jobs = jobs.WithJob("CiRunShortCircuitsOnFailingCheck", t.CiRunShortCircuitsOnFailingCheck)
+
 	return jobs.Run(ctx)
 }
 
@@ -551,6 +556,106 @@ func (t *Tests) JobsetRejectsMissingFile(ctx context.Context) error {
 	}
 	if !strings.Contains(err.Error(), `"nope.kicad_jobset" not found in project`) {
 		return fmt.Errorf("expected a jobset-not-found error, got: %v", err)
+	}
+	return nil
+}
+
+// ----------------------------------------------------------------------- ci
+
+// CiCheckRunsErcAndDrc asserts the chained pipeline runs both enabled checks
+// against a clean project and returns nil. blinky passes both ERC and DRC on
+// its own, so a nil return proves the fan-out ran the enabled stages and
+// aggregated no error.
+func (t *Tests) CiCheckRunsErcAndDrc(ctx context.Context) error {
+	err := dag.Kicad().Ci(fixture("blinky")).
+		WithErc().
+		WithDrc().
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("expected a clean Ci.Check for blinky, got: %w", err)
+	}
+	return nil
+}
+
+// CiCheckFailsOnViolations runs Check against the violations fixture with both
+// ERC and DRC enabled and asserts the parallel fan-out aggregated BOTH job
+// failures rather than short-circuiting on the first. ERC fails with a
+// pin_not_connected violation and DRC fails with its "DRC violations" report;
+// requiring both signatures proves both jobs ran and both errors propagated.
+func (t *Tests) CiCheckFailsOnViolations(ctx context.Context) error {
+	err := dag.Kicad().Ci(fixture("violations")).
+		WithErc().
+		WithDrc().
+		Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a Ci.Check failure for the violations fixture, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "pin_not_connected") {
+		return fmt.Errorf("expected the ERC violation in the aggregated error, got: %s", msg)
+	}
+	if !strings.Contains(msg, "DRC violations") {
+		return fmt.Errorf("expected the DRC report in the aggregated error, got: %s", msg)
+	}
+	return nil
+}
+
+// CiRunProducesFabricationOutputs runs the full pipeline against the clean
+// blinky project — checks then outputs — and asserts Run returns one directory
+// holding the whole fabrication package: gerbers/ and drill/ subdirectories,
+// plus pos.pos and bom.csv at the root.
+func (t *Tests) CiRunProducesFabricationOutputs(ctx context.Context) error {
+	out := dag.Kicad().Ci(fixture("blinky")).
+		WithErc().
+		WithDrc().
+		WithFabricationOutputs().
+		Run()
+
+	root, err := out.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Run: %w", err)
+	}
+	// Directory.Entries lists subdirectories with a trailing slash.
+	for _, want := range []string{"gerbers/", "drill/", "pos.pos", "bom.csv"} {
+		if !contains(root, want) {
+			return fmt.Errorf("expected %s at the root of the fabrication package, got %v", want, root)
+		}
+	}
+
+	gerbers, err := out.Directory("gerbers").Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Run gerbers/: %w", err)
+	}
+	if !contains(gerbers, "blinky-F_Cu.gtl") {
+		return fmt.Errorf("expected blinky-F_Cu.gtl under gerbers/, got %v", gerbers)
+	}
+
+	drill, err := out.Directory("drill").Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.Run drill/: %w", err)
+	}
+	if !contains(drill, "blinky.drl") {
+		return fmt.Errorf("expected blinky.drl under drill/, got %v", drill)
+	}
+	return nil
+}
+
+// CiRunShortCircuitsOnFailingCheck asserts a failing check stops the pipeline
+// before any output work: Run against the violations fixture with ERC enabled
+// and fabrication outputs requested must return the aggregated check error and
+// no directory. The error carries the ERC report, proving the failure came
+// from stage 1 rather than from an export.
+func (t *Tests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error {
+	_, err := dag.Kicad().Ci(fixture("violations")).
+		WithErc().
+		WithFabricationOutputs().
+		Run().
+		Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Ci.Run to short-circuit on the failing check, got nil")
+	}
+	if !strings.Contains(err.Error(), "pin_not_connected") {
+		return fmt.Errorf("expected the failing-check ERC report in the error, got: %v", err)
 	}
 	return nil
 }

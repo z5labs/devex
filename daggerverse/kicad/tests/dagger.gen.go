@@ -213,6 +213,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BomDefaultFieldsProduceCsvHeader(&parent, ctx)
+		case "CiCheckFailsOnViolations":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckFailsOnViolations(&parent, ctx)
+		case "CiCheckRunsErcAndDrc":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckRunsErcAndDrc(&parent, ctx)
+		case "CiRunProducesFabricationOutputs":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunProducesFabricationOutputs(&parent, ctx)
+		case "CiRunShortCircuitsOnFailingCheck":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunShortCircuitsOnFailingCheck(&parent, ctx)
 		case "ContainerHasKicadCli":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
