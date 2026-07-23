@@ -109,6 +109,9 @@ func (r ContribCollector) MarshalJSON() ([]byte, error) {
 		Pipelines    []*Pipeline
 		BindingHosts []string
 		BindingSvcs  []*dagger.Service
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	concrete.Registry = r.Registry
 	concrete.Tag = r.Tag
@@ -116,6 +119,9 @@ func (r ContribCollector) MarshalJSON() ([]byte, error) {
 	concrete.Pipelines = r.Pipelines
 	concrete.BindingHosts = r.BindingHosts
 	concrete.BindingSvcs = r.BindingSvcs
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
@@ -127,6 +133,9 @@ func (r *ContribCollector) UnmarshalJSON(bs []byte) error {
 		Pipelines    []*Pipeline
 		BindingHosts []string
 		BindingSvcs  []*dagger.Service
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -138,6 +147,9 @@ func (r *ContribCollector) UnmarshalJSON(bs []byte) error {
 	r.Pipelines = concrete.Pipelines
 	r.BindingHosts = concrete.BindingHosts
 	r.BindingSvcs = concrete.BindingSvcs
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
@@ -149,6 +161,9 @@ func (r CoreCollector) MarshalJSON() ([]byte, error) {
 		Pipelines    []*Pipeline
 		BindingHosts []string
 		BindingSvcs  []*dagger.Service
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	concrete.Registry = r.Registry
 	concrete.Tag = r.Tag
@@ -156,6 +171,9 @@ func (r CoreCollector) MarshalJSON() ([]byte, error) {
 	concrete.Pipelines = r.Pipelines
 	concrete.BindingHosts = r.BindingHosts
 	concrete.BindingSvcs = r.BindingSvcs
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
@@ -167,6 +185,9 @@ func (r *CoreCollector) UnmarshalJSON(bs []byte) error {
 		Pipelines    []*Pipeline
 		BindingHosts []string
 		BindingSvcs  []*dagger.Service
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -178,26 +199,38 @@ func (r *CoreCollector) UnmarshalJSON(bs []byte) error {
 	r.Pipelines = concrete.Pipelines
 	r.BindingHosts = concrete.BindingHosts
 	r.BindingSvcs = concrete.BindingSvcs
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
 func (r Exporter) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Kind string
-		Name string
-		Body string
+		Kind       string
+		Name       string
+		Body       string
+		CaCert     *dagger.File
+		ClientCert *dagger.File
+		ClientKey  *dagger.Secret
 	}
 	concrete.Kind = r.Kind
 	concrete.Name = r.Name
 	concrete.Body = r.Body
+	concrete.CaCert = r.CaCert
+	concrete.ClientCert = r.ClientCert
+	concrete.ClientKey = r.ClientKey
 	return json.Marshal(&concrete)
 }
 
 func (r *Exporter) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Kind string
-		Name string
-		Body string
+		Kind       string
+		Name       string
+		Body       string
+		CaCert     *dagger.File
+		ClientCert *dagger.File
+		ClientKey  *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -206,6 +239,9 @@ func (r *Exporter) UnmarshalJSON(bs []byte) error {
 	r.Kind = concrete.Kind
 	r.Name = concrete.Name
 	r.Body = concrete.Body
+	r.CaCert = concrete.CaCert
+	r.ClientCert = concrete.ClientCert
+	r.ClientKey = concrete.ClientKey
 	return nil
 }
 
@@ -434,6 +470,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*ContribCollector).WithConfigFile(&parent, f), nil
+		case "WithMtls":
+			var parent ContribCollector
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*ContribCollector).WithMtls(&parent, clientCa), nil
 		case "WithPipeline":
 			var parent ContribCollector
 			err = json.Unmarshal(parentJSON, &parent)
@@ -469,6 +519,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*ContribCollector).WithServiceBinding(&parent, host, svc), nil
+		case "WithTls":
+			var parent ContribCollector
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*ContribCollector).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -516,6 +587,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*CoreCollector).WithConfigFile(&parent, f), nil
+		case "WithMtls":
+			var parent CoreCollector
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*CoreCollector).WithMtls(&parent, clientCa), nil
 		case "WithPipeline":
 			var parent CoreCollector
 			err = json.Unmarshal(parentJSON, &parent)
@@ -551,6 +636,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*CoreCollector).WithServiceBinding(&parent, host, svc), nil
+		case "WithTls":
+			var parent CoreCollector
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*CoreCollector).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -772,7 +878,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg endpoint", err))
 				}
 			}
-			return (*Otel).OtlpExporter(&parent, name, endpoint)
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Otel).OtlpExporter(&parent, name, endpoint, caCert, clientCert, clientKey)
 		case "OtlpHttpExporter":
 			var parent Otel
 			err = json.Unmarshal(parentJSON, &parent)
@@ -793,7 +920,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg endpoint", err))
 				}
 			}
-			return (*Otel).OtlpHttpExporter(&parent, name, endpoint)
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Otel).OtlpHttpExporter(&parent, name, endpoint, caCert, clientCert, clientKey)
 		case "OtlpReceiver":
 			var parent Otel
 			err = json.Unmarshal(parentJSON, &parent)

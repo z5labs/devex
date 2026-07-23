@@ -27,7 +27,25 @@ const (
 	otlpGrpcPort     = 4317
 	otlpHttpPort     = 4318
 	configMountPath  = "/etc/otelcol/config.yaml"
+
+	// TLS material mount paths. Receiver-side (collector-level) server
+	// cert/key and the mTLS client CA land at fixed paths; exporter-side
+	// material is namespaced per component id under exporterTlsDirPath so
+	// distinct exporters never collide.
+	tlsBaseDir         = "/etc/otelcol/tls"
+	serverCertPath     = tlsBaseDir + "/server-cert.pem"
+	serverKeyPath      = tlsBaseDir + "/server-key.pem"
+	clientCaPath       = tlsBaseDir + "/client-ca.pem"
+	exporterTlsDirPath = tlsBaseDir + "/exporters"
 )
+
+// exporterCertDir returns the container directory an exporter's TLS
+// material is mounted under. Derived from the component id (kind/name),
+// which the collector already guarantees unique, so two exporters never
+// share a mount path.
+func exporterCertDir(kind, name string) string {
+	return fmt.Sprintf("%s/%s_%s", exporterTlsDirPath, kind, name)
+}
 
 func coreImage(registry, tag string) string {
 	return fmt.Sprintf("%s/%s:%s", registry, coreImagePath, tag)
@@ -37,14 +55,14 @@ func contribImage(registry, tag string) string {
 	return fmt.Sprintf("%s/%s:%s", registry, contribImagePath, tag)
 }
 
-func resolveConfigFile(override *dagger.File, pipelines []*Pipeline) (*dagger.File, error) {
+func resolveConfigFile(override *dagger.File, pipelines []*Pipeline, tlsEnabled, mtlsEnabled bool) (*dagger.File, error) {
 	if override != nil {
 		return override, nil
 	}
 	if len(pipelines) == 0 {
 		return nil, nil
 	}
-	body, err := renderCollectorYAML(pipelines)
+	body, err := renderCollectorYAML(pipelines, tlsEnabled, mtlsEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +74,11 @@ func resolveConfigFile(override *dagger.File, pipelines []*Pipeline) (*dagger.Fi
 // container launches with no --config flag and the collector binary
 // exits non-zero — exposed verbatim so callers can detect the
 // misconfiguration via service-binding probes.
-func buildService(image string, override *dagger.File, pipelines []*Pipeline, hosts []string, svcs []*dagger.Service) (*dagger.Service, error) {
-	cfg, err := resolveConfigFile(override, pipelines)
+func buildService(image string, override *dagger.File, pipelines []*Pipeline, hosts []string, svcs []*dagger.Service, serverCert *dagger.File, serverKey *dagger.Secret, clientCa *dagger.File) (*dagger.Service, error) {
+	if clientCa != nil && serverCert == nil {
+		return nil, fmt.Errorf("WithMtls requires WithTls: a client CA was set without a server certificate")
+	}
+	cfg, err := resolveConfigFile(override, pipelines, serverCert != nil, clientCa != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -74,6 +95,18 @@ func buildService(image string, override *dagger.File, pipelines []*Pipeline, ho
 	for i, host := range hosts {
 		ctr = ctr.WithServiceBinding(host, svcs[i])
 	}
+	// Receiver-side (collector-level) TLS material at fixed paths, then
+	// exporter-side material namespaced per component id.
+	if serverCert != nil {
+		ctr = ctr.WithMountedFile(serverCertPath, serverCert)
+	}
+	if serverKey != nil {
+		ctr = ctr.WithMountedSecret(serverKeyPath, serverKey)
+	}
+	if clientCa != nil {
+		ctr = ctr.WithMountedFile(clientCaPath, clientCa)
+	}
+	ctr = mountExporterTls(ctr, pipelines)
 	var args []string
 	if cfg != nil {
 		ctr = ctr.WithMountedFile(configMountPath, cfg)
@@ -83,6 +116,36 @@ func buildService(image string, override *dagger.File, pipelines []*Pipeline, ho
 		UseEntrypoint: true,
 		Args:          args,
 	}), nil
+}
+
+// mountExporterTls mounts every TLS-carrying exporter's cert/key material
+// into the collector at the per-component paths already referenced by the
+// rendered config. Mounts are deduped by directory so a single exporter
+// wired into many pipelines is mounted once; the key is a secret mount.
+func mountExporterTls(ctr *dagger.Container, pipelines []*Pipeline) *dagger.Container {
+	seen := map[string]bool{}
+	for _, p := range pipelines {
+		for _, e := range p.Exporters {
+			if e.CaCert == nil && e.ClientCert == nil && e.ClientKey == nil {
+				continue
+			}
+			dir := exporterCertDir(e.Kind, e.Name)
+			if seen[dir] {
+				continue
+			}
+			seen[dir] = true
+			if e.CaCert != nil {
+				ctr = ctr.WithMountedFile(dir+"/ca.pem", e.CaCert)
+			}
+			if e.ClientCert != nil {
+				ctr = ctr.WithMountedFile(dir+"/cert.pem", e.ClientCert)
+			}
+			if e.ClientKey != nil {
+				ctr = ctr.WithMountedSecret(dir+"/key.pem", e.ClientKey)
+			}
+		}
+	}
+	return ctr
 }
 
 type Otel struct{}
@@ -103,11 +166,20 @@ type Processor struct {
 	Body string
 }
 
-// Exporter is a single OpenTelemetry Collector exporter component.
+// Exporter is a single OpenTelemetry Collector exporter component. When
+// TLS options are supplied to the factory, the cert/key material is
+// carried here so the collector can mount it at the paths already baked
+// into Body (see exporterCertDir).
 type Exporter struct {
 	Kind string
 	Name string
 	Body string
+	// +private
+	CaCert *dagger.File
+	// +private
+	ClientCert *dagger.File
+	// +private
+	ClientKey *dagger.Secret
 }
 
 // nameRe matches the names (and Custom* kinds) the collector permits as
@@ -148,35 +220,91 @@ func (o *Otel) OtlpReceiver(name string) (*Receiver, error) {
 }
 
 // OtlpExporter builds an OTLP gRPC exporter pointing at endpoint
-// (host:port, no scheme). Plaintext only — TLS is follow-up #24.
-func (o *Otel) OtlpExporter(name, endpoint string) (*Exporter, error) {
-	if err := validateName("name", name); err != nil {
-		return nil, err
-	}
-	body, err := marshalBody(map[string]any{
-		"endpoint": endpoint,
-		"tls":      map[string]any{"insecure": true},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &Exporter{Kind: "otlp", Name: name, Body: body}, nil
+// (host:port, no scheme). With no TLS options the exporter is plaintext
+// (tls.insecure=true). Supplying caCert pins the server CA; supplying
+// clientCert + clientKey (which must be given together) presents an mTLS
+// identity.
+func (o *Otel) OtlpExporter(
+	name, endpoint string,
+	// PEM-encoded CA certificate to verify the receiver against. When set
+	// the exporter speaks TLS instead of plaintext.
+	// +optional
+	caCert *dagger.File,
+	// PEM-encoded client certificate presented for mTLS. Must be paired
+	// with clientKey.
+	// +optional
+	clientCert *dagger.File,
+	// PEM-encoded PKCS#8 client private key for mTLS. Must be paired with
+	// clientCert.
+	// +optional
+	clientKey *dagger.Secret,
+) (*Exporter, error) {
+	return newOtlpExporter("otlp", name, endpoint, caCert, clientCert, clientKey)
 }
 
 // OtlpHttpExporter builds an OTLP/HTTP exporter pointing at endpoint
-// (URL with scheme, e.g. http://loki:3100/otlp).
-func (o *Otel) OtlpHttpExporter(name, endpoint string) (*Exporter, error) {
+// (URL with scheme, e.g. http://loki:3100/otlp). TLS options behave as
+// on OtlpExporter; point endpoint at an https:// URL when supplying them.
+func (o *Otel) OtlpHttpExporter(
+	name, endpoint string,
+	// +optional
+	caCert *dagger.File,
+	// +optional
+	clientCert *dagger.File,
+	// +optional
+	clientKey *dagger.Secret,
+) (*Exporter, error) {
+	return newOtlpExporter("otlphttp", name, endpoint, caCert, clientCert, clientKey)
+}
+
+// newOtlpExporter is the shared constructor behind OtlpExporter and
+// OtlpHttpExporter: it validates the name and TLS pairing, renders the
+// exporter body (baking in the per-component TLS mount paths when TLS is
+// requested), and stashes the cert/key material for the collector to
+// mount.
+func newOtlpExporter(kind, name, endpoint string, caCert, clientCert *dagger.File, clientKey *dagger.Secret) (*Exporter, error) {
 	if err := validateName("name", name); err != nil {
 		return nil, err
 	}
+	if (clientCert == nil) != (clientKey == nil) {
+		return nil, fmt.Errorf("exporter %q: clientCert and clientKey must be provided together", name)
+	}
 	body, err := marshalBody(map[string]any{
 		"endpoint": endpoint,
-		"tls":      map[string]any{"insecure": true},
+		"tls":      exporterTlsBlock(kind, name, caCert, clientCert, clientKey),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return &Exporter{Kind: "otlphttp", Name: name, Body: body}, nil
+	return &Exporter{
+		Kind:       kind,
+		Name:       name,
+		Body:       body,
+		CaCert:     caCert,
+		ClientCert: clientCert,
+		ClientKey:  clientKey,
+	}, nil
+}
+
+// exporterTlsBlock renders the exporter's `tls:` map. With no material it
+// is the plaintext {insecure: true}; otherwise it references the
+// per-component mount paths (see exporterCertDir) that buildService fills.
+func exporterTlsBlock(kind, name string, caCert, clientCert *dagger.File, clientKey *dagger.Secret) map[string]any {
+	if caCert == nil && clientCert == nil && clientKey == nil {
+		return map[string]any{"insecure": true}
+	}
+	dir := exporterCertDir(kind, name)
+	tls := map[string]any{}
+	if caCert != nil {
+		tls["ca_file"] = dir + "/ca.pem"
+	}
+	if clientCert != nil {
+		tls["cert_file"] = dir + "/cert.pem"
+	}
+	if clientKey != nil {
+		tls["key_file"] = dir + "/key.pem"
+	}
+	return tls
 }
 
 // DebugExporter builds the stdout `debug` exporter at verbosity=detailed.
@@ -367,6 +495,12 @@ type CoreCollector struct {
 	Pipelines    []*Pipeline
 	BindingHosts []string
 	BindingSvcs  []*dagger.Service
+	// +private
+	ServerCert *dagger.File
+	// +private
+	ServerKey *dagger.Secret
+	// +private
+	ClientCa *dagger.File
 }
 
 // Core returns a CoreCollector backed by the
@@ -412,11 +546,32 @@ func (c *CoreCollector) WithConfigFile(f *dagger.File) *CoreCollector {
 	return &out
 }
 
+// WithTls enables TLS on both OTLP receivers (gRPC :4317 and HTTP :4318).
+// serverCert is the PEM-encoded server certificate and serverKey its
+// PEM-encoded PKCS#8 private key; both are mounted into the collector and
+// wired into every otlp receiver at render time. After this call
+// OtlpHttpEndpoint returns an https:// URL.
+func (c *CoreCollector) WithTls(serverCert *dagger.File, serverKey *dagger.Secret) *CoreCollector {
+	out := *c
+	out.ServerCert = serverCert
+	out.ServerKey = serverKey
+	return &out
+}
+
+// WithMtls requires client certificates signed by clientCa (PEM-encoded)
+// on every incoming OTLP connection. Must be combined with WithTls;
+// Service returns an error otherwise.
+func (c *CoreCollector) WithMtls(clientCa *dagger.File) *CoreCollector {
+	out := *c
+	out.ClientCa = clientCa
+	return &out
+}
+
 // ConfigFile returns the file that will be mounted as the collector's
 // --config: either the caller-supplied override or the
 // pipeline-rendered YAML. Inspecting it does not launch the service.
 func (c *CoreCollector) ConfigFile() (*dagger.File, error) {
-	return resolveConfigFile(c.Override, c.Pipelines)
+	return resolveConfigFile(c.Override, c.Pipelines, c.ServerCert != nil, c.ClientCa != nil)
 }
 
 // Service returns the running collector. Listens on :4317 (OTLP gRPC)
@@ -424,7 +579,7 @@ func (c *CoreCollector) ConfigFile() (*dagger.File, error) {
 // rendered) when one exists; otherwise launches with no --config flag,
 // matching the collector binary's behavior of refusing to start.
 func (c *CoreCollector) Service() (*dagger.Service, error) {
-	return buildService(coreImage(c.Registry, c.Tag), c.Override, c.Pipelines, c.BindingHosts, c.BindingSvcs)
+	return buildService(coreImage(c.Registry, c.Tag), c.Override, c.Pipelines, c.BindingHosts, c.BindingSvcs, c.ServerCert, c.ServerKey, c.ClientCa)
 }
 
 // OtlpGrpcEndpoint returns the host:port of the running collector's
@@ -443,8 +598,9 @@ func (c *CoreCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error) {
 	return fmt.Sprintf("%s:%d", host, otlpGrpcPort), nil
 }
 
-// OtlpHttpEndpoint returns http://<host>:4318 for the running
-// collector's OTLP/HTTP listener.
+// OtlpHttpEndpoint returns <scheme>://<host>:4318 for the running
+// collector's OTLP/HTTP listener. The scheme is https once WithTls has
+// been called, http otherwise.
 //
 // +cache="never"
 func (c *CoreCollector) OtlpHttpEndpoint(ctx context.Context) (string, error) {
@@ -456,7 +612,7 @@ func (c *CoreCollector) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("http://%s:%d", host, otlpHttpPort), nil
+	return fmt.Sprintf("%s://%s:%d", httpScheme(c.ServerCert), host, otlpHttpPort), nil
 }
 
 // renderCollectorYAML composes the full collector config from the
@@ -464,7 +620,7 @@ func (c *CoreCollector) OtlpHttpEndpoint(ctx context.Context) (string, error) {
 // across pipelines; component bodies (including Custom* bodies) are
 // parsed via yaml.Unmarshal so they splice in structurally rather
 // than as quoted scalars.
-func renderCollectorYAML(pipelines []*Pipeline) ([]byte, error) {
+func renderCollectorYAML(pipelines []*Pipeline, tlsEnabled, mtlsEnabled bool) ([]byte, error) {
 	receivers := map[string]any{}
 	processors := map[string]any{}
 	exporters := map[string]any{}
@@ -474,7 +630,16 @@ func renderCollectorYAML(pipelines []*Pipeline) ([]byte, error) {
 		var rNames, prNames, eNames []string
 		for _, r := range p.Receivers {
 			id := r.Kind + "/" + r.Name
-			if err := dedupComponent("receiver", id, r.Body, receivers); err != nil {
+			parsed, err := parseBody("receiver", id, r.Body)
+			if err != nil {
+				return nil, err
+			}
+			if tlsEnabled && r.Kind == "otlp" {
+				if err := injectReceiverTls(parsed, mtlsEnabled); err != nil {
+					return nil, fmt.Errorf("otlp receiver %s: %w", id, err)
+				}
+			}
+			if err := dedupParsed("receiver", id, parsed, receivers); err != nil {
 				return nil, err
 			}
 			rNames = append(rNames, id)
@@ -530,6 +695,14 @@ func dedupComponent(kind, id, body string, dst map[string]any) error {
 	if err != nil {
 		return err
 	}
+	return dedupParsed(kind, id, parsed, dst)
+}
+
+// dedupParsed inserts an already-parsed body for id into dst, returning
+// an error on same-id-different-body collisions. Split from
+// dedupComponent so receivers can be TLS-mutated after parsing but before
+// deduplication.
+func dedupParsed(kind, id string, parsed any, dst map[string]any) error {
 	if existing, ok := dst[id]; ok {
 		if !reflect.DeepEqual(existing, parsed) {
 			return fmt.Errorf("conflicting %s body for %s: same id wired into the pipeline graph with different configs; reuse a single instance instead", kind, id)
@@ -538,6 +711,47 @@ func dedupComponent(kind, id, body string, dst map[string]any) error {
 	}
 	dst[id] = parsed
 	return nil
+}
+
+// injectReceiverTls adds a `tls:` block referencing the collector-level
+// server cert/key (and, when mtls is set, the client CA) into each
+// configured protocol of a parsed otlp receiver body. Protocols the
+// caller did not configure are left untouched.
+func injectReceiverTls(parsed any, mtls bool) error {
+	m, ok := parsed.(map[string]any)
+	if !ok {
+		return fmt.Errorf("receiver body is not a mapping")
+	}
+	protos, ok := m["protocols"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("receiver body missing protocols mapping")
+	}
+	injected := false
+	for _, proto := range []string{"grpc", "http"} {
+		entry, ok := protos[proto].(map[string]any)
+		if !ok {
+			continue
+		}
+		entry["tls"] = receiverTlsBlock(mtls)
+		injected = true
+	}
+	if !injected {
+		return fmt.Errorf("receiver has no grpc or http protocol to enable TLS on")
+	}
+	return nil
+}
+
+// receiverTlsBlock renders the collector-side `tls:` map pointing at the
+// fixed server cert/key mount paths, plus the client CA path for mTLS.
+func receiverTlsBlock(mtls bool) map[string]any {
+	tls := map[string]any{
+		"cert_file": serverCertPath,
+		"key_file":  serverKeyPath,
+	}
+	if mtls {
+		tls["client_ca_file"] = clientCaPath
+	}
+	return tls
 }
 
 func parseBody(kind, id, body string) (any, error) {
@@ -590,6 +804,15 @@ func writeWorkdirFile(name string, content []byte) (*dagger.File, error) {
 	return dag.CurrentModule().WorkdirFile(path), nil
 }
 
+// httpScheme returns "https" when a server certificate is configured
+// (WithTls was called), "http" otherwise.
+func httpScheme(serverCert *dagger.File) string {
+	if serverCert != nil {
+		return "https"
+	}
+	return "http"
+}
+
 // ContribCollector wraps the otel/opentelemetry-collector-contrib
 // image. Method set is identical to CoreCollector; only the image
 // path differs, so the rendering and service helpers are shared.
@@ -600,6 +823,12 @@ type ContribCollector struct {
 	Pipelines    []*Pipeline
 	BindingHosts []string
 	BindingSvcs  []*dagger.Service
+	// +private
+	ServerCert *dagger.File
+	// +private
+	ServerKey *dagger.Secret
+	// +private
+	ClientCa *dagger.File
 }
 
 // Contrib returns a ContribCollector backed by the
@@ -637,14 +866,29 @@ func (c *ContribCollector) WithConfigFile(f *dagger.File) *ContribCollector {
 	return &out
 }
 
+// WithTls — see CoreCollector.WithTls.
+func (c *ContribCollector) WithTls(serverCert *dagger.File, serverKey *dagger.Secret) *ContribCollector {
+	out := *c
+	out.ServerCert = serverCert
+	out.ServerKey = serverKey
+	return &out
+}
+
+// WithMtls — see CoreCollector.WithMtls.
+func (c *ContribCollector) WithMtls(clientCa *dagger.File) *ContribCollector {
+	out := *c
+	out.ClientCa = clientCa
+	return &out
+}
+
 // ConfigFile — see CoreCollector.ConfigFile.
 func (c *ContribCollector) ConfigFile() (*dagger.File, error) {
-	return resolveConfigFile(c.Override, c.Pipelines)
+	return resolveConfigFile(c.Override, c.Pipelines, c.ServerCert != nil, c.ClientCa != nil)
 }
 
 // Service — see CoreCollector.Service.
 func (c *ContribCollector) Service() (*dagger.Service, error) {
-	return buildService(contribImage(c.Registry, c.Tag), c.Override, c.Pipelines, c.BindingHosts, c.BindingSvcs)
+	return buildService(contribImage(c.Registry, c.Tag), c.Override, c.Pipelines, c.BindingHosts, c.BindingSvcs, c.ServerCert, c.ServerKey, c.ClientCa)
 }
 
 // OtlpGrpcEndpoint — see CoreCollector.OtlpGrpcEndpoint.
@@ -674,5 +918,5 @@ func (c *ContribCollector) OtlpHttpEndpoint(ctx context.Context) (string, error)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("http://%s:%d", host, otlpHttpPort), nil
+	return fmt.Sprintf("%s://%s:%d", httpScheme(c.ServerCert), host, otlpHttpPort), nil
 }

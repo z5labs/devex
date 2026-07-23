@@ -444,6 +444,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).DebugPipelineAcceptsOtlpPush(&parent, ctx, collectorTag)
+		case "OtlpExporterRejectsClientCertWithoutKey":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).OtlpExporterRejectsClientCertWithoutKey(&parent, ctx)
+		case "OtlpExporterTlsRendersCaFile":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			return nil, (*Tests).OtlpExporterTlsRendersCaFile(&parent, ctx, collectorTag)
 		case "RejectsInvalidComponentName":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -486,6 +507,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).SharedReceiverIsDedupedInRenderedYaml(&parent, ctx, collectorTag)
+		case "Tls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			var lokiTag string
+			if inputArgs["lokiTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lokiTag"]), &lokiTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lokiTag", err))
+				}
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Tls(&parent, ctx, collectorTag, lokiTag, parallel)
+		case "TlsPipelineForwardsToLoki":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			var lokiTag string
+			if inputArgs["lokiTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lokiTag"]), &lokiTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lokiTag", err))
+				}
+			}
+			return nil, (*Tests).TlsPipelineForwardsToLoki(&parent, ctx, collectorTag, lokiTag)
 		case "Validation":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -507,6 +577,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).Validation(&parent, ctx, collectorTag, parallel)
+		case "WithMtlsRejectsWithoutClientCert":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			return nil, (*Tests).WithMtlsRejectsWithoutClientCert(&parent, ctx, collectorTag)
+		case "WithTlsAcceptsTlsRejectsPlaintext":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			return nil, (*Tests).WithTlsAcceptsTlsRejectsPlaintext(&parent, ctx, collectorTag)
+		case "WithTlsInjectsReceiverTls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var collectorTag string
+			if inputArgs["collectorTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["collectorTag"]), &collectorTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg collectorTag", err))
+				}
+			}
+			return nil, (*Tests).WithTlsInjectsReceiverTls(&parent, ctx, collectorTag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
