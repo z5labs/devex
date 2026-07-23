@@ -83,6 +83,42 @@ func (r *Kicad) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Ci) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Project            *Project
+		ErcEnabled         bool
+		DrcEnabled         bool
+		DrcSchematicParity bool
+		Outputs            []string
+	}
+	concrete.Project = r.Project
+	concrete.ErcEnabled = r.ErcEnabled
+	concrete.DrcEnabled = r.DrcEnabled
+	concrete.DrcSchematicParity = r.DrcSchematicParity
+	concrete.Outputs = r.Outputs
+	return json.Marshal(&concrete)
+}
+
+func (r *Ci) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Project            *Project
+		ErcEnabled         bool
+		DrcEnabled         bool
+		DrcSchematicParity bool
+		Outputs            []string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Project = concrete.Project
+	r.ErcEnabled = concrete.ErcEnabled
+	r.DrcEnabled = concrete.DrcEnabled
+	r.DrcSchematicParity = concrete.DrcSchematicParity
+	r.Outputs = concrete.Outputs
+	return nil
+}
+
 func (r Project) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Kicad        *Kicad
@@ -288,8 +324,69 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
+	case "Ci":
+		switch fnName {
+		case "Check":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Ci).Check(&parent, ctx)
+		case "Run":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).Run(&parent, ctx)
+		case "WithDrc":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var schematicParity bool
+			if inputArgs["schematicParity"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["schematicParity"]), &schematicParity)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg schematicParity", err))
+				}
+			}
+			return (*Ci).WithDrc(&parent, schematicParity), nil
+		case "WithErc":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithErc(&parent), nil
+		case "WithFabricationOutputs":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithFabricationOutputs(&parent), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Kicad":
 		switch fnName {
+		case "Ci":
+			var parent Kicad
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Kicad).Ci(&parent, source), nil
 		case "Container":
 			var parent Kicad
 			err = json.Unmarshal(parentJSON, &parent)

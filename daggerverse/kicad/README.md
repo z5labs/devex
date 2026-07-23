@@ -79,6 +79,11 @@ ambiguous is an error naming the candidates.
 | `Sch.Netlist(format, outputName)` | Netlist. |
 | `Sch.Pdf(outputName)` | Multi-page schematic PDF. |
 | `Sch.Svg()` | One SVG per sheet, as a `Directory`. |
+| `Ci(source)` | Chained builder composing the checks and outputs into one staged pipeline (parallel checks → fabrication outputs). |
+| `Ci.WithErc()` / `Ci.WithDrc(schematicParity)` | Enable the ERC / DRC check stages. |
+| `Ci.WithFabricationOutputs()` | Enable the fabrication package output (gerbers, drill, pos, BOM). |
+| `Ci.Check()` | Run only the enabled checks in parallel; returns the aggregated `error`. |
+| `Ci.Run()` | Run the checks then the outputs, returning the merged `Directory`; a failing check short-circuits before any export. |
 
 ### Why `Drc`/`Erc` return a bare `error`
 
@@ -151,6 +156,52 @@ step := p.Pcb().Step(dagger.KicadPcbStepOpts{BoardOnly: true})
 
 // Text variables override what the .kicad_pro declares.
 xml := p.WithVar("REV", "B").Pcb().Ipc2581()
+```
+
+## CI pipeline (`Ci` builder)
+
+`Ci(source)` returns a builder that composes the design-rule checks and the
+fabrication outputs into a single staged pipeline, so a hardware repo's CI is
+one `dagger call` rather than a hand-assembled sequence of per-export calls. It
+adds no capability of its own — every stage is a call you could make by hand
+against `Project`/`Pcb`/`Sch`.
+
+### Stages
+
+1. **Parallel checks** — enabled individually via `WithErc()` and
+   `WithDrc(schematicParity)`. Errors from enabled checks are aggregated via
+   `github.com/dagger/dagger/util/parallel`; stage 2 is short-circuited on any
+   stage-1 failure, so a failing check produces no output directory.
+2. **Outputs** — enabled via `WithFabricationOutputs()` (gerbers, drill, pos,
+   BOM). `Run` merges them into one `Directory`: `gerbers/` and `drill/`
+   subdirectories plus `pos.pos` and `bom.csv` at the root. `Check` runs stage 1
+   alone, for a PR gate that never needs the package.
+
+The board and schematic are auto-discovered per stage, exactly as a bare
+`Project(source).Pcb()`/`.Sch()` would. Same shape as `zig`'s and `go`'s `Ci`.
+
+### CLI
+
+    dagger -m daggerverse/kicad call ci \
+        --source=./hardware \
+        with-erc with-drc --schematic-parity=true \
+        with-fabrication-outputs \
+        run export --path=./fab
+
+### Kicad SDK
+
+```go
+// Ci produces the fabrication package; a downstream pipeline composes it.
+fab := dag.Kicad().Ci(src).
+    WithErc().
+    WithDrc(dagger.KicadCiWithDrcOpts{SchematicParity: true}).
+    WithFabricationOutputs().
+    Run()
+
+// Or run only the checks as a PR gate.
+if err := dag.Kicad().Ci(src).WithErc().WithDrc().Check(ctx); err != nil {
+    return err
+}
 ```
 
 See `tests/main.go` for one example per function.

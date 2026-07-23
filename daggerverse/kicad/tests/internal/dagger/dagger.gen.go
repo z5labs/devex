@@ -263,6 +263,9 @@ type JSON string
 type JSONValueID string
 
 // A unique identifier for an object.
+type KicadCiID string
+
+// A unique identifier for an object.
 type KicadID string
 
 // A unique identifier for an object.
@@ -13147,6 +13150,16 @@ func (r *Query) LoadJSONValueFromID(id JSONValueID) *JSONValue {
 	q = q.Arg("id", id)
 
 	return &JSONValue{
+		query: q,
+	}
+}
+
+// Load a KicadCi from its ID.
+func (r *Query) LoadKicadCiFromID(id KicadCiID) *KicadCi {
+	q := r.query.Select("loadKicadCiFromID")
+	q = q.Arg("id", id)
+
+	return &KicadCi{
 		query: q,
 	}
 }
