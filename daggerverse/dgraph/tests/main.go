@@ -41,6 +41,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
 		return t.Cluster(ctx, parallel)
 	})
+	jobs = jobs.WithJob("Security", func(ctx context.Context) error {
+		return t.Security(ctx, parallel)
+	})
 	return jobs.Run(ctx)
 }
 
@@ -98,6 +101,32 @@ func (t *Tests) Cluster(
 	jobs = jobs.WithJob("client-mutate-without-commit-does-not-persist", t.ClientMutateWithoutCommitDoesNotPersist)
 	jobs = jobs.WithJob("client-query-with-vars-round-trip", t.ClientQueryWithVarsRoundTrip)
 	jobs = jobs.WithJob("remote-client-can-target-existing-cluster", t.RemoteClientCanTargetExistingCluster)
+	return jobs.Run(ctx)
+}
+
+// Security runs the TLS / mTLS round-trip, mode-coupling, and container-
+// binding tests. Each mints its own per-test CA and cert material and
+// (for the round-trip / bind tests) boots an independent backing cluster
+// keyed by a unique name, so the jobs are safe to fan out.
+//
+// +check
+// +cache="session"
+func (t *Tests) Security(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("cluster-tls-round-trip-from-client", t.ClusterTlsRoundTripFromClient)
+	jobs = jobs.WithJob("cluster-mtls-round-trip-from-client", t.ClusterMtlsRoundTripFromClient)
+	jobs = jobs.WithJob("tls-cluster-rejects-plaintext-client", t.TlsClusterRejectsPlaintextClient)
+	jobs = jobs.WithJob("mtls-cluster-rejects-tls-only-client", t.MtlsClusterRejectsTlsOnlyClient)
+	jobs = jobs.WithJob("bind-alphas-resolves-from-user-container-tls", t.BindAlphasResolvesFromUserContainerTls)
 	return jobs.Run(ctx)
 }
 

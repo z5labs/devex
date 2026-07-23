@@ -7,28 +7,81 @@ replication factor) and exposes a pure-Go client (built on
 can target either the local cluster or a remote one
 (e.g. Dgraph Cloud, an existing self-hosted cluster).
 
-This story is **plaintext-only** on every listener (client-facing and
-internal). TLS / mTLS, ACL / Login, the Ratel UI service, multi-Zero
-HA, and RDF / delete-mutation forms all land in follow-ups (see
+Every client-facing listener supports **plaintext, one-way TLS, or
+mutual TLS**. ACL / Login, the Ratel UI service, multi-Zero HA, and
+RDF / delete-mutation forms all land in follow-ups (see
 [Follow-ups](#follow-ups) below).
 
 ## Security profiles
 
-Empty-struct profile types are kept distinct so future TLS / mTLS
-constructors slot in without changing existing `Cluster` / `Client`
-signatures.
+`*ServerSecurity` configures how a cluster's listeners authenticate and
+encrypt traffic; `*ClientSecurity` configures how a dgo client connects.
+The two are distinct types so a cluster and its client are chosen
+independently but coupled at connect time (see
+[Mode coupling](#mode-coupling)).
 
 ```go
+// Server (applied to every Alpha + Zero listener via Dgraph's --tls superflag)
 Dgraph.PlaintextServerSecurity() *ServerSecurity
+Dgraph.TlsServerSecurity(serverCert *dagger.File, serverKey *dagger.Secret) *ServerSecurity
+Dgraph.MtlsServerSecurity(serverCert *dagger.File, serverKey *dagger.Secret, clientCa *dagger.File) *ServerSecurity
+
+// Client (dgo *tls.Config material)
 Dgraph.PlaintextClientSecurity() *ClientSecurity
+Dgraph.TlsClientSecurity(serverCa *dagger.File) *ClientSecurity
+Dgraph.MtlsClientSecurity(serverCa *dagger.File, clientCert *dagger.File, clientKey *dagger.Secret) *ClientSecurity
 ```
+
+Cert material is caller-supplied PEM (`*dagger.File` for certs / CAs,
+`*dagger.Secret` for private keys) — pair with the
+`certificate-management` and `crypto` modules to mint it.
+
+### TLS / mTLS behaviour
+
+- **`TlsServerSecurity`** enables one-way TLS on every listener. Dgraph
+  boots each node with `--tls "server-cert=…; server-key=…"`; the default
+  `client-auth-type=VERIFYIFGIVEN` means clients need not present a
+  certificate, so a plain `TlsClientSecurity` (pinning the server CA)
+  connects cleanly.
+- **`MtlsServerSecurity`** additionally passes `ca-cert=<clientCa>` and
+  `client-auth-type=REQUIREANDVERIFY`, so connecting clients must present
+  a certificate signed by `clientCa`. A `MtlsClientSecurity` supplies the
+  matching client leaf + key.
+- Inter-node traffic (Alpha↔Zero) stays plaintext (`internal-port=false`),
+  so no peer certificates are needed.
+- The server certificate's SAN must cover the Alpha / Zero hostnames the
+  client dials — the dgo client and `wget` verify the presented cert
+  against the dialed host. Cluster hostnames derive from `name`, so a
+  TLS / mTLS cluster requires a non-empty `name` (enforced by the
+  constructor).
+
+> **Note on flag naming.** Dgraph v24 configures TLS through a single
+> `--tls` *superflag* (`key=value;`-delimited), not the discrete
+> `--tls.server_cert` flags an earlier draft of this feature assumed. The
+> `certificate-management` / `crypto` dependencies live in
+> `tests/dagger.json` (cert generation is a test-time concern); the module
+> itself only takes `*dagger.File` / `*dagger.Secret`.
+
+### Mode coupling
+
+`Cluster.Client(security)` validates that the supplied `*ClientSecurity`
+mode exactly matches the cluster's client-facing listener mode and
+returns an error naming both modes on a mismatch
+(e.g. `client uses plaintext but cluster listener is TLS`) — before any
+wire activity. The standalone `Dgraph.Client(endpoints, security)`
+constructor has no cluster reference and cannot perform this check; a
+mismatched standalone client instead fails at the gRPC handshake
+(e.g. a TLS-only client against an mTLS listener is rejected for
+presenting no certificate).
 
 ## Cluster
 
-Single Zero, N Alphas grouped at replication factor `replicas`. All
-listeners are plaintext. Built from a single `<registry>/dgraph/dgraph:<tag>`
-image; the `dgraph/dgraph` portion is fixed and only `registry` and
-`tag` are caller-overridable.
+Single Zero, N Alphas grouped at replication factor `replicas`. The
+`clientListenerSecurity` profile is applied uniformly to every Alpha
+(client-facing HTTP :8080 / gRPC :9080) and Zero (admin HTTP :6080)
+listener. Built from a single `<registry>/dgraph/dgraph:<tag>` image; the
+`dgraph/dgraph` portion is fixed and only `registry` and `tag` are
+caller-overridable.
 
 ```go
 Dgraph.Cluster(
@@ -46,6 +99,13 @@ Cluster.Client(ctx, security *ClientSecurity) (*Client, error)
 Cluster.Stop(ctx) error
 ```
 
+### Endpoint scheme
+
+`GrpcEndpoints` returns scheme-less `host:9080` pairs in every mode (dgo
+takes a bare address). `HttpEndpoints` returns scheme-less `host:8080`
+for a plaintext cluster and `https://host:8080` once the client-facing
+listener is TLS or mTLS.
+
 ### Topology constraints
 
 The following inputs are rejected with a descriptive error rather than
@@ -62,7 +122,13 @@ booting a half-broken cluster:
 - **`alphas % replicas != 0`** — Dgraph requires every group to be
   full.
 - **`clientListenerSecurity == nil`** — plaintext must be a
-  deliberate caller choice so a future TLS upgrade stays explicit.
+  deliberate caller choice so a TLS upgrade stays explicit. TLS / mTLS
+  profiles are additionally rejected if their cert material is
+  incomplete (TLS needs `serverCert` + `serverKey`; mTLS also needs
+  `clientCa`).
+- **`name == ""` for a TLS / mTLS cluster** — the Alpha / Zero hostnames
+  derive from `name`, and the server certificate's SAN must match them,
+  so each TLS / mTLS cluster needs a unique `name`.
 
 ### Function caching
 
@@ -121,22 +187,29 @@ dry run (txn discarded, no triples persisted). `RunQuery` and
 ## Tests
 
 After `dagger develop` in both `daggerverse/dgraph` and
-`daggerverse/dgraph/tests`, run any of the fifteen individual tests:
+`daggerverse/dgraph/tests`, run any individual test:
 
 ```sh
 dagger -m daggerverse/dgraph/tests call defaults-produce-working-single-node-cluster
 dagger -m daggerverse/dgraph/tests call client-mutate-then-query-round-trip
+dagger -m daggerverse/dgraph/tests call cluster-mtls-round-trip-from-client
 # ... etc
 ```
 
-`dagger -m daggerverse/dgraph/tests call all` runs every test
-serially in one engine session.
+Tests are grouped into three `+check` aggregators, each scheduled onto
+its own CI runner: `validation` (input rejections + cache-directive
+probes), `cluster` (plaintext topology / client round-trips), and
+`security` (TLS / mTLS round-trips, mode coupling, and container
+binding). `dagger -m daggerverse/dgraph/tests call all` runs every test
+in one engine session.
 
 ## Follow-ups
 
 Out of scope in this story; tracked separately:
 
-- **TLS / mTLS** on client-facing and inter-node listeners.
+- **Inter-node TLS** (`internal-port=true`) — encrypting Alpha↔Zero
+  traffic, which needs peer client certs. Client-facing TLS / mTLS is
+  supported (see [Security profiles](#security-profiles)).
 - **Multi-Zero HA** (Zero quorum with `--peer` flags).
 - **ACL / Login** (Dgraph Enterprise auth).
 - **Ratel UI** service for browsing the cluster from a web UI.

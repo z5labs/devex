@@ -206,6 +206,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "BindAlphasResolvesFromUserContainerTls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BindAlphasResolvesFromUserContainerTls(&parent, ctx)
 		case "ClientAlterSchemaRoundTrip":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -248,6 +255,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).Cluster(&parent, ctx, parallel)
+		case "ClusterMtlsRoundTripFromClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterMtlsRoundTripFromClient(&parent, ctx)
 		case "ClusterRejectsEvenReplicas":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -276,6 +290,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ClusterRejectsNilSecurity(&parent, ctx)
+		case "ClusterTlsRoundTripFromClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterTlsRoundTripFromClient(&parent, ctx)
 		case "DefaultsProduceWorkingSingleNodeCluster":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -297,6 +318,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).HttpEndpointsShouldNotBeCached(&parent, ctx)
+		case "MtlsClusterRejectsTlsOnlyClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MtlsClusterRejectsTlsOnlyClient(&parent, ctx)
 		case "MultiAlphaShardedTopology":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -325,6 +353,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RemoteClientCanTargetExistingCluster(&parent, ctx)
+		case "Security":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Security(&parent, ctx, parallel)
+		case "TlsClusterRejectsPlaintextClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TlsClusterRejectsPlaintextClient(&parent, ctx)
 		case "Validation":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
