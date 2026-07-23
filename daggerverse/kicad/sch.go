@@ -177,6 +177,9 @@ func (s *Sch) resolve(ctx context.Context) (string, *dagger.Container, error) {
 	if err := s.Project.validate(); err != nil {
 		return "", nil, err
 	}
+	if err := s.Project.validateVariant(ctx); err != nil {
+		return "", nil, err
+	}
 	sheet, err := s.Project.discover(ctx, "kicad_sch", s.Path)
 	if err != nil {
 		return "", nil, err

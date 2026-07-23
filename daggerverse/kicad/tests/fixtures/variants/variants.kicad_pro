@@ -1,0 +1,21 @@
+{
+  "meta": {
+    "filename": "variants.kicad_pro",
+    "version": 3
+  },
+  "text_variables": {
+    "LEDCOLOR": "green"
+  },
+  "schematic": {
+    "variants": [
+      {
+        "name": "StandardBuild",
+        "description": "baseline populated build"
+      },
+      {
+        "name": "HighValueBuild",
+        "description": "R1 swapped to 10k"
+      }
+    ]
+  }
+}
