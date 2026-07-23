@@ -920,12 +920,42 @@ func propertiesFileContainsBootstrapAndSecurityProtocolOn(ctx context.Context, c
 	return nil
 }
 
-// MultiControllerIsRejected pins the current contract: this story only
-// supports a single-controller quorum (controllers=1), and the constructor
-// must reject any larger value with a clear error rather than silently
-// spinning up a broken topology. Multi-controller HA is gated behind a
-// follow-up story; see daggerverse/kafka/README.md.
-func (t *Tests) MultiControllerIsRejected(
+// InvalidControllerCountIsRejected pins the voter-count policy: a KRaft
+// quorum wants an odd voter count for a clean majority, so even controller
+// counts are rejected, and a sub-1 count is nonsensical. Both must fail at
+// construction time with a clear error rather than spinning up a broken
+// topology. (Controllers=0 can't be exercised from the Go SDK — Dagger drops
+// the zero value and applies the +default=1 — so the sub-1 case uses -1.)
+func (t *Tests) InvalidControllerCountIsRejected(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	k := dag.Kafka()
+	for _, controllers := range []int{2, -1} {
+		clusterId, err := newClusterId(ctx)
+		if err != nil {
+			return err
+		}
+		cluster := k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
+			Tag:         kafkaImageTag,
+			Controllers: controllers,
+			Brokers:     1,
+		})
+		if _, err := cluster.BootstrapServers(ctx); err == nil {
+			return fmt.Errorf("expected Cluster(controllers=%d) to fail, got nil error", controllers)
+		}
+	}
+	return nil
+}
+
+// FiveControllerQuorumAccepted proves the constructor accepts a five-voter
+// quorum (odd, > 3) and returns a *Cluster: resolving BootstrapServers forces
+// the server-side constructor — validation, internal-CA minting of a leaf per
+// controller, and the full container graph — to run without booting the
+// containers, so the accept path is exercised cheaply. The 3-controller
+// end-to-end quorum is covered by ThreeControllerQuorumProduceConsume.
+func (t *Tests) FiveControllerQuorumAccepted(
 	ctx context.Context,
 	// +default="4.2.0"
 	kafkaImageTag string,
@@ -937,13 +967,55 @@ func (t *Tests) MultiControllerIsRejected(
 	k := dag.Kafka()
 	cluster := k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
 		Tag:         kafkaImageTag,
-		Controllers: 3,
+		Controllers: 5,
 		Brokers:     1,
 	})
-	if _, err := cluster.BootstrapServers(ctx); err == nil {
-		return fmt.Errorf("expected Cluster(controllers=3) to fail, got nil error")
+	bs, err := cluster.BootstrapServers(ctx)
+	if err != nil {
+		return fmt.Errorf("expected Cluster(controllers=5) to construct, got: %w", err)
+	}
+	if len(bs) == 0 {
+		return fmt.Errorf("expected at least one bootstrap server, got none")
 	}
 	return nil
+}
+
+// ThreeControllerQuorumProduceConsume stands up a real three-node KRaft
+// controller quorum (plus one broker) and drives a produce → consume
+// round-trip through it, mirroring the single-controller round-trip. A
+// successful round-trip proves the three controllers formed a quorum and
+// elected a leader over their (always-mTLS) CONTROLLER listeners — which in
+// turn proves the internal CA minted a verifying leaf for every controller
+// host and that all three discovered each other over session-wide DNS with
+// no controller-to-controller WithServiceBinding. Cluster.Stop then tears
+// down all three controller services plus the broker.
+func (t *Tests) ThreeControllerQuorumProduceConsume(
+	ctx context.Context,
+	// +default="4.2.0"
+	kafkaImageTag string,
+) error {
+	cluster, err := freshNativeClusterMultiController(ctx, kafkaImageTag, 3, 1)
+	if err != nil {
+		return fmt.Errorf("create cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return roundTripBinaryOn(ctx, cluster, "raw", "k", "v")
+}
+
+// freshNativeClusterMultiController builds a PLAINTEXT ApacheNativeCluster with
+// caller-controlled controller and broker counts. Used by the multi-controller
+// HA quorum tests.
+func freshNativeClusterMultiController(ctx context.Context, kafkaImageTag string, controllers, brokers int) (*dagger.KafkaCluster, error) {
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	k := dag.Kafka()
+	return k.ApacheNativeCluster(clusterId, k.PlaintextServerSecurity(), dagger.KafkaApacheNativeClusterOpts{
+		Tag:         kafkaImageTag,
+		Controllers: controllers,
+		Brokers:     brokers,
+	}), nil
 }
 
 // OneControllerTwoBrokersReplicationFactorTwo spins up a 1+2 cluster and

@@ -247,8 +247,14 @@ func (t *Tests) Native(
 	jobs = jobs.WithJob("OneControllerTwoBrokersReplicationFactorTwo", func(ctx context.Context) error {
 		return t.OneControllerTwoBrokersReplicationFactorTwo(ctx, kafkaImageTag)
 	})
-	jobs = jobs.WithJob("MultiControllerIsRejected", func(ctx context.Context) error {
-		return t.MultiControllerIsRejected(ctx, kafkaImageTag)
+	jobs = jobs.WithJob("InvalidControllerCountIsRejected", func(ctx context.Context) error {
+		return t.InvalidControllerCountIsRejected(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("FiveControllerQuorumAccepted", func(ctx context.Context) error {
+		return t.FiveControllerQuorumAccepted(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ThreeControllerQuorumProduceConsume", func(ctx context.Context) error {
+		return t.ThreeControllerQuorumProduceConsume(ctx, kafkaImageTag)
 	})
 	jobs = jobs.WithJob("AutoCreateTopicsDisabled", func(ctx context.Context) error {
 		return autoCreateTopicsDisabledOn(ctx, sharedPlaintext)
