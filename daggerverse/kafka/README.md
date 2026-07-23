@@ -547,6 +547,43 @@ unframe → deserialize → encode on `Consume`.
 Topic auto-creation is disabled on the broker — call `CreateTopic` before
 `Produce` / `Consume`.
 
+### Introspection
+
+Three live-cluster introspection primitives return their richer payloads as a
+`*dagger.File` of JSON (a core type, so it crosses the module boundary; export
+it and unmarshal the bytes). All three carry `+cache="never"` so they always
+reflect current cluster state.
+
+```go
+// Per-topic metadata: partition layout (leader / replicas / ISR), the derived
+// partition count and replication factor, and the full topic-level config set
+// (retention.ms, cleanup.policy, ...), configs sorted by key.
+topicJSON, err := client.DescribeTopic(ctx, "my-topic").Contents(ctx)
+
+// Consumer group names (sorted). Empty on a fresh cluster; a group appears
+// once a consumer has joined and persists while it retains committed offsets.
+groups, err := client.ListConsumerGroups(ctx)
+
+// Per-group detail: coordinator / state / protocol, members with their
+// per-topic partition assignments, and per-partition committed-offset lag
+// (with the total).
+groupJSON, err := client.DescribeConsumerGroup(ctx, "my-group").Contents(ctx)
+```
+
+`DescribeConsumerGroup` only reports lag for partitions the group has
+**committed** offsets for. `Consume` does not commit by default (it stays
+idempotent under `+cache="never"`); pass `CommitOffsets: true` alongside a
+`Group` to commit exactly the records returned, so the group persists in the
+`Empty` state with reportable lag afterwards:
+
+```go
+_, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
+    MaxMessages: 3, Timeout: "10s",
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    Group: "my-group", CommitOffsets: true,
+})
+```
+
 ## TLS / mTLS notes
 
 - The internal CA is fresh per `ApacheNativeCluster()` invocation. Cert material

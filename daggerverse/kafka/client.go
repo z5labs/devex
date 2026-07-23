@@ -609,9 +609,13 @@ func (c *Client) Produce(
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
-// metadata to __consumer_offsets (offsets are not committed — the function
-// stays idempotent under +cache="never"). When group is empty (the
-// default), partitions are consumed directly with no group state.
+// metadata to __consumer_offsets. By default offsets are not committed, so
+// the function stays idempotent under +cache="never". When commitOffsets is
+// true (and group is set), the consumed records' offsets are committed before
+// returning, so the group persists in the Empty state with committed offsets
+// afterwards — enough for DescribeConsumerGroup to report non-zero lag. When
+// group is empty (the default), partitions are consumed directly with no group
+// state and commitOffsets is ignored.
 //
 // When schemaRegistryAware is true, each record's key and value are
 // inspected for the Confluent Schema Registry wire-format header
@@ -656,6 +660,12 @@ func (c *Client) Consume(
 	valueEncoding string,
 	// +default=""
 	group string,
+	// commitOffsets, when true and group is set, commits the consumed
+	// records' offsets before returning so the group persists with committed
+	// offsets (and thus reportable lag). Ignored when group is empty.
+	//
+	// +default=false
+	commitOffsets bool,
 	// +default=false
 	schemaRegistryAware bool,
 	// +default=""
@@ -698,12 +708,16 @@ func (c *Client) Consume(
 		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
 	}
 	if group != "" {
-		// DisableAutoCommit keeps Consume idempotent under
-		// +cache="never": re-runs triggered by lazy record loading
-		// always re-read from the start instead of resuming past a
-		// committed offset. The group join itself still exercises
-		// __consumer_offsets, which is what proves the system-topic
-		// replication-factor defaults are correct.
+		// DisableAutoCommit in both modes: auto-commit would mark the
+		// whole polled fetch (which can hold more records than maxMessages)
+		// as consumed, so a partial read would commit past the records we
+		// actually returned. Default mode keeps Consume idempotent under
+		// +cache="never" — re-runs triggered by lazy record loading always
+		// re-read from the start instead of resuming past a committed
+		// offset — while still exercising __consumer_offsets on join (which
+		// proves the system-topic replication-factor defaults are correct).
+		// When commitOffsets is set the exact records returned are committed
+		// explicitly (see finish), so the committed offset matches the read.
 		opts = append(opts, kgo.ConsumerGroup(group), kgo.DisableAutoCommit())
 	}
 	cl, err := c.newKgoClient(ctx, opts...)
@@ -720,6 +734,25 @@ func (c *Client) Consume(
 	codecs := newAvroSchemas(registry, registrySecurity)
 
 	out := make([]ConsumedRecord, 0, maxMessages)
+	// committed retains the exact *kgo.Records returned to the caller so
+	// finish can commit their offsets (offset+1 per partition) — and no more
+	// — when commitOffsets is set.
+	var committed []*kgo.Record
+
+	// finish commits the returned records' offsets when the caller opted into
+	// durable offsets, then marshals the gathered records. It runs at both
+	// return-with-records sites. A fresh context is used for the commit
+	// because deadlineCtx may already be expired at the deadline-hit path.
+	finish := func() (string, error) {
+		if group != "" && commitOffsets && len(committed) > 0 {
+			commitCtx, commitCancel := context.WithTimeout(ctx, 15*time.Second)
+			defer commitCancel()
+			if err := cl.CommitRecords(commitCtx, committed...); err != nil {
+				return "", fmt.Errorf("commit offsets for group %q: %w", group, err)
+			}
+		}
+		return marshalRecords(out)
+	}
 	for len(out) < maxMessages {
 		fetches := cl.PollFetches(deadlineCtx)
 		if errs := fetches.Errors(); len(errs) > 0 {
@@ -729,7 +762,7 @@ func (c *Client) Consume(
 				}
 				return "", fmt.Errorf("poll fetches: %w", e.Err)
 			}
-			return marshalRecords(out)
+			return finish()
 		}
 		iter := fetches.RecordIter()
 		for !iter.Done() && len(out) < maxMessages {
@@ -768,9 +801,12 @@ func (c *Client) Consume(
 				KeySchemaID:   keyID,
 				ValueSchemaID: valID,
 			})
+			if group != "" && commitOffsets {
+				committed = append(committed, r)
+			}
 		}
 	}
-	return marshalRecords(out)
+	return finish()
 }
 
 // marshalRecords encodes the consumed records as a JSON array string. See
