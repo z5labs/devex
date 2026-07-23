@@ -256,6 +256,15 @@ func (t *Tests) Native(
 	jobs = jobs.WithJob("ConsumerGroupOnSingleBrokerWorks", func(ctx context.Context) error {
 		return consumerGroupOnSingleBrokerWorksOn(ctx, sharedPlaintext)
 	})
+	jobs = jobs.WithJob("DescribeTopicReportsPartitionsAndConfigs", func(ctx context.Context) error {
+		return describeTopicReportsPartitionsAndConfigsOn(ctx, sharedPlaintext)
+	})
+	jobs = jobs.WithJob("ListConsumerGroupsReportsCommittedGroup", func(ctx context.Context) error {
+		return listConsumerGroupsReportsCommittedGroupOn(ctx, sharedPlaintext)
+	})
+	jobs = jobs.WithJob("DescribeConsumerGroupReportsLag", func(ctx context.Context) error {
+		return describeConsumerGroupReportsLagOn(ctx, sharedPlaintext)
+	})
 	jobs = jobs.WithJob("TlsClusterStarts", func(ctx context.Context) error {
 		return tlsClusterStartsOn(ctx, sharedTls)
 	})

@@ -640,6 +640,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg group", err))
 				}
 			}
+			var commitOffsets bool
+			if inputArgs["commitOffsets"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["commitOffsets"]), &commitOffsets)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg commitOffsets", err))
+				}
+			}
 			var schemaRegistryAware bool
 			if inputArgs["schemaRegistryAware"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["schemaRegistryAware"]), &schemaRegistryAware)
@@ -675,7 +682,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySecurity", err))
 				}
 			}
-			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs, registry, registrySecurity)
+			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, commitOffsets, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs, registry, registrySecurity)
 		case "CreateTopic":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)
@@ -718,6 +725,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Client).DeleteTopic(&parent, ctx, name)
+		case "DescribeConsumerGroup":
+			var parent Client
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var group string
+			if inputArgs["group"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["group"]), &group)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg group", err))
+				}
+			}
+			return (*Client).DescribeConsumerGroup(&parent, ctx, group)
+		case "DescribeTopic":
+			var parent Client
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			return (*Client).DescribeTopic(&parent, ctx, name)
+		case "ListConsumerGroups":
+			var parent Client
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Client).ListConsumerGroups(&parent, ctx)
 		case "ListTopics":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)

@@ -1124,35 +1124,41 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:650:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:654:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:652:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:654:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:660:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:662:2)
+	//
+	// commitOffsets, when true and group is set, commits the consumed
+	// records' offsets before returning so the group persists with committed
+	// offsets (and thus reportable lag). Ignored when group is empty.
+	//
+	CommitOffsets bool // kafka (../../../../../daggerverse/kafka/client.go:668:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:660:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:670:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:662:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:672:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:664:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:674:2)
 	//
 	// registry resolves the Avro schema text by id when keyDeserializeAs /
 	// valueDeserializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:669:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:679:2)
 	//
 	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
 	// schema text against a secured registry. Nil (the default) resolves over
 	// plaintext HTTP, reproducing today's behaviour.
 	//
-	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:675:2)
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:685:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
@@ -1164,8 +1170,12 @@ type KafkaClientConsumeOpts struct {
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
-// metadata to __consumer_offsets (offsets are not committed — the function
-// stays idempotent underdefault), partitions are consumed directly with no group state.
+// metadata to __consumer_offsets. By default offsets are not committed, so
+// the function stays idempotent undertrue (and group is set), the consumed records' offsets are committed before
+// returning, so the group persists in the Empty state with committed offsets
+// afterwards — enough for DescribeConsumerGroup to report non-zero lag. When
+// group is empty (the default), partitions are consumed directly with no group
+// state and commitOffsets is ignored.
 //
 // When schemaRegistryAware is true, each record's key and value are
 // inspected for the Confluent Schema Registry wire-format header
@@ -1195,7 +1205,7 @@ type KafkaClientConsumeOpts struct {
 // per id for the duration of the call. The JSON shape follows the Avro
 // spec's JSON encoding; logical types, decimal, and fixed are not yet
 // supported.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:646:1)
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:650:1)
 	if r.consume != nil {
 		return *r.consume, nil
 	}
@@ -1220,6 +1230,10 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 		// `group` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Group) {
 			q = q.Arg("group", opts[i].Group)
+		}
+		// `commitOffsets` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CommitOffsets) {
+			q = q.Arg("commitOffsets", opts[i].CommitOffsets)
 		}
 		// `schemaRegistryAware` optional argument
 		if !querybuilder.IsZeroValue(opts[i].SchemaRegistryAware) {
@@ -1293,6 +1307,36 @@ func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // k
 	return q.Execute(ctx)
 }
 
+// DescribeConsumerGroup returns a consumer group's detail as JSON: its
+// coordinator, state, and assignment protocol; its live members with the
+// partitions assigned to each; and the per-partition committed-offset lag
+// (with the total). Lag is only reported for partitions the group has
+// committed offsets for. The JSON is returned as a *dagger.File so it crosses
+// the module boundary as a core type.
+func (r *KafkaClient) DescribeConsumerGroup(group string) *File { // kafka (../../../../../daggerverse/kafka/introspection.go:193:1)
+	q := r.query.Select("describeConsumerGroup")
+	q = q.Arg("group", group)
+
+	return &File{
+		query: q,
+	}
+}
+
+// DescribeTopic returns per-topic metadata as JSON: the partition layout
+// (leader, replicas, ISR per partition), the derived partition count and
+// replication factor, and the topic-level configuration set (retention,
+// cleanup policy, and so on). The JSON is returned as a *dagger.File so it
+// crosses the module boundary as a core type; callers export it and unmarshal
+// the bytes themselves.
+func (r *KafkaClient) DescribeTopic(name string) *File { // kafka (../../../../../daggerverse/kafka/introspection.go:104:1)
+	q := r.query.Select("describeTopic")
+	q = q.Arg("name", name)
+
+	return &File{
+		query: q,
+	}
+}
+
 // A unique identifier for this KafkaClient.
 func (r *KafkaClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
@@ -1342,8 +1386,21 @@ func (r *KafkaClient) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// ListConsumerGroups returns the names of every consumer group the cluster
+// reports, sorted. A fresh cluster reports none; a group appears once a
+// consumer has joined it and persists (in the Empty state) while it retains
+// committed offsets.
+func (r *KafkaClient) ListConsumerGroups(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/introspection.go:170:1)
+	q := r.query.Select("listConsumerGroups")
+
+	var response []string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:789:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:825:1)
 	q := r.query.Select("listTopics")
 
 	var response []string

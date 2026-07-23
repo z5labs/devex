@@ -570,6 +570,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).DedicatedControllerAndBrokerProduceConsume(&parent, ctx, kafkaImageTag)
+		case "DescribeConsumerGroupReportsLag":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).DescribeConsumerGroupReportsLag(&parent, ctx, kafkaImageTag)
+		case "DescribeTopicReportsPartitionsAndConfigs":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).DescribeTopicReportsPartitionsAndConfigs(&parent, ctx, kafkaImageTag)
 		case "InternalListenersAreEncrypted":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -612,6 +640,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).KarapaceSchemaRegistryTlsRegisterLookupRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ListConsumerGroupsReportsCommittedGroup":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ListConsumerGroupsReportsCommittedGroup(&parent, ctx, kafkaImageTag)
 		case "MtlsRequiresClientCert":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
