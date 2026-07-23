@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"strings"
 
 	"dagger/kafka/internal/dagger"
 )
@@ -16,7 +17,7 @@ type Cluster struct {
 	// +private
 	ClusterID string
 	// +private
-	ControllerSvc *dagger.Service
+	ControllerSvcs []*dagger.Service
 	// +private
 	BrokerSvcs []*dagger.Service
 	// +private
@@ -29,15 +30,21 @@ type Cluster struct {
 // size with dedicated controller and broker containers, using the
 // `apache/kafka-native` GraalVM-compiled image.
 //
-// Topology: a single controller forms a one-node KRaft quorum; one or more
-// brokers connect to it and discover each other over the engine's
-// session-wide DNS — no broker-to-broker WithServiceBinding needed.
+// Topology: controllers form a KRaft quorum (1 controller = a one-node
+// quorum, 3 or 5 = an HA quorum); one or more brokers connect to it and
+// every node discovers every other over the engine's session-wide DNS — no
+// controller-to-controller or broker-to-broker WithServiceBinding needed.
 //
-// Multi-controller (controllers > 1) is rejected for now: a true HA quorum
-// needs every controller to know every other controller at static config
-// time, which Dagger's WithServiceBinding model can't express without an
-// unresolvable cycle. TLS / mTLS and multi-controller both land in a
-// follow-up.
+// Multi-controller HA works because controller hostnames are deterministic
+// (controller-<n>-<suffix>, derived from clusterId), so the full
+// quorum-voters string is computed before any container is built and pinned
+// onto every controller and broker via WithHostname + session-wide DNS —
+// sidestepping the WithServiceBinding cycle a true peer mesh would need.
+//
+// controllers must be odd (1, 3, 5, ...): a KRaft quorum tolerates
+// floor((N-1)/2) controller failures, so an even count buys no extra fault
+// tolerance over the next-lower odd count while enlarging the majority a
+// commit must reach — even values are rejected with an error.
 //
 // Session-cached so that repeated chained method calls on the returned
 // cluster (Client.Produce → Consume → ListTopics) all observe the SAME
@@ -158,9 +165,9 @@ func buildKafkaCluster(
 	if controllers < 1 {
 		return nil, fmt.Errorf("at least one controller is required, got %d", controllers)
 	}
-	if controllers > 1 {
+	if controllers%2 == 0 {
 		return nil, fmt.Errorf(
-			"multi-controller clusters are not supported in this story (got controllers=%d); see README for details",
+			"a KRaft controller quorum needs an odd voter count for a clean majority (use 1, 3, 5, ...); got controllers=%d",
 			controllers,
 		)
 	}
@@ -195,16 +202,30 @@ func buildKafkaCluster(
 	// substituting `_` → `-`) so two distinct clusters in the same engine
 	// session get distinct hostnames AND each cluster's cert SANs match its
 	// own services.
+	//
+	// Controller hostnames (controller-<n>-<suffix>, node IDs 1..N) are
+	// deterministic, so the entire quorum-voters string is assembled here —
+	// before any container exists — and pinned identically onto every
+	// controller and broker. At runtime each controller resolves its peers
+	// by hostname over the engine's session-wide DNS (populated by
+	// WithHostname), so a real HA quorum forms with no controller-to-
+	// controller WithServiceBinding and thus no unresolvable build cycle.
 	hostSuffix := clusterHostSuffix(clusterId)
-	controllerAlias := "controller-1-" + hostSuffix
-	quorumVoters := "1@" + controllerAlias + ":9093"
+	controllerHosts := make([]string, controllers)
+	voters := make([]string, controllers)
+	for i := range controllerHosts {
+		nodeID := i + 1
+		controllerHosts[i] = fmt.Sprintf("controller-%d-%s", nodeID, hostSuffix)
+		voters[i] = fmt.Sprintf("%d@%s:9093", nodeID, controllerHosts[i])
+	}
+	quorumVoters := strings.Join(voters, ",")
 
 	brokerHosts := make([]string, brokers)
 	for i := range brokerHosts {
 		brokerHosts[i] = fmt.Sprintf("broker-%d-%s", 100+i, hostSuffix)
 	}
 
-	internal, err := mintInternalCA(ctx, controllerAlias, brokerHosts)
+	internal, err := mintInternalCA(ctx, controllerHosts, brokerHosts)
 	if err != nil {
 		return nil, fmt.Errorf("mint internal CA: %w", err)
 	}
@@ -222,26 +243,35 @@ func buildKafkaCluster(
 		externalProto = "SSL"
 	}
 
-	ctrlCtr := dag.Container().
-		From(image).
-		// confluentinc/cp-kafka pre-sets KAFKA_ADVERTISED_LISTENERS=""
-		// in the image; the Scala config validator rejects the empty
-		// value even on controller-only nodes that have no advertised
-		// listeners. Strip it so the controller boots regardless of
-		// distro (no-op for the Apache images, which don't pre-set it).
-		WithoutEnvVariable("KAFKA_ADVERTISED_LISTENERS").
-		WithEnvVariable("KAFKA_NODE_ID", "1").
-		WithEnvVariable("KAFKA_PROCESS_ROLES", "controller").
-		WithEnvVariable("KAFKA_LISTENERS", "CONTROLLER://0.0.0.0:9093").
-		WithEnvVariable("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER").
-		WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:SSL").
-		WithEnvVariable("KAFKA_CONTROLLER_QUORUM_VOTERS", quorumVoters).
-		WithEnvVariable("CLUSTER_ID", clusterId).
-		WithExposedPort(9093)
-	ctrlCtr = applyInternalListenerSsl(ctrlCtr, "CONTROLLER", internal.Controller)
-	ctrlSvc := ctrlCtr.
-		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}).
-		WithHostname(controllerAlias)
+	// Each controller advertises the SAME shared quorum-voters string and a
+	// unique KAFKA_NODE_ID (1..N) matching its voter entry. No controller
+	// binds another controller as a service — they find each other by
+	// hostname via session-wide DNS, which is what lets an HA quorum form
+	// without an unresolvable WithServiceBinding cycle.
+	controllerSvcs := make([]*dagger.Service, controllers)
+	for i := 0; i < controllers; i++ {
+		nodeID := i + 1
+		ctrlCtr := dag.Container().
+			From(image).
+			// confluentinc/cp-kafka pre-sets KAFKA_ADVERTISED_LISTENERS=""
+			// in the image; the Scala config validator rejects the empty
+			// value even on controller-only nodes that have no advertised
+			// listeners. Strip it so the controller boots regardless of
+			// distro (no-op for the Apache images, which don't pre-set it).
+			WithoutEnvVariable("KAFKA_ADVERTISED_LISTENERS").
+			WithEnvVariable("KAFKA_NODE_ID", fmt.Sprintf("%d", nodeID)).
+			WithEnvVariable("KAFKA_PROCESS_ROLES", "controller").
+			WithEnvVariable("KAFKA_LISTENERS", "CONTROLLER://0.0.0.0:9093").
+			WithEnvVariable("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER").
+			WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:SSL").
+			WithEnvVariable("KAFKA_CONTROLLER_QUORUM_VOTERS", quorumVoters).
+			WithEnvVariable("CLUSTER_ID", clusterId).
+			WithExposedPort(9093)
+		ctrlCtr = applyInternalListenerSsl(ctrlCtr, "CONTROLLER", internal.Controllers[i])
+		controllerSvcs[i] = ctrlCtr.
+			AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}).
+			WithHostname(controllerHosts[i])
+	}
 
 	brokerSvcs := make([]*dagger.Service, brokers)
 	for i := 0; i < brokers; i++ {
@@ -249,8 +279,16 @@ func buildKafkaCluster(
 		brokerHost := brokerHosts[i]
 		advertised := fmt.Sprintf("INTERNAL://%s:19092,EXTERNAL://%s:9092", brokerHost, brokerHost)
 		brkCtr := dag.Container().
-			From(image).
-			WithServiceBinding(controllerAlias, ctrlSvc).
+			From(image)
+		// Bind every controller into the broker so all of them start (a
+		// controller service boots when a container that binds it runs) and
+		// resolve at their pinned hostnames. Dagger dedups the shared service
+		// handles, so N brokers each binding the same N controllers still
+		// boots each controller exactly once.
+		for j, ctrlSvc := range controllerSvcs {
+			brkCtr = brkCtr.WithServiceBinding(controllerHosts[j], ctrlSvc)
+		}
+		brkCtr = brkCtr.
 			WithEnvVariable("KAFKA_NODE_ID", fmt.Sprintf("%d", nodeID)).
 			WithEnvVariable("KAFKA_PROCESS_ROLES", "broker").
 			WithEnvVariable("KAFKA_LISTENERS", "INTERNAL://0.0.0.0:19092,EXTERNAL://0.0.0.0:9092").
@@ -287,17 +325,17 @@ func buildKafkaCluster(
 
 	return &Cluster{
 		ClusterID:          clusterId,
-		ControllerSvc:      ctrlSvc,
+		ControllerSvcs:     controllerSvcs,
 		BrokerSvcs:         brokerSvcs,
 		BrokerHosts:        brokerHosts,
 		ClientSecurityMode: clientListenerSecurity.Mode,
 	}, nil
 }
 
-// Stop tears down every service container backing this cluster (the
-// controller plus every broker). Tests should call this in a defer so each
-// broker `Container.asService` span closes when the test work is done,
-// rather than running out to the parent parallel group's lifetime.
+// Stop tears down every service container backing this cluster (every
+// controller in the quorum plus every broker). Tests should call this in a
+// defer so each broker `Container.asService` span closes when the test work
+// is done, rather than running out to the parent parallel group's lifetime.
 //
 // Kill is set so Service.Stop skips graceful shutdown — Kafka's broker
 // shutdown path waits on replica-drain timeouts that on a torn-down test
@@ -309,9 +347,12 @@ func buildKafkaCluster(
 func (c *Cluster) Stop(ctx context.Context) error {
 	opts := dagger.ServiceStopOpts{Kill: true}
 	var errs []error
-	if c.ControllerSvc != nil {
-		if _, err := c.ControllerSvc.Stop(ctx, opts); err != nil {
-			errs = append(errs, fmt.Errorf("stop controller: %w", err))
+	for i, svc := range c.ControllerSvcs {
+		if svc == nil {
+			continue
+		}
+		if _, err := svc.Stop(ctx, opts); err != nil {
+			errs = append(errs, fmt.Errorf("stop controller %d: %w", i, err))
 		}
 	}
 	for i, svc := range c.BrokerSvcs {

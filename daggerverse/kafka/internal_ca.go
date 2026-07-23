@@ -21,10 +21,10 @@ type nodePkis struct {
 }
 
 // internalMaterial holds per-cluster CA-derived mTLS material, one entry per
-// node (controller + every broker). Truststore is shared across nodes.
+// node (every controller + every broker). Truststore is shared across nodes.
 type internalMaterial struct {
-	Controller nodePkis
-	Brokers    []nodePkis
+	Controllers []nodePkis
+	Brokers     []nodePkis
 }
 
 // externalLeaf bundles a per-broker external-listener leaf certificate
@@ -101,9 +101,10 @@ func applyExternalListenerSsl(ctr *dagger.Container, leaf externalLeaf, sec *Ser
 }
 
 // mintInternalCA mints a fresh per-cluster CA and a leaf certificate for
-// every node. Each leaf carries both serverAuth and clientAuth EKUs so the
-// node can both accept peer connections and originate connections to peers
-// or to the controller, all under the same internal trust domain. The CA's
+// every node — one per controller in the KRaft quorum plus one per broker.
+// Each leaf carries both serverAuth and clientAuth EKUs so the node can both
+// accept peer connections and originate connections to peers or to the
+// controller quorum, all under the same internal trust domain. The CA's
 // truststore is shared across nodes; it never crosses the module boundary.
 //
 // All PKCS#12 archives (truststore + per-node keystores) are eagerly
@@ -115,7 +116,7 @@ func applyExternalListenerSsl(ctr *dagger.Container, leaf externalLeaf, sec *Ser
 // re-derived (different) CA.
 func mintInternalCA(
 	ctx context.Context,
-	controllerHost string,
+	controllerHosts []string,
 	brokerHosts []string,
 ) (*internalMaterial, error) {
 	caKeyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 4096}).Pem().Contents(ctx)
@@ -192,9 +193,12 @@ func mintInternalCA(
 		}, nil
 	}
 
-	ctrl, err := mintNode(controllerHost)
-	if err != nil {
-		return nil, err
+	ctrls := make([]nodePkis, len(controllerHosts))
+	for i, h := range controllerHosts {
+		ctrls[i], err = mintNode(h)
+		if err != nil {
+			return nil, err
+		}
 	}
 	brks := make([]nodePkis, len(brokerHosts))
 	for i, h := range brokerHosts {
@@ -203,7 +207,7 @@ func mintInternalCA(
 			return nil, err
 		}
 	}
-	return &internalMaterial{Controller: ctrl, Brokers: brks}, nil
+	return &internalMaterial{Controllers: ctrls, Brokers: brks}, nil
 }
 
 // mintExternalLeaves loads the caller-supplied CA and signs one leaf

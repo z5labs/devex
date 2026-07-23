@@ -76,13 +76,13 @@ func (r *Kafka) UnmarshalJSON(bs []byte) error {
 func (r Cluster) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		ClusterID          string
-		ControllerSvc      *dagger.Service
+		ControllerSvcs     []*dagger.Service
 		BrokerSvcs         []*dagger.Service
 		BrokerHosts        []string
 		ClientSecurityMode string
 	}
 	concrete.ClusterID = r.ClusterID
-	concrete.ControllerSvc = r.ControllerSvc
+	concrete.ControllerSvcs = r.ControllerSvcs
 	concrete.BrokerSvcs = r.BrokerSvcs
 	concrete.BrokerHosts = r.BrokerHosts
 	concrete.ClientSecurityMode = r.ClientSecurityMode
@@ -92,7 +92,7 @@ func (r Cluster) MarshalJSON() ([]byte, error) {
 func (r *Cluster) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		ClusterID          string
-		ControllerSvc      *dagger.Service
+		ControllerSvcs     []*dagger.Service
 		BrokerSvcs         []*dagger.Service
 		BrokerHosts        []string
 		ClientSecurityMode string
@@ -102,7 +102,7 @@ func (r *Cluster) UnmarshalJSON(bs []byte) error {
 		return err
 	}
 	r.ClusterID = concrete.ClusterID
-	r.ControllerSvc = concrete.ControllerSvc
+	r.ControllerSvcs = concrete.ControllerSvcs
 	r.BrokerSvcs = concrete.BrokerSvcs
 	r.BrokerHosts = concrete.BrokerHosts
 	r.ClientSecurityMode = concrete.ClientSecurityMode

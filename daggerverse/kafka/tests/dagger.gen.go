@@ -598,6 +598,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).DescribeTopicReportsPartitionsAndConfigs(&parent, ctx, kafkaImageTag)
+		case "FiveControllerQuorumAccepted":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).FiveControllerQuorumAccepted(&parent, ctx, kafkaImageTag)
 		case "InternalListenersAreEncrypted":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -612,6 +626,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).InternalListenersAreEncrypted(&parent, ctx, kafkaImageTag)
+		case "InvalidControllerCountIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).InvalidControllerCountIsRejected(&parent, ctx, kafkaImageTag)
 		case "KarapaceSchemaRegistryRegisterLookupRoundTrip":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -682,20 +710,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).MtlsRoundTrip(&parent, ctx, kafkaImageTag)
-		case "MultiControllerIsRejected":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var kafkaImageTag string
-			if inputArgs["kafkaImageTag"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
-				}
-			}
-			return nil, (*Tests).MultiControllerIsRejected(&parent, ctx, kafkaImageTag)
 		case "Native":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1039,6 +1053,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).SingleNodeClusterStarts(&parent, ctx, kafkaImageTag)
+		case "ThreeControllerQuorumProduceConsume":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ThreeControllerQuorumProduceConsume(&parent, ctx, kafkaImageTag)
 		case "TlsClientWithWrongCaFails":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

@@ -56,7 +56,7 @@ cluster := dag.Kafka().ApacheNativeCluster(
     serverSec,
     dagger.KafkaApacheNativeClusterOpts{
         Tag:         "4.2.0",
-        Controllers: 1,    // multi-controller is rejected; see below
+        Controllers: 3,    // odd voter count: 1, 3, 5, ... (see below)
         Brokers:     2,
         Registry:    "docker.io",
     },
@@ -88,17 +88,35 @@ observe the same underlying broker services and the same internal CA.
 | INTERNAL   | 19092 | inter-broker  | always SSL with mTLS (internal CA)    |
 | CONTROLLER | 9093  | KRaft quorum  | always SSL with mTLS (internal CA)    |
 
-Stable hostnames (`controller-1-<suffix>`, `broker-100-<suffix>`, ...) are
-assigned via `Service.WithHostname` — the suffix is a short hash derived
-from `clusterId` so parallel cluster spawns within one engine session
-don't collide on alias names.
+Stable hostnames (`controller-1-<suffix>`, `controller-2-<suffix>`, ...,
+`broker-100-<suffix>`, ...) are assigned via `Service.WithHostname` — the
+suffix is a short hash derived from `clusterId` so parallel cluster spawns
+within one engine session don't collide on alias names.
 
-### Topology limit
+### Controller quorum (HA)
 
-`controllers > 1` is **rejected**: a true HA quorum needs every
-controller to know every other controller at static config time, which
-Dagger's `WithServiceBinding` model can't express without an unresolvable
-cycle. Multi-controller HA lands in a follow-up.
+`controllers` sets the size of the KRaft controller quorum: `1` is a
+single-node quorum, `3` or `5` a highly-available one that tolerates
+`floor((N-1)/2)` controller failures. Each controller runs in its own
+container with a unique `KAFKA_NODE_ID` (`1..N`).
+
+The count **must be odd** (`1, 3, 5, ...`). An even count is rejected with
+an error: it buys no extra fault tolerance over the next-lower odd count
+while enlarging the majority every commit must reach.
+
+Multi-controller HA works without any controller-to-controller
+`WithServiceBinding` — which would be an unresolvable build cycle, since
+each controller would have to reference every other as a service before any
+of them exists. Instead, controller hostnames are deterministic
+(`controller-<n>-<suffix>`, derived from `clusterId`), so the full
+quorum-voters string
+(`1@controller-1-<suffix>:9093,2@controller-2-<suffix>:9093,...`) is
+computed **before** any container is built and pinned identically onto
+every controller and broker. At runtime each controller resolves its peers
+by hostname over the engine's session-wide DNS (populated by
+`WithHostname`), and the quorum forms over the always-mTLS CONTROLLER
+listeners — the internal CA mints a verifying leaf for every controller
+host's SAN.
 
 ## ConfluentCluster
 
