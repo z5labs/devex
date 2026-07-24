@@ -86,6 +86,7 @@ func (r Ci) MarshalJSON() ([]byte, error) {
 		FmtEnabled    bool
 		TestEnabled   bool
 		TestRoot      string
+		BuildEnabled  bool
 		BuildOptimize string
 		BuildTarget   string
 		BuildSteps    []string
@@ -95,6 +96,7 @@ func (r Ci) MarshalJSON() ([]byte, error) {
 	concrete.FmtEnabled = r.FmtEnabled
 	concrete.TestEnabled = r.TestEnabled
 	concrete.TestRoot = r.TestRoot
+	concrete.BuildEnabled = r.BuildEnabled
 	concrete.BuildOptimize = r.BuildOptimize
 	concrete.BuildTarget = r.BuildTarget
 	concrete.BuildSteps = r.BuildSteps
@@ -108,6 +110,7 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 		FmtEnabled    bool
 		TestEnabled   bool
 		TestRoot      string
+		BuildEnabled  bool
 		BuildOptimize string
 		BuildTarget   string
 		BuildSteps    []string
@@ -121,6 +124,7 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 	r.FmtEnabled = concrete.FmtEnabled
 	r.TestEnabled = concrete.TestEnabled
 	r.TestRoot = concrete.TestRoot
+	r.BuildEnabled = concrete.BuildEnabled
 	r.BuildOptimize = concrete.BuildOptimize
 	r.BuildTarget = concrete.BuildTarget
 	r.BuildSteps = concrete.BuildSteps

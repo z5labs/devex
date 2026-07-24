@@ -276,13 +276,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CcRejectsPathOutputName(&parent, ctx)
-		case "CiCheckRunsChecksAndSkipsBuild":
+		case "CiCheckWithBuildCatchesCompileError":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).CiCheckRunsChecksAndSkipsBuild(&parent, ctx)
+			return nil, (*Tests).CiCheckWithBuildCatchesCompileError(&parent, ctx)
+		case "CiCheckWithBuildPassesOnCleanProject":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithBuildPassesOnCleanProject(&parent, ctx)
+		case "CiCheckWithoutBuildIsFmtOnly":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithoutBuildIsFmtOnly(&parent, ctx)
 		case "CiRunAggregatesFailures":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
