@@ -54,13 +54,6 @@ jobs:
             docker save "$IMAGE" | gzip > engine.tar.gz
           fi
 
-      - id: list
-        uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
-        with:
-          version: ${{ env.DAGGER_VERSION }}
-          list: "true"
-          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
-
       - name: Install Dagger CLI
         # Needed to `dagger call` the ci module's affected-checks function in the
         # next step. The engine image is already docker-loaded above, so this
@@ -71,12 +64,12 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - id: select
-        # Narrow the check universe (steps.list.outputs.checks) to the minimum set
-        # a change could affect (issue #170). The whole computation is in the ci
-        # module's affected-checks function: it diffs base...head against the
-        # workspace's .git with pure-Go go-git, then resolves the change ->
-        # affected-checks mapping from the *live* Dagger module dependency graph
-        # (dag.CurrentWorkspace()), so it never goes stale. This step only forwards
+        # Emit the minimum set of checks a change could affect (issue #170). The
+        # whole computation is the ci module's affected-checks function: it
+        # enumerates the check universe AND the dependency graph from the live
+        # Dagger Workspace (dag.CurrentWorkspace()), diffs base...head against the
+        # workspace's .git with pure-Go go-git, and returns the affected names —
+        # so there is no separate `dagger check -l` stage. This step only forwards
         # context; base/head come straight from the event (PR base/head, else the
         # push's before/after — GitHub sends all-zeros before for a new branch,
         # which the function treats as "run everything").
@@ -87,15 +80,15 @@ jobs:
         #     dagger.json, docs, ...) or an uncomputable diff -> the FULL suite;
         #   - a check whose module can't be resolved -> kept;
         #   - ci:* checks -> always run.
+        # If enumeration itself fails there is no independent universe to fall back
+        # to, so the step fails closed (CI blocks) rather than risk under-running.
         env:
-          CHECKS: ${{ steps.list.outputs.checks }}
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          set -uo pipefail
-          # On any failure, fall back to the full universe rather than risk a skip.
-          jobs="$(dagger -m . call affected-checks --checks="$CHECKS" --base="$BASE" --head="$HEAD")" || jobs="$CHECKS"
-          [ -n "$jobs" ] || jobs="$CHECKS"
+          set -euo pipefail
+          jobs="$(dagger -m . call affected-checks --base="$BASE" --head="$HEAD")"
+          [ -n "$jobs" ] || { echo "::error::affected-checks returned no checks"; exit 1; }
           echo "selected checks: $jobs"
           echo "checks=$jobs" >> "$GITHUB_OUTPUT"
 

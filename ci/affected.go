@@ -29,31 +29,54 @@ func (ci *Ci) SelectionSelfTest(ctx context.Context) error {
 // AffectedChecks returns, as a JSON array string, the subset of checks that a
 // change could plausibly affect — the input for CI's dynamic matrix.
 //
-//   - checks is the full check universe as a JSON array of names (exactly what
-//     `dagger check -l` / the dagger/checks action emits).
-//   - base/head are the commit SHAs to diff. The CI caller passes the PR base and
-//     head, or the push's before/after; an empty or all-zeros base (new branch,
-//     missing base) yields the full universe.
+// base/head are the commit SHAs to diff. The CI caller passes the PR base and
+// head, or the push's before/after; an empty or all-zeros base (new branch,
+// missing base) yields the full universe.
 //
-// The whole computation is in-engine: the workspace's .git directory is exported
-// to scratch and diffed base...head (three-dot, merge-base) with a pure-Go git
-// implementation — no workflow-side git, no helper container. The dependency
-// graph is read from the live Dagger Workspace (Dagger's own resolved module
-// graph, so it never goes stale): every check maps to its owning module via
+// The whole computation is in-engine. Both the check universe and the dependency
+// graph are enumerated once from the live Dagger Workspace
+// (dag.CurrentWorkspace().Checks().List), so nothing goes stale and no separate
+// `dagger check -l` stage is needed: every check maps to its owning module via
 // Check.OriginalModule, and each module's transitive dependency closure is walked
-// via ModuleSource.Dependencies. The pure selection then runs in affectedpkg so
-// the logic stays unit-testable.
+// via ModuleSource.Dependencies. The change set is the workspace's .git exported
+// to scratch and diffed base...head (three-dot, merge-base) with a pure-Go git
+// implementation — no workflow-side git, no helper container. The pure selection
+// then runs in affectedpkg so the logic stays unit-testable.
 //
 // Fail-safe throughout: an unusable diff range or a failed git diff yields the
-// full universe; if the Workspace cannot be read at all, the full universe is
-// returned; if a single check cannot be resolved, it is left unresolved and
-// therefore always kept. A check is never skipped because of a gap.
+// full universe; if a single check's module cannot be resolved it is kept, never
+// skipped. If the Workspace enumeration itself fails (or a check has no readable
+// name) the function errors — with no independent universe to fall back to, CI
+// fails closed rather than risk silently under-running. The update-dagger
+// workflow guards against a Dagger upgrade making this experimental enumeration
+// diverge from stable `dagger check -l`.
 //
 // +cache="never"
-func (ci *Ci) AffectedChecks(ctx context.Context, checks string, base string, head string) (string, error) {
+func (ci *Ci) AffectedChecks(ctx context.Context, base string, head string) (string, error) {
+	list, err := dag.CurrentWorkspace().Checks().List(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list workspace checks: %w", err)
+	}
+
 	var universe []string
-	if err := json.Unmarshal([]byte(checks), &universe); err != nil {
-		return "", fmt.Errorf("parse checks universe: %w", err)
+	checkModule := make(map[string]string, len(list))
+	adj := map[string][]string{}
+	for i := range list {
+		chk := list[i]
+		name, err := chk.Name(ctx)
+		if err != nil {
+			// Can't name a check -> can't safely account for it. Fail closed
+			// rather than silently drop it from the universe.
+			return "", fmt.Errorf("read check name: %w", err)
+		}
+		universe = append(universe, name)
+		root, err := gatherDeps(ctx, chk.OriginalModule().Source(), adj)
+		if err != nil {
+			// Leave this check out of checkModule -> Select keeps it (fail-safe).
+			fmt.Fprintf(os.Stderr, "affected-checks: cannot resolve module for %q (%v); keeping it\n", name, err)
+			continue
+		}
+		checkModule[name] = root
 	}
 
 	b, h, ok := affectedpkg.DiffRange(base, head)
@@ -65,31 +88,6 @@ func (ci *Ci) AffectedChecks(ctx context.Context, checks string, base string, he
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "affected-checks: git diff failed (%v); running full suite\n", err)
 		return marshal(universe)
-	}
-
-	list, err := dag.CurrentWorkspace().Checks().List(ctx)
-	if err != nil {
-		// Cannot resolve the graph — run everything rather than risk a false skip.
-		fmt.Fprintf(os.Stderr, "affected-checks: cannot list workspace checks (%v); running full suite\n", err)
-		return marshal(universe)
-	}
-
-	checkModule := make(map[string]string, len(list))
-	adj := map[string][]string{}
-	for i := range list {
-		chk := list[i]
-		name, err := chk.Name(ctx)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "affected-checks: cannot read a check name (%v); leaving it unresolved\n", err)
-			continue
-		}
-		root, err := gatherDeps(ctx, chk.OriginalModule().Source(), adj)
-		if err != nil {
-			// Leave this check out of checkModule -> Select keeps it (fail-safe).
-			fmt.Fprintf(os.Stderr, "affected-checks: cannot resolve module for %q (%v); leaving it unresolved\n", name, err)
-			continue
-		}
-		checkModule[name] = root
 	}
 
 	moduleDirs := make([]string, 0, len(adj))
