@@ -192,6 +192,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Ci":
 		switch fnName {
+		case "AffectedChecks":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var base string
+			if inputArgs["base"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["base"]), &base)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg base", err))
+				}
+			}
+			var head string
+			if inputArgs["head"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["head"]), &head)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg head", err))
+				}
+			}
+			return (*Ci).AffectedChecks(&parent, ctx, base, head)
 		case "Generated":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -206,6 +227,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Ci).Generated(&parent, ctx, ws)
+		case "SelectionSelfTest":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Ci).SelectionSelfTest(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

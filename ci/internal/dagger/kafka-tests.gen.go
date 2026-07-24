@@ -70,13 +70,17 @@ type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.g
 	consumerGroupOnSingleBrokerWorks                   *Void
 	createAndDeleteTopicRoundTrip                      *Void
 	dedicatedControllerAndBrokerProduceConsume         *Void
+	describeConsumerGroupReportsLag                    *Void
+	describeTopicReportsPartitionsAndConfigs           *Void
+	fiveControllerQuorumAccepted                       *Void
 	id                                                 *ID
 	internalListenersAreEncrypted                      *Void
+	invalidControllerCountIsRejected                   *Void
 	karapaceSchemaRegistryRegisterLookupRoundTrip      *Void
 	karapaceSchemaRegistryTlsRegisterLookupRoundTrip   *Void
+	listConsumerGroupsReportsCommittedGroup            *Void
 	mtlsRequiresClientCert                             *Void
 	mtlsRoundTrip                                      *Void
-	multiControllerIsRejected                          *Void
 	native                                             *Void
 	oneControllerTwoBrokersReplicationFactorTwo        *Void
 	plaintextSecurityProfilesAreNonNil                 *Void
@@ -101,6 +105,7 @@ type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.g
 	schemaRegistryRegisterLookupRoundTrip              *Void
 	schemaRegistryRejectsClusterModeMismatch           *Void
 	singleNodeClusterStarts                            *Void
+	threeControllerQuorumProduceConsume                *Void
 	tlsClientWithWrongCaFails                          *Void
 	tlsClusterStarts                                   *Void
 	tlsRoundTrip                                       *Void
@@ -256,15 +261,15 @@ func (r *KafkaTests) ApacheClusterTLSRoundTrip(ctx context.Context, opts ...Kafk
 type KafkaTestsApacheJvmOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:296:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:311:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:298:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:313:2)
 }
 
 // ApacheJVM runs the three apache/kafka JVM-image round-trip tests.
 // Each test owns a fresh ApacheCluster, so the group holds no shared
 // clusters of its own.
-func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:293:1)
+func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:308:1)
 	if r.apacheJvm != nil {
 		return nil
 	}
@@ -340,14 +345,14 @@ func (r *KafkaTests) ApicurioSchemaRegistryTLSRegisterLookupRoundTrip(ctx contex
 type KafkaTestsAutoCreateTopicsDisabledOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1102:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1174:2)
 }
 
 // AutoCreateTopicsDisabled produces to a topic that was never created and
 // asserts the call errors out. With KAFKA_AUTO_CREATE_TOPICS_ENABLE=false on
 // the broker, the produce path must surface a topic-not-found error rather
 // than silently auto-creating, so producer typos can't pass tests.
-func (r *KafkaTests) AutoCreateTopicsDisabled(ctx context.Context, opts ...KafkaTestsAutoCreateTopicsDisabledOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1099:1)
+func (r *KafkaTests) AutoCreateTopicsDisabled(ctx context.Context, opts ...KafkaTestsAutoCreateTopicsDisabledOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1171:1)
 	if r.autoCreateTopicsDisabled != nil {
 		return nil
 	}
@@ -521,7 +526,7 @@ func (r *KafkaTests) AvroTLSFramedProduceConsumeRoundTrip(ctx context.Context, o
 type KafkaTestsBindBrokersExposesBothListenersOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1058:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1130:2)
 }
 
 // BindBrokersExposesBothListeners binds the cluster's brokers into a
@@ -529,7 +534,7 @@ type KafkaTestsBindBrokersExposesBothListenersOpts struct {
 // port (9092) and the inter-broker port (19092) are reachable from inside
 // that container — together they cover the dual-listener contract
 // (PLAINTEXT_HOST:9092 for clients, PLAINTEXT:19092 for inter-broker).
-func (r *KafkaTests) BindBrokersExposesBothListeners(ctx context.Context, opts ...KafkaTestsBindBrokersExposesBothListenersOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1055:1)
+func (r *KafkaTests) BindBrokersExposesBothListeners(ctx context.Context, opts ...KafkaTestsBindBrokersExposesBothListenersOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1127:1)
 	if r.bindBrokersExposesBothListeners != nil {
 		return nil
 	}
@@ -575,14 +580,14 @@ func (r *KafkaTests) ClusterClientCanListTopicsOnFreshCluster(ctx context.Contex
 type KafkaTestsConfluentOpts struct {
 
 	// Default: "8.2.0"
-	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:328:2)
+	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:343:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:330:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:345:2)
 }
 
 // Confluent runs the three confluentinc/cp-kafka round-trip tests.
 // Each test owns a fresh ConfluentCluster.
-func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:325:1)
+func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:340:1)
 	if r.confluent != nil {
 		return nil
 	}
@@ -738,7 +743,7 @@ func (r *KafkaTests) ConfluentSchemaRegistryTLSRegisterLookupRoundTrip(ctx conte
 type KafkaTestsConsumerGroupOnSingleBrokerWorksOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1140:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1212:2)
 }
 
 // ConsumerGroupOnSingleBrokerWorks produces one record then consumes it back
@@ -748,7 +753,7 @@ type KafkaTestsConsumerGroupOnSingleBrokerWorksOpts struct {
 // Without KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 the broker would refuse
 // to create __consumer_offsets at the upstream default RF=3 and the group
 // join would hang or error.
-func (r *KafkaTests) ConsumerGroupOnSingleBrokerWorks(ctx context.Context, opts ...KafkaTestsConsumerGroupOnSingleBrokerWorksOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1137:1)
+func (r *KafkaTests) ConsumerGroupOnSingleBrokerWorks(ctx context.Context, opts ...KafkaTestsConsumerGroupOnSingleBrokerWorksOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1209:1)
 	if r.consumerGroupOnSingleBrokerWorks != nil {
 		return nil
 	}
@@ -792,18 +797,98 @@ func (r *KafkaTests) CreateAndDeleteTopicRoundTrip(ctx context.Context, opts ...
 type KafkaTestsDedicatedControllerAndBrokerProduceConsumeOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1040:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1112:2)
 }
 
 // DedicatedControllerAndBrokerProduceConsume verifies that the split
 // controller+broker topology (introduced this increment) still supports a
 // full produce/consume round-trip — i.e. the broker correctly joined the
 // controller quorum over its WithServiceBinding alias.
-func (r *KafkaTests) DedicatedControllerAndBrokerProduceConsume(ctx context.Context, opts ...KafkaTestsDedicatedControllerAndBrokerProduceConsumeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1037:1)
+func (r *KafkaTests) DedicatedControllerAndBrokerProduceConsume(ctx context.Context, opts ...KafkaTestsDedicatedControllerAndBrokerProduceConsumeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1109:1)
 	if r.dedicatedControllerAndBrokerProduceConsume != nil {
 		return nil
 	}
 	q := r.query.Select("dedicatedControllerAndBrokerProduceConsume")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsDescribeConsumerGroupReportsLagOpts contains options for KafkaTests.DescribeConsumerGroupReportsLag
+type KafkaTestsDescribeConsumerGroupReportsLagOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:225:2)
+}
+
+// DescribeConsumerGroupReportsLag produces five records, consumes three of
+// them through a committing consumer group, and asserts DescribeConsumerGroup
+// reports the group in the Empty state with committed-offset lag of 2 (end
+// offset 5 minus committed offset 3) on the single partition.
+func (r *KafkaTests) DescribeConsumerGroupReportsLag(ctx context.Context, opts ...KafkaTestsDescribeConsumerGroupReportsLagOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:222:1)
+	if r.describeConsumerGroupReportsLag != nil {
+		return nil
+	}
+	q := r.query.Select("describeConsumerGroupReportsLag")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsDescribeTopicReportsPartitionsAndConfigsOpts contains options for KafkaTests.DescribeTopicReportsPartitionsAndConfigs
+type KafkaTestsDescribeTopicReportsPartitionsAndConfigsOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:100:2)
+}
+
+// DescribeTopicReportsPartitionsAndConfigs creates a 3-partition RF=1 topic
+// and asserts DescribeTopic reports the derived partition count / replication
+// factor, one partition entry per partition, and a non-empty topic-level
+// config set (proving the configs path is wired).
+func (r *KafkaTests) DescribeTopicReportsPartitionsAndConfigs(ctx context.Context, opts ...KafkaTestsDescribeTopicReportsPartitionsAndConfigsOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:97:1)
+	if r.describeTopicReportsPartitionsAndConfigs != nil {
+		return nil
+	}
+	q := r.query.Select("describeTopicReportsPartitionsAndConfigs")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsFiveControllerQuorumAcceptedOpts contains options for KafkaTests.FiveControllerQuorumAccepted
+type KafkaTestsFiveControllerQuorumAcceptedOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:961:2)
+}
+
+// FiveControllerQuorumAccepted proves the constructor accepts a five-voter
+// quorum (odd, > 3) and returns a *Cluster: resolving BootstrapServers forces
+// the server-side constructor — validation, internal-CA minting of a leaf per
+// controller, and the full container graph — to run without booting the
+// containers, so the accept path is exercised cheaply. The 3-controller
+// end-to-end quorum is covered by ThreeControllerQuorumProduceConsume.
+func (r *KafkaTests) FiveControllerQuorumAccepted(ctx context.Context, opts ...KafkaTestsFiveControllerQuorumAcceptedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:958:1)
+	if r.fiveControllerQuorumAccepted != nil {
+		return nil
+	}
+	q := r.query.Select("fiveControllerQuorumAccepted")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `kafkaImageTag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
@@ -891,6 +976,34 @@ func (r *KafkaTests) InternalListenersAreEncrypted(ctx context.Context, opts ...
 	return q.Execute(ctx)
 }
 
+// KafkaTestsInvalidControllerCountIsRejectedOpts contains options for KafkaTests.InvalidControllerCountIsRejected
+type KafkaTestsInvalidControllerCountIsRejectedOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:932:2)
+}
+
+// InvalidControllerCountIsRejected pins the voter-count policy: a KRaft
+// quorum wants an odd voter count for a clean majority, so even controller
+// counts are rejected, and a sub-1 count is nonsensical. Both must fail at
+// construction time with a clear error rather than spinning up a broken
+// topology. (Controllers=0 can't be exercised from the Go SDK — Dagger drops
+// the zero value and applies the
+func (r *KafkaTests) InvalidControllerCountIsRejected(ctx context.Context, opts ...KafkaTestsInvalidControllerCountIsRejectedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:929:1)
+	if r.invalidControllerCountIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("invalidControllerCountIsRejected")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts contains options for KafkaTests.KarapaceSchemaRegistryRegisterLookupRoundTrip
 type KafkaTestsKarapaceSchemaRegistryRegisterLookupRoundTripOpts struct {
 
@@ -934,6 +1047,32 @@ func (r *KafkaTests) KarapaceSchemaRegistryTLSRegisterLookupRoundTrip(ctx contex
 		return nil
 	}
 	q := r.query.Select("karapaceSchemaRegistryTlsRegisterLookupRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsListConsumerGroupsReportsCommittedGroupOpts contains options for KafkaTests.ListConsumerGroupsReportsCommittedGroup
+type KafkaTestsListConsumerGroupsReportsCommittedGroupOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:163:2)
+}
+
+// ListConsumerGroupsReportsCommittedGroup produces a record, consumes it back
+// through a committing consumer group, and asserts the group then appears in
+// ListConsumerGroups. A fresh cluster reports no groups, so the group's
+// presence proves the join + commit reached __consumer_offsets.
+func (r *KafkaTests) ListConsumerGroupsReportsCommittedGroup(ctx context.Context, opts ...KafkaTestsListConsumerGroupsReportsCommittedGroupOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_introspection.go:160:1)
+	if r.listConsumerGroupsReportsCommittedGroup != nil {
+		return nil
+	}
+	q := r.query.Select("listConsumerGroupsReportsCommittedGroup")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `kafkaImageTag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
@@ -995,33 +1134,6 @@ func (r *KafkaTests) MtlsRoundTrip(ctx context.Context, opts ...KafkaTestsMtlsRo
 	return q.Execute(ctx)
 }
 
-// KafkaTestsMultiControllerIsRejectedOpts contains options for KafkaTests.MultiControllerIsRejected
-type KafkaTestsMultiControllerIsRejectedOpts struct {
-
-	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:931:2)
-}
-
-// MultiControllerIsRejected pins the current contract: this story only
-// supports a single-controller quorum (controllers=1), and the constructor
-// must reject any larger value with a clear error rather than silently
-// spinning up a broken topology. Multi-controller HA is gated behind a
-// follow-up story; see daggerverse/kafka/README.md.
-func (r *KafkaTests) MultiControllerIsRejected(ctx context.Context, opts ...KafkaTestsMultiControllerIsRejectedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:928:1)
-	if r.multiControllerIsRejected != nil {
-		return nil
-	}
-	q := r.query.Select("multiControllerIsRejected")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `kafkaImageTag` optional argument
-		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
-			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
-		}
-	}
-
-	return q.Execute(ctx)
-}
-
 // KafkaTestsNativeOpts contains options for KafkaTests.Native
 type KafkaTestsNativeOpts struct {
 
@@ -1058,14 +1170,14 @@ func (r *KafkaTests) Native(ctx context.Context, opts ...KafkaTestsNativeOpts) e
 type KafkaTestsOneControllerTwoBrokersReplicationFactorTwoOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:956:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1028:2)
 }
 
 // OneControllerTwoBrokersReplicationFactorTwo spins up a 1+2 cluster and
 // creates a replication-factor-2 topic so the produce path forces inter-
 // broker replication. A successful round-trip proves brokers can reach
 // each other over the engine network without explicit peer bindings.
-func (r *KafkaTests) OneControllerTwoBrokersReplicationFactorTwo(ctx context.Context, opts ...KafkaTestsOneControllerTwoBrokersReplicationFactorTwoOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:953:1)
+func (r *KafkaTests) OneControllerTwoBrokersReplicationFactorTwo(ctx context.Context, opts ...KafkaTestsOneControllerTwoBrokersReplicationFactorTwoOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:1025:1)
 	if r.oneControllerTwoBrokersReplicationFactorTwo != nil {
 		return nil
 	}
@@ -1267,15 +1379,15 @@ func (r *KafkaTests) PropertiesFileContainsTLSSettings(ctx context.Context, opts
 type KafkaTestsRedpandaOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:361:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:376:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:363:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:378:2)
 }
 
 // Redpanda runs the redpandadata/redpanda round-trip tests — the two
 // Kafka-wire round-trips, the PLAINTEXT and TLS bundled-Schema-Registry
 // round-trips, and the bundled-registry Stop-is-a-no-op lifecycle test.
-func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:358:1)
+func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:373:1)
 	if r.redpanda != nil {
 		return nil
 	}
@@ -1635,6 +1747,37 @@ func (r *KafkaTests) SingleNodeClusterStarts(ctx context.Context, opts ...KafkaT
 		return nil
 	}
 	q := r.query.Select("singleNodeClusterStarts")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsThreeControllerQuorumProduceConsumeOpts contains options for KafkaTests.ThreeControllerQuorumProduceConsume
+type KafkaTestsThreeControllerQuorumProduceConsumeOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:995:2)
+}
+
+// ThreeControllerQuorumProduceConsume stands up a real three-node KRaft
+// controller quorum (plus one broker) and drives a produce → consume
+// round-trip through it, mirroring the single-controller round-trip. A
+// successful round-trip proves the three controllers formed a quorum and
+// elected a leader over their (always-mTLS) CONTROLLER listeners — which in
+// turn proves the internal CA minted a verifying leaf for every controller
+// host and that all three discovered each other over session-wide DNS with
+// no controller-to-controller WithServiceBinding. Cluster.Stop then tears
+// down all three controller services plus the broker.
+func (r *KafkaTests) ThreeControllerQuorumProduceConsume(ctx context.Context, opts ...KafkaTestsThreeControllerQuorumProduceConsumeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_native.go:992:1)
+	if r.threeControllerQuorumProduceConsume != nil {
+		return nil
+	}
+	q := r.query.Select("threeControllerQuorumProduceConsume")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `kafkaImageTag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {

@@ -92,6 +92,29 @@ jobs:
           done
           dagger develop -m .
 
+      - name: Verify Workspace check enumeration still matches `dagger check -l`
+        # ci.yml's affected-check selector (ci/affected.go AffectedChecks)
+        # enumerates checks from the experimental dag.CurrentWorkspace().Checks()
+        # API instead of a separate `dagger check -l` stage. If a Dagger upgrade
+        # makes that experimental enumeration diverge from the stable CLI list, the
+        # selector could silently under-run CI (skip a real check). Compare the two
+        # at the new version and fail the bump PR on any difference, so a human
+        # reconciles before it lands. Same-version tautology today; the guard only
+        # bites when an upgrade regresses the experimental surface.
+        run: |
+          set -euo pipefail
+          stable="$(dagger check -l -m . \
+            | sed 's/\x1b\[[0-9;]*m//g' \
+            | awk 'NR>1 && $1 ~ /:/ {print $1}' | sort)"
+          workspace="$(echo '{ currentWorkspace { checks { list { name } } } }' \
+            | dagger query \
+            | jq -r '.currentWorkspace.checks.list[].name' | sort)"
+          if ! diff <(printf '%s\n' "$stable") <(printf '%s\n' "$workspace"); then
+            echo "::error::dag.CurrentWorkspace().Checks() diverges from 'dagger check -l' at this Dagger version; the affected-check selector (ci/affected.go) may under-run CI. Reconcile before merging." >&2
+            exit 1
+          fi
+          echo "check enumeration agrees ($(printf '%s\n' "$stable" | grep -c .) checks)"
+
       - name: Bump DAGGER_VERSION pin in ci.yml
         # ci.yml is the single source of truth (both dagger/checks steps read
         # env.DAGGER_VERSION), so one targeted sed on the bare-semver env line
