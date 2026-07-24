@@ -112,7 +112,7 @@ else
   echo "neither docker nor podman found on PATH" >&2
   exit 1
 fi
-PSQL_IMAGE="${PSQL_IMAGE:-docker.io/alpine/psql:17.7}"
+PSQL_IMAGE="${PSQL_IMAGE:-<psql-image>}"
 
 read -r -a EXTRA_ARGS <<< "${PG_DOCKER_ARGS:-}"
 

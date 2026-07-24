@@ -24,6 +24,11 @@ type Model struct {
 	Port   int
 	User   string
 
+	// PsqlImage is the container image the generated query.sh runs psql in.
+	// Empty means DefaultPsqlImage, so a Model that predates this field still
+	// renders the original bytes.
+	PsqlImage string
+
 	// Raw introspection rows, each in the deterministic order the queries
 	// imposed (ORDER BY schema, table, ordinal — see the parent module).
 	Columns     []Column

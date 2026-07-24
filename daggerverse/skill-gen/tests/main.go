@@ -33,6 +33,9 @@ func (t *Tests) All(
 		jobs = jobs.WithLimit(parallel)
 	}
 	jobs = jobs.WithJob("rejects-invalid-db-name", t.RejectsInvalidDbName)
+	jobs = jobs.WithJob("rejects-invalid-psql-image", t.RejectsInvalidPsqlImage)
+	jobs = jobs.WithJob("bakes-custom-psql-image", t.BakesCustomPsqlImage)
+	jobs = jobs.WithJob("defaults-psql-image", t.DefaultsPsqlImage)
 	jobs = jobs.WithJob("introspection-failure-aborts", t.IntrospectionFailureAborts)
 	jobs = jobs.WithJob("generates-pg-skill-from-cluster", t.GeneratesPgSkillFromCluster)
 	jobs = jobs.WithJob("postgres-should-not-be-cached", t.PostgresShouldNotBeCached)

@@ -11,7 +11,7 @@ import (
 // (`done < "$file"`, `< <(compgen …)`) don't read as unsubstituted placeholders.
 var placeholderTokens = []string{
 	"<dbname>", "<db>", "<skill-dir>", "<host>", "<port>", "<user>",
-	"<regen-command>", "<top tables>", "<top-table>",
+	"<psql-image>", "<regen-command>", "<top tables>", "<top-table>",
 	"<table count>", "<view count>", "<enum count>", "<count>",
 	"<schema>", "<table>", "<view>", "<enum_type>",
 }
@@ -39,7 +39,7 @@ func Verify(files map[string]string, db string) error {
 		}
 	}
 
-	for _, p := range []string{PathSKILL, PathREADME, PathQuery} {
+	for _, p := range []string{PathSKILL, PathREADME, PathQuery, PathEnvExample} {
 		for _, tok := range placeholderTokens {
 			if strings.Contains(files[p], tok) {
 				return fmt.Errorf("verify: %s contains unsubstituted placeholder %q", p, tok)

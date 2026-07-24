@@ -254,7 +254,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
 				}
 			}
-			return (*SkillGen).Postgres(&parent, ctx, host, port, user, db, password, serverCa, clientCert, clientKey)
+			var psqlImage string
+			if inputArgs["psqlImage"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["psqlImage"]), &psqlImage)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg psqlImage", err))
+				}
+			}
+			return (*SkillGen).Postgres(&parent, ctx, host, port, user, db, password, serverCa, clientCert, clientKey, psqlImage)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

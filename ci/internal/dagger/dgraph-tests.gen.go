@@ -22,23 +22,29 @@ type DgraphTests struct { // dgraph-tests (../../../daggerverse/dgraph/tests/mai
 	query *querybuilder.Selection
 
 	all                                      *Void
+	bindAlphasResolvesFromUserContainerTls   *Void
 	clientAlterSchemaRoundTrip               *Void
 	clientMutateThenQueryRoundTrip           *Void
 	clientMutateWithoutCommitDoesNotPersist  *Void
 	clientQueryWithVarsRoundTrip             *Void
 	cluster                                  *Void
+	clusterMtlsRoundTripFromClient           *Void
 	clusterRejectsEvenReplicas               *Void
 	clusterRejectsInvalidAlphasReplicasRatio *Void
 	clusterRejectsMultipleZeros              *Void
 	clusterRejectsNilSecurity                *Void
+	clusterTlsRoundTripFromClient            *Void
 	defaultsProduceWorkingSingleNodeCluster  *Void
 	grpcEndpointsShouldNotBeCached           *Void
 	httpEndpointsShouldNotBeCached           *Void
 	id                                       *ID
+	mtlsClusterRejectsTlsOnlyClient          *Void
 	multiAlphaShardedTopology                *Void
 	multiAlphaSingleGroupAllReachable        *Void
 	mutateShouldNotBeCached                  *Void
 	remoteClientCanTargetExistingCluster     *Void
+	security                                 *Void
+	tlsClusterRejectsPlaintextClient         *Void
 	validation                               *Void
 }
 
@@ -72,9 +78,23 @@ func (r *DgraphTests) All(ctx context.Context, opts ...DgraphTestsAllOpts) error
 	return q.Execute(ctx)
 }
 
+// BindAlphasResolvesFromUserContainerTls boots a one-way-TLS cluster,
+// binds its Alphas into an alpine container, and proves the Alpha's HTTPS
+// /health listener is reachable there: `wget --ca-certificate` (trusting
+// the test CA) succeeds, while the same `wget` without the CA fails
+// certificate verification.
+func (r *DgraphTests) BindAlphasResolvesFromUserContainerTLS(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/security.go:333:1)
+	if r.bindAlphasResolvesFromUserContainerTls != nil {
+		return nil
+	}
+	q := r.query.Select("bindAlphasResolvesFromUserContainerTls")
+
+	return q.Execute(ctx)
+}
+
 // ClientAlterSchemaRoundTrip verifies AlterSchema accepts a non-trivial
 // DQL schema and the cluster reports it on subsequent schema queries.
-func (r *DgraphTests) ClientAlterSchemaRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:394:1)
+func (r *DgraphTests) ClientAlterSchemaRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:423:1)
 	if r.clientAlterSchemaRoundTrip != nil {
 		return nil
 	}
@@ -85,7 +105,7 @@ func (r *DgraphTests) ClientAlterSchemaRoundTrip(ctx context.Context) error { //
 
 // ClientMutateThenQueryRoundTrip applies a schema, sets a triple with
 // a random value, and verifies the value reads back via Query.
-func (r *DgraphTests) ClientMutateThenQueryRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:421:1)
+func (r *DgraphTests) ClientMutateThenQueryRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:450:1)
 	if r.clientMutateThenQueryRoundTrip != nil {
 		return nil
 	}
@@ -96,7 +116,7 @@ func (r *DgraphTests) ClientMutateThenQueryRoundTrip(ctx context.Context) error 
 
 // ClientMutateWithoutCommitDoesNotPersist mutates with commit=false
 // and verifies a subsequent Query does NOT see the value.
-func (r *DgraphTests) ClientMutateWithoutCommitDoesNotPersist(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:461:1)
+func (r *DgraphTests) ClientMutateWithoutCommitDoesNotPersist(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:490:1)
 	if r.clientMutateWithoutCommitDoesNotPersist != nil {
 		return nil
 	}
@@ -108,7 +128,7 @@ func (r *DgraphTests) ClientMutateWithoutCommitDoesNotPersist(ctx context.Contex
 // ClientQueryWithVarsRoundTrip exercises the variable-substitution path
 // of QueryWithVars, which crosses the Dagger boundary as a JSON-encoded
 // map.
-func (r *DgraphTests) ClientQueryWithVarsRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:494:1)
+func (r *DgraphTests) ClientQueryWithVarsRoundTrip(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:523:1)
 	if r.clientQueryWithVarsRoundTrip != nil {
 		return nil
 	}
@@ -119,14 +139,14 @@ func (r *DgraphTests) ClientQueryWithVarsRoundTrip(ctx context.Context) error { 
 
 // DgraphTestsClusterOpts contains options for DgraphTests.Cluster
 type DgraphTestsClusterOpts struct {
-	Parallel int // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:85:2)
+	Parallel int // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:88:2)
 }
 
 // Cluster runs the topology and client round-trip tests. Each test
 // passes its own name to `freshCluster`, which folds into Dgraph.Cluster's
 // session-cache key so concurrent tests boot independent backing
 // services and never share schema or storage.
-func (r *DgraphTests) Cluster(ctx context.Context, opts ...DgraphTestsClusterOpts) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:82:1)
+func (r *DgraphTests) Cluster(ctx context.Context, opts ...DgraphTestsClusterOpts) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:85:1)
 	if r.cluster != nil {
 		return nil
 	}
@@ -141,11 +161,25 @@ func (r *DgraphTests) Cluster(ctx context.Context, opts ...DgraphTestsClusterOpt
 	return q.Execute(ctx)
 }
 
+// ClusterMtlsRoundTripFromClient boots a mutual-TLS cluster and proves a
+// matching mTLS client (presenting a client cert signed by the trusted
+// CA) can AlterSchema + Mutate + Query. One CA both signs the server leaf
+// and anchors the accepted client certs — the simplest symmetric mTLS
+// trust setup.
+func (r *DgraphTests) ClusterMtlsRoundTripFromClient(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/security.go:206:1)
+	if r.clusterMtlsRoundTripFromClient != nil {
+		return nil
+	}
+	q := r.query.Select("clusterMtlsRoundTripFromClient")
+
+	return q.Execute(ctx)
+}
+
 // ClusterRejectsEvenReplicas verifies that an even replicas value > 1
 // is rejected — Dgraph's Raft consensus needs an odd replica count per
 // group (or replicas=1 for no replication). Alphas=2 keeps
 // alphas%replicas==0 so only the odd-replicas rule can trip.
-func (r *DgraphTests) ClusterRejectsEvenReplicas(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:183:1)
+func (r *DgraphTests) ClusterRejectsEvenReplicas(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:212:1)
 	if r.clusterRejectsEvenReplicas != nil {
 		return nil
 	}
@@ -155,7 +189,7 @@ func (r *DgraphTests) ClusterRejectsEvenReplicas(ctx context.Context) error { //
 }
 
 // ClusterRejectsInvalidAlphasReplicasRatio verifies alphas % replicas != 0 is rejected.
-func (r *DgraphTests) ClusterRejectsInvalidAlphasReplicasRatio(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:162:1)
+func (r *DgraphTests) ClusterRejectsInvalidAlphasReplicasRatio(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:191:1)
 	if r.clusterRejectsInvalidAlphasReplicasRatio != nil {
 		return nil
 	}
@@ -165,7 +199,7 @@ func (r *DgraphTests) ClusterRejectsInvalidAlphasReplicasRatio(ctx context.Conte
 }
 
 // ClusterRejectsMultipleZeros verifies zeros != 1 surfaces a descriptive error.
-func (r *DgraphTests) ClusterRejectsMultipleZeros(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:144:1)
+func (r *DgraphTests) ClusterRejectsMultipleZeros(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:173:1)
 	if r.clusterRejectsMultipleZeros != nil {
 		return nil
 	}
@@ -178,7 +212,7 @@ func (r *DgraphTests) ClusterRejectsMultipleZeros(ctx context.Context) error { /
 // rejected. The Dagger SDK's binding panics via assertNotNil before the
 // call leaves the test module; recover and assert the panic mentions
 // the rejected argument.
-func (r *DgraphTests) ClusterRejectsNilSecurity(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:204:1)
+func (r *DgraphTests) ClusterRejectsNilSecurity(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:233:1)
 	if r.clusterRejectsNilSecurity != nil {
 		return nil
 	}
@@ -187,10 +221,22 @@ func (r *DgraphTests) ClusterRejectsNilSecurity(ctx context.Context) error { // 
 	return q.Execute(ctx)
 }
 
+// ClusterTlsRoundTripFromClient boots a one-way-TLS cluster and proves a
+// matching TLS client (pinning the server CA) can AlterSchema + Mutate +
+// Query end to end.
+func (r *DgraphTests) ClusterTLSRoundTripFromClient(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/security.go:158:1)
+	if r.clusterTlsRoundTripFromClient != nil {
+		return nil
+	}
+	q := r.query.Select("clusterTlsRoundTripFromClient")
+
+	return q.Execute(ctx)
+}
+
 // DefaultsProduceWorkingSingleNodeCluster boots a 1-Zero, 1-Alpha,
 // replicas=1 cluster (the constructor defaults) and runs a schema
 // alteration against it to prove it's serving requests.
-func (r *DgraphTests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:336:1)
+func (r *DgraphTests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:365:1)
 	if r.defaultsProduceWorkingSingleNodeCluster != nil {
 		return nil
 	}
@@ -208,7 +254,7 @@ func (r *DgraphTests) DefaultsProduceWorkingSingleNodeCluster(ctx context.Contex
 // AlterSchema against the cluster: if start() didn't run because
 // GrpcEndpoints returned a cached result, the alphas remain dead and
 // the alter dials a hung port.
-func (r *DgraphTests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:236:1)
+func (r *DgraphTests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:265:1)
 	if r.grpcEndpointsShouldNotBeCached != nil {
 		return nil
 	}
@@ -221,7 +267,7 @@ func (r *DgraphTests) GrpcEndpointsShouldNotBeCached(ctx context.Context) error 
 // but for the HTTP listener. The liveness probe is the same gRPC-based
 // AlterSchema — both endpoint methods share start(), so any restart
 // proves either never-cache directive fired.
-func (r *DgraphTests) HTTPEndpointsShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:268:1)
+func (r *DgraphTests) HTTPEndpointsShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:297:1)
 	if r.httpEndpointsShouldNotBeCached != nil {
 		return nil
 	}
@@ -279,12 +325,27 @@ func (r *DgraphTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MtlsClusterRejectsTlsOnlyClient boots an mTLS cluster and proves a
+// TLS-only client (verifies the server but presents no client cert) fails
+// at the gRPC handshake — the REQUIREANDVERIFY listener demands a client
+// certificate. This goes through the standalone Dgraph.Client, which has
+// no cluster reference and so cannot short-circuit with a mode-mismatch
+// error: the failure must come from the wire.
+func (r *DgraphTests) MtlsClusterRejectsTLSOnlyClient(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/security.go:294:1)
+	if r.mtlsClusterRejectsTlsOnlyClient != nil {
+		return nil
+	}
+	q := r.query.Select("mtlsClusterRejectsTlsOnlyClient")
+
+	return q.Execute(ctx)
+}
+
 // MultiAlphaShardedTopology boots a 2-Alpha cluster at replicas=1 (two
 // groups, one Alpha each — sharded, no replication) and verifies the
 // cluster serves a trivial schema alteration. Dgraph's Raft consensus
 // requires replicas to be odd, so the smallest valid sharded topology
 // is 2 Alphas at replicas=1.
-func (r *DgraphTests) MultiAlphaShardedTopology(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:377:1)
+func (r *DgraphTests) MultiAlphaShardedTopology(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:406:1)
 	if r.multiAlphaShardedTopology != nil {
 		return nil
 	}
@@ -296,7 +357,7 @@ func (r *DgraphTests) MultiAlphaShardedTopology(ctx context.Context) error { // 
 // MultiAlphaSingleGroupAllReachable boots a 3-Alpha cluster at
 // replicas=3 (single group of three Alphas, fully replicated) and
 // verifies every endpoint serves queries.
-func (r *DgraphTests) MultiAlphaSingleGroupAllReachable(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:350:1)
+func (r *DgraphTests) MultiAlphaSingleGroupAllReachable(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:379:1)
 	if r.multiAlphaSingleGroupAllReachable != nil {
 		return nil
 	}
@@ -310,7 +371,7 @@ func (r *DgraphTests) MultiAlphaSingleGroupAllReachable(ctx context.Context) err
 // engine cached the call, both would return identical UID JSON. The
 // payload value is randomised per-run so re-running the suite never
 // reuses a probe name across engine sessions.
-func (r *DgraphTests) MutateShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:301:1)
+func (r *DgraphTests) MutateShouldNotBeCached(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:330:1)
 	if r.mutateShouldNotBeCached != nil {
 		return nil
 	}
@@ -323,7 +384,7 @@ func (r *DgraphTests) MutateShouldNotBeCached(ctx context.Context) error { // dg
 // constructs a top-level Dgraph.Client (not Cluster.Client) against
 // the cluster's endpoints — proving the constructor works against any
 // reachable address list.
-func (r *DgraphTests) RemoteClientCanTargetExistingCluster(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:530:1)
+func (r *DgraphTests) RemoteClientCanTargetExistingCluster(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:559:1)
 	if r.remoteClientCanTargetExistingCluster != nil {
 		return nil
 	}
@@ -332,16 +393,53 @@ func (r *DgraphTests) RemoteClientCanTargetExistingCluster(ctx context.Context) 
 	return q.Execute(ctx)
 }
 
+// DgraphTestsSecurityOpts contains options for DgraphTests.Security
+type DgraphTestsSecurityOpts struct {
+	Parallel int // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:117:2)
+}
+
+// Security runs the TLS / mTLS round-trip, mode-coupling, and container-
+// binding tests. Each mints its own per-test CA and cert material and
+// (for the round-trip / bind tests) boots an independent backing cluster
+// keyed by a unique name, so the jobs are safe to fan out.
+func (r *DgraphTests) Security(ctx context.Context, opts ...DgraphTestsSecurityOpts) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:114:1)
+	if r.security != nil {
+		return nil
+	}
+	q := r.query.Select("security")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `parallel` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Parallel) {
+			q = q.Arg("parallel", opts[i].Parallel)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// TlsClusterRejectsPlaintextClient verifies the mode-coupling check:
+// asking a TLS cluster for a plaintext client returns an error naming
+// both modes, before any wire activity. The requireMode guard fires ahead
+// of GrpcEndpoints, so no cluster boots.
+func (r *DgraphTests) TLSClusterRejectsPlaintextClient(ctx context.Context) error { // dgraph-tests (../../../daggerverse/dgraph/tests/security.go:257:1)
+	if r.tlsClusterRejectsPlaintextClient != nil {
+		return nil
+	}
+	q := r.query.Select("tlsClusterRejectsPlaintextClient")
+
+	return q.Execute(ctx)
+}
+
 // DgraphTestsValidationOpts contains options for DgraphTests.Validation
 type DgraphTestsValidationOpts struct {
-	Parallel int // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:57:2)
+	Parallel int // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:60:2)
 }
 
 // Validation runs the pure-validation tests (ClusterRejects*) plus the
 // cache-directive tests (*ShouldNotBeCached) that explicitly Stop their
 // cluster after use. These don't share session-cached cluster state, so
 // they're safe to fan out unbounded.
-func (r *DgraphTests) Validation(ctx context.Context, opts ...DgraphTestsValidationOpts) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:54:1)
+func (r *DgraphTests) Validation(ctx context.Context, opts ...DgraphTestsValidationOpts) error { // dgraph-tests (../../../daggerverse/dgraph/tests/main.go:57:1)
 	if r.validation != nil {
 		return nil
 	}

@@ -61,6 +61,8 @@ type SkillGenTests struct { // skill-gen-tests (../../../daggerverse/skill-gen/t
 	query *querybuilder.Selection
 
 	all                               *Void
+	bakesCustomPsqlImage              *Void
+	defaultsPsqlImage                 *Void
 	generatesPgSkillFromCluster       *Void
 	generatesPgSkillOverMtls          *Void
 	generatesPgSkillOverTls           *Void
@@ -71,6 +73,7 @@ type SkillGenTests struct { // skill-gen-tests (../../../daggerverse/skill-gen/t
 	regenChangesetEmptyWhenUnchanged  *Void
 	regenChangesetReflectsSchemaDrift *Void
 	rejectsInvalidDbName              *Void
+	rejectsInvalidPsqlImage           *Void
 }
 
 func (r *SkillGenTests) WithGraphQLQuery(q *querybuilder.Selection) *SkillGenTests {
@@ -100,10 +103,34 @@ func (r *SkillGenTests) All(ctx context.Context, opts ...SkillGenTestsAllOpts) e
 	return q.Execute(ctx)
 }
 
+// BakesCustomPsqlImage pins that a caller-supplied psqlImage lands in the
+// generated scripts/query.sh and scripts/.env.example in place of the default,
+// so a team on a private registry gets a skill that runs out of the box
+// without every consumer exporting PSQL_IMAGE by hand.
+func (r *SkillGenTests) BakesCustomPsqlImage(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:201:1)
+	if r.bakesCustomPsqlImage != nil {
+		return nil
+	}
+	q := r.query.Select("bakesCustomPsqlImage")
+
+	return q.Execute(ctx)
+}
+
+// DefaultsPsqlImage pins the v1 default: omitting psqlImage bakes
+// docker.io/alpine/psql:17.7 and leaves the regen command free of the flag.
+func (r *SkillGenTests) DefaultsPsqlImage(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:255:1)
+	if r.defaultsPsqlImage != nil {
+		return nil
+	}
+	q := r.query.Select("defaultsPsqlImage")
+
+	return q.Execute(ctx)
+}
+
 // GeneratesPgSkillFromCluster pins the happy path: the full tree is present and
 // fully substituted, the frontmatter is correct and model-invocable, and
 // enums.md exists because the schema defines an enum.
-func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:196:1)
+func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:317:1)
 	if r.generatesPgSkillFromCluster != nil {
 		return nil
 	}
@@ -115,7 +142,7 @@ func (r *SkillGenTests) GeneratesPgSkillFromCluster(ctx context.Context) error {
 // GeneratesPgSkillOverMtls pins that SkillGen.Postgres introspects a mutual-TLS
 // cluster when handed the server CA plus a client cert/key whose CN matches the
 // role (clientcert=verify-full), producing the full skill tree.
-func (r *SkillGenTests) GeneratesPgSkillOverMtls(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:456:1)
+func (r *SkillGenTests) GeneratesPgSkillOverMtls(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:577:1)
 	if r.generatesPgSkillOverMtls != nil {
 		return nil
 	}
@@ -127,7 +154,7 @@ func (r *SkillGenTests) GeneratesPgSkillOverMtls(ctx context.Context) error { //
 // GeneratesPgSkillOverTls pins that SkillGen.Postgres introspects a one-way-TLS
 // cluster (sslmode=verify-full) when handed only the server CA, producing the
 // full skill tree. The server cert's SAN must cover the dialed clusterHost.
-func (r *SkillGenTests) GeneratesPgSkillOverTLS(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:419:1)
+func (r *SkillGenTests) GeneratesPgSkillOverTLS(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:540:1)
 	if r.generatesPgSkillOverTls != nil {
 		return nil
 	}
@@ -188,7 +215,7 @@ func (r *SkillGenTests) UnmarshalJSON(bs []byte) error {
 // IntrospectionFailureAborts pins that an introspection failure (here, a wrong
 // password against a live cluster) aborts with a non-zero error and yields no
 // Directory.
-func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:168:1)
+func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:289:1)
 	if r.introspectionFailureAborts != nil {
 		return nil
 	}
@@ -201,7 +228,7 @@ func (r *SkillGenTests) IntrospectionFailureAborts(ctx context.Context) error { 
 // with no cert params (plaintext) aborts: the primary's hostssl-only pg_hba.conf
 // refuses the unencrypted connection, so generation fails and yields no
 // Directory rather than silently producing partial output.
-func (r *SkillGenTests) PlaintextParamsAgainstTLSAbort(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:502:1)
+func (r *SkillGenTests) PlaintextParamsAgainstTLSAbort(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:623:1)
 	if r.plaintextParamsAgainstTlsAbort != nil {
 		return nil
 	}
@@ -213,7 +240,7 @@ func (r *SkillGenTests) PlaintextParamsAgainstTLSAbort(ctx context.Context) erro
 // PostgresShouldNotBeCached pins the non-caching contract: regenerating after a
 // schema change reflects the change rather than serving a stale cached
 // Directory.
-func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:276:1)
+func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:397:1)
 	if r.postgresShouldNotBeCached != nil {
 		return nil
 	}
@@ -224,7 +251,7 @@ func (r *SkillGenTests) PostgresShouldNotBeCached(ctx context.Context) error { /
 
 // RegenChangesetEmptyWhenUnchanged pins byte-stability: two generations over an
 // unchanged schema produce an empty changeset.
-func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:317:1)
+func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:438:1)
 	if r.regenChangesetEmptyWhenUnchanged != nil {
 		return nil
 	}
@@ -236,7 +263,7 @@ func (r *SkillGenTests) RegenChangesetEmptyWhenUnchanged(ctx context.Context) er
 // RegenChangesetReflectsSchemaDrift pins that a schema change yields a non-empty
 // changeset: a new table modifies the references, and adding the first enum
 // adds references/enums.md as a brand-new path.
-func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:348:1)
+func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:469:1)
 	if r.regenChangesetReflectsSchemaDrift != nil {
 		return nil
 	}
@@ -248,11 +275,25 @@ func (r *SkillGenTests) RegenChangesetReflectsSchemaDrift(ctx context.Context) e
 // RejectsInvalidDbName pins that a db name violating ^[A-Za-z0-9_-]+$ is
 // rejected before any introspection (no cluster needed — validation precedes
 // the network).
-func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:146:1)
+func (r *SkillGenTests) RejectsInvalidDbName(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:152:1)
 	if r.rejectsInvalidDbName != nil {
 		return nil
 	}
 	q := r.query.Select("rejectsInvalidDbName")
+
+	return q.Execute(ctx)
+}
+
+// RejectsInvalidPsqlImage pins that a psql image outside the inert charset is
+// rejected before any introspection. The image is substituted raw into the
+// generated query.sh (inside a "${PSQL_IMAGE:-…}" default word, where the shell
+// still expands), so a value carrying shell metacharacters must never reach
+// rendering. No cluster is needed — validation precedes the network.
+func (r *SkillGenTests) RejectsInvalidPsqlImage(ctx context.Context) error { // skill-gen-tests (../../../daggerverse/skill-gen/tests/tests.go:176:1)
+	if r.rejectsInvalidPsqlImage != nil {
+		return nil
+	}
+	q := r.query.Select("rejectsInvalidPsqlImage")
 
 	return q.Execute(ctx)
 }

@@ -45,70 +45,75 @@ func (r *Env) WithKafkaTestsOutput(name string, description string) *Env { // ka
 type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
 	query *querybuilder.Selection
 
-	all                                                *Void
-	apacheClusterMtlsRoundTrip                         *Void
-	apacheClusterProduceListTopicsRoundTrip            *Void
-	apacheClusterTlsRoundTrip                          *Void
-	apacheJvm                                          *Void
-	apicurioSchemaRegistryRegisterLookupRoundTrip      *Void
-	apicurioSchemaRegistryTlsRegisterLookupRoundTrip   *Void
-	autoCreateTopicsDisabled                           *Void
-	avroBytesFieldRoundTrip                            *Void
-	avroConsumeUnframedErrors                          *Void
-	avroFramedProduceConsumeRoundTrip                  *Void
-	avroMtlsFramedProduceConsumeRoundTrip              *Void
-	avroSerializeRequiresSchemaId                      *Void
-	avroTlsFramedProduceConsumeRoundTrip               *Void
-	bindBrokersExposesBothListeners                    *Void
-	clusterClientCanListTopicsOnFreshCluster           *Void
-	confluent                                          *Void
-	confluentClusterMtlsRoundTrip                      *Void
-	confluentClusterProduceListTopicsRoundTrip         *Void
-	confluentClusterTlsRoundTrip                       *Void
-	confluentSchemaRegistryMtlsRegisterLookupRoundTrip *Void
-	confluentSchemaRegistryTlsRegisterLookupRoundTrip  *Void
-	consumerGroupOnSingleBrokerWorks                   *Void
-	createAndDeleteTopicRoundTrip                      *Void
-	dedicatedControllerAndBrokerProduceConsume         *Void
-	describeConsumerGroupReportsLag                    *Void
-	describeTopicReportsPartitionsAndConfigs           *Void
-	fiveControllerQuorumAccepted                       *Void
-	id                                                 *ID
-	internalListenersAreEncrypted                      *Void
-	invalidControllerCountIsRejected                   *Void
-	karapaceSchemaRegistryRegisterLookupRoundTrip      *Void
-	karapaceSchemaRegistryTlsRegisterLookupRoundTrip   *Void
-	listConsumerGroupsReportsCommittedGroup            *Void
-	mtlsRequiresClientCert                             *Void
-	mtlsRoundTrip                                      *Void
-	native                                             *Void
-	oneControllerTwoBrokersReplicationFactorTwo        *Void
-	plaintextSecurityProfilesAreNonNil                 *Void
-	produceConsumeRoundTripBase64                      *Void
-	produceConsumeRoundTripHex                         *Void
-	produceConsumeRoundTripRaw                         *Void
-	produceRejectsUnknownEncoding                      *Void
-	propertiesFileContainsBootstrapAndSecurityProtocol *Void
-	propertiesFileContainsMtlsSettings                 *Void
-	propertiesFileContainsTlsSettings                  *Void
-	redpanda                                           *Void
-	redpandaClusterProduceListTopicsRoundTrip          *Void
-	redpandaClusterTlsRoundTrip                        *Void
-	redpandaSchemaRegistryBundledStopIsNoOp            *Void
-	redpandaSchemaRegistryRegisterLookupRoundTrip      *Void
-	redpandaSchemaRegistryTlsRegisterLookupRoundTrip   *Void
-	schemaRegistry                                     *Void
-	schemaRegistryFramedProduceConsumeRoundTrip        *Void
-	schemaRegistryJsonframedProduceConsumeRoundTrip    *Void
-	schemaRegistryJsonserializeRejectsMalformedInput   *Void
-	schemaRegistryPlaintextConsumeUnframed             *Void
-	schemaRegistryRegisterLookupRoundTrip              *Void
-	schemaRegistryRejectsClusterModeMismatch           *Void
-	singleNodeClusterStarts                            *Void
-	threeControllerQuorumProduceConsume                *Void
-	tlsClientWithWrongCaFails                          *Void
-	tlsClusterStarts                                   *Void
-	tlsRoundTrip                                       *Void
+	all                                                        *Void
+	apacheClusterMtlsRoundTrip                                 *Void
+	apacheClusterProduceListTopicsRoundTrip                    *Void
+	apacheClusterTlsRoundTrip                                  *Void
+	apacheJvm                                                  *Void
+	apicurioSchemaRegistryRegisterLookupRoundTrip              *Void
+	apicurioSchemaRegistryTlsRegisterLookupRoundTrip           *Void
+	autoCreateTopicsDisabled                                   *Void
+	avroBytesFieldRoundTrip                                    *Void
+	avroConsumeUnframedErrors                                  *Void
+	avroFramedProduceConsumeRoundTrip                          *Void
+	avroMtlsFramedProduceConsumeRoundTrip                      *Void
+	avroSerializeRequiresSchemaId                              *Void
+	avroTlsFramedProduceConsumeRoundTrip                       *Void
+	bindBrokersExposesBothListeners                            *Void
+	clusterClientCanListTopicsOnFreshCluster                   *Void
+	confluent                                                  *Void
+	confluentClusterMtlsRoundTrip                              *Void
+	confluentClusterProduceListTopicsRoundTrip                 *Void
+	confluentClusterTlsRoundTrip                               *Void
+	confluentSchemaRegistryMtlsRegisterLookupRoundTrip         *Void
+	confluentSchemaRegistryTlsRegisterLookupRoundTrip          *Void
+	consumerGroupOnSingleBrokerWorks                           *Void
+	createAndDeleteTopicRoundTrip                              *Void
+	dedicatedControllerAndBrokerProduceConsume                 *Void
+	describeConsumerGroupReportsLag                            *Void
+	describeTopicReportsPartitionsAndConfigs                   *Void
+	fiveControllerQuorumAccepted                               *Void
+	id                                                         *ID
+	internalListenersAreEncrypted                              *Void
+	invalidControllerCountIsRejected                           *Void
+	karapaceSchemaRegistryRegisterLookupRoundTrip              *Void
+	karapaceSchemaRegistryTlsRegisterLookupRoundTrip           *Void
+	listConsumerGroupsReportsCommittedGroup                    *Void
+	mtlsRequiresClientCert                                     *Void
+	mtlsRoundTrip                                              *Void
+	native                                                     *Void
+	oneControllerTwoBrokersReplicationFactorTwo                *Void
+	plaintextSecurityProfilesAreNonNil                         *Void
+	produceConsumeRoundTripBase64                              *Void
+	produceConsumeRoundTripHex                                 *Void
+	produceConsumeRoundTripRaw                                 *Void
+	produceRejectsUnknownEncoding                              *Void
+	propertiesFileContainsBootstrapAndSecurityProtocol         *Void
+	propertiesFileContainsMtlsSettings                         *Void
+	propertiesFileContainsTlsSettings                          *Void
+	redpanda                                                   *Void
+	redpandaClusterProduceListTopicsRoundTrip                  *Void
+	redpandaClusterTlsRoundTrip                                *Void
+	redpandaMultiBrokerBootstrapServersListsEveryNode          *Void
+	redpandaMultiBrokerControllerPolicyRejected                *Void
+	redpandaMultiBrokerSchemaRegistryRoundTrip                 *Void
+	redpandaSchemaRegistryBundledStopIsNoOp                    *Void
+	redpandaSchemaRegistryRegisterLookupRoundTrip              *Void
+	redpandaSchemaRegistryTlsRegisterLookupRoundTrip           *Void
+	redpandaThreeBrokerReplicationFactorThreeProduceConsume    *Void
+	redpandaThreeBrokerTlsReplicationFactorThreeProduceConsume *Void
+	schemaRegistry                                             *Void
+	schemaRegistryFramedProduceConsumeRoundTrip                *Void
+	schemaRegistryJsonframedProduceConsumeRoundTrip            *Void
+	schemaRegistryJsonserializeRejectsMalformedInput           *Void
+	schemaRegistryPlaintextConsumeUnframed                     *Void
+	schemaRegistryRegisterLookupRoundTrip                      *Void
+	schemaRegistryRejectsClusterModeMismatch                   *Void
+	singleNodeClusterStarts                                    *Void
+	threeControllerQuorumProduceConsume                        *Void
+	tlsClientWithWrongCaFails                                  *Void
+	tlsClusterStarts                                           *Void
+	tlsRoundTrip                                               *Void
 }
 
 func (r *KafkaTests) WithGraphQLQuery(q *querybuilder.Selection) *KafkaTests {
@@ -1410,7 +1415,7 @@ func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpt
 type KafkaTestsRedpandaClusterProduceListTopicsRoundTripOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:64:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:294:2)
 }
 
 // RedpandaClusterProduceListTopicsRoundTrip is the PLAINTEXT happy-path
@@ -1418,7 +1423,7 @@ type KafkaTestsRedpandaClusterProduceListTopicsRoundTripOpts struct {
 // create a topic, produce one record, then assert the freshly-created
 // topic shows up in ListTopics. Pins down "redpanda actually serves
 // Kafka-wire traffic on the external listener".
-func (r *KafkaTests) RedpandaClusterProduceListTopicsRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaClusterProduceListTopicsRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:61:1)
+func (r *KafkaTests) RedpandaClusterProduceListTopicsRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaClusterProduceListTopicsRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:291:1)
 	if r.redpandaClusterProduceListTopicsRoundTrip != nil {
 		return nil
 	}
@@ -1437,7 +1442,7 @@ func (r *KafkaTests) RedpandaClusterProduceListTopicsRoundTrip(ctx context.Conte
 type KafkaTestsRedpandaClusterTLSRoundTripOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:113:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:343:2)
 }
 
 // RedpandaClusterTlsRoundTrip is the TLS happy-path round-trip for
@@ -1445,7 +1450,7 @@ type KafkaTestsRedpandaClusterTLSRoundTripOpts struct {
 // using PEM cert/key/CA mounted into /etc/redpanda/certs, then produce
 // and consume one record over the TLS listener with the franz-go client
 // verifying the broker leaf against the matching truststore.
-func (r *KafkaTests) RedpandaClusterTLSRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaClusterTLSRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:110:1)
+func (r *KafkaTests) RedpandaClusterTLSRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaClusterTLSRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:340:1)
 	if r.redpandaClusterTlsRoundTrip != nil {
 		return nil
 	}
@@ -1460,11 +1465,96 @@ func (r *KafkaTests) RedpandaClusterTLSRoundTrip(ctx context.Context, opts ...Ka
 	return q.Execute(ctx)
 }
 
+// KafkaTestsRedpandaMultiBrokerBootstrapServersListsEveryNodeOpts contains options for KafkaTests.RedpandaMultiBrokerBootstrapServersListsEveryNode
+type KafkaTestsRedpandaMultiBrokerBootstrapServersListsEveryNodeOpts struct {
+
+	// Default: "v26.1.7"
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:154:2)
+}
+
+// RedpandaMultiBrokerBootstrapServersListsEveryNode proves the constructor
+// accepts brokers=3 and returns a cluster advertising all three broker
+// bootstrap addresses. Resolving BootstrapServers forces the server-side
+// constructor (validation + the full container graph, including the per-node
+// seed list) to run without booting the containers, so the accept path is
+// exercised cheaply — the real three-node Raft round-trip is covered by
+// RedpandaThreeBrokerReplicationFactorThreeProduceConsume.
+func (r *KafkaTests) RedpandaMultiBrokerBootstrapServersListsEveryNode(ctx context.Context, opts ...KafkaTestsRedpandaMultiBrokerBootstrapServersListsEveryNodeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:151:1)
+	if r.redpandaMultiBrokerBootstrapServersListsEveryNode != nil {
+		return nil
+	}
+	q := r.query.Select("redpandaMultiBrokerBootstrapServersListsEveryNode")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `redpandaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
+			q = q.Arg("redpandaImageTag", opts[i].RedpandaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsRedpandaMultiBrokerControllerPolicyRejectedOpts contains options for KafkaTests.RedpandaMultiBrokerControllerPolicyRejected
+type KafkaTestsRedpandaMultiBrokerControllerPolicyRejectedOpts struct {
+
+	// Default: "v26.1.7"
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:108:2)
+}
+
+// RedpandaMultiBrokerControllerPolicyRejected pins the two construction-time
+// policies Redpanda enforces: `controllers != 1` is rejected (Redpanda has no
+// separate controller role) and `brokers < 1` is rejected. Resolving
+// BootstrapServers forces the server-side constructor to run its validation
+// without booting any container, so both rejections are exercised cheaply.
+func (r *KafkaTests) RedpandaMultiBrokerControllerPolicyRejected(ctx context.Context, opts ...KafkaTestsRedpandaMultiBrokerControllerPolicyRejectedOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:105:1)
+	if r.redpandaMultiBrokerControllerPolicyRejected != nil {
+		return nil
+	}
+	q := r.query.Select("redpandaMultiBrokerControllerPolicyRejected")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `redpandaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
+			q = q.Arg("redpandaImageTag", opts[i].RedpandaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsRedpandaMultiBrokerSchemaRegistryRoundTripOpts contains options for KafkaTests.RedpandaMultiBrokerSchemaRegistryRoundTrip
+type KafkaTestsRedpandaMultiBrokerSchemaRegistryRoundTripOpts struct {
+
+	// Default: "v26.1.7"
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:273:2)
+}
+
+// RedpandaMultiBrokerSchemaRegistryRoundTrip proves Redpanda's bundled Schema
+// Registry still works against a multi-node cluster: it stands up a three-node
+// cluster, registers a schema against cluster.SchemaRegistry() (which points
+// at node 0, whose service cascades the whole cluster online), and asserts the
+// lookup-by-id round-trip. The `_schemas` topic itself is replicated across the
+// cluster, so a successful round-trip proves the registry reaches a formed
+// multi-node Raft group.
+func (r *KafkaTests) RedpandaMultiBrokerSchemaRegistryRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaMultiBrokerSchemaRegistryRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:270:1)
+	if r.redpandaMultiBrokerSchemaRegistryRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("redpandaMultiBrokerSchemaRegistryRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `redpandaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
+			q = q.Arg("redpandaImageTag", opts[i].RedpandaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // KafkaTestsRedpandaSchemaRegistryBundledStopIsNoOpOpts contains options for KafkaTests.RedpandaSchemaRegistryBundledStopIsNoOp
 type KafkaTestsRedpandaSchemaRegistryBundledStopIsNoOpOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:285:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:515:2)
 }
 
 // RedpandaSchemaRegistryBundledStopIsNoOp pins the bundled-registry lifecycle
@@ -1473,7 +1563,7 @@ type KafkaTestsRedpandaSchemaRegistryBundledStopIsNoOpOpts struct {
 // register/lookup round-trip, calls sr.Stop, then exercises the registry
 // again through the same handle. If sr.Stop had torn down the shared broker
 // service, that follow-up call would fail.
-func (r *KafkaTests) RedpandaSchemaRegistryBundledStopIsNoOp(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryBundledStopIsNoOpOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:282:1)
+func (r *KafkaTests) RedpandaSchemaRegistryBundledStopIsNoOp(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryBundledStopIsNoOpOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:512:1)
 	if r.redpandaSchemaRegistryBundledStopIsNoOp != nil {
 		return nil
 	}
@@ -1492,7 +1582,7 @@ func (r *KafkaTests) RedpandaSchemaRegistryBundledStopIsNoOp(ctx context.Context
 type KafkaTestsRedpandaSchemaRegistryRegisterLookupRoundTripOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:236:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:466:2)
 }
 
 // RedpandaSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path
@@ -1503,7 +1593,7 @@ type KafkaTestsRedpandaSchemaRegistryRegisterLookupRoundTripOpts struct {
 // separate-container ConfluentSchemaRegistry. The SR service is the broker
 // itself, so cluster.Stop tears it down — sr.Stop is a no-op for a bundled
 // registry.
-func (r *KafkaTests) RedpandaSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:233:1)
+func (r *KafkaTests) RedpandaSchemaRegistryRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:463:1)
 	if r.redpandaSchemaRegistryRegisterLookupRoundTrip != nil {
 		return nil
 	}
@@ -1522,7 +1612,7 @@ func (r *KafkaTests) RedpandaSchemaRegistryRegisterLookupRoundTrip(ctx context.C
 type KafkaTestsRedpandaSchemaRegistryTLSRegisterLookupRoundTripOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:259:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:489:2)
 }
 
 // RedpandaSchemaRegistryTlsRegisterLookupRoundTrip is the TLS-cluster
@@ -1532,11 +1622,66 @@ type KafkaTestsRedpandaSchemaRegistryTLSRegisterLookupRoundTripOpts struct {
 // separately-rendered redpanda.yaml schema_registry_api_tls block), so this
 // exercises that YAML path end-to-end and drives register/lookup over HTTPS,
 // verifying the SR cert against the cluster CA truststore.
-func (r *KafkaTests) RedpandaSchemaRegistryTLSRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryTLSRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:256:1)
+func (r *KafkaTests) RedpandaSchemaRegistryTLSRegisterLookupRoundTrip(ctx context.Context, opts ...KafkaTestsRedpandaSchemaRegistryTLSRegisterLookupRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:486:1)
 	if r.redpandaSchemaRegistryTlsRegisterLookupRoundTrip != nil {
 		return nil
 	}
 	q := r.query.Select("redpandaSchemaRegistryTlsRegisterLookupRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `redpandaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
+			q = q.Arg("redpandaImageTag", opts[i].RedpandaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsRedpandaThreeBrokerReplicationFactorThreeProduceConsumeOpts contains options for KafkaTests.RedpandaThreeBrokerReplicationFactorThreeProduceConsume
+type KafkaTestsRedpandaThreeBrokerReplicationFactorThreeProduceConsumeOpts struct {
+
+	// Default: "v26.1.7"
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:179:2)
+}
+
+// RedpandaThreeBrokerReplicationFactorThreeProduceConsume stands up a real
+// three-node Redpanda cluster and drives a produce → consume round-trip over
+// an RF=3 topic. A successful round-trip proves the three nodes formed a
+// single Raft group over the internal RPC listener (seed-driven bootstrap) and
+// that inter-node replication is actually exercised — an RF=3 topic can only be
+// created and written if all three brokers reach each other.
+func (r *KafkaTests) RedpandaThreeBrokerReplicationFactorThreeProduceConsume(ctx context.Context, opts ...KafkaTestsRedpandaThreeBrokerReplicationFactorThreeProduceConsumeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:176:1)
+	if r.redpandaThreeBrokerReplicationFactorThreeProduceConsume != nil {
+		return nil
+	}
+	q := r.query.Select("redpandaThreeBrokerReplicationFactorThreeProduceConsume")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `redpandaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
+			q = q.Arg("redpandaImageTag", opts[i].RedpandaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsRedpandaThreeBrokerTLSReplicationFactorThreeProduceConsumeOpts contains options for KafkaTests.RedpandaThreeBrokerTLSReplicationFactorThreeProduceConsume
+type KafkaTestsRedpandaThreeBrokerTLSReplicationFactorThreeProduceConsumeOpts struct {
+
+	// Default: "v26.1.7"
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:197:2)
+}
+
+// RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume is the TLS
+// counterpart: a three-node Redpanda cluster with TLS on every node's external
+// Kafka listener, driving a produce → consume round-trip over an RF=3 topic.
+// The franz-go client verifies whichever node it is routed to against the
+// cluster truststore, proving every node's leaf is SAN'd to its own hostname.
+func (r *KafkaTests) RedpandaThreeBrokerTLSReplicationFactorThreeProduceConsume(ctx context.Context, opts ...KafkaTestsRedpandaThreeBrokerTLSReplicationFactorThreeProduceConsumeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_redpanda.go:194:1)
+	if r.redpandaThreeBrokerTlsReplicationFactorThreeProduceConsume != nil {
+		return nil
+	}
+	q := r.query.Select("redpandaThreeBrokerTlsReplicationFactorThreeProduceConsume")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `redpandaImageTag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].RedpandaImageTag) {
