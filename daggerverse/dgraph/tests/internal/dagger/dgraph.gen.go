@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Dgraph
-func (r *Binding) AsDgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
+func (r *Binding) AsDgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:30:6)
 	q := r.query.Select("asDgraph")
 
 	return &Dgraph{
@@ -19,7 +19,7 @@ func (r *Binding) AsDgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgr
 }
 
 // Retrieve the binding value, as type DgraphClient
-func (r *Binding) AsDgraphClient() *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
+func (r *Binding) AsDgraphClient() *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/client.go:24:6)
 	q := r.query.Select("asDgraphClient")
 
 	return &DgraphClient{
@@ -28,7 +28,7 @@ func (r *Binding) AsDgraphClient() *DgraphClient { // dgraph (../../../../../dag
 }
 
 // Retrieve the binding value, as type DgraphClientSecurity
-func (r *Binding) AsDgraphClientSecurity() *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
+func (r *Binding) AsDgraphClientSecurity() *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:42:6)
 	q := r.query.Select("asDgraphClientSecurity")
 
 	return &DgraphClientSecurity{
@@ -37,7 +37,7 @@ func (r *Binding) AsDgraphClientSecurity() *DgraphClientSecurity { // dgraph (..
 }
 
 // Retrieve the binding value, as type DgraphCluster
-func (r *Binding) AsDgraphCluster() *DgraphCluster { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
+func (r *Binding) AsDgraphCluster() *DgraphCluster { // dgraph (../../../../../daggerverse/dgraph/cluster.go:21:6)
 	q := r.query.Select("asDgraphCluster")
 
 	return &DgraphCluster{
@@ -46,7 +46,7 @@ func (r *Binding) AsDgraphCluster() *DgraphCluster { // dgraph (../../../../../d
 }
 
 // Retrieve the binding value, as type DgraphServerSecurity
-func (r *Binding) AsDgraphServerSecurity() *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
+func (r *Binding) AsDgraphServerSecurity() *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:25:6)
 	q := r.query.Select("asDgraphServerSecurity")
 
 	return &DgraphServerSecurity{
@@ -58,7 +58,7 @@ func (r *Binding) AsDgraphServerSecurity() *DgraphServerSecurity { // dgraph (..
 // module. All cluster constructors, security helpers, and the
 // remote-client factory hang off *Dgraph so the generated Dagger SDK
 // surfaces them under `dag.Dgraph().<Func>(...)`.
-type Dgraph struct { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
+type Dgraph struct { // dgraph (../../../../../daggerverse/dgraph/main.go:30:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -75,7 +75,7 @@ func (r *Dgraph) WithGraphQLQuery(q *querybuilder.Selection) *Dgraph {
 // construction time. Works against the local Cluster() topology or any
 // reachable remote cluster — Dgraph Cloud, an existing self-hosted
 // cluster, anything that speaks the Dgraph gRPC API.
-func (r *Dgraph) Client(grpcEndpoints []string, security *DgraphClientSecurity) *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/client.go:31:1)
+func (r *Dgraph) Client(grpcEndpoints []string, security *DgraphClientSecurity) *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/client.go:44:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("grpcEndpoints", grpcEndpoints)
@@ -88,22 +88,22 @@ func (r *Dgraph) Client(grpcEndpoints []string, security *DgraphClientSecurity) 
 
 // DgraphClusterOpts contains options for Dgraph.Cluster
 type DgraphClusterOpts struct {
-	Name string // dgraph (../../../../../daggerverse/dgraph/cluster.go:77:2)
+	Name string // dgraph (../../../../../daggerverse/dgraph/cluster.go:80:2)
 
 	// Default: 1
-	Zeros int // dgraph (../../../../../daggerverse/dgraph/cluster.go:79:2)
+	Zeros int // dgraph (../../../../../daggerverse/dgraph/cluster.go:82:2)
 
 	// Default: 1
-	Alphas int // dgraph (../../../../../daggerverse/dgraph/cluster.go:81:2)
+	Alphas int // dgraph (../../../../../daggerverse/dgraph/cluster.go:84:2)
 
 	// Default: 1
-	Replicas int // dgraph (../../../../../daggerverse/dgraph/cluster.go:83:2)
+	Replicas int // dgraph (../../../../../daggerverse/dgraph/cluster.go:86:2)
 
 	// Default: "docker.io"
-	Registry string // dgraph (../../../../../daggerverse/dgraph/cluster.go:85:2)
+	Registry string // dgraph (../../../../../daggerverse/dgraph/cluster.go:88:2)
 
 	// Default: "v24.0.4"
-	Tag string // dgraph (../../../../../daggerverse/dgraph/cluster.go:87:2)
+	Tag string // dgraph (../../../../../daggerverse/dgraph/cluster.go:90:2)
 }
 
 // Cluster spins up a Dgraph cluster of one Zero coordinator and `alphas`
@@ -149,7 +149,7 @@ type DgraphClusterOpts struct {
 // chained Client.Mutate → Client.RunQuery sequence needs. Leaving the
 // default empty is fine for ad-hoc `dagger call` use where only one
 // cluster is in play.
-func (r *Dgraph) Cluster(clientListenerSecurity *DgraphServerSecurity, opts ...DgraphClusterOpts) *DgraphCluster { // dgraph (../../../../../daggerverse/dgraph/cluster.go:74:1)
+func (r *Dgraph) Cluster(clientListenerSecurity *DgraphServerSecurity, opts ...DgraphClusterOpts) *DgraphCluster { // dgraph (../../../../../daggerverse/dgraph/cluster.go:77:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("cluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -234,9 +234,46 @@ func (r *Dgraph) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MtlsClientSecurity returns a ClientSecurity profile that opens a
+// mutual-TLS connection: the Alpha is verified against serverCa and the
+// client presents clientCert + clientKey to satisfy the listener's
+// REQUIREANDVERIFY client-auth requirement.
+func (r *Dgraph) MtlsClientSecurity(serverCa *File, clientCert *File, clientKey *Secret) *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:107:1)
+	assertNotNil("serverCa", serverCa)
+	assertNotNil("clientCert", clientCert)
+	assertNotNil("clientKey", clientKey)
+	q := r.query.Select("mtlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+	q = q.Arg("clientCert", clientCert)
+	q = q.Arg("clientKey", clientKey)
+
+	return &DgraphClientSecurity{
+		query: q,
+	}
+}
+
+// MtlsServerSecurity returns a ServerSecurity profile that terminates
+// mutual TLS. In addition to the server leaf (serverCert and serverKey),
+// clientCa is passed as the `--tls "ca-cert=…"` value and
+// `client-auth-type=REQUIREANDVERIFY`, so connecting clients must present
+// a certificate signed by clientCa.
+func (r *Dgraph) MtlsServerSecurity(serverCert *File, serverKey *Secret, clientCa *File) *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:79:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	assertNotNil("clientCa", clientCa)
+	q := r.query.Select("mtlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
+	q = q.Arg("clientCa", clientCa)
+
+	return &DgraphServerSecurity{
+		query: q,
+	}
+}
+
 // PlaintextClientSecurity returns a ClientSecurity profile configured
 // for unencrypted, unauthenticated traffic to the cluster's Alphas.
-func (r *Dgraph) PlaintextClientSecurity() *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:31:1)
+func (r *Dgraph) PlaintextClientSecurity() *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:90:1)
 	q := r.query.Select("plaintextClientSecurity")
 
 	return &DgraphClientSecurity{
@@ -246,8 +283,39 @@ func (r *Dgraph) PlaintextClientSecurity() *DgraphClientSecurity { // dgraph (..
 
 // PlaintextServerSecurity returns a ServerSecurity profile configured
 // for unencrypted, unauthenticated traffic on every cluster listener.
-func (r *Dgraph) PlaintextServerSecurity() *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:25:1)
+func (r *Dgraph) PlaintextServerSecurity() *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:55:1)
 	q := r.query.Select("plaintextServerSecurity")
+
+	return &DgraphServerSecurity{
+		query: q,
+	}
+}
+
+// TlsClientSecurity returns a ClientSecurity profile that opens a
+// one-way TLS connection and verifies the Alpha against serverCa.
+func (r *Dgraph) TLSClientSecurity(serverCa *File) *DgraphClientSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:96:1)
+	assertNotNil("serverCa", serverCa)
+	q := r.query.Select("tlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+
+	return &DgraphClientSecurity{
+		query: q,
+	}
+}
+
+// TlsServerSecurity returns a ServerSecurity profile that terminates
+// one-way TLS on every Dgraph listener. serverCert is the PEM leaf
+// certificate (its SAN must cover the Alpha / Zero hostnames the client
+// dials) and serverKey is the matching PEM private key. Dgraph starts
+// each node with `--tls "server-cert=…; server-key=…"`; the default
+// `client-auth-type=VERIFYIFGIVEN` means clients need not present a
+// certificate, so a plain TlsClientSecurity connects cleanly.
+func (r *Dgraph) TLSServerSecurity(serverCert *File, serverKey *Secret) *DgraphServerSecurity { // dgraph (../../../../../daggerverse/dgraph/security.go:66:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	q := r.query.Select("tlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
 
 	return &DgraphServerSecurity{
 		query: q,
@@ -265,7 +333,7 @@ func (r *Dgraph) AsNode() Node {
 // Client is a dgo-backed Dgraph client. Each method opens a fresh
 // gRPC connection so the function call is stateless from Dagger's
 // perspective.
-type DgraphClient struct { // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
+type DgraphClient struct { // dgraph (../../../../../daggerverse/dgraph/client.go:24:6)
 	query *querybuilder.Selection
 
 	alterSchema   *Void
@@ -284,7 +352,7 @@ func (r *DgraphClient) WithGraphQLQuery(q *querybuilder.Selection) *DgraphClient
 
 // AlterSchema applies the given DQL schema (predicate definitions,
 // types, indexes) to the cluster.
-func (r *DgraphClient) AlterSchema(ctx context.Context, schema string) error { // dgraph (../../../../../daggerverse/dgraph/client.go:98:1)
+func (r *DgraphClient) AlterSchema(ctx context.Context, schema string) error { // dgraph (../../../../../daggerverse/dgraph/client.go:210:1)
 	if r.alterSchema != nil {
 		return nil
 	}
@@ -295,7 +363,7 @@ func (r *DgraphClient) AlterSchema(ctx context.Context, schema string) error { /
 }
 
 // DropAll wipes every predicate, type, and triple from the cluster.
-func (r *DgraphClient) DropAll(ctx context.Context) error { // dgraph (../../../../../daggerverse/dgraph/client.go:85:1)
+func (r *DgraphClient) DropAll(ctx context.Context) error { // dgraph (../../../../../daggerverse/dgraph/client.go:197:1)
 	if r.dropAll != nil {
 		return nil
 	}
@@ -361,7 +429,7 @@ func (r *DgraphClient) UnmarshalJSON(bs []byte) error {
 //
 // Returns the assigned-UIDs JSON object (`{"<blank-node>":"<uid>"}`)
 // as a string.
-func (r *DgraphClient) Mutate(ctx context.Context, setJson string, commit bool) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:117:1)
+func (r *DgraphClient) Mutate(ctx context.Context, setJson string, commit bool) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:229:1)
 	if r.mutate != nil {
 		return *r.mutate, nil
 	}
@@ -380,7 +448,7 @@ func (r *DgraphClient) Mutate(ctx context.Context, setJson string, commit bool) 
 // string map of variable bindings (e.g. `{"$name":"Alice"}`); Dagger's
 // function signatures don't support Go map parameters so the map is
 // passed as JSON across the module boundary.
-func (r *DgraphClient) QueryWithVars(ctx context.Context, dql string, varsJson string) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:177:1)
+func (r *DgraphClient) QueryWithVars(ctx context.Context, dql string, varsJson string) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:289:1)
 	if r.queryWithVars != nil {
 		return *r.queryWithVars, nil
 	}
@@ -403,7 +471,7 @@ func (r *DgraphClient) QueryWithVars(ctx context.Context, dql string, varsJson s
 // querybuilder field on every generated object type. RunQuery sidesteps
 // the collision (`runQuery` is unique) while preserving the verb-noun
 // shape callers expect.
-func (r *DgraphClient) RunQuery(ctx context.Context, dql string) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:156:1)
+func (r *DgraphClient) RunQuery(ctx context.Context, dql string) (string, error) { // dgraph (../../../../../daggerverse/dgraph/client.go:268:1)
 	if r.runQuery != nil {
 		return *r.runQuery, nil
 	}
@@ -425,8 +493,12 @@ func (r *DgraphClient) AsNode() Node {
 }
 
 // ClientSecurity describes how a dgo client authenticates to a Dgraph
-// Alpha. PLAINTEXT only in this story; TLS / mTLS land in a follow-up.
-type DgraphClientSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
+// Alpha. PLAINTEXT dials an unencrypted gRPC listener; TLS pins the
+// server CA and verifies the Alpha's certificate; MTLS additionally
+// presents a client certificate + key. The client builds a *tls.Config
+// from this PEM material and hands it to dgo via
+// grpc.WithTransportCredentials(credentials.NewTLS(cfg)).
+type DgraphClientSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:42:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -499,7 +571,7 @@ func (r *DgraphClientSecurity) AsNode() Node {
 // plus N Alpha data nodes grouped at the requested replication factor.
 // Holds references to every service so callers can bind them into their
 // own containers or open a dgo Client against them.
-type DgraphCluster struct { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
+type DgraphCluster struct { // dgraph (../../../../../daggerverse/dgraph/cluster.go:21:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -515,7 +587,7 @@ func (r *DgraphCluster) WithGraphQLQuery(q *querybuilder.Selection) *DgraphClust
 // AlphaHostNames returns the cluster's Alpha hostnames (no port), for
 // callers that need to reference an Alpha by name from a container
 // attached via BindAlphas.
-func (r *DgraphCluster) AlphaHostNames(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:290:1)
+func (r *DgraphCluster) AlphaHostNames(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:328:1)
 	q := r.query.Select("alphaHostNames")
 
 	var response []string
@@ -528,7 +600,7 @@ func (r *DgraphCluster) AlphaHostNames(ctx context.Context) ([]string, error) { 
 // the same hostname GrpcEndpoints / HttpEndpoints reports, so the
 // container can dial Alphas using the same address strings as a dgo
 // Client returned from Cluster.Client.
-func (r *DgraphCluster) BindAlphas(ctr *Container) *Container { // dgraph (../../../../../daggerverse/dgraph/cluster.go:302:1)
+func (r *DgraphCluster) BindAlphas(ctr *Container) *Container { // dgraph (../../../../../daggerverse/dgraph/cluster.go:340:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindAlphas")
 	q = q.Arg("ctr", ctr)
@@ -540,7 +612,18 @@ func (r *DgraphCluster) BindAlphas(ctr *Container) *Container { // dgraph (../..
 
 // Client starts every Alpha service in the cluster and returns a dgo
 // Client wired with their gRPC endpoints.
-func (r *DgraphCluster) Client(security *DgraphClientSecurity) *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/cluster.go:313:1)
+//
+// The supplied ClientSecurity mode must match the cluster's client-facing
+// listener mode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming
+// both modes rather than failing opaquely at the wire. Readiness is then
+// verified with the client itself — a gRPC schema query retried until the
+// Alphas report a Raft leader — so an mTLS listener is polled over mTLS
+// using the caller's own cert material (the only way to authenticate the
+// probe against a REQUIREANDVERIFY listener). Dgraph.Client (the
+// standalone constructor) has no cluster reference and therefore cannot
+// perform the mode check; callers reaching a listener via a mismatched
+// standalone client fail at the wire instead.
+func (r *DgraphCluster) Client(security *DgraphClientSecurity) *DgraphClient { // dgraph (../../../../../daggerverse/dgraph/cluster.go:362:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -554,7 +637,7 @@ func (r *DgraphCluster) Client(security *DgraphClientSecurity) *DgraphClient { /
 // its external gRPC listener (port 9080), suitable for passing to dgo.
 // Explicitly Starts each Alpha and waits for it to report healthy
 // before returning so module-runtime callers can dial immediately.
-func (r *DgraphCluster) GrpcEndpoints(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:189:1)
+func (r *DgraphCluster) GrpcEndpoints(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:202:1)
 	q := r.query.Select("grpcEndpoints")
 
 	var response []string
@@ -564,9 +647,13 @@ func (r *DgraphCluster) GrpcEndpoints(ctx context.Context) ([]string, error) { /
 }
 
 // HttpEndpoints returns the host:port pairs each Alpha advertises on
-// its HTTP listener (port 8080). Waits for each Alpha to report
-// healthy.
-func (r *DgraphCluster) HTTPEndpoints(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:205:1)
+// its HTTP listener (port 8080). Waits for each Alpha to report healthy.
+// Once the cluster's client-facing listener is TLS or mTLS the entries
+// are prefixed with `https://` so HTTP callers dial the encrypted
+// listener; plaintext clusters return the scheme-less `host:8080` form
+// (unchanged from the MVP). GrpcEndpoints stays scheme-less in every
+// mode — dgo takes a bare `host:9080`.
+func (r *DgraphCluster) HTTPEndpoints(ctx context.Context) ([]string, error) { // dgraph (../../../../../daggerverse/dgraph/cluster.go:222:1)
 	q := r.query.Select("httpEndpoints")
 
 	var response []string
@@ -629,7 +716,7 @@ func (r *DgraphCluster) UnmarshalJSON(bs []byte) error {
 // service span closes when the test returns. SIGKILL skips graceful
 // shutdown — Dgraph's shutdown path waits on Raft drain timeouts that
 // a torn-down test cluster doesn't need.
-func (r *DgraphCluster) Stop(ctx context.Context) error { // dgraph (../../../../../daggerverse/dgraph/cluster.go:328:1)
+func (r *DgraphCluster) Stop(ctx context.Context) error { // dgraph (../../../../../daggerverse/dgraph/cluster.go:400:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -647,14 +734,22 @@ func (r *DgraphCluster) AsNode() Node {
 }
 
 // ServerSecurity describes how a Dgraph cluster's listeners authenticate
-// and encrypt traffic. In this story only PLAINTEXT is supported on
-// every listener (client-facing and internal); TLS / mTLS variants land
-// in a follow-up.
+// and encrypt traffic. Three modes are supported, applied uniformly to
+// every Alpha (client-facing HTTP :8080 / gRPC :9080) and Zero (admin
+// HTTP :6080) listener via Dgraph's unified `--tls` superflag:
 //
-// The empty-but-distinct struct exists so future constructors
-// (TlsServerSecurity, MtlsServerSecurity) can land without changing
-// Cluster's signature.
-type DgraphServerSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
+//   - PLAINTEXT — unencrypted, unauthenticated traffic on every listener.
+//   - TLS — one-way TLS: each node presents a server certificate and
+//     clients verify it against the CA they hold. Dgraph's
+//     `client-auth-type=VERIFYIFGIVEN` (the default) means clients are
+//     not required to present a certificate.
+//   - MTLS — mutual TLS: connecting clients must additionally present a
+//     certificate signed by ClientCa
+//     (`client-auth-type=REQUIREANDVERIFY`).
+//
+// The cert material is caller-supplied PEM: Dgraph reads it natively via
+// the `--tls "server-cert=…; server-key=…; ca-cert=…"` superflag.
+type DgraphServerSecurity struct { // dgraph (../../../../../daggerverse/dgraph/security.go:25:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -724,7 +819,7 @@ func (r *DgraphServerSecurity) AsNode() Node {
 }
 
 // Create or update a binding of type DgraphClient in the environment
-func (r *Env) WithDgraphClientInput(name string, value *DgraphClient, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
+func (r *Env) WithDgraphClientInput(name string, value *DgraphClient, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/client.go:24:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withDgraphClientInput")
 	q = q.Arg("name", name)
@@ -737,7 +832,7 @@ func (r *Env) WithDgraphClientInput(name string, value *DgraphClient, descriptio
 }
 
 // Declare a desired DgraphClient output to be assigned in the environment
-func (r *Env) WithDgraphClientOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/client.go:17:6)
+func (r *Env) WithDgraphClientOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/client.go:24:6)
 	q := r.query.Select("withDgraphClientOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -748,7 +843,7 @@ func (r *Env) WithDgraphClientOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type DgraphClientSecurity in the environment
-func (r *Env) WithDgraphClientSecurityInput(name string, value *DgraphClientSecurity, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
+func (r *Env) WithDgraphClientSecurityInput(name string, value *DgraphClientSecurity, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:42:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withDgraphClientSecurityInput")
 	q = q.Arg("name", name)
@@ -761,7 +856,7 @@ func (r *Env) WithDgraphClientSecurityInput(name string, value *DgraphClientSecu
 }
 
 // Declare a desired DgraphClientSecurity output to be assigned in the environment
-func (r *Env) WithDgraphClientSecurityOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:18:6)
+func (r *Env) WithDgraphClientSecurityOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:42:6)
 	q := r.query.Select("withDgraphClientSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -772,7 +867,7 @@ func (r *Env) WithDgraphClientSecurityOutput(name string, description string) *E
 }
 
 // Create or update a binding of type DgraphCluster in the environment
-func (r *Env) WithDgraphClusterInput(name string, value *DgraphCluster, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
+func (r *Env) WithDgraphClusterInput(name string, value *DgraphCluster, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/cluster.go:21:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withDgraphClusterInput")
 	q = q.Arg("name", name)
@@ -785,7 +880,7 @@ func (r *Env) WithDgraphClusterInput(name string, value *DgraphCluster, descript
 }
 
 // Declare a desired DgraphCluster output to be assigned in the environment
-func (r *Env) WithDgraphClusterOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/cluster.go:20:6)
+func (r *Env) WithDgraphClusterOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/cluster.go:21:6)
 	q := r.query.Select("withDgraphClusterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -796,7 +891,7 @@ func (r *Env) WithDgraphClusterOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Dgraph in the environment
-func (r *Env) WithDgraphInput(name string, value *Dgraph, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
+func (r *Env) WithDgraphInput(name string, value *Dgraph, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/main.go:30:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withDgraphInput")
 	q = q.Arg("name", name)
@@ -809,7 +904,7 @@ func (r *Env) WithDgraphInput(name string, value *Dgraph, description string) *E
 }
 
 // Declare a desired Dgraph output to be assigned in the environment
-func (r *Env) WithDgraphOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
+func (r *Env) WithDgraphOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/main.go:30:6)
 	q := r.query.Select("withDgraphOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -820,7 +915,7 @@ func (r *Env) WithDgraphOutput(name string, description string) *Env { // dgraph
 }
 
 // Create or update a binding of type DgraphServerSecurity in the environment
-func (r *Env) WithDgraphServerSecurityInput(name string, value *DgraphServerSecurity, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
+func (r *Env) WithDgraphServerSecurityInput(name string, value *DgraphServerSecurity, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:25:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withDgraphServerSecurityInput")
 	q = q.Arg("name", name)
@@ -833,7 +928,7 @@ func (r *Env) WithDgraphServerSecurityInput(name string, value *DgraphServerSecu
 }
 
 // Declare a desired DgraphServerSecurity output to be assigned in the environment
-func (r *Env) WithDgraphServerSecurityOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:11:6)
+func (r *Env) WithDgraphServerSecurityOutput(name string, description string) *Env { // dgraph (../../../../../daggerverse/dgraph/security.go:25:6)
 	q := r.query.Select("withDgraphServerSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -847,7 +942,7 @@ func (r *Env) WithDgraphServerSecurityOutput(name string, description string) *E
 // module. All cluster constructors, security helpers, and the
 // remote-client factory hang off *Dgraph so the generated Dagger SDK
 // surfaces them under `dag.Dgraph().<Func>(...)`.
-func (r *Query) Dgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:27:6)
+func (r *Query) Dgraph() *Dgraph { // dgraph (../../../../../daggerverse/dgraph/main.go:30:6)
 	q := r.query.Select("dgraph")
 
 	return &Dgraph{

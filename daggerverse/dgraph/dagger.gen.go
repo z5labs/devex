@@ -77,9 +77,15 @@ func (r Client) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		GrpcEndpoints []string
 		SecurityMode  string
+		ServerCa      *dagger.File
+		ClientCert    *dagger.File
+		ClientKey     *dagger.Secret
 	}
 	concrete.GrpcEndpoints = r.GrpcEndpoints
 	concrete.SecurityMode = r.SecurityMode
+	concrete.ServerCa = r.ServerCa
+	concrete.ClientCert = r.ClientCert
+	concrete.ClientKey = r.ClientKey
 	return json.Marshal(&concrete)
 }
 
@@ -87,6 +93,9 @@ func (r *Client) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		GrpcEndpoints []string
 		SecurityMode  string
+		ServerCa      *dagger.File
+		ClientCert    *dagger.File
+		ClientKey     *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -94,46 +103,64 @@ func (r *Client) UnmarshalJSON(bs []byte) error {
 	}
 	r.GrpcEndpoints = concrete.GrpcEndpoints
 	r.SecurityMode = concrete.SecurityMode
+	r.ServerCa = concrete.ServerCa
+	r.ClientCert = concrete.ClientCert
+	r.ClientKey = concrete.ClientKey
 	return nil
 }
 
 func (r ClientSecurity) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Mode string
+		Mode       string
+		ServerCa   *dagger.File
+		ClientCert *dagger.File
+		ClientKey  *dagger.Secret
 	}
 	concrete.Mode = r.Mode
+	concrete.ServerCa = r.ServerCa
+	concrete.ClientCert = r.ClientCert
+	concrete.ClientKey = r.ClientKey
 	return json.Marshal(&concrete)
 }
 
 func (r *ClientSecurity) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Mode string
+		Mode       string
+		ServerCa   *dagger.File
+		ClientCert *dagger.File
+		ClientKey  *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
 		return err
 	}
 	r.Mode = concrete.Mode
+	r.ServerCa = concrete.ServerCa
+	r.ClientCert = concrete.ClientCert
+	r.ClientKey = concrete.ClientKey
 	return nil
 }
 
 func (r Cluster) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		ZeroSvc    *dagger.Service
-		AlphaSvcs  []*dagger.Service
-		AlphaHosts []string
+		ZeroSvc            *dagger.Service
+		AlphaSvcs          []*dagger.Service
+		AlphaHosts         []string
+		ClientListenerMode string
 	}
 	concrete.ZeroSvc = r.ZeroSvc
 	concrete.AlphaSvcs = r.AlphaSvcs
 	concrete.AlphaHosts = r.AlphaHosts
+	concrete.ClientListenerMode = r.ClientListenerMode
 	return json.Marshal(&concrete)
 }
 
 func (r *Cluster) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		ZeroSvc    *dagger.Service
-		AlphaSvcs  []*dagger.Service
-		AlphaHosts []string
+		ZeroSvc            *dagger.Service
+		AlphaSvcs          []*dagger.Service
+		AlphaHosts         []string
+		ClientListenerMode string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -142,26 +169,39 @@ func (r *Cluster) UnmarshalJSON(bs []byte) error {
 	r.ZeroSvc = concrete.ZeroSvc
 	r.AlphaSvcs = concrete.AlphaSvcs
 	r.AlphaHosts = concrete.AlphaHosts
+	r.ClientListenerMode = concrete.ClientListenerMode
 	return nil
 }
 
 func (r ServerSecurity) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Mode string
+		Mode       string
+		ServerCert *dagger.File
+		ServerKey  *dagger.Secret
+		ClientCa   *dagger.File
 	}
 	concrete.Mode = r.Mode
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
 func (r *ServerSecurity) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Mode string
+		Mode       string
+		ServerCert *dagger.File
+		ServerKey  *dagger.Secret
+		ClientCa   *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
 		return err
 	}
 	r.Mode = concrete.Mode
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
@@ -504,6 +544,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Dgraph).Cluster(&parent, ctx, name, zeros, alphas, replicas, registry, tag, clientListenerSecurity)
+		case "MtlsClientSecurity":
+			var parent Dgraph
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCa *dagger.File
+			if inputArgs["serverCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCa"]), &serverCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCa", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Dgraph).MtlsClientSecurity(&parent, serverCa, clientCert, clientKey), nil
+		case "MtlsServerSecurity":
+			var parent Dgraph
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*Dgraph).MtlsServerSecurity(&parent, serverCert, serverKey, clientCa), nil
 		case "PlaintextClientSecurity":
 			var parent Dgraph
 			err = json.Unmarshal(parentJSON, &parent)
@@ -518,6 +614,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Dgraph).PlaintextServerSecurity(&parent), nil
+		case "TlsClientSecurity":
+			var parent Dgraph
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCa *dagger.File
+			if inputArgs["serverCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCa"]), &serverCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCa", err))
+				}
+			}
+			return (*Dgraph).TlsClientSecurity(&parent, serverCa), nil
+		case "TlsServerSecurity":
+			var parent Dgraph
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*Dgraph).TlsServerSecurity(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

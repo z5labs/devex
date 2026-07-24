@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -24,6 +25,8 @@ type Cluster struct {
 	AlphaSvcs []*dagger.Service
 	// +private
 	AlphaHosts []string
+	// +private
+	ClientListenerMode string // PLAINTEXT | TLS | MTLS — drives Client coupling + endpoint scheme.
 }
 
 // Cluster spins up a Dgraph cluster of one Zero coordinator and `alphas`
@@ -114,10 +117,19 @@ func (d *Dgraph) Cluster(
 	if clientListenerSecurity == nil {
 		return nil, fmt.Errorf("clientListenerSecurity must not be nil; pass PlaintextServerSecurity() explicitly")
 	}
-	if clientListenerSecurity.Mode != "PLAINTEXT" {
+	if err := validateServerSecurity(clientListenerSecurity); err != nil {
+		return nil, err
+	}
+	// An empty `name` collapses every same-shape cluster onto the same
+	// sha256 hostSuffix within one engine session, inviting the wrong
+	// cert/SAN to be reused across TLS/mTLS clusters. The client verifies
+	// each Alpha's certificate SAN against the dialed hostname, so a
+	// TLS/mTLS caller must be able to predict a unique hostname to embed
+	// in the cert — require a discriminator.
+	if name == "" && clientListenerSecurity.Mode != "PLAINTEXT" {
 		return nil, fmt.Errorf(
-			"only PLAINTEXT clientListenerSecurity is supported in this story, got %q",
-			clientListenerSecurity.Mode,
+			"name must not be empty for %s clusters: the Alpha/Zero hostnames derive from name and the server certificate's SAN must match them, so each TLS/mTLS cluster needs a unique name",
+			securityModeLabel(clientListenerSecurity.Mode),
 		)
 	}
 
@@ -136,17 +148,17 @@ func (d *Dgraph) Cluster(
 	hostSuffix := hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
 
 	zeroHost := "zero-1-" + hostSuffix
-	zeroSvc := dag.Container().
-		From(image).
+	zeroCtr, tlsArgs := applyServerSecurity(dag.Container().From(image), clientListenerSecurity)
+	zeroSvc := zeroCtr.
 		WithExposedPort(5080).
 		WithExposedPort(6080).
 		AsService(dagger.ContainerAsServiceOpts{
-			Args: []string{
+			Args: append([]string{
 				"dgraph", "zero",
 				"--my=" + zeroHost + ":5080",
 				"--replicas=" + strconv.Itoa(replicas),
 				"--bindall",
-			},
+			}, tlsArgs...),
 		}).
 		WithHostname(zeroHost)
 
@@ -155,28 +167,29 @@ func (d *Dgraph) Cluster(
 	for i := 0; i < alphas; i++ {
 		alphaHost := fmt.Sprintf("alpha-%d-%s", 100+i, hostSuffix)
 		alphaHosts[i] = alphaHost
-		alphaSvcs[i] = dag.Container().
-			From(image).
+		alphaCtr, alphaTlsArgs := applyServerSecurity(dag.Container().From(image), clientListenerSecurity)
+		alphaSvcs[i] = alphaCtr.
 			WithServiceBinding(zeroHost, zeroSvc).
 			WithExposedPort(7080).
 			WithExposedPort(8080).
 			WithExposedPort(9080).
 			AsService(dagger.ContainerAsServiceOpts{
-				Args: []string{
+				Args: append([]string{
 					"dgraph", "alpha",
 					"--my=" + alphaHost + ":7080",
 					"--zero=" + zeroHost + ":5080",
 					"--security=whitelist=0.0.0.0/0",
 					"--bindall",
-				},
+				}, alphaTlsArgs...),
 			}).
 			WithHostname(alphaHost)
 	}
 
 	return &Cluster{
-		ZeroSvc:    zeroSvc,
-		AlphaSvcs:  alphaSvcs,
-		AlphaHosts: alphaHosts,
+		ZeroSvc:            zeroSvc,
+		AlphaSvcs:          alphaSvcs,
+		AlphaHosts:         alphaHosts,
+		ClientListenerMode: clientListenerSecurity.Mode,
 	}, nil
 }
 
@@ -198,8 +211,12 @@ func (c *Cluster) GrpcEndpoints(ctx context.Context) ([]string, error) {
 }
 
 // HttpEndpoints returns the host:port pairs each Alpha advertises on
-// its HTTP listener (port 8080). Waits for each Alpha to report
-// healthy.
+// its HTTP listener (port 8080). Waits for each Alpha to report healthy.
+// Once the cluster's client-facing listener is TLS or mTLS the entries
+// are prefixed with `https://` so HTTP callers dial the encrypted
+// listener; plaintext clusters return the scheme-less `host:8080` form
+// (unchanged from the MVP). GrpcEndpoints stays scheme-less in every
+// mode — dgo takes a bare `host:9080`.
 //
 // +cache="never"
 func (c *Cluster) HttpEndpoints(ctx context.Context) ([]string, error) {
@@ -208,7 +225,11 @@ func (c *Cluster) HttpEndpoints(ctx context.Context) ([]string, error) {
 	}
 	out := make([]string, len(c.AlphaHosts))
 	for i, h := range c.AlphaHosts {
-		out[i] = h + ":8080"
+		if c.ClientListenerMode == "PLAINTEXT" {
+			out[i] = h + ":8080"
+		} else {
+			out[i] = "https://" + h + ":8080"
+		}
 	}
 	return out, nil
 }
@@ -234,22 +255,39 @@ func (c *Cluster) start(ctx context.Context) error {
 			return fmt.Errorf("start alpha %d: %w", i, err)
 		}
 	}
+	// mTLS listeners reject an HTTP /health probe that presents no client
+	// certificate (client-auth-type=REQUIREANDVERIFY), and the cluster
+	// runtime holds no client cert. Readiness for mTLS is instead verified
+	// by Cluster.Client, which retries a gRPC call using the caller's own
+	// cert material. For PLAINTEXT and one-way TLS the /health probe works
+	// (TLS presents no client cert under the default VERIFYIFGIVEN).
+	if c.ClientListenerMode == "MTLS" {
+		return nil
+	}
 	for i, host := range c.AlphaHosts {
-		if err := waitForAlphaReady(ctx, host+":8080"); err != nil {
+		if err := waitForAlphaReady(ctx, host+":8080", c.ClientListenerMode != "PLAINTEXT"); err != nil {
 			return fmt.Errorf("alpha %d (%s) not ready: %w", i, host, err)
 		}
 	}
 	return nil
 }
 
-// waitForAlphaReady polls http://endpoint/health until it returns 200
+// waitForAlphaReady polls <scheme>://endpoint/health until it returns 200
 // OK or the deadline passes. endpoint is a `<alpha-host>:8080` string
 // — the hostname is the per-cluster Dagger WithHostname alias, which
 // resolves over the engine's session DNS from any container in the
-// same session.
-func waitForAlphaReady(ctx context.Context, endpoint string) error {
-	url := fmt.Sprintf("http://%s/health", endpoint)
-	client := &http.Client{Timeout: 3 * time.Second}
+// same session. When useTLS is set the probe dials https and skips
+// certificate verification (the cluster runtime holds no server CA — it
+// only needs to know the listener is up, not authenticate it).
+func waitForAlphaReady(ctx context.Context, endpoint string, useTLS bool) error {
+	scheme := "http"
+	transport := &http.Transport{}
+	if useTLS {
+		scheme = "https"
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	url := fmt.Sprintf("%s://%s/health", scheme, endpoint)
+	client := &http.Client{Timeout: 3 * time.Second, Transport: transport}
 	deadline := time.Now().Add(120 * time.Second)
 	var lastErr error
 	for time.Now().Before(deadline) {
@@ -309,13 +347,47 @@ func (c *Cluster) BindAlphas(ctr *dagger.Container) *dagger.Container {
 // Client starts every Alpha service in the cluster and returns a dgo
 // Client wired with their gRPC endpoints.
 //
+// The supplied ClientSecurity mode must match the cluster's client-facing
+// listener mode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming
+// both modes rather than failing opaquely at the wire. Readiness is then
+// verified with the client itself — a gRPC schema query retried until the
+// Alphas report a Raft leader — so an mTLS listener is polled over mTLS
+// using the caller's own cert material (the only way to authenticate the
+// probe against a REQUIREANDVERIFY listener). Dgraph.Client (the
+// standalone constructor) has no cluster reference and therefore cannot
+// perform the mode check; callers reaching a listener via a mismatched
+// standalone client fail at the wire instead.
+//
 // +cache="never"
 func (c *Cluster) Client(ctx context.Context, security *ClientSecurity) (*Client, error) {
+	if err := c.requireMode(security); err != nil {
+		return nil, err
+	}
 	endpoints, err := c.GrpcEndpoints(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return clientFrom(endpoints, security), nil
+	client := clientFrom(endpoints, security)
+	if err := client.waitReady(ctx); err != nil {
+		return nil, err
+	}
+	return client, nil
+}
+
+// requireMode validates that the client's security mode exactly matches
+// the cluster's client-facing listener mode.
+func (c *Cluster) requireMode(security *ClientSecurity) error {
+	clientMode := "PLAINTEXT"
+	if security != nil {
+		clientMode = security.Mode
+	}
+	if clientMode != c.ClientListenerMode {
+		return fmt.Errorf(
+			"client uses %s but cluster listener is %s",
+			securityModeLabel(clientMode), securityModeLabel(c.ClientListenerMode),
+		)
+	}
+	return nil
 }
 
 // Stop tears down every service container backing this cluster (the

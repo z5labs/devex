@@ -6,18 +6,21 @@
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
-//   - security.go  — *ServerSecurity / *ClientSecurity + the two
-//                    Plaintext constructors. TLS / mTLS variants land
-//                    in a follow-up; the empty-struct types are kept
-//                    distinct so future constructors slot in without
-//                    changing Cluster / Client signatures.
-//   - cluster.go   — *Cluster + Dgraph.Cluster, input validation, the
-//                    topology builder (one Zero + N Alphas), and the
-//                    Stop / GrpcEndpoints / HttpEndpoints / BindAlphas /
-//                    Client methods.
-//   - client.go    — *Client + Dgraph.Client, dgo wiring, and the
-//                    DropAll / AlterSchema / Mutate / RunQuery /
-//                    QueryWithVars method set.
+//   - security.go       — *ServerSecurity / *ClientSecurity + the
+//                          Plaintext / TLS / mTLS constructors and the
+//                          server-profile validation.
+//   - serversecurity.go — mounts the caller-supplied TLS material onto
+//                          each Alpha / Zero container and renders the
+//                          `--tls` superflag args.
+//   - cluster.go        — *Cluster + Dgraph.Cluster, input validation,
+//                          the topology builder (one Zero + N Alphas),
+//                          and the Stop / GrpcEndpoints / HttpEndpoints /
+//                          BindAlphas / Client methods (with mode
+//                          coupling).
+//   - client.go         — *Client + Dgraph.Client, dgo wiring including
+//                          the client-side *tls.Config, and the DropAll /
+//                          AlterSchema / Mutate / RunQuery / QueryWithVars
+//                          method set.
 package main
 
 // Dgraph is the root namespace for every exported function in this
