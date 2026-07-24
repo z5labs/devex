@@ -28,9 +28,18 @@ When you add `daggerverse/<m>/` with a sibling `tests/` module:
    { "name": "<m>-tests", "source": "daggerverse/<m>/tests" }
    ```
 
-3. Run `dagger develop` at the repo root to regenerate bindings.
+3. Run `dagger develop` at the repo root to regenerate bindings, and
+   commit the new `ci/internal/dagger/<m>-tests.gen.go`.
 
 No `ci/main.go` edit needed — toolchains surface their `+check`
 functions directly. No `.github/workflows/ci.yml` edit needed either —
 the matrix picks up the new check from `dagger check -l` output
 automatically.
+
+That committed binding is the only file under `ci/` that does *not*
+force the change-aware selector onto the full suite: `affectedpkg`
+attributes `ci/internal/dagger/<toolchain>.gen.go` back to the toolchain
+it was generated from (see `AggregatorBindings`), so a toolchain-adding
+PR runs that toolchain's checks rather than the whole universe. Every
+other path under `ci/` — including the module's own `dagger.gen.go` —
+still fails open to the full suite.

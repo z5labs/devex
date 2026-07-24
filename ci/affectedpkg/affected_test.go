@@ -58,6 +58,110 @@ func TestBuildClosuresTransitive(t *testing.T) {
 	}
 }
 
+func TestAggregatorBindings(t *testing.T) {
+	checkModule := map[string]string{
+		"kicad-tests:all":        "daggerverse/kicad/tests",
+		"kafka-tests:native":     "daggerverse/kafka/tests",
+		"kafka-tests:cluster":    "daggerverse/kafka/tests", // same toolchain, two checks
+		"z-5-labs-tests:all":     "daggerverse/z5labs/tests",
+		"ci:generated":           ".",
+		"ci:selection-self-test": ".",
+	}
+	got := AggregatorBindings(checkModule)
+	want := map[string]string{
+		"ci/internal/dagger/kicad-tests.gen.go":    "daggerverse/kicad/tests",
+		"ci/internal/dagger/kafka-tests.gen.go":    "daggerverse/kafka/tests",
+		"ci/internal/dagger/z-5-labs-tests.gen.go": "daggerverse/z5labs/tests",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("AggregatorBindings() = %v, want %v", got, want)
+	}
+	for path, dir := range want {
+		if got[path] != dir {
+			t.Errorf("AggregatorBindings()[%q] = %q, want %q", path, got[path], dir)
+		}
+	}
+}
+
+func TestAggregatorBindingsExcludesAmbiguous(t *testing.T) {
+	// A toolchain named "dagger" would collide with the ci module's own core
+	// binding, and two module dirs claiming one binding is nonsense — both must
+	// fall through to the ci/ full-suite fail-safe rather than reattribute.
+	got := AggregatorBindings(map[string]string{
+		"dagger:all":  "daggerverse/dagger/tests",
+		"dup-tests:a": "daggerverse/dup/tests",
+		"dup-tests:b": "daggerverse/other/tests",
+	})
+	for _, path := range []string{
+		"ci/internal/dagger/dagger.gen.go",
+		"ci/internal/dagger/dup-tests.gen.go",
+	} {
+		if dir, ok := got[path]; ok {
+			t.Errorf("AggregatorBindings() reattributed %q to %q; want it excluded", path, dir)
+		}
+	}
+}
+
+func TestSelectReattributesToolchainBinding(t *testing.T) {
+	universe := []string{"ci:generated", "kicad-tests:all", "kafka-tests:native"}
+	closure := map[string]map[string]bool{
+		"kicad-tests:all":    {"daggerverse/kicad/tests": true, "daggerverse/kicad": true},
+		"kafka-tests:native": {"daggerverse/kafka/tests": true, "daggerverse/kafka": true},
+	}
+	dirs := []string{"daggerverse/kicad", "daggerverse/kicad/tests", "daggerverse/kafka", "daggerverse/kafka/tests"}
+	bindings := AggregatorBindings(map[string]string{
+		"kicad-tests:all":    "daggerverse/kicad/tests",
+		"kafka-tests:native": "daggerverse/kafka/tests",
+	})
+
+	cases := []struct {
+		name     string
+		changed  []string
+		wantFull bool
+		want     []string
+	}{
+		{
+			name:    "toolchain binding narrows to its own suite",
+			changed: []string{"ci/internal/dagger/kicad-tests.gen.go"},
+			want:    []string{"ci:generated", "kicad-tests:all"},
+		},
+		{
+			name:     "core binding still forces the full suite",
+			changed:  []string{"ci/internal/dagger/dagger.gen.go"},
+			wantFull: true,
+		},
+		{
+			name:     "unknown toolchain binding still forces the full suite",
+			changed:  []string{"ci/internal/dagger/removed-tests.gen.go"},
+			wantFull: true,
+		},
+		{
+			name:     "a non-.gen.go file in the binding dir still forces the full suite",
+			changed:  []string{"ci/internal/dagger/kicad-tests.go"},
+			wantFull: true,
+		},
+		{
+			name:     "other ci/ sources still force the full suite",
+			changed:  []string{"ci/internal/dagger/kicad-tests.gen.go", "ci/main.go"},
+			wantFull: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			kept, full := Select(universe, closure, tc.changed, dirs, bindings)
+			if full != tc.wantFull {
+				t.Fatalf("full = %v, want %v", full, tc.wantFull)
+			}
+			if tc.wantFull {
+				return
+			}
+			if !sameSet(kept, tc.want) {
+				t.Errorf("selected %v, want %v", sortedCopy(kept), sortedCopy(tc.want))
+			}
+		})
+	}
+}
+
 func TestDiffRange(t *testing.T) {
 	const zero = "0000000000000000000000000000000000000000"
 	cases := []struct {
@@ -90,7 +194,7 @@ func TestSelectUnresolvedIsKept(t *testing.T) {
 		"kicad-tests:all": {"daggerverse/kicad/tests": true, "daggerverse/kicad": true},
 	}
 	dirs := []string{"daggerverse/kicad", "daggerverse/kicad/tests"}
-	kept, full := Select(universe, closure, []string{"daggerverse/kicad/main.go"}, dirs)
+	kept, full := Select(universe, closure, []string{"daggerverse/kicad/main.go"}, dirs, nil)
 	if full {
 		t.Fatal("did not expect full-suite fallback")
 	}

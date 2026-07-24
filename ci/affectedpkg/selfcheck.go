@@ -42,6 +42,10 @@ func repoFixture() fixture {
 		"daggerverse/envoy/tests":                  {"daggerverse/envoy", "daggerverse/certificate-management", "daggerverse/crypto", "daggerverse/random"},
 		"daggerverse/otel/tests":                   {"daggerverse/otel", "daggerverse/certificate-management", "daggerverse/crypto", "daggerverse/grafana-stack", "daggerverse/random"},
 		"daggerverse/kicad/tests":                  {"daggerverse/kicad"},
+		// Kept dependency-free so it stays out of every other case's expected
+		// set; it is here for its digit-bearing name (see below).
+		"daggerverse/z5labs":       nil,
+		"daggerverse/z5labs/tests": {"daggerverse/z5labs"},
 	}
 	checkModule := map[string]string{
 		"certificate-management-tests:all": "daggerverse/certificate-management/tests",
@@ -52,8 +56,12 @@ func repoFixture() fixture {
 		"envoy-tests:admin":                "daggerverse/envoy/tests",
 		"otel-tests:core":                  "daggerverse/otel/tests",
 		"kicad-tests:all":                  "daggerverse/kicad/tests",
-		"ci:generated":                     ".",
-		"ci:selection-self-test":           ".",
+		// Dagger kebab-cases toolchain names across letter<->digit boundaries, so
+		// the toolchain z5labs-tests surfaces as z-5-labs-tests:all — matching the
+		// ci/internal/dagger/z-5-labs-tests.gen.go binding file name byte for byte.
+		"z-5-labs-tests:all":     "daggerverse/z5labs/tests",
+		"ci:generated":           ".",
+		"ci:selection-self-test": ".",
 	}
 	return fixture{adj: adj, checkModule: checkModule}
 }
@@ -151,6 +159,41 @@ func selfCheckCases() []selfCheckCase {
 				"certificate-management-tests:all",
 			},
 		},
+		{
+			// The regenerated binding is attributable to exactly one toolchain, so
+			// it no longer drags in the whole universe (#179).
+			name:       "a per-toolchain aggregator binding narrows to its own suite",
+			changed:    []string{"ci/internal/dagger/kicad-tests.gen.go"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
+		},
+		{
+			// The binding file name and the check-name prefix share dagger's
+			// letter<->digit kebab-casing, so no separate mangling is needed.
+			name:       "a digit-bearing toolchain binding narrows to its own suite",
+			changed:    []string{"ci/internal/dagger/z-5-labs-tests.gen.go"},
+			wantChecks: []string{ci1, ci2, "z-5-labs-tests:all"},
+		},
+		{
+			// The shape of a real toolchain-adding PR: tests tree plus its binding.
+			name:       "adding a tests toolchain runs only that toolchain's checks",
+			changed:    []string{"daggerverse/kicad/tests/main.go", "ci/internal/dagger/kicad-tests.gen.go"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
+		},
+		{
+			name:     "the ci module's own core binding runs the full suite",
+			changed:  []string{"ci/internal/dagger/dagger.gen.go"},
+			wantFull: true,
+		},
+		{
+			name:     "a binding for an unknown toolchain runs the full suite",
+			changed:  []string{"ci/internal/dagger/mystery-tests.gen.go"},
+			wantFull: true,
+		},
+		{
+			name:     "a toolchain binding mixed with a ci/ source change runs the full suite",
+			changed:  []string{"ci/internal/dagger/kicad-tests.gen.go", "ci/affectedpkg/affected.go"},
+			wantFull: true,
+		},
 		{name: "CI workflow change runs the full suite", changed: []string{".github/workflows/ci.yml"}, wantFull: true},
 		{name: "ci aggregator change runs the full suite", changed: []string{"ci/main.go"}, wantFull: true},
 		{name: "root dagger.json change runs the full suite", changed: []string{"dagger.json"}, wantFull: true},
@@ -171,9 +214,10 @@ func SelfCheck() error {
 	closure := BuildClosures(f.checkModule, f.adj)
 	universe := f.universe()
 	dirs := f.moduleDirs()
+	bindings := AggregatorBindings(f.checkModule)
 
 	for _, tc := range selfCheckCases() {
-		kept, full := Select(universe, closure, tc.changed, dirs)
+		kept, full := Select(universe, closure, tc.changed, dirs, bindings)
 		if full != tc.wantFull {
 			return fmt.Errorf("%s: full=%v, want %v", tc.name, full, tc.wantFull)
 		}
