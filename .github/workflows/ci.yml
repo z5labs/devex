@@ -77,7 +77,10 @@ jobs:
         # A check is skipped only when it provably cannot be affected — any doubt
         # and it runs:
         #   - a change outside a daggerverse module (CI infra, ci/, root
-        #     dagger.json, docs, ...) or an uncomputable diff -> the FULL suite;
+        #     dagger.json, docs, ...) or an uncomputable diff -> the FULL suite.
+        #     The one exception (#179) is a regenerated per-toolchain aggregator
+        #     binding, ci/internal/dagger/<toolchain>.gen.go, which is provably
+        #     owned by that toolchain and so is attributed to it;
         #   - a check whose module can't be resolved -> kept;
         #   - ci:* checks -> always run.
         # If enumeration itself fails there is no independent universe to fall back

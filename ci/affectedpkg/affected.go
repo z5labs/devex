@@ -71,22 +71,29 @@ func closureOf(root string, adj map[string][]string, memo map[string]map[string]
 // moduleDirs is the set of all known daggerverse module directories, used to map
 // each changed file to its owning module by longest-prefix match.
 //
+// bindings is the per-toolchain aggregator-binding reattribution map from
+// AggregatorBindings: those few generated files under ci/ are provably owned by a
+// single toolchain, so they resolve to it instead of tripping the ci/ fail-safe.
+//
 // The result is full (run everything) when any fail-safe condition holds:
 //   - changedFiles is empty (no diff available or it could not be computed);
-//   - any changed file does not resolve to a daggerverse module directory — i.e.
-//     a change to CI infra, the ci/ aggregator, root dagger.json, or other
-//     broadly-shared code.
+//   - any changed file does not resolve to a daggerverse module directory (nor to
+//     a known toolchain binding) — i.e. a change to CI infra, the ci/ aggregator
+//     itself, root dagger.json, or other broadly-shared code.
 //
 // Otherwise only affected checks — plus every ci:* check, which always runs
 // (repo-wide generated-code freshness and this package's own self-test) — are
 // returned, in universe order.
-func Select(universe []string, closure map[string]map[string]bool, changedFiles []string, moduleDirs []string) (kept []string, full bool) {
+func Select(universe []string, closure map[string]map[string]bool, changedFiles []string, moduleDirs []string, bindings map[string]string) (kept []string, full bool) {
 	if len(changedFiles) == 0 {
 		return universe, true
 	}
 	changed := make(map[string]bool)
 	for _, f := range changedFiles {
-		dir, ok := OwningModule(f, moduleDirs)
+		dir, ok := bindings[f]
+		if !ok {
+			dir, ok = OwningModule(f, moduleDirs)
+		}
 		if !ok {
 			return universe, true
 		}
@@ -103,6 +110,62 @@ func Select(universe []string, closure map[string]map[string]bool, changedFiles 
 		}
 	}
 	return kept, false
+}
+
+// bindingDir/bindingExt bracket the root ci module's generated dependency
+// bindings: dagger emits one ci/internal/dagger/<toolchain>.gen.go per installed
+// toolchain, plus the module's own core dagger.gen.go.
+const (
+	bindingDir = "ci/internal/dagger/"
+	bindingExt = ".gen.go"
+	// coreBinding is the ci module's own core binding. It is not attributable to
+	// any single toolchain, so it must keep failing open even in the pathological
+	// case of a toolchain literally named "dagger".
+	coreBinding = bindingDir + "dagger" + bindingExt
+)
+
+// AggregatorBindings maps each per-toolchain aggregator binding path to the
+// toolchain module directory it is generated from, so that regenerating a single
+// binding — which repo convention requires when adding or changing a tests
+// toolchain (see ci/README.md) — is attributed to that toolchain instead of
+// tripping Select's ci/ fail-safe and forcing the whole universe to run (#179).
+//
+// checkModule is the same check-name -> owning-module-directory map fed to
+// BuildClosures. The binding's file name and the check-name prefix are both the
+// toolchain name after dagger's kebab-casing (which splits letter<->digit
+// boundaries: toolchain z5labs-tests -> z-5-labs-tests:all and
+// ci/internal/dagger/z-5-labs-tests.gen.go), so the prefix can be reused verbatim
+// and there is no second copy of that casing rule to drift — the only other copy
+// lives in the route step of .github/workflows/ci.yml, which maps the very same
+// prefix back to its source path.
+//
+// The mapping deliberately covers nothing else: any other path under ci/, and any
+// binding for a toolchain not currently in the check universe, is absent here and
+// so still runs the full suite.
+func AggregatorBindings(checkModule map[string]string) map[string]string {
+	out := make(map[string]string, len(checkModule))
+	ambiguous := map[string]bool{}
+	for name, dir := range checkModule {
+		if isCiCheck(name) {
+			continue
+		}
+		prefix, _, _ := strings.Cut(name, ":")
+		if prefix == "" {
+			continue
+		}
+		path := bindingDir + prefix + bindingExt
+		if prev, seen := out[path]; seen && prev != dir {
+			// Two toolchains cannot share a binding; if the universe says
+			// otherwise, something is off — fail open rather than guess.
+			ambiguous[path] = true
+		}
+		out[path] = dir
+	}
+	for path := range ambiguous {
+		delete(out, path)
+	}
+	delete(out, coreBinding)
+	return out
 }
 
 // OwningModule returns the directory in moduleDirs that owns path, chosen by

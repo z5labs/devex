@@ -98,7 +98,8 @@ func (ci *Ci) AffectedChecks(ctx context.Context, base string, head string) (str
 	}
 
 	closure := affectedpkg.BuildClosures(checkModule, adj)
-	kept, full := affectedpkg.Select(universe, closure, changedFiles, moduleDirs)
+	bindings := affectedpkg.AggregatorBindings(checkModule)
+	kept, full := affectedpkg.Select(universe, closure, changedFiles, moduleDirs, bindings)
 	if full {
 		kept = universe
 	}
