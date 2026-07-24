@@ -5,8 +5,9 @@
 // bootstrap without writing the YAML by hand. TLS / mTLS terminates
 // on listeners (downstream) and authenticates clusters (upstream)
 // via per-listener / per-cluster *ServerSecurity / *UpstreamSecurity
-// profiles. Dynamic configuration (xDS) lands in a separate
-// follow-up.
+// profiles. File-based xDS is supported via XdsResources +
+// (*Proxy).WithDynamicResources; gRPC-based xDS (ADS, SDS over
+// streaming RPCs) lands in a separate follow-up.
 package main
 
 import (
@@ -622,7 +623,9 @@ func (e *Envoy) CustomListener(name, yamlBody string) (*Listener, error) {
 }
 
 // Proxy is a running Envoy instance with a composed (or
-// caller-supplied) static-resources bootstrap.
+// caller-supplied) static-resources bootstrap, or — when
+// DynamicResources is set — a file-based xDS bootstrap that
+// discovers its listeners and clusters from a mounted directory.
 type Proxy struct {
 	Registry     string
 	Tag          string
@@ -632,6 +635,11 @@ type Proxy struct {
 	Clusters     []*Cluster
 	BindingHosts []string
 	BindingSvcs  []*dagger.Service
+
+	// DynamicResources is the file-based xDS discovery-resource
+	// directory set via WithDynamicResources. Exclusive with
+	// Override / Listeners / Clusters.
+	DynamicResources *dagger.Directory
 }
 
 // Proxy returns a Proxy backed by the envoyproxy/envoy image at
@@ -689,10 +697,27 @@ func (p *Proxy) WithConfigFile(f *dagger.File) *Proxy {
 }
 
 // ConfigFile returns the file that will be mounted as Envoy's -c
-// argument: either the caller-supplied override or the rendered
-// bootstrap. Returns a non-nil error if any listener references an
-// unregistered cluster, or if two listeners share a name.
+// argument: the caller-supplied override, the rendered
+// static_resources bootstrap, or — when WithDynamicResources was
+// called — the file-based xDS bootstrap. Returns a non-nil error if
+// any listener references an unregistered cluster, if two listeners
+// share a name, or if WithDynamicResources was mixed with any of
+// WithListener / WithCluster / WithConfigFile.
 func (p *Proxy) ConfigFile() (*dagger.File, error) {
+	if p.DynamicResources != nil {
+		if err := validateDynamicProxy(p); err != nil {
+			return nil, err
+		}
+		adminPort, err := p.effectiveAdminPort()
+		if err != nil {
+			return nil, err
+		}
+		body, err := renderDynamicBootstrap(adminPort)
+		if err != nil {
+			return nil, err
+		}
+		return writeWorkdirFile("envoy.yaml", body)
+	}
 	if p.Override != nil {
 		return p.Override, nil
 	}
@@ -714,11 +739,13 @@ func (p *Proxy) ConfigFile() (*dagger.File, error) {
 }
 
 // Service returns the running Envoy container. Listens on
-// AdminPort (admin) plus each registered listener's port. When no
-// override and no listeners/clusters are registered, launches with
-// no `-c` flag so the envoy binary exits non-zero — exposed verbatim
-// so callers can detect the misconfig via service-binding probes.
-func (p *Proxy) Service() (*dagger.Service, error) {
+// AdminPort (admin) plus each registered listener's port — read from
+// the mounted lds.yaml when the proxy runs in file-based xDS mode.
+// When no override and no listeners/clusters are registered, launches
+// with no `-c` flag so the envoy binary exits non-zero — exposed
+// verbatim so callers can detect the misconfig via service-binding
+// probes.
+func (p *Proxy) Service(ctx context.Context) (*dagger.Service, error) {
 	cfg, err := p.ConfigFile()
 	if err != nil {
 		return nil, err
@@ -774,6 +801,16 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 				})
 		}
 	}
+	if p.DynamicResources != nil {
+		ports, err := xdsListenerPorts(ctx, p.DynamicResources)
+		if err != nil {
+			return nil, err
+		}
+		for _, port := range ports {
+			ctr = ctr.WithExposedPort(port)
+		}
+		ctr = ctr.WithMountedDirectory(xdsMountPath, p.DynamicResources)
+	}
 	for i, host := range p.BindingHosts {
 		ctr = ctr.WithServiceBinding(host, p.BindingSvcs[i])
 	}
@@ -792,7 +829,7 @@ func (p *Proxy) Service() (*dagger.Service, error) {
 //
 // +cache="never"
 func (p *Proxy) AdminEndpoint(ctx context.Context) (string, error) {
-	svc, err := p.Service()
+	svc, err := p.Service(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -824,26 +861,18 @@ func (p *Proxy) effectiveAdminPort() (int, error) {
 }
 
 // ListenerEndpoint returns host:port for the named listener on the
-// running proxy. Returns a non-nil error if no listener matches name
-// or if the listener's body has no recognizable socket_address.port_value.
+// running proxy — resolved against the registered Listeners, or
+// against the mounted lds.yaml when the proxy runs in file-based xDS
+// mode. Returns a non-nil error if no listener matches name or if the
+// listener has no recognizable socket_address.port_value.
 //
 // +cache="never"
 func (p *Proxy) ListenerEndpoint(ctx context.Context, name string) (string, error) {
-	var match *Listener
-	for _, l := range p.Listeners {
-		if l.Name == name {
-			match = l
-			break
-		}
+	port, err := p.listenerPort(ctx, name)
+	if err != nil {
+		return "", err
 	}
-	if match == nil {
-		return "", fmt.Errorf("listener %q: not registered on proxy", name)
-	}
-	port, ok := extractListenerPort(match.Body)
-	if !ok {
-		return "", fmt.Errorf("listener %q: cannot extract socket_address.port_value from body", name)
-	}
-	svc, err := p.Service()
+	svc, err := p.Service(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -852,6 +881,26 @@ func (p *Proxy) ListenerEndpoint(ctx context.Context, name string) (string, erro
 		return "", err
 	}
 	return fmt.Sprintf("%s:%d", host, port), nil
+}
+
+// listenerPort resolves the port a named listener binds, from
+// whichever side of the static/dynamic split the proxy is configured
+// on.
+func (p *Proxy) listenerPort(ctx context.Context, name string) (int, error) {
+	if p.DynamicResources != nil {
+		return xdsListenerPort(ctx, p.DynamicResources, name)
+	}
+	for _, l := range p.Listeners {
+		if l.Name != name {
+			continue
+		}
+		port, ok := extractListenerPort(l.Body)
+		if !ok {
+			return 0, fmt.Errorf("listener %q: cannot extract socket_address.port_value from body", name)
+		}
+		return port, nil
+	}
+	return 0, fmt.Errorf("listener %q: not registered on proxy", name)
 }
 
 // extractListenerPort walks the listener body's YAML for
@@ -885,21 +934,30 @@ func extractListenerPort(body string) (int, bool) {
 // duplicate listener names and listener filter-chain references to
 // clusters that aren't registered on the proxy.
 func validateProxy(p *Proxy) error {
-	seen := make(map[string]bool, len(p.Listeners))
-	for _, l := range p.Listeners {
+	return validateResources(p.Listeners, p.Clusters, "proxy", "WithCluster")
+}
+
+// validateResources checks a listener/cluster set for duplicate
+// listener names and filter-chain references to clusters that aren't
+// part of the same set. Shared by (*Proxy).ConfigFile and
+// (*XdsResources).Directory so both surface the same two errors;
+// container and adder name the collection in the error message.
+func validateResources(listeners []*Listener, clusters []*Cluster, container, adder string) error {
+	seen := make(map[string]bool, len(listeners))
+	for _, l := range listeners {
 		if seen[l.Name] {
 			return fmt.Errorf("listener %q: declared more than once", l.Name)
 		}
 		seen[l.Name] = true
 	}
-	known := make(map[string]bool, len(p.Clusters))
-	for _, c := range p.Clusters {
+	known := make(map[string]bool, len(clusters))
+	for _, c := range clusters {
 		known[c.Name] = true
 	}
-	for _, l := range p.Listeners {
+	for _, l := range listeners {
 		for _, ref := range l.ClusterRefs {
 			if !known[ref] {
-				return fmt.Errorf("listener %q references cluster %q, which is not registered on the proxy (add it via WithCluster)", l.Name, ref)
+				return fmt.Errorf("listener %q references cluster %q, which is not registered on the %s (add it via %s)", l.Name, ref, container, adder)
 			}
 		}
 	}
@@ -925,18 +983,9 @@ func renderBootstrap(adminPort int, listeners []*Listener, clusters []*Cluster) 
 	if len(listeners) > 0 {
 		ll := make([]any, 0, len(listeners))
 		for _, l := range listeners {
-			var body map[string]any
-			if l.Body != "" {
-				if err := yaml.Unmarshal([]byte(l.Body), &body); err != nil {
-					return nil, fmt.Errorf("listener %q: parse body: %w", l.Name, err)
-				}
-			}
-			if body == nil {
-				body = map[string]any{}
-			}
-			out := map[string]any{"name": l.Name}
-			for k, v := range body {
-				out[k] = v
+			out, err := renderListener(l)
+			if err != nil {
+				return nil, err
 			}
 			ll = append(ll, out)
 		}
@@ -953,6 +1002,24 @@ func renderBootstrap(adminPort int, listeners []*Listener, clusters []*Cluster) 
 		root["static_resources"] = static
 	}
 	return yaml.Marshal(root)
+}
+
+// renderListener folds a Listener's opaque YAML body into a single
+// map with `name` keyed in from Name. The result is the listener
+// resource shared by the static_resources.listeners entry and the
+// LDS discovery response.
+func renderListener(l *Listener) (map[string]any, error) {
+	var body map[string]any
+	if l.Body != "" {
+		if err := yaml.Unmarshal([]byte(l.Body), &body); err != nil {
+			return nil, fmt.Errorf("listener %q: parse body: %w", l.Name, err)
+		}
+	}
+	out := map[string]any{"name": l.Name}
+	for k, v := range body {
+		out[k] = v
+	}
+	return out, nil
 }
 
 func renderCluster(c *Cluster) map[string]any {

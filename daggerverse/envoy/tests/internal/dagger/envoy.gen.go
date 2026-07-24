@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Envoy
-func (r *Binding) AsEnvoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
+func (r *Binding) AsEnvoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:37:6)
 	q := r.query.Select("asEnvoy")
 
 	return &Envoy{
@@ -19,7 +19,7 @@ func (r *Binding) AsEnvoy() *Envoy { // envoy (../../../../../daggerverse/envoy/
 }
 
 // Retrieve the binding value, as type EnvoyCluster
-func (r *Binding) AsEnvoyCluster() *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
+func (r *Binding) AsEnvoyCluster() *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:95:6)
 	q := r.query.Select("asEnvoyCluster")
 
 	return &EnvoyCluster{
@@ -28,7 +28,7 @@ func (r *Binding) AsEnvoyCluster() *EnvoyCluster { // envoy (../../../../../dagg
 }
 
 // Retrieve the binding value, as type EnvoyEndpoint
-func (r *Binding) AsEnvoyEndpoint() *EnvoyEndpoint { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
+func (r *Binding) AsEnvoyEndpoint() *EnvoyEndpoint { // envoy (../../../../../daggerverse/envoy/main.go:76:6)
 	q := r.query.Select("asEnvoyEndpoint")
 
 	return &EnvoyEndpoint{
@@ -37,7 +37,7 @@ func (r *Binding) AsEnvoyEndpoint() *EnvoyEndpoint { // envoy (../../../../../da
 }
 
 // Retrieve the binding value, as type EnvoyHttpConnectionManager
-func (r *Binding) AsEnvoyHTTPConnectionManager() *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
+func (r *Binding) AsEnvoyHTTPConnectionManager() *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:284:6)
 	q := r.query.Select("asEnvoyHttpConnectionManager")
 
 	return &EnvoyHTTPConnectionManager{
@@ -46,7 +46,7 @@ func (r *Binding) AsEnvoyHTTPConnectionManager() *EnvoyHTTPConnectionManager { /
 }
 
 // Retrieve the binding value, as type EnvoyHttpFilter
-func (r *Binding) AsEnvoyHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:243:6)
+func (r *Binding) AsEnvoyHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:244:6)
 	q := r.query.Select("asEnvoyHttpFilter")
 
 	return &EnvoyHTTPFilter{
@@ -55,7 +55,7 @@ func (r *Binding) AsEnvoyHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../.
 }
 
 // Retrieve the binding value, as type EnvoyListener
-func (r *Binding) AsEnvoyListener() *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:556:6)
+func (r *Binding) AsEnvoyListener() *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:557:6)
 	q := r.query.Select("asEnvoyListener")
 
 	return &EnvoyListener{
@@ -64,7 +64,7 @@ func (r *Binding) AsEnvoyListener() *EnvoyListener { // envoy (../../../../../da
 }
 
 // Retrieve the binding value, as type EnvoyProxy
-func (r *Binding) AsEnvoyProxy() *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
+func (r *Binding) AsEnvoyProxy() *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:629:6)
 	q := r.query.Select("asEnvoyProxy")
 
 	return &EnvoyProxy{
@@ -73,7 +73,7 @@ func (r *Binding) AsEnvoyProxy() *EnvoyProxy { // envoy (../../../../../daggerve
 }
 
 // Retrieve the binding value, as type EnvoyRoute
-func (r *Binding) AsEnvoyRoute() *EnvoyRoute { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
+func (r *Binding) AsEnvoyRoute() *EnvoyRoute { // envoy (../../../../../daggerverse/envoy/main.go:170:6)
 	q := r.query.Select("asEnvoyRoute")
 
 	return &EnvoyRoute{
@@ -82,7 +82,7 @@ func (r *Binding) AsEnvoyRoute() *EnvoyRoute { // envoy (../../../../../daggerve
 }
 
 // Retrieve the binding value, as type EnvoyRouteConfig
-func (r *Binding) AsEnvoyRouteConfig() *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
+func (r *Binding) AsEnvoyRouteConfig() *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:219:6)
 	q := r.query.Select("asEnvoyRouteConfig")
 
 	return &EnvoyRouteConfig{
@@ -100,7 +100,7 @@ func (r *Binding) AsEnvoyServerSecurity() *EnvoyServerSecurity { // envoy (../..
 }
 
 // Retrieve the binding value, as type EnvoyTcpProxy
-func (r *Binding) AsEnvoyTCPProxy() *EnvoyTCPProxy { // envoy (../../../../../daggerverse/envoy/main.go:463:6)
+func (r *Binding) AsEnvoyTCPProxy() *EnvoyTCPProxy { // envoy (../../../../../daggerverse/envoy/main.go:464:6)
 	q := r.query.Select("asEnvoyTcpProxy")
 
 	return &EnvoyTCPProxy{
@@ -118,7 +118,7 @@ func (r *Binding) AsEnvoyUpstreamSecurity() *EnvoyUpstreamSecurity { // envoy (.
 }
 
 // Retrieve the binding value, as type EnvoyVirtualHost
-func (r *Binding) AsEnvoyVirtualHost() *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
+func (r *Binding) AsEnvoyVirtualHost() *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:189:6)
 	q := r.query.Select("asEnvoyVirtualHost")
 
 	return &EnvoyVirtualHost{
@@ -126,8 +126,17 @@ func (r *Binding) AsEnvoyVirtualHost() *EnvoyVirtualHost { // envoy (../../../..
 	}
 }
 
+// Retrieve the binding value, as type EnvoyXdsResources
+func (r *Binding) AsEnvoyXdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+	q := r.query.Select("asEnvoyXdsResources")
+
+	return &EnvoyXdsResources{
+		query: q,
+	}
+}
+
 // Create or update a binding of type EnvoyCluster in the environment
-func (r *Env) WithEnvoyClusterInput(name string, value *EnvoyCluster, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
+func (r *Env) WithEnvoyClusterInput(name string, value *EnvoyCluster, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:95:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyClusterInput")
 	q = q.Arg("name", name)
@@ -140,7 +149,7 @@ func (r *Env) WithEnvoyClusterInput(name string, value *EnvoyCluster, descriptio
 }
 
 // Declare a desired EnvoyCluster output to be assigned in the environment
-func (r *Env) WithEnvoyClusterOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
+func (r *Env) WithEnvoyClusterOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:95:6)
 	q := r.query.Select("withEnvoyClusterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -151,7 +160,7 @@ func (r *Env) WithEnvoyClusterOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type EnvoyEndpoint in the environment
-func (r *Env) WithEnvoyEndpointInput(name string, value *EnvoyEndpoint, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
+func (r *Env) WithEnvoyEndpointInput(name string, value *EnvoyEndpoint, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:76:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyEndpointInput")
 	q = q.Arg("name", name)
@@ -164,7 +173,7 @@ func (r *Env) WithEnvoyEndpointInput(name string, value *EnvoyEndpoint, descript
 }
 
 // Declare a desired EnvoyEndpoint output to be assigned in the environment
-func (r *Env) WithEnvoyEndpointOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
+func (r *Env) WithEnvoyEndpointOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:76:6)
 	q := r.query.Select("withEnvoyEndpointOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -175,7 +184,7 @@ func (r *Env) WithEnvoyEndpointOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type EnvoyHttpConnectionManager in the environment
-func (r *Env) WithEnvoyHTTPConnectionManagerInput(name string, value *EnvoyHTTPConnectionManager, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
+func (r *Env) WithEnvoyHTTPConnectionManagerInput(name string, value *EnvoyHTTPConnectionManager, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:284:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyHttpConnectionManagerInput")
 	q = q.Arg("name", name)
@@ -188,7 +197,7 @@ func (r *Env) WithEnvoyHTTPConnectionManagerInput(name string, value *EnvoyHTTPC
 }
 
 // Declare a desired EnvoyHttpConnectionManager output to be assigned in the environment
-func (r *Env) WithEnvoyHTTPConnectionManagerOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
+func (r *Env) WithEnvoyHTTPConnectionManagerOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:284:6)
 	q := r.query.Select("withEnvoyHttpConnectionManagerOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -199,7 +208,7 @@ func (r *Env) WithEnvoyHTTPConnectionManagerOutput(name string, description stri
 }
 
 // Create or update a binding of type EnvoyHttpFilter in the environment
-func (r *Env) WithEnvoyHTTPFilterInput(name string, value *EnvoyHTTPFilter, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:243:6)
+func (r *Env) WithEnvoyHTTPFilterInput(name string, value *EnvoyHTTPFilter, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:244:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyHttpFilterInput")
 	q = q.Arg("name", name)
@@ -212,7 +221,7 @@ func (r *Env) WithEnvoyHTTPFilterInput(name string, value *EnvoyHTTPFilter, desc
 }
 
 // Declare a desired EnvoyHttpFilter output to be assigned in the environment
-func (r *Env) WithEnvoyHTTPFilterOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:243:6)
+func (r *Env) WithEnvoyHTTPFilterOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:244:6)
 	q := r.query.Select("withEnvoyHttpFilterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -223,7 +232,7 @@ func (r *Env) WithEnvoyHTTPFilterOutput(name string, description string) *Env { 
 }
 
 // Create or update a binding of type Envoy in the environment
-func (r *Env) WithEnvoyInput(name string, value *Envoy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
+func (r *Env) WithEnvoyInput(name string, value *Envoy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:37:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyInput")
 	q = q.Arg("name", name)
@@ -236,7 +245,7 @@ func (r *Env) WithEnvoyInput(name string, value *Envoy, description string) *Env
 }
 
 // Create or update a binding of type EnvoyListener in the environment
-func (r *Env) WithEnvoyListenerInput(name string, value *EnvoyListener, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:556:6)
+func (r *Env) WithEnvoyListenerInput(name string, value *EnvoyListener, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:557:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyListenerInput")
 	q = q.Arg("name", name)
@@ -249,7 +258,7 @@ func (r *Env) WithEnvoyListenerInput(name string, value *EnvoyListener, descript
 }
 
 // Declare a desired EnvoyListener output to be assigned in the environment
-func (r *Env) WithEnvoyListenerOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:556:6)
+func (r *Env) WithEnvoyListenerOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:557:6)
 	q := r.query.Select("withEnvoyListenerOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -260,7 +269,7 @@ func (r *Env) WithEnvoyListenerOutput(name string, description string) *Env { //
 }
 
 // Declare a desired Envoy output to be assigned in the environment
-func (r *Env) WithEnvoyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
+func (r *Env) WithEnvoyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:37:6)
 	q := r.query.Select("withEnvoyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -271,7 +280,7 @@ func (r *Env) WithEnvoyOutput(name string, description string) *Env { // envoy (
 }
 
 // Create or update a binding of type EnvoyProxy in the environment
-func (r *Env) WithEnvoyProxyInput(name string, value *EnvoyProxy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
+func (r *Env) WithEnvoyProxyInput(name string, value *EnvoyProxy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:629:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyProxyInput")
 	q = q.Arg("name", name)
@@ -284,7 +293,7 @@ func (r *Env) WithEnvoyProxyInput(name string, value *EnvoyProxy, description st
 }
 
 // Declare a desired EnvoyProxy output to be assigned in the environment
-func (r *Env) WithEnvoyProxyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
+func (r *Env) WithEnvoyProxyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:629:6)
 	q := r.query.Select("withEnvoyProxyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -295,7 +304,7 @@ func (r *Env) WithEnvoyProxyOutput(name string, description string) *Env { // en
 }
 
 // Create or update a binding of type EnvoyRouteConfig in the environment
-func (r *Env) WithEnvoyRouteConfigInput(name string, value *EnvoyRouteConfig, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
+func (r *Env) WithEnvoyRouteConfigInput(name string, value *EnvoyRouteConfig, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:219:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyRouteConfigInput")
 	q = q.Arg("name", name)
@@ -308,7 +317,7 @@ func (r *Env) WithEnvoyRouteConfigInput(name string, value *EnvoyRouteConfig, de
 }
 
 // Declare a desired EnvoyRouteConfig output to be assigned in the environment
-func (r *Env) WithEnvoyRouteConfigOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
+func (r *Env) WithEnvoyRouteConfigOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:219:6)
 	q := r.query.Select("withEnvoyRouteConfigOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -319,7 +328,7 @@ func (r *Env) WithEnvoyRouteConfigOutput(name string, description string) *Env {
 }
 
 // Create or update a binding of type EnvoyRoute in the environment
-func (r *Env) WithEnvoyRouteInput(name string, value *EnvoyRoute, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
+func (r *Env) WithEnvoyRouteInput(name string, value *EnvoyRoute, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:170:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyRouteInput")
 	q = q.Arg("name", name)
@@ -332,7 +341,7 @@ func (r *Env) WithEnvoyRouteInput(name string, value *EnvoyRoute, description st
 }
 
 // Declare a desired EnvoyRoute output to be assigned in the environment
-func (r *Env) WithEnvoyRouteOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
+func (r *Env) WithEnvoyRouteOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:170:6)
 	q := r.query.Select("withEnvoyRouteOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -367,7 +376,7 @@ func (r *Env) WithEnvoyServerSecurityOutput(name string, description string) *En
 }
 
 // Create or update a binding of type EnvoyTcpProxy in the environment
-func (r *Env) WithEnvoyTCPProxyInput(name string, value *EnvoyTCPProxy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:463:6)
+func (r *Env) WithEnvoyTCPProxyInput(name string, value *EnvoyTCPProxy, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:464:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyTcpProxyInput")
 	q = q.Arg("name", name)
@@ -380,7 +389,7 @@ func (r *Env) WithEnvoyTCPProxyInput(name string, value *EnvoyTCPProxy, descript
 }
 
 // Declare a desired EnvoyTcpProxy output to be assigned in the environment
-func (r *Env) WithEnvoyTCPProxyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:463:6)
+func (r *Env) WithEnvoyTCPProxyOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:464:6)
 	q := r.query.Select("withEnvoyTcpProxyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -415,7 +424,7 @@ func (r *Env) WithEnvoyUpstreamSecurityOutput(name string, description string) *
 }
 
 // Create or update a binding of type EnvoyVirtualHost in the environment
-func (r *Env) WithEnvoyVirtualHostInput(name string, value *EnvoyVirtualHost, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
+func (r *Env) WithEnvoyVirtualHostInput(name string, value *EnvoyVirtualHost, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:189:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyVirtualHostInput")
 	q = q.Arg("name", name)
@@ -428,8 +437,32 @@ func (r *Env) WithEnvoyVirtualHostInput(name string, value *EnvoyVirtualHost, de
 }
 
 // Declare a desired EnvoyVirtualHost output to be assigned in the environment
-func (r *Env) WithEnvoyVirtualHostOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
+func (r *Env) WithEnvoyVirtualHostOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/main.go:189:6)
 	q := r.query.Select("withEnvoyVirtualHostOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type EnvoyXdsResources in the environment
+func (r *Env) WithEnvoyXdsResourcesInput(name string, value *EnvoyXdsResources, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withEnvoyXdsResourcesInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired EnvoyXdsResources output to be assigned in the environment
+func (r *Env) WithEnvoyXdsResourcesOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+	q := r.query.Select("withEnvoyXdsResourcesOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -440,7 +473,7 @@ func (r *Env) WithEnvoyVirtualHostOutput(name string, description string) *Env {
 
 // Envoy is the top-level builder type. All component factories hang
 // off of it.
-type Envoy struct { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
+type Envoy struct { // envoy (../../../../../daggerverse/envoy/main.go:37:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -456,16 +489,16 @@ func (r *Envoy) WithGraphQLQuery(q *querybuilder.Selection) *Envoy {
 type EnvoyClusterOpts struct {
 
 	// Default: "STRICT_DNS"
-	ClusterType string // envoy (../../../../../daggerverse/envoy/main.go:123:2)
+	ClusterType string // envoy (../../../../../daggerverse/envoy/main.go:124:2)
 
-	Upstream *EnvoyUpstreamSecurity // envoy (../../../../../daggerverse/envoy/main.go:125:2)
+	Upstream *EnvoyUpstreamSecurity // envoy (../../../../../daggerverse/envoy/main.go:126:2)
 }
 
 // Cluster builds a Cluster optionally configured with upstream
 // TLS / mTLS via an UpstreamSecurity profile. clusterType defaults
 // to "STRICT_DNS"; unknown values return a non-nil error. A nil or
 // plaintext upstream produces the same plaintext cluster as before.
-func (r *Envoy) Cluster(name string, opts ...EnvoyClusterOpts) *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:119:1)
+func (r *Envoy) Cluster(name string, opts ...EnvoyClusterOpts) *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:120:1)
 	q := r.query.Select("cluster")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `clusterType` optional argument
@@ -487,7 +520,7 @@ func (r *Envoy) Cluster(name string, opts ...EnvoyClusterOpts) *EnvoyCluster { /
 // CustomHttpFilter builds an HTTP filter whose typed_config body is
 // the caller-supplied YAML, spliced verbatim. yamlBody is validated
 // via yaml.Unmarshal at construction time.
-func (r *Envoy) CustomHTTPFilter(name string, yamlBody string) *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:266:1)
+func (r *Envoy) CustomHTTPFilter(name string, yamlBody string) *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:267:1)
 	q := r.query.Select("customHttpFilter")
 	q = q.Arg("name", name)
 	q = q.Arg("yamlBody", yamlBody)
@@ -501,7 +534,7 @@ func (r *Envoy) CustomHTTPFilter(name string, yamlBody string) *EnvoyHTTPFilter 
 // YAML, spliced verbatim under static_resources.listeners with `name`
 // keyed in by the builder. The yamlBody must NOT include a top-level
 // `name:` key (the builder splices that from the argument).
-func (r *Envoy) CustomListener(name string, yamlBody string) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:610:1)
+func (r *Envoy) CustomListener(name string, yamlBody string) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:611:1)
 	q := r.query.Select("customListener")
 	q = q.Arg("name", name)
 	q = q.Arg("yamlBody", yamlBody)
@@ -513,7 +546,7 @@ func (r *Envoy) CustomListener(name string, yamlBody string) *EnvoyListener { //
 
 // Endpoint builds an Endpoint, validating host (non-empty) and port
 // (1..65535).
-func (r *Envoy) Endpoint(host string, port int) *EnvoyEndpoint { // envoy (../../../../../daggerverse/envoy/main.go:82:1)
+func (r *Envoy) Endpoint(host string, port int) *EnvoyEndpoint { // envoy (../../../../../daggerverse/envoy/main.go:83:1)
 	q := r.query.Select("endpoint")
 	q = q.Arg("host", host)
 	q = q.Arg("port", port)
@@ -524,7 +557,7 @@ func (r *Envoy) Endpoint(host string, port int) *EnvoyEndpoint { // envoy (../..
 }
 
 // HttpConnectionManager builds an HCM bound to routeConfig.
-func (r *Envoy) HTTPConnectionManager(statPrefix string, routeConfig *EnvoyRouteConfig) *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:290:1)
+func (r *Envoy) HTTPConnectionManager(statPrefix string, routeConfig *EnvoyRouteConfig) *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:291:1)
 	assertNotNil("routeConfig", routeConfig)
 	q := r.query.Select("httpConnectionManager")
 	q = q.Arg("statPrefix", statPrefix)
@@ -539,9 +572,9 @@ func (r *Envoy) HTTPConnectionManager(statPrefix string, routeConfig *EnvoyRoute
 type EnvoyHTTPListenerOpts struct {
 
 	// Default: "0.0.0.0"
-	Address string // envoy (../../../../../daggerverse/envoy/main.go:319:2)
+	Address string // envoy (../../../../../daggerverse/envoy/main.go:320:2)
 
-	Security *EnvoyServerSecurity // envoy (../../../../../daggerverse/envoy/main.go:323:2)
+	Security *EnvoyServerSecurity // envoy (../../../../../daggerverse/envoy/main.go:324:2)
 }
 
 // HttpListener builds an L7 listener bound at address:port whose
@@ -550,7 +583,7 @@ type EnvoyHTTPListenerOpts struct {
 // per-listener server leaf certificate from the supplied CA at
 // factory time and embeds the transport_socket block in the filter
 // chain.
-func (r *Envoy) HTTPListener(name string, port int, hcm *EnvoyHTTPConnectionManager, opts ...EnvoyHTTPListenerOpts) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:315:1)
+func (r *Envoy) HTTPListener(name string, port int, hcm *EnvoyHTTPConnectionManager, opts ...EnvoyHTTPListenerOpts) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:316:1)
 	assertNotNil("hcm", hcm)
 	q := r.query.Select("httpListener")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -685,15 +718,15 @@ func (r *Envoy) PlaintextUpstreamSecurity() *EnvoyUpstreamSecurity { // envoy (.
 type EnvoyProxyOpts struct {
 
 	// Default: "docker.io"
-	Registry string // envoy (../../../../../daggerverse/envoy/main.go:645:2)
+	Registry string // envoy (../../../../../daggerverse/envoy/main.go:653:2)
 
 	// Default: "v1.32.1"
-	Tag string // envoy (../../../../../daggerverse/envoy/main.go:647:2)
+	Tag string // envoy (../../../../../daggerverse/envoy/main.go:655:2)
 
 	// Default: 9901
-	AdminPort int // envoy (../../../../../daggerverse/envoy/main.go:649:2)
+	AdminPort int // envoy (../../../../../daggerverse/envoy/main.go:657:2)
 
-	ConfigFile *File // envoy (../../../../../daggerverse/envoy/main.go:651:2)
+	ConfigFile *File // envoy (../../../../../daggerverse/envoy/main.go:659:2)
 }
 
 // Proxy returns a Proxy backed by the envoyproxy/envoy image at
@@ -702,7 +735,7 @@ type EnvoyProxyOpts struct {
 // ignored when an override is set, and listeners added via WithListener
 // are ignored for rendering but still drive container port exposure so
 // callers can expose ports from an override config.
-func (r *Envoy) Proxy(opts ...EnvoyProxyOpts) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:643:1)
+func (r *Envoy) Proxy(opts ...EnvoyProxyOpts) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:651:1)
 	q := r.query.Select("proxy")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -729,7 +762,7 @@ func (r *Envoy) Proxy(opts ...EnvoyProxyOpts) *EnvoyProxy { // envoy (../../../.
 }
 
 // RouteConfig builds an empty RouteConfig.
-func (r *Envoy) RouteConfig(name string) *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:224:1)
+func (r *Envoy) RouteConfig(name string) *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:225:1)
 	q := r.query.Select("routeConfig")
 	q = q.Arg("name", name)
 
@@ -740,7 +773,7 @@ func (r *Envoy) RouteConfig(name string) *EnvoyRouteConfig { // envoy (../../../
 
 // RoutePrefix builds a route matching paths with the given prefix and
 // forwarding to cluster.
-func (r *Envoy) RoutePrefix(prefix string, cluster string) *EnvoyRoute { // envoy (../../../../../daggerverse/envoy/main.go:176:1)
+func (r *Envoy) RoutePrefix(prefix string, cluster string) *EnvoyRoute { // envoy (../../../../../daggerverse/envoy/main.go:177:1)
 	q := r.query.Select("routePrefix")
 	q = q.Arg("prefix", prefix)
 	q = q.Arg("cluster", cluster)
@@ -754,7 +787,7 @@ func (r *Envoy) RoutePrefix(prefix string, cluster string) *EnvoyRoute { // envo
 // filter. Per the Envoy contract this must be the last filter in the
 // http_filters chain; the builder does NOT enforce ordering — Envoy
 // rejects the bootstrap at startup if violated.
-func (r *Envoy) RouterHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:259:1)
+func (r *Envoy) RouterHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../../daggerverse/envoy/main.go:260:1)
 	q := r.query.Select("routerHttpFilter")
 
 	return &EnvoyHTTPFilter{
@@ -766,9 +799,9 @@ func (r *Envoy) RouterHTTPFilter() *EnvoyHTTPFilter { // envoy (../../../../../d
 type EnvoyTCPListenerOpts struct {
 
 	// Default: "0.0.0.0"
-	Address string // envoy (../../../../../daggerverse/envoy/main.go:490:2)
+	Address string // envoy (../../../../../daggerverse/envoy/main.go:491:2)
 
-	Security *EnvoyServerSecurity // envoy (../../../../../daggerverse/envoy/main.go:494:2)
+	Security *EnvoyServerSecurity // envoy (../../../../../daggerverse/envoy/main.go:495:2)
 }
 
 // TcpListener builds an L4 listener bound at address:port whose
@@ -776,7 +809,7 @@ type EnvoyTCPListenerOpts struct {
 // union as HttpListener — TLS / mTLS terminates on the listener and
 // the resulting transport_socket lives on the filter chain alongside
 // the tcp_proxy filter.
-func (r *Envoy) TCPListener(name string, port int, proxy *EnvoyTCPProxy, opts ...EnvoyTCPListenerOpts) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:486:1)
+func (r *Envoy) TCPListener(name string, port int, proxy *EnvoyTCPProxy, opts ...EnvoyTCPListenerOpts) *EnvoyListener { // envoy (../../../../../daggerverse/envoy/main.go:487:1)
 	assertNotNil("proxy", proxy)
 	q := r.query.Select("tcpListener")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -799,7 +832,7 @@ func (r *Envoy) TCPListener(name string, port int, proxy *EnvoyTCPProxy, opts ..
 }
 
 // TcpProxy builds a TcpProxy network filter targeting cluster.
-func (r *Envoy) TCPProxy(statPrefix string, cluster string) *EnvoyTCPProxy { // envoy (../../../../../daggerverse/envoy/main.go:469:1)
+func (r *Envoy) TCPProxy(statPrefix string, cluster string) *EnvoyTCPProxy { // envoy (../../../../../daggerverse/envoy/main.go:470:1)
 	q := r.query.Select("tcpProxy")
 	q = q.Arg("statPrefix", statPrefix)
 	q = q.Arg("cluster", cluster)
@@ -840,12 +873,23 @@ func (r *Envoy) TLSUpstreamSecurity(trustStore *File, trustStorePassword *Secret
 }
 
 // VirtualHost builds an empty VirtualHost.
-func (r *Envoy) VirtualHost(name string, domains []string) *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:195:1)
+func (r *Envoy) VirtualHost(name string, domains []string) *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:196:1)
 	q := r.query.Select("virtualHost")
 	q = q.Arg("name", name)
 	q = q.Arg("domains", domains)
 
 	return &EnvoyVirtualHost{
+		query: q,
+	}
+}
+
+// XdsResources returns an empty discovery-resource set. Feed it
+// listeners and clusters, then hand Directory() to
+// (*Proxy).WithDynamicResources.
+func (r *Envoy) XdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:132:1)
+	q := r.query.Select("xdsResources")
+
+	return &EnvoyXdsResources{
 		query: q,
 	}
 }
@@ -860,7 +904,7 @@ func (r *Envoy) AsNode() Node {
 
 // Cluster is a named upstream cluster of Endpoints, optionally
 // configured with TLS / mTLS to the upstream side.
-type EnvoyCluster struct { // envoy (../../../../../daggerverse/envoy/main.go:94:6)
+type EnvoyCluster struct { // envoy (../../../../../daggerverse/envoy/main.go:95:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -882,7 +926,7 @@ func (r *EnvoyCluster) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyCluster
 	}
 }
 
-func (r *EnvoyCluster) Endpoints(ctx context.Context) ([]EnvoyEndpoint, error) { // envoy (../../../../../daggerverse/envoy/main.go:97:2)
+func (r *EnvoyCluster) Endpoints(ctx context.Context) ([]EnvoyEndpoint, error) { // envoy (../../../../../daggerverse/envoy/main.go:98:2)
 	q := r.query.Select("endpoints")
 
 	q = q.Select("id")
@@ -963,7 +1007,7 @@ func (r *EnvoyCluster) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyCluster) Kind(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:96:2)
+func (r *EnvoyCluster) Kind(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:97:2)
 	if r.kind != nil {
 		return *r.kind, nil
 	}
@@ -975,7 +1019,7 @@ func (r *EnvoyCluster) Kind(ctx context.Context) (string, error) { // envoy (../
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyCluster) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:95:2)
+func (r *EnvoyCluster) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:96:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -989,7 +1033,7 @@ func (r *EnvoyCluster) Name(ctx context.Context) (string, error) { // envoy (../
 
 // WithEndpoint appends an Endpoint to the cluster and returns a new
 // cluster value.
-func (r *EnvoyCluster) WithEndpoint(ep *EnvoyEndpoint) *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:162:1)
+func (r *EnvoyCluster) WithEndpoint(ep *EnvoyEndpoint) *EnvoyCluster { // envoy (../../../../../daggerverse/envoy/main.go:163:1)
 	assertNotNil("ep", ep)
 	q := r.query.Select("withEndpoint")
 	q = q.Arg("ep", ep)
@@ -1009,7 +1053,7 @@ func (r *EnvoyCluster) AsNode() Node {
 
 // Endpoint is a single upstream address (host + port) that a Cluster
 // resolves to.
-type EnvoyEndpoint struct { // envoy (../../../../../daggerverse/envoy/main.go:75:6)
+type EnvoyEndpoint struct { // envoy (../../../../../daggerverse/envoy/main.go:76:6)
 	query *querybuilder.Selection
 
 	host *string
@@ -1023,7 +1067,7 @@ func (r *EnvoyEndpoint) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyEndpoi
 	}
 }
 
-func (r *EnvoyEndpoint) Host(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:76:2)
+func (r *EnvoyEndpoint) Host(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:77:2)
 	if r.host != nil {
 		return *r.host, nil
 	}
@@ -1084,7 +1128,7 @@ func (r *EnvoyEndpoint) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyEndpoint) Port(ctx context.Context) (int, error) { // envoy (../../../../../daggerverse/envoy/main.go:77:2)
+func (r *EnvoyEndpoint) Port(ctx context.Context) (int, error) { // envoy (../../../../../daggerverse/envoy/main.go:78:2)
 	if r.port != nil {
 		return *r.port, nil
 	}
@@ -1107,7 +1151,7 @@ func (r *EnvoyEndpoint) AsNode() Node {
 // HttpConnectionManager is the L7 network filter that decodes HTTP
 // frames, applies an ordered filter chain, and dispatches to a
 // route_config.
-type EnvoyHTTPConnectionManager struct { // envoy (../../../../../daggerverse/envoy/main.go:283:6)
+type EnvoyHTTPConnectionManager struct { // envoy (../../../../../daggerverse/envoy/main.go:284:6)
 	query *querybuilder.Selection
 
 	id         *ID
@@ -1128,7 +1172,7 @@ func (r *EnvoyHTTPConnectionManager) WithGraphQLQuery(q *querybuilder.Selection)
 	}
 }
 
-func (r *EnvoyHTTPConnectionManager) HTTPFilters(ctx context.Context) ([]EnvoyHTTPFilter, error) { // envoy (../../../../../daggerverse/envoy/main.go:286:2)
+func (r *EnvoyHTTPConnectionManager) HTTPFilters(ctx context.Context) ([]EnvoyHTTPFilter, error) { // envoy (../../../../../daggerverse/envoy/main.go:287:2)
 	q := r.query.Select("httpFilters")
 
 	q = q.Select("id")
@@ -1209,7 +1253,7 @@ func (r *EnvoyHTTPConnectionManager) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyHTTPConnectionManager) RouteConfig() *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:285:2)
+func (r *EnvoyHTTPConnectionManager) RouteConfig() *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:286:2)
 	q := r.query.Select("routeConfig")
 
 	return &EnvoyRouteConfig{
@@ -1217,7 +1261,7 @@ func (r *EnvoyHTTPConnectionManager) RouteConfig() *EnvoyRouteConfig { // envoy 
 	}
 }
 
-func (r *EnvoyHTTPConnectionManager) StatPrefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:284:2)
+func (r *EnvoyHTTPConnectionManager) StatPrefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:285:2)
 	if r.statPrefix != nil {
 		return *r.statPrefix, nil
 	}
@@ -1230,7 +1274,7 @@ func (r *EnvoyHTTPConnectionManager) StatPrefix(ctx context.Context) (string, er
 }
 
 // WithHttpFilter appends an HTTP filter to the HCM.
-func (r *EnvoyHTTPConnectionManager) WithHTTPFilter(f *EnvoyHTTPFilter) *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:301:1)
+func (r *EnvoyHTTPConnectionManager) WithHTTPFilter(f *EnvoyHTTPFilter) *EnvoyHTTPConnectionManager { // envoy (../../../../../daggerverse/envoy/main.go:302:1)
 	assertNotNil("f", f)
 	q := r.query.Select("withHttpFilter")
 	q = q.Arg("f", f)
@@ -1253,7 +1297,7 @@ func (r *EnvoyHTTPConnectionManager) AsNode() Node {
 // filter's `typed_config` map; for the terminal router filter Body
 // is empty (the typed_config has a fixed shape and is filled in at
 // render time).
-type EnvoyHTTPFilter struct { // envoy (../../../../../daggerverse/envoy/main.go:243:6)
+type EnvoyHTTPFilter struct { // envoy (../../../../../daggerverse/envoy/main.go:244:6)
 	query *querybuilder.Selection
 
 	body *string
@@ -1267,7 +1311,7 @@ func (r *EnvoyHTTPFilter) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyHTTP
 	}
 }
 
-func (r *EnvoyHTTPFilter) Body(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:245:2)
+func (r *EnvoyHTTPFilter) Body(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:246:2)
 	if r.body != nil {
 		return *r.body, nil
 	}
@@ -1328,7 +1372,7 @@ func (r *EnvoyHTTPFilter) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyHTTPFilter) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:244:2)
+func (r *EnvoyHTTPFilter) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:245:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1356,7 +1400,7 @@ func (r *EnvoyHTTPFilter) AsNode() Node {
 // (*Proxy).ConfigFile() can validate references against the
 // registered cluster set; it is empty for CustomListener whose body
 // is opaque.
-type EnvoyListener struct { // envoy (../../../../../daggerverse/envoy/main.go:556:6)
+type EnvoyListener struct { // envoy (../../../../../daggerverse/envoy/main.go:557:6)
 	query *querybuilder.Selection
 
 	body *string
@@ -1370,7 +1414,7 @@ func (r *EnvoyListener) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyListen
 	}
 }
 
-func (r *EnvoyListener) Body(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:558:2)
+func (r *EnvoyListener) Body(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:559:2)
 	if r.body != nil {
 		return *r.body, nil
 	}
@@ -1382,7 +1426,7 @@ func (r *EnvoyListener) Body(ctx context.Context) (string, error) { // envoy (..
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyListener) ClusterRefs(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:559:2)
+func (r *EnvoyListener) ClusterRefs(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:560:2)
 	q := r.query.Select("clusterRefs")
 
 	var response []string
@@ -1440,7 +1484,7 @@ func (r *EnvoyListener) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyListener) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:557:2)
+func (r *EnvoyListener) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:558:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1461,8 +1505,10 @@ func (r *EnvoyListener) AsNode() Node {
 }
 
 // Proxy is a running Envoy instance with a composed (or
-// caller-supplied) static-resources bootstrap.
-type EnvoyProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:626:6)
+// caller-supplied) static-resources bootstrap, or — when
+// DynamicResources is set — a file-based xDS bootstrap that
+// discovers its listeners and clusters from a mounted directory.
+type EnvoyProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:629:6)
 	query *querybuilder.Selection
 
 	adminEndpoint    *string
@@ -1488,7 +1534,7 @@ func (r *EnvoyProxy) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyProxy {
 }
 
 // AdminEndpoint returns host:adminPort for the running proxy.
-func (r *EnvoyProxy) AdminEndpoint(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:794:1)
+func (r *EnvoyProxy) AdminEndpoint(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:831:1)
 	if r.adminEndpoint != nil {
 		return *r.adminEndpoint, nil
 	}
@@ -1500,7 +1546,7 @@ func (r *EnvoyProxy) AdminEndpoint(ctx context.Context) (string, error) { // env
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyProxy) AdminPort(ctx context.Context) (int, error) { // envoy (../../../../../daggerverse/envoy/main.go:629:2)
+func (r *EnvoyProxy) AdminPort(ctx context.Context) (int, error) { // envoy (../../../../../daggerverse/envoy/main.go:632:2)
 	if r.adminPort != nil {
 		return *r.adminPort, nil
 	}
@@ -1512,7 +1558,7 @@ func (r *EnvoyProxy) AdminPort(ctx context.Context) (int, error) { // envoy (../
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyProxy) BindingHosts(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:633:2)
+func (r *EnvoyProxy) BindingHosts(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:636:2)
 	q := r.query.Select("bindingHosts")
 
 	var response []string
@@ -1521,7 +1567,7 @@ func (r *EnvoyProxy) BindingHosts(ctx context.Context) ([]string, error) { // en
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyProxy) BindingSvcs(ctx context.Context) ([]Service, error) { // envoy (../../../../../daggerverse/envoy/main.go:634:2)
+func (r *EnvoyProxy) BindingSvcs(ctx context.Context) ([]Service, error) { // envoy (../../../../../daggerverse/envoy/main.go:637:2)
 	q := r.query.Select("bindingSvcs")
 
 	q = q.Select("id")
@@ -1553,7 +1599,7 @@ func (r *EnvoyProxy) BindingSvcs(ctx context.Context) ([]Service, error) { // en
 	return convert(response), nil
 }
 
-func (r *EnvoyProxy) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // envoy (../../../../../daggerverse/envoy/main.go:632:2)
+func (r *EnvoyProxy) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // envoy (../../../../../daggerverse/envoy/main.go:635:2)
 	q := r.query.Select("clusters")
 
 	q = q.Select("id")
@@ -1586,13 +1632,27 @@ func (r *EnvoyProxy) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // 
 }
 
 // ConfigFile returns the file that will be mounted as Envoy's -c
-// argument: either the caller-supplied override or the rendered
-// bootstrap. Returns a non-nil error if any listener references an
-// unregistered cluster, or if two listeners share a name.
-func (r *EnvoyProxy) ConfigFile() *File { // envoy (../../../../../daggerverse/envoy/main.go:695:1)
+// argument: the caller-supplied override, the rendered
+// static_resources bootstrap, or — when WithDynamicResources was
+// called — the file-based xDS bootstrap. Returns a non-nil error if
+// any listener references an unregistered cluster, if two listeners
+// share a name, or if WithDynamicResources was mixed with any of
+// WithListener / WithCluster / WithConfigFile.
+func (r *EnvoyProxy) ConfigFile() *File { // envoy (../../../../../daggerverse/envoy/main.go:706:1)
 	q := r.query.Select("configFile")
 
 	return &File{
+		query: q,
+	}
+}
+
+// DynamicResources is the file-based xDS discovery-resource
+// directory set via WithDynamicResources. Exclusive with
+// Override / Listeners / Clusters.
+func (r *EnvoyProxy) DynamicResources() *Directory { // envoy (../../../../../daggerverse/envoy/main.go:642:2)
+	q := r.query.Select("dynamicResources")
+
+	return &Directory{
 		query: q,
 	}
 }
@@ -1647,9 +1707,11 @@ func (r *EnvoyProxy) UnmarshalJSON(bs []byte) error {
 }
 
 // ListenerEndpoint returns host:port for the named listener on the
-// running proxy. Returns a non-nil error if no listener matches name
-// or if the listener's body has no recognizable socket_address.port_value.
-func (r *EnvoyProxy) ListenerEndpoint(ctx context.Context, name string) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:831:1)
+// running proxy — resolved against the registered Listeners, or
+// against the mounted lds.yaml when the proxy runs in file-based xDS
+// mode. Returns a non-nil error if no listener matches name or if the
+// listener has no recognizable socket_address.port_value.
+func (r *EnvoyProxy) ListenerEndpoint(ctx context.Context, name string) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:870:1)
 	if r.listenerEndpoint != nil {
 		return *r.listenerEndpoint, nil
 	}
@@ -1662,7 +1724,7 @@ func (r *EnvoyProxy) ListenerEndpoint(ctx context.Context, name string) (string,
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyProxy) Listeners(ctx context.Context) ([]EnvoyListener, error) { // envoy (../../../../../daggerverse/envoy/main.go:631:2)
+func (r *EnvoyProxy) Listeners(ctx context.Context) ([]EnvoyListener, error) { // envoy (../../../../../daggerverse/envoy/main.go:634:2)
 	q := r.query.Select("listeners")
 
 	q = q.Select("id")
@@ -1694,7 +1756,7 @@ func (r *EnvoyProxy) Listeners(ctx context.Context) ([]EnvoyListener, error) { /
 	return convert(response), nil
 }
 
-func (r *EnvoyProxy) Override() *File { // envoy (../../../../../daggerverse/envoy/main.go:630:2)
+func (r *EnvoyProxy) Override() *File { // envoy (../../../../../daggerverse/envoy/main.go:633:2)
 	q := r.query.Select("override")
 
 	return &File{
@@ -1702,7 +1764,7 @@ func (r *EnvoyProxy) Override() *File { // envoy (../../../../../daggerverse/env
 	}
 }
 
-func (r *EnvoyProxy) Registry(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:627:2)
+func (r *EnvoyProxy) Registry(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:630:2)
 	if r.registry != nil {
 		return *r.registry, nil
 	}
@@ -1715,11 +1777,13 @@ func (r *EnvoyProxy) Registry(ctx context.Context) (string, error) { // envoy (.
 }
 
 // Service returns the running Envoy container. Listens on
-// AdminPort (admin) plus each registered listener's port. When no
-// override and no listeners/clusters are registered, launches with
-// no `-c` flag so the envoy binary exits non-zero — exposed verbatim
-// so callers can detect the misconfig via service-binding probes.
-func (r *EnvoyProxy) Service() *Service { // envoy (../../../../../daggerverse/envoy/main.go:721:1)
+// AdminPort (admin) plus each registered listener's port — read from
+// the mounted lds.yaml when the proxy runs in file-based xDS mode.
+// When no override and no listeners/clusters are registered, launches
+// with no `-c` flag so the envoy binary exits non-zero — exposed
+// verbatim so callers can detect the misconfig via service-binding
+// probes.
+func (r *EnvoyProxy) Service() *Service { // envoy (../../../../../daggerverse/envoy/main.go:748:1)
 	q := r.query.Select("service")
 
 	return &Service{
@@ -1727,7 +1791,7 @@ func (r *EnvoyProxy) Service() *Service { // envoy (../../../../../daggerverse/e
 	}
 }
 
-func (r *EnvoyProxy) Tag(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:628:2)
+func (r *EnvoyProxy) Tag(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:631:2)
 	if r.tag != nil {
 		return *r.tag, nil
 	}
@@ -1740,7 +1804,7 @@ func (r *EnvoyProxy) Tag(ctx context.Context) (string, error) { // envoy (../../
 }
 
 // WithCluster appends a cluster to the proxy.
-func (r *EnvoyProxy) WithCluster(c *EnvoyCluster) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:678:1)
+func (r *EnvoyProxy) WithCluster(c *EnvoyCluster) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:686:1)
 	assertNotNil("c", c)
 	q := r.query.Select("withCluster")
 	q = q.Arg("c", c)
@@ -1751,7 +1815,7 @@ func (r *EnvoyProxy) WithCluster(c *EnvoyCluster) *EnvoyProxy { // envoy (../../
 }
 
 // WithConfigFile fully replaces the rendered bootstrap.
-func (r *EnvoyProxy) WithConfigFile(f *File) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:685:1)
+func (r *EnvoyProxy) WithConfigFile(f *File) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:693:1)
 	assertNotNil("f", f)
 	q := r.query.Select("withConfigFile")
 	q = q.Arg("f", f)
@@ -1761,8 +1825,38 @@ func (r *EnvoyProxy) WithConfigFile(f *File) *EnvoyProxy { // envoy (../../../..
 	}
 }
 
+// WithDynamicResources switches the proxy from a rendered
+// static_resources bootstrap to file-based xDS: the bootstrap's
+// dynamic_resources block points lds_config at
+// /etc/envoy/xds/lds.yaml and cds_config at /etc/envoy/xds/cds.yaml,
+// and dir is mounted at /etc/envoy/xds. dir must contain at minimum
+// lds.yaml and cds.yaml, each a v3 discovery response; rds.yaml is
+// loaded only when a listener's HttpConnectionManager references it
+// via an `rds` config source (the bootstrap does not wire RDS
+// itself).
+//
+// This mode is exclusive with WithListener / WithCluster /
+// WithConfigFile: calling both makes ConfigFile() (and therefore
+// Service()) return a non-nil error.
+//
+// Hot reload is NOT exercised. Dagger's WithMountedDirectory is
+// content-addressed and immutable at mount time, so the mounted
+// resource files never change for the lifetime of the container —
+// only Envoy's initial discovery path runs. Callers wanting to test
+// reload semantics need to launch a fresh Proxy per resource
+// snapshot.
+func (r *EnvoyProxy) WithDynamicResources(dir *Directory) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/xds.go:60:1)
+	assertNotNil("dir", dir)
+	q := r.query.Select("withDynamicResources")
+	q = q.Arg("dir", dir)
+
+	return &EnvoyProxy{
+		query: q,
+	}
+}
+
 // WithListener appends a listener to the proxy.
-func (r *EnvoyProxy) WithListener(l *EnvoyListener) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:671:1)
+func (r *EnvoyProxy) WithListener(l *EnvoyListener) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:679:1)
 	assertNotNil("l", l)
 	q := r.query.Select("withListener")
 	q = q.Arg("l", l)
@@ -1774,7 +1868,7 @@ func (r *EnvoyProxy) WithListener(l *EnvoyListener) *EnvoyProxy { // envoy (../.
 
 // WithServiceBinding binds an upstream service into Envoy's network
 // so cluster endpoints can reach it by hostname.
-func (r *EnvoyProxy) WithServiceBinding(host string, svc *Service) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:663:1)
+func (r *EnvoyProxy) WithServiceBinding(host string, svc *Service) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/main.go:671:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withServiceBinding")
 	q = q.Arg("host", host)
@@ -1794,7 +1888,7 @@ func (r *EnvoyProxy) AsNode() Node {
 }
 
 // Route is a single HTTP route (prefix match → cluster).
-type EnvoyRoute struct { // envoy (../../../../../daggerverse/envoy/main.go:169:6)
+type EnvoyRoute struct { // envoy (../../../../../daggerverse/envoy/main.go:170:6)
 	query *querybuilder.Selection
 
 	cluster *string
@@ -1808,7 +1902,7 @@ func (r *EnvoyRoute) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyRoute {
 	}
 }
 
-func (r *EnvoyRoute) Cluster(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:171:2)
+func (r *EnvoyRoute) Cluster(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:172:2)
 	if r.cluster != nil {
 		return *r.cluster, nil
 	}
@@ -1869,7 +1963,7 @@ func (r *EnvoyRoute) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyRoute) Prefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:170:2)
+func (r *EnvoyRoute) Prefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:171:2)
 	if r.prefix != nil {
 		return *r.prefix, nil
 	}
@@ -1890,7 +1984,7 @@ func (r *EnvoyRoute) AsNode() Node {
 }
 
 // RouteConfig is a named route configuration (a set of virtual hosts).
-type EnvoyRouteConfig struct { // envoy (../../../../../daggerverse/envoy/main.go:218:6)
+type EnvoyRouteConfig struct { // envoy (../../../../../daggerverse/envoy/main.go:219:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -1960,7 +2054,7 @@ func (r *EnvoyRouteConfig) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyRouteConfig) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:219:2)
+func (r *EnvoyRouteConfig) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:220:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1972,7 +2066,7 @@ func (r *EnvoyRouteConfig) Name(ctx context.Context) (string, error) { // envoy 
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyRouteConfig) VirtualHosts(ctx context.Context) ([]EnvoyVirtualHost, error) { // envoy (../../../../../daggerverse/envoy/main.go:220:2)
+func (r *EnvoyRouteConfig) VirtualHosts(ctx context.Context) ([]EnvoyVirtualHost, error) { // envoy (../../../../../daggerverse/envoy/main.go:221:2)
 	q := r.query.Select("virtualHosts")
 
 	q = q.Select("id")
@@ -2005,7 +2099,7 @@ func (r *EnvoyRouteConfig) VirtualHosts(ctx context.Context) ([]EnvoyVirtualHost
 }
 
 // WithVirtualHost appends a VirtualHost to the route config.
-func (r *EnvoyRouteConfig) WithVirtualHost(v *EnvoyVirtualHost) *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:232:1)
+func (r *EnvoyRouteConfig) WithVirtualHost(v *EnvoyVirtualHost) *EnvoyRouteConfig { // envoy (../../../../../daggerverse/envoy/main.go:233:1)
 	assertNotNil("v", v)
 	q := r.query.Select("withVirtualHost")
 	q = q.Arg("v", v)
@@ -2098,7 +2192,7 @@ func (r *EnvoyServerSecurity) AsNode() Node {
 
 // TcpProxy is the network-level filter that forwards bytes from a
 // TcpListener to a single cluster.
-type EnvoyTCPProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:463:6)
+type EnvoyTCPProxy struct { // envoy (../../../../../daggerverse/envoy/main.go:464:6)
 	query *querybuilder.Selection
 
 	cluster    *string
@@ -2112,7 +2206,7 @@ func (r *EnvoyTCPProxy) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyTCPPro
 	}
 }
 
-func (r *EnvoyTCPProxy) Cluster(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:465:2)
+func (r *EnvoyTCPProxy) Cluster(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:466:2)
 	if r.cluster != nil {
 		return *r.cluster, nil
 	}
@@ -2173,7 +2267,7 @@ func (r *EnvoyTCPProxy) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyTCPProxy) StatPrefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:464:2)
+func (r *EnvoyTCPProxy) StatPrefix(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:465:2)
 	if r.statPrefix != nil {
 		return *r.statPrefix, nil
 	}
@@ -2268,7 +2362,7 @@ func (r *EnvoyUpstreamSecurity) AsNode() Node {
 
 // VirtualHost is a named virtual host with a domain list and an
 // ordered set of routes.
-type EnvoyVirtualHost struct { // envoy (../../../../../daggerverse/envoy/main.go:188:6)
+type EnvoyVirtualHost struct { // envoy (../../../../../daggerverse/envoy/main.go:189:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -2289,7 +2383,7 @@ func (r *EnvoyVirtualHost) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyVir
 	}
 }
 
-func (r *EnvoyVirtualHost) Domains(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:190:2)
+func (r *EnvoyVirtualHost) Domains(ctx context.Context) ([]string, error) { // envoy (../../../../../daggerverse/envoy/main.go:191:2)
 	q := r.query.Select("domains")
 
 	var response []string
@@ -2347,7 +2441,7 @@ func (r *EnvoyVirtualHost) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyVirtualHost) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:189:2)
+func (r *EnvoyVirtualHost) Name(ctx context.Context) (string, error) { // envoy (../../../../../daggerverse/envoy/main.go:190:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -2359,7 +2453,7 @@ func (r *EnvoyVirtualHost) Name(ctx context.Context) (string, error) { // envoy 
 	return response, q.Execute(ctx)
 }
 
-func (r *EnvoyVirtualHost) Routes(ctx context.Context) ([]EnvoyRoute, error) { // envoy (../../../../../daggerverse/envoy/main.go:191:2)
+func (r *EnvoyVirtualHost) Routes(ctx context.Context) ([]EnvoyRoute, error) { // envoy (../../../../../daggerverse/envoy/main.go:192:2)
 	q := r.query.Select("routes")
 
 	q = q.Select("id")
@@ -2392,7 +2486,7 @@ func (r *EnvoyVirtualHost) Routes(ctx context.Context) ([]EnvoyRoute, error) { /
 }
 
 // WithRoute appends a route to the virtual host.
-func (r *EnvoyVirtualHost) WithRoute(route *EnvoyRoute) *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:211:1)
+func (r *EnvoyVirtualHost) WithRoute(route *EnvoyRoute) *EnvoyVirtualHost { // envoy (../../../../../daggerverse/envoy/main.go:212:1)
 	assertNotNil("route", route)
 	q := r.query.Select("withRoute")
 	q = q.Arg("route", route)
@@ -2410,9 +2504,203 @@ func (r *EnvoyVirtualHost) AsNode() Node {
 	}
 }
 
+// XdsResources composes the same v1 component types the static
+// builders take (Listener, Cluster) into the discovery-resource files
+// a file-based xDS Proxy consumes. Composition mirrors Proxy: WithX
+// methods return shallow copies.
+type EnvoyXdsResources struct { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+	query *querybuilder.Selection
+
+	id *ID
+}
+type WithEnvoyXdsResourcesFunc func(r *EnvoyXdsResources) *EnvoyXdsResources
+
+// With calls the provided function with current EnvoyXdsResources.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *EnvoyXdsResources) With(f WithEnvoyXdsResourcesFunc) *EnvoyXdsResources {
+	return f(r)
+}
+
+func (r *EnvoyXdsResources) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyXdsResources {
+	return &EnvoyXdsResources{
+		query: q,
+	}
+}
+
+func (r *EnvoyXdsResources) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // envoy (../../../../../daggerverse/envoy/xds.go:126:2)
+	q := r.query.Select("clusters")
+
+	q = q.Select("id")
+
+	type clusters struct {
+		Id ID
+	}
+
+	convert := func(fields []clusters) []EnvoyCluster {
+		out := []EnvoyCluster{}
+
+		for i := range fields {
+			val := EnvoyCluster{id: &fields[i].Id}
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyCluster")
+			out = append(out, val)
+		}
+
+		return out
+	}
+	var response []clusters
+
+	q = q.Bind(&response)
+
+	err := q.Execute(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return convert(response), nil
+}
+
+// Directory renders lds.yaml and cds.yaml — v3 discovery responses
+// carrying the registered listeners and clusters — into a directory
+// suitable for (*Proxy).WithDynamicResources. Each resource is
+// structurally identical to the static_resources entry the same
+// component produces in static mode, plus the `@type` discriminator
+// the discovery response requires.
+//
+// Route configurations stay inline in each listener's
+// HttpConnectionManager, so no rds.yaml is emitted: the v1 builders
+// have no way to express an RDS config source. Callers who need RDS
+// bring their own directory containing rds.yaml plus listeners that
+// reference it.
+//
+// Returns a non-nil error under the same conditions as
+// (*Proxy).ConfigFile() — a listener referencing a cluster that isn't
+// registered here, or two listeners sharing a name — and also when
+// any component carries TLS / mTLS security, whose key material only
+// (*Proxy).Service() can mount and which the Proxy cannot see through
+// an opaque resource directory.
+func (r *EnvoyXdsResources) Directory() *Directory { // envoy (../../../../../daggerverse/envoy/xds.go:169:1)
+	q := r.query.Select("directory")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// A unique identifier for this EnvoyXdsResources.
+func (r *EnvoyXdsResources) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *EnvoyXdsResources) XXX_GraphQLType() string {
+	return "EnvoyXdsResources"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *EnvoyXdsResources) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *EnvoyXdsResources) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *EnvoyXdsResources) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *EnvoyXdsResources) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = EnvoyXdsResources{query: selectNode(dag.query, id, "EnvoyXdsResources")}
+	return nil
+}
+
+func (r *EnvoyXdsResources) Listeners(ctx context.Context) ([]EnvoyListener, error) { // envoy (../../../../../daggerverse/envoy/xds.go:125:2)
+	q := r.query.Select("listeners")
+
+	q = q.Select("id")
+
+	type listeners struct {
+		Id ID
+	}
+
+	convert := func(fields []listeners) []EnvoyListener {
+		out := []EnvoyListener{}
+
+		for i := range fields {
+			val := EnvoyListener{id: &fields[i].Id}
+			val.query = selectNode(q.Root(), fields[i].Id, "EnvoyListener")
+			out = append(out, val)
+		}
+
+		return out
+	}
+	var response []listeners
+
+	q = q.Bind(&response)
+
+	err := q.Execute(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return convert(response), nil
+}
+
+// WithCluster appends a cluster to the CDS resource set.
+func (r *EnvoyXdsResources) WithCluster(c *EnvoyCluster) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:144:1)
+	assertNotNil("c", c)
+	q := r.query.Select("withCluster")
+	q = q.Arg("c", c)
+
+	return &EnvoyXdsResources{
+		query: q,
+	}
+}
+
+// WithListener appends a listener to the LDS resource set.
+func (r *EnvoyXdsResources) WithListener(l *EnvoyListener) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:137:1)
+	assertNotNil("l", l)
+	q := r.query.Select("withListener")
+	q = q.Arg("l", l)
+
+	return &EnvoyXdsResources{
+		query: q,
+	}
+}
+
+// AsNode returns this EnvoyXdsResources as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *EnvoyXdsResources) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Envoy is the top-level builder type. All component factories hang
 // off of it.
-func (r *Query) Envoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:36:6)
+func (r *Query) Envoy() *Envoy { // envoy (../../../../../daggerverse/envoy/main.go:37:6)
 	q := r.query.Select("envoy")
 
 	return &Envoy{

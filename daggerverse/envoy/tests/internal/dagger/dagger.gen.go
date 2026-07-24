@@ -266,6 +266,9 @@ type EnvoyUpstreamSecurityID string
 type EnvoyVirtualHostID string
 
 // A unique identifier for an object.
+type EnvoyXdsResourcesID string
+
+// A unique identifier for an object.
 type ErrorID string
 
 // A unique identifier for an object.
@@ -13235,6 +13238,16 @@ func (r *Query) LoadEnvoyVirtualHostFromID(id EnvoyVirtualHostID) *EnvoyVirtualH
 	q = q.Arg("id", id)
 
 	return &EnvoyVirtualHost{
+		query: q,
+	}
+}
+
+// Load a EnvoyXdsResources from its ID.
+func (r *Query) LoadEnvoyXdsResourcesFromID(id EnvoyXdsResourcesID) *EnvoyXdsResources {
+	q := r.query.Select("loadEnvoyXdsResourcesFromID")
+	q = q.Arg("id", id)
+
+	return &EnvoyXdsResources{
 		query: q,
 	}
 }
