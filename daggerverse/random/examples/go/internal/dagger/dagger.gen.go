@@ -295,9 +295,6 @@ type Platform string
 type PortID string
 
 // A unique identifier for an object.
-type RandomExamplesID string
-
-// A unique identifier for an object.
 type RandomID string
 
 // A unique identifier for an object.
@@ -13231,16 +13228,6 @@ func (r *Query) LoadPortFromID(id PortID) *Port {
 	q = q.Arg("id", id)
 
 	return &Port{
-		query: q,
-	}
-}
-
-// Load a RandomExamples from its ID.
-func (r *Query) LoadRandomExamplesFromID(id RandomExamplesID) *RandomExamples {
-	q := r.query.Select("loadRandomExamplesFromID")
-	q = q.Arg("id", id)
-
-	return &RandomExamples{
 		query: q,
 	}
 }
