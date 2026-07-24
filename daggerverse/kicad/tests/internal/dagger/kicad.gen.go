@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Kicad
-func (r *Binding) AsKicad() *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:64:6)
+func (r *Binding) AsKicad() *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
 	q := r.query.Select("asKicad")
 
 	return &Kicad{
@@ -37,7 +37,7 @@ func (r *Binding) AsKicadPcb() *KicadPcb { // kicad (../../../../../daggerverse/
 }
 
 // Retrieve the binding value, as type KicadProject
-func (r *Binding) AsKicadProject() *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:125:6)
+func (r *Binding) AsKicadProject() *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
 	q := r.query.Select("asKicadProject")
 
 	return &KicadProject{
@@ -79,7 +79,7 @@ func (r *Env) WithKicadCiOutput(name string, description string) *Env { // kicad
 }
 
 // Create or update a binding of type Kicad in the environment
-func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:64:6)
+func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKicadInput")
 	q = q.Arg("name", name)
@@ -92,7 +92,7 @@ func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env
 }
 
 // Declare a desired Kicad output to be assigned in the environment
-func (r *Env) WithKicadOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:64:6)
+func (r *Env) WithKicadOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
 	q := r.query.Select("withKicadOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -127,7 +127,7 @@ func (r *Env) WithKicadPcbOutput(name string, description string) *Env { // kica
 }
 
 // Create or update a binding of type KicadProject in the environment
-func (r *Env) WithKicadProjectInput(name string, value *KicadProject, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:125:6)
+func (r *Env) WithKicadProjectInput(name string, value *KicadProject, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKicadProjectInput")
 	q = q.Arg("name", name)
@@ -140,7 +140,7 @@ func (r *Env) WithKicadProjectInput(name string, value *KicadProject, descriptio
 }
 
 // Declare a desired KicadProject output to be assigned in the environment
-func (r *Env) WithKicadProjectOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:125:6)
+func (r *Env) WithKicadProjectOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
 	q := r.query.Select("withKicadProjectOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -177,7 +177,7 @@ func (r *Env) WithKicadSchOutput(name string, description string) *Env { // kica
 // Kicad wraps kicad-cli as Dagger functions. Construct via New(); call
 // Container() for the raw image, or Project(source) to reach the typed
 // pcb/sch helpers.
-type Kicad struct { // kicad (../../../../../daggerverse/kicad/main.go:64:6)
+type Kicad struct { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
 	query *querybuilder.Selection
 
 	id      *ID
@@ -206,7 +206,7 @@ func (r *Kicad) Ci(source *Directory) *KicadCi { // kicad (../../../../../dagger
 // Container returns the bare kicad image. This is the escape hatch for every
 // subcommand this module does not wrap — kicad-cli's long tail of exotic and
 // legacy exports stays reachable via `container with-exec`.
-func (r *Kicad) Container() *Container { // kicad (../../../../../daggerverse/kicad/main.go:94:1)
+func (r *Kicad) Container() *Container { // kicad (../../../../../daggerverse/kicad/main.go:95:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -266,7 +266,7 @@ func (r *Kicad) UnmarshalJSON(bs []byte) error {
 // Project binds a KiCad project directory to the toolchain. source is the
 // whole project tree, not a single file, because kicad-cli resolves
 // sub-sheets, footprint libraries and drawing sheets relative to it.
-func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:115:1)
+func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:116:1)
 	assertNotNil("source", source)
 	q := r.query.Select("project")
 	q = q.Arg("source", source)
@@ -278,7 +278,7 @@ func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../..
 
 // Version returns the KiCad release the pinned image ships, as reported by
 // `kicad-cli version`.
-func (r *Kicad) Version(ctx context.Context) (string, error) { // kicad (../../../../../daggerverse/kicad/main.go:102:1)
+func (r *Kicad) Version(ctx context.Context) (string, error) { // kicad (../../../../../daggerverse/kicad/main.go:103:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -904,7 +904,7 @@ func (r *KicadPcb) AsNode() Node {
 
 // Project is a KiCad project tree plus the options that apply to nearly every
 // kicad-cli subcommand. It is immutable: every With* returns a copy.
-type KicadProject struct { // kicad (../../../../../daggerverse/kicad/main.go:125:6)
+type KicadProject struct { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -980,7 +980,7 @@ func (r *KicadProject) UnmarshalJSON(bs []byte) error {
 // The jobset's outputs are written relative to the project, which is why the
 // whole tree comes back rather than a lone output folder: the jobset — not
 // this module — decides where its artifacts land.
-func (r *KicadProject) Jobset(path string) *Directory { // kicad (../../../../../daggerverse/kicad/main.go:204:1)
+func (r *KicadProject) Jobset(path string) *Directory { // kicad (../../../../../daggerverse/kicad/main.go:211:1)
 	q := r.query.Select("jobset")
 	q = q.Arg("path", path)
 
@@ -994,14 +994,14 @@ type KicadProjectPcbOpts struct {
 	//
 	// Project-relative path to the .kicad_pcb; empty auto-discovers.
 	//
-	Path string // kicad (../../../../../daggerverse/kicad/main.go:179:2)
+	Path string // kicad (../../../../../daggerverse/kicad/main.go:186:2)
 }
 
 // Pcb selects a board within the project. An empty path auto-discovers the
 // single *.kicad_pcb in the tree and errors when there are zero or more than
 // one; discovery is deferred to the exec so the error surfaces on the call
 // that needed the board.
-func (r *KicadProject) Pcb(opts ...KicadProjectPcbOpts) *KicadPcb { // kicad (../../../../../daggerverse/kicad/main.go:176:1)
+func (r *KicadProject) Pcb(opts ...KicadProjectPcbOpts) *KicadPcb { // kicad (../../../../../daggerverse/kicad/main.go:183:1)
 	q := r.query.Select("pcb")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `path` optional argument
@@ -1020,13 +1020,13 @@ type KicadProjectSchOpts struct {
 	//
 	// Project-relative path to the .kicad_sch; empty auto-discovers.
 	//
-	Path string // kicad (../../../../../daggerverse/kicad/main.go:190:2)
+	Path string // kicad (../../../../../daggerverse/kicad/main.go:197:2)
 }
 
 // Sch selects a schematic within the project. An empty path auto-discovers
 // the single *.kicad_sch in the tree, ignoring the sub-sheets of a
 // hierarchical design, and errors when there are zero or more than one root.
-func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (../../../../../daggerverse/kicad/main.go:187:1)
+func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (../../../../../daggerverse/kicad/main.go:194:1)
 	q := r.query.Select("sch")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `path` optional argument
@@ -1043,7 +1043,7 @@ func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (..
 // WithDrawingSheet overrides the project's drawing sheet with the supplied
 // .kicad_wks file (`--drawing-sheet`). It applies to the plotting exports;
 // subcommands that do not accept the flag ignore it.
-func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:166:1)
+func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:173:1)
 	assertNotNil("sheet", sheet)
 	q := r.query.Select("withDrawingSheet")
 	q = q.Arg("sheet", sheet)
@@ -1060,7 +1060,7 @@ func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (.
 // cannot accept map parameters. Validation is deferred to the exec: builder
 // methods have no error return, so a bad name surfaces when the export or
 // check that would have used it runs.
-func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:147:1)
+func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:148:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -1073,7 +1073,13 @@ func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kic
 // WithVariant selects a KiCad assembly variant (`--variant`). It applies to
 // the exports that support variants; checks (drc, erc) and drill files ignore
 // it because kicad-cli does not accept the flag there.
-func (r *KicadProject) WithVariant(variant string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:157:1)
+//
+// The name is validated against the variants the project file declares:
+// kicad-cli silently falls back to the default variant when handed an unknown
+// name, so an unrecognised variant would otherwise produce a wrong export with
+// no signal. Like WithVar, the check is deferred to the exec that uses it,
+// because a builder method has no error return.
+func (r *KicadProject) WithVariant(variant string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:164:1)
 	q := r.query.Select("withVariant")
 	q = q.Arg("variant", variant)
 
@@ -1328,17 +1334,17 @@ type KicadOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // kicad (../../../../../daggerverse/kicad/main.go:75:2)
+	Registry string // kicad (../../../../../daggerverse/kicad/main.go:76:2)
 	//
 	// Image tag for kicad/kicad.
 	//
 	//
 	// Default: "10.0"
-	Tag string // kicad (../../../../../daggerverse/kicad/main.go:78:2)
+	Tag string // kicad (../../../../../daggerverse/kicad/main.go:79:2)
 }
 
 // New returns a Kicad module backed by <registry>/kicad/kicad:<tag>.
-func (r *Query) Kicad(opts ...KicadOpts) *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:72:1)
+func (r *Query) Kicad(opts ...KicadOpts) *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:73:1)
 	q := r.query.Select("kicad")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument

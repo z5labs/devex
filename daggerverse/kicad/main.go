@@ -17,6 +17,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -154,6 +155,12 @@ func (p *Project) WithVar(name string, value string) *Project {
 // WithVariant selects a KiCad assembly variant (`--variant`). It applies to
 // the exports that support variants; checks (drc, erc) and drill files ignore
 // it because kicad-cli does not accept the flag there.
+//
+// The name is validated against the variants the project file declares:
+// kicad-cli silently falls back to the default variant when handed an unknown
+// name, so an unrecognised variant would otherwise produce a wrong export with
+// no signal. Like WithVar, the check is deferred to the exec that uses it,
+// because a builder method has no error return.
 func (p *Project) WithVariant(variant string) *Project {
 	out := p.clone()
 	out.Variant = variant
@@ -258,6 +265,47 @@ func (p *Project) validate() error {
 		}
 	}
 	return nil
+}
+
+// validateVariant reports the deferred WithVariant validation. kicad-cli
+// treats an unknown `--variant` as the default variant and exits 0, so a typo
+// would silently ship the wrong assembly; this rejects a name the project does
+// not declare, listing the ones it does. It is a no-op when no variant is
+// selected, and is checked even on the checks/drill subcommands that drop the
+// flag, so a bad name fails fast wherever the project is used.
+func (p *Project) validateVariant(ctx context.Context) error {
+	if p.Variant == "" {
+		return nil
+	}
+	pro, err := p.discover(ctx, projectFileExt, "")
+	if err != nil {
+		return err
+	}
+	contents, err := p.Source.File(pro).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read project file %q: %w", pro, err)
+	}
+	var doc struct {
+		Schematic struct {
+			Variants []struct {
+				Name string `json:"name"`
+			} `json:"variants"`
+		} `json:"schematic"`
+	}
+	if err := json.Unmarshal([]byte(contents), &doc); err != nil {
+		return fmt.Errorf("parse project file %q: %w", pro, err)
+	}
+	names := make([]string, 0, len(doc.Schematic.Variants))
+	for _, v := range doc.Schematic.Variants {
+		if v.Name == p.Variant {
+			return nil
+		}
+		names = append(names, v.Name)
+	}
+	if len(names) == 0 {
+		return fmt.Errorf("WithVariant: unknown variant %q: project declares no assembly variants", p.Variant)
+	}
+	return fmt.Errorf("WithVariant: unknown variant %q: project declares %s", p.Variant, strings.Join(names, ", "))
 }
 
 // container mounts the project read-only and stages a writable output dir.

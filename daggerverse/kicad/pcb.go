@@ -407,6 +407,9 @@ func (b *Pcb) resolve(ctx context.Context) (string, *dagger.Container, error) {
 	if err := b.Project.validate(); err != nil {
 		return "", nil, err
 	}
+	if err := b.Project.validateVariant(ctx); err != nil {
+		return "", nil, err
+	}
 	board, err := b.Project.discover(ctx, "kicad_pcb", b.Path)
 	if err != nil {
 		return "", nil, err

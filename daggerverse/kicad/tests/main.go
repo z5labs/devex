@@ -81,6 +81,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("JobsetRunProducesDeclaredOutputs", t.JobsetRunProducesDeclaredOutputs)
 	jobs = jobs.WithJob("JobsetRejectsMissingFile", t.JobsetRejectsMissingFile)
 
+	jobs = jobs.WithJob("WithDrawingSheetAppliesCustomSheet", t.WithDrawingSheetAppliesCustomSheet)
+	jobs = jobs.WithJob("WithVariantSelectsDesignVariant", t.WithVariantSelectsDesignVariant)
+	jobs = jobs.WithJob("WithVariantRejectsUnknownVariant", t.WithVariantRejectsUnknownVariant)
+	jobs = jobs.WithJob("WithVariantIgnoredByChecks", t.WithVariantIgnoredByChecks)
+
 	jobs = jobs.WithJob("CiCheckRunsErcAndDrc", t.CiCheckRunsErcAndDrc)
 	jobs = jobs.WithJob("CiCheckFailsOnViolations", t.CiCheckFailsOnViolations)
 	jobs = jobs.WithJob("CiRunProducesFabricationOutputs", t.CiRunProducesFabricationOutputs)
@@ -560,6 +565,102 @@ func (t *Tests) JobsetRejectsMissingFile(ctx context.Context) error {
 	return nil
 }
 
+// ------------------------------------------------ drawing sheet, variants
+
+// WithDrawingSheetAppliesCustomSheet asserts the custom drawing sheet's
+// title-block text lands in an export produced with it and is absent without
+// it. The board's SVG plot renders worksheet text as literal <text> elements
+// (unlike the PDF plot, which strokes it to geometry), so the marker string is
+// greppable in the exported document rather than only in rendered pixels.
+func (t *Tests) WithDrawingSheetAppliesCustomSheet(ctx context.Context) error {
+	const marker = "DEVEX-DRAWING-SHEET-158"
+	project := dag.Kicad().Project(fixture("blinky"))
+	layers := []string{"F.Cu", "Edge.Cuts"}
+
+	with, err := project.
+		WithDrawingSheet(fixtureFile("drawing-sheet/custom.kicad_wks")).
+		Pcb().Svg(layers).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Svg with the custom drawing sheet: %w", err)
+	}
+	if !strings.Contains(with, marker) {
+		return fmt.Errorf("expected the custom sheet's title-block text %q in the export, got:\n%s", marker, head(with))
+	}
+
+	without, err := project.Pcb().Svg(layers).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Svg without the custom drawing sheet: %w", err)
+	}
+	if strings.Contains(without, marker) {
+		return fmt.Errorf("expected %q to be absent without the custom sheet, but it was present", marker)
+	}
+	return nil
+}
+
+// WithVariantSelectsDesignVariant asserts two assembly variants of the same
+// project produce different BOMs. The variants fixture overrides R1's value per
+// variant (1k vs 10k), which the default BOM's Value column records verbatim,
+// so the selected variant is observable in exported text rather than geometry.
+func (t *Tests) WithVariantSelectsDesignVariant(ctx context.Context) error {
+	project := dag.Kicad().Project(fixture("variants"))
+
+	std, err := project.WithVariant("StandardBuild").Sch().Bom().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bom for StandardBuild: %w", err)
+	}
+	high, err := project.WithVariant("HighValueBuild").Sch().Bom().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bom for HighValueBuild: %w", err)
+	}
+	if std == high {
+		return fmt.Errorf("expected the two variants to produce different BOMs, got identical output:\n%s", head(std))
+	}
+	if !strings.Contains(std, `"R1","1k"`) {
+		return fmt.Errorf("expected R1=1k in the StandardBuild BOM, got:\n%s", head(std))
+	}
+	if !strings.Contains(high, `"R1","10k"`) {
+		return fmt.Errorf("expected R1=10k in the HighValueBuild BOM, got:\n%s", head(high))
+	}
+	return nil
+}
+
+// WithVariantRejectsUnknownVariant asserts an undeclared variant name produces
+// a clear error naming the variants the project does declare. kicad-cli
+// silently falls back to the default variant for an unknown name, so this is
+// the module's own validation rather than a passed-through kicad-cli error.
+func (t *Tests) WithVariantRejectsUnknownVariant(ctx context.Context) error {
+	_, err := dag.Kicad().Project(fixture("variants")).
+		WithVariant("NoSuchVariant").Sch().Bom().Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an error for an undeclared variant, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "unknown variant") {
+		return fmt.Errorf("expected a clear unknown-variant error, got: %v", err)
+	}
+	for _, want := range []string{"StandardBuild", "HighValueBuild"} {
+		if !strings.Contains(msg, want) {
+			return fmt.Errorf("expected the error to list the declared variant %s, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// WithVariantIgnoredByChecks asserts a variant-bearing project still passes ERC
+// and DRC with a variant selected. kicad-cli rejects --variant on sch erc and
+// pcb drc, so the module drops the flag there; a clean pass proves it was
+// dropped rather than passed through, which would fail as a usage error.
+func (t *Tests) WithVariantIgnoredByChecks(ctx context.Context) error {
+	project := dag.Kicad().Project(fixture("variants")).WithVariant("HighValueBuild")
+	if err := project.Sch().Erc(ctx); err != nil {
+		return fmt.Errorf("expected Erc to drop the selected variant and pass, got: %w", err)
+	}
+	if err := project.Pcb().Drc(ctx); err != nil {
+		return fmt.Errorf("expected Drc to drop the selected variant and pass, got: %w", err)
+	}
+	return nil
+}
+
 // ----------------------------------------------------------------------- ci
 
 // CiCheckRunsErcAndDrc asserts the chained pipeline runs both enabled checks
@@ -665,6 +766,13 @@ func (t *Tests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error {
 // fixture returns the named hand-authored KiCad project under fixtures/.
 func fixture(name string) *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/" + name)
+}
+
+// fixtureFile returns a single file under fixtures/ by project-relative path,
+// for the inputs — like a drawing sheet — that WithDrawingSheet takes as a
+// lone *dagger.File rather than a project directory.
+func fixtureFile(path string) *dagger.File {
+	return dag.CurrentModule().Source().File("fixtures/" + path)
 }
 
 // assertMagic exports a binary artifact and compares its leading bytes.

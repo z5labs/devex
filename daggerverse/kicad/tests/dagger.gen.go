@@ -444,6 +444,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).VersionReportsKicadRelease(&parent, ctx)
+		case "WithDrawingSheetAppliesCustomSheet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).WithDrawingSheetAppliesCustomSheet(&parent, ctx)
 		case "WithVarRejectsNameContainingEquals":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -458,6 +465,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).WithVarSubstitutesTextVariable(&parent, ctx)
+		case "WithVariantIgnoredByChecks":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).WithVariantIgnoredByChecks(&parent, ctx)
+		case "WithVariantRejectsUnknownVariant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).WithVariantRejectsUnknownVariant(&parent, ctx)
+		case "WithVariantSelectsDesignVariant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).WithVariantSelectsDesignVariant(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
