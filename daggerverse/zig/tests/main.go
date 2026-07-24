@@ -75,7 +75,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiWithFmtPasses", t.CiWithFmtPasses)
 	jobs = jobs.WithJob("CiWithTestPasses", t.CiWithTestPasses)
 	jobs = jobs.WithJob("CiRunAllStagesProducesBinary", t.CiRunAllStagesProducesBinary)
-	jobs = jobs.WithJob("CiCheckRunsChecksAndSkipsBuild", t.CiCheckRunsChecksAndSkipsBuild)
+	jobs = jobs.WithJob("CiCheckWithBuildCatchesCompileError", t.CiCheckWithBuildCatchesCompileError)
+	jobs = jobs.WithJob("CiCheckWithoutBuildIsFmtOnly", t.CiCheckWithoutBuildIsFmtOnly)
+	jobs = jobs.WithJob("CiCheckWithBuildPassesOnCleanProject", t.CiCheckWithBuildPassesOnCleanProject)
 	jobs = jobs.WithJob("CiRunAggregatesFailures", t.CiRunAggregatesFailures)
 
 	return jobs.Run(ctx)
@@ -528,6 +530,15 @@ func ciBadDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/ci-bad")
 }
 
+// noCompileDir returns the fixture that reproduces issue #161: a full Zig
+// project that is fmt-clean but does not type-check (a string literal bound to
+// a u32, reachable from main). `zig fmt --check` passes; `zig build` fails. It
+// underpins the tests that prove Ci.Check honours WithBuild — building catches
+// the compile error, while a build-free Check reports a false green.
+func noCompileDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/no-compile")
+}
+
 // CiWithFmtPasses runs Ci with only the Fmt check enabled against the
 // fmt-clean hello fixture and asserts the build stage still produces a
 // non-empty binary.
@@ -572,20 +583,49 @@ func (t *Tests) CiRunAllStagesProducesBinary(ctx context.Context) error {
 	return nil
 }
 
-// CiCheckRunsChecksAndSkipsBuild configures every stage against the clean hello
-// fixture and calls Check (not Run), asserting no error. To actively prove
-// Check does not invoke the build stage, WithBuild is configured with a
-// nonexistent build step: if Check were to call runBuild, `zig build
-// nonexistent-step` would fail and surface here. A nil return therefore proves
-// both (a) the checks passed and (b) the build was skipped.
-func (t *Tests) CiCheckRunsChecksAndSkipsBuild(ctx context.Context) error {
+// CiCheckWithBuildCatchesCompileError is the core regression test for issue
+// #161: Ci.Check must compile when WithBuild was requested. The no-compile
+// fixture is fmt-clean but does not type-check, so with only Fmt enabled Check
+// reports a false green (see CiCheckWithoutBuildIsFmtOnly). Adding WithBuild
+// must make Check run the build stage and surface the compile error.
+func (t *Tests) CiCheckWithBuildCatchesCompileError(ctx context.Context) error {
+	err := dag.Zig().Ci(noCompileDir()).
+		WithFmt().
+		WithBuild().
+		Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Ci.WithFmt.WithBuild.Check to fail on a non-compiling project, got nil (false green)")
+	}
+	return nil
+}
+
+// CiCheckWithoutBuildIsFmtOnly is the counterpart to
+// CiCheckWithBuildCatchesCompileError and pins the opt-in semantics: without
+// WithBuild, Check runs only the enabled static checks and never compiles. The
+// no-compile fixture is fmt-clean, so Fmt-only Check passes even though the
+// project does not build. This preserves the documented build-free Check for
+// multi-target pipelines that share one check run across N target builds.
+func (t *Tests) CiCheckWithoutBuildIsFmtOnly(ctx context.Context) error {
+	if err := dag.Zig().Ci(noCompileDir()).WithFmt().Check(ctx); err != nil {
+		return fmt.Errorf("expected Fmt-only Check to pass on the fmt-clean no-compile fixture, got: %w", err)
+	}
+	return nil
+}
+
+// CiCheckWithBuildPassesOnCleanProject configures every stage against the clean
+// hello fixture and calls Check (not Run), asserting no error. With WithBuild
+// enabled, Check runs fmt, test, and the build stage; a nil return proves all
+// three passed. Together with CiCheckWithBuildCatchesCompileError (build catches
+// a compile error) this proves the build stage genuinely runs under Check when
+// requested, rather than being silently skipped.
+func (t *Tests) CiCheckWithBuildPassesOnCleanProject(ctx context.Context) error {
 	err := dag.Zig().Ci(helloDir()).
 		WithFmt().
 		WithTest().
-		WithBuild(dagger.ZigCiWithBuildOpts{Steps: []string{"nonexistent-step"}}).
+		WithBuild().
 		Check(ctx)
 	if err != nil {
-		return fmt.Errorf("Ci.Check on clean hello: %w", err)
+		return fmt.Errorf("Ci all-stages Check on clean hello: %w", err)
 	}
 	return nil
 }
