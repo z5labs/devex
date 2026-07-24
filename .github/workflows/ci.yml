@@ -88,6 +88,12 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Export this selection to Dagger Cloud so a run's check set can be
+          # traced back to the decision that produced it (#180). A raw
+          # `dagger call` reads the token from its environment, unlike the
+          # dagger/checks action the run legs use, which takes it as a
+          # cloud-token input. Empty for fork PRs -> no telemetry, no failure.
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
           jobs="$(dagger -m . call affected-checks --base="$BASE" --head="$HEAD")"
