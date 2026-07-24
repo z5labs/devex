@@ -276,6 +276,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).DefaultClusterTypeIsStrictDns(&parent, ctx)
+		case "DynamicResourcesConflictsWithStatic":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DynamicResourcesConflictsWithStatic(&parent, ctx)
+		case "DynamicResourcesRendersDynamicBootstrap":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DynamicResourcesRendersDynamicBootstrap(&parent, ctx)
+		case "DynamicResourcesRequiresLdsAndCds":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DynamicResourcesRequiresLdsAndCds(&parent, ctx)
 		case "L4TcpRoundTrip":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -304,6 +325,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).L4TcpTlsRoundTrip(&parent, ctx, envoyTag)
+		case "L4TcpXdsRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var envoyTag string
+			if inputArgs["envoyTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["envoyTag"]), &envoyTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg envoyTag", err))
+				}
+			}
+			return nil, (*Tests).L4TcpXdsRoundTrip(&parent, ctx, envoyTag)
 		case "L7HttpRoundTrip":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +353,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).L7HttpRoundTrip(&parent, ctx, envoyTag)
+		case "L7HttpXdsRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var envoyTag string
+			if inputArgs["envoyTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["envoyTag"]), &envoyTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg envoyTag", err))
+				}
+			}
+			return nil, (*Tests).L7HttpXdsRoundTrip(&parent, ctx, envoyTag)
 		case "L7HttpsMtlsAcceptsAuthorizedClient":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -507,6 +556,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).Validation(&parent, ctx, parallel)
+		case "XdsResourcesMatchStaticResources":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).XdsResourcesMatchStaticResources(&parent, ctx)
+		case "XdsResourcesRejectsInvalidResourceSet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).XdsResourcesRejectsInvalidResourceSet(&parent, ctx)
+		case "XdsResourcesRejectsSecureComponents":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).XdsResourcesRejectsSecureComponents(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

@@ -77,6 +77,12 @@ func (t *Tests) Validation(
 	jobs = jobs.WithJob("TlsUpstreamSecurityRendersUpstreamTlsContext", t.TlsUpstreamSecurityRendersUpstreamTlsContext)
 	jobs = jobs.WithJob("MtlsUpstreamSecurityIncludesClientLeaf", t.MtlsUpstreamSecurityIncludesClientLeaf)
 	jobs = jobs.WithJob("PlaintextUpstreamSecurityRendersNoTransportSocket", t.PlaintextUpstreamSecurityRendersNoTransportSocket)
+	jobs = jobs.WithJob("DynamicResourcesRendersDynamicBootstrap", t.DynamicResourcesRendersDynamicBootstrap)
+	jobs = jobs.WithJob("DynamicResourcesConflictsWithStatic", t.DynamicResourcesConflictsWithStatic)
+	jobs = jobs.WithJob("DynamicResourcesRequiresLdsAndCds", t.DynamicResourcesRequiresLdsAndCds)
+	jobs = jobs.WithJob("XdsResourcesMatchStaticResources", t.XdsResourcesMatchStaticResources)
+	jobs = jobs.WithJob("XdsResourcesRejectsInvalidResourceSet", t.XdsResourcesRejectsInvalidResourceSet)
+	jobs = jobs.WithJob("XdsResourcesRejectsSecureComponents", t.XdsResourcesRejectsSecureComponents)
 	return jobs.Run(ctx)
 }
 
@@ -150,6 +156,12 @@ func (t *Tests) RoundTrips(
 	})
 	jobs = jobs.WithJob("L4TcpTlsRoundTrip", func(ctx context.Context) error {
 		return t.L4TcpTlsRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L7HttpXdsRoundTrip", func(ctx context.Context) error {
+		return t.L7HttpXdsRoundTrip(ctx, envoyTag)
+	})
+	jobs = jobs.WithJob("L4TcpXdsRoundTrip", func(ctx context.Context) error {
+		return t.L4TcpXdsRoundTrip(ctx, envoyTag)
 	})
 	return jobs.Run(ctx)
 }

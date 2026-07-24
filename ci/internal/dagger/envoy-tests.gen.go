@@ -52,10 +52,15 @@ type EnvoyTests struct { // envoy-tests (../../../daggerverse/envoy/tests/main.g
 	customHttpFilterBodyIsSpliced                     *Void
 	customListenerBodyIsSpliced                       *Void
 	defaultClusterTypeIsStrictDns                     *Void
+	dynamicResourcesConflictsWithStatic               *Void
+	dynamicResourcesRendersDynamicBootstrap           *Void
+	dynamicResourcesRequiresLdsAndCds                 *Void
 	id                                                *ID
 	l4TcpRoundTrip                                    *Void
 	l4TcpTlsRoundTrip                                 *Void
+	l4TcpXdsRoundTrip                                 *Void
 	l7HttpRoundTrip                                   *Void
+	l7HttpXdsRoundTrip                                *Void
 	l7HttpsMtlsAcceptsAuthorizedClient                *Void
 	l7HttpsMtlsRejectsAnonymousClient                 *Void
 	l7HttpsRoundTrip                                  *Void
@@ -74,6 +79,9 @@ type EnvoyTests struct { // envoy-tests (../../../daggerverse/envoy/tests/main.g
 	upstreamMtlsRoundTrip                             *Void
 	upstreamTlsRoundTrip                              *Void
 	validation                                        *Void
+	xdsResourcesMatchStaticResources                  *Void
+	xdsResourcesRejectsInvalidResourceSet             *Void
+	xdsResourcesRejectsSecureComponents               *Void
 }
 
 func (r *EnvoyTests) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyTests {
@@ -86,15 +94,15 @@ func (r *EnvoyTests) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyTests {
 type EnvoyTestsAdminOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:92:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:98:2)
 
-	Parallel int // envoy-tests (../../../daggerverse/envoy/tests/main.go:94:2)
+	Parallel int // envoy-tests (../../../daggerverse/envoy/tests/main.go:100:2)
 }
 
 // Admin runs the boot-and-probe tests — Envoy comes up, we hit the
 // admin endpoint or assert misconfigurations fail at boot, no upstream
 // traffic.
-func (r *EnvoyTests) Admin(ctx context.Context, opts ...EnvoyTestsAdminOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:89:1)
+func (r *EnvoyTests) Admin(ctx context.Context, opts ...EnvoyTestsAdminOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:95:1)
 	if r.admin != nil {
 		return nil
 	}
@@ -117,14 +125,14 @@ func (r *EnvoyTests) Admin(ctx context.Context, opts ...EnvoyTestsAdminOpts) err
 type EnvoyTestsAdminEndpointServesReadyOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:466:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:478:2)
 }
 
 // AdminEndpointServesReady asserts the admin /ready endpoint
 // returns HTTP 200 from a fresh probe container service-bound to a
 // proxy whose minimal valid config is one HTTP listener wired to one
 // cluster.
-func (r *EnvoyTests) AdminEndpointServesReady(ctx context.Context, opts ...EnvoyTestsAdminEndpointServesReadyOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:463:1)
+func (r *EnvoyTests) AdminEndpointServesReady(ctx context.Context, opts ...EnvoyTestsAdminEndpointServesReadyOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:475:1)
 	if r.adminEndpointServesReady != nil {
 		return nil
 	}
@@ -174,7 +182,7 @@ func (r *EnvoyTests) All(ctx context.Context, opts ...EnvoyTestsAllOpts) error {
 // ConfigFileOverridesRendered asserts that WithConfigFile fully
 // replaces the rendered bootstrap; listeners and clusters added via
 // WithListener/WithCluster are ignored when an override is set.
-func (r *EnvoyTests) ConfigFileOverridesRendered(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:399:1)
+func (r *EnvoyTests) ConfigFileOverridesRendered(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:411:1)
 	if r.configFileOverridesRendered != nil {
 		return nil
 	}
@@ -186,7 +194,7 @@ func (r *EnvoyTests) ConfigFileOverridesRendered(ctx context.Context) error { //
 // CustomHttpFilterBodyIsSpliced asserts that a CustomHttpFilter's
 // caller-supplied YAML body lands as the filter's typed_config in
 // the rendered HCM http_filters chain.
-func (r *EnvoyTests) CustomHTTPFilterBodyIsSpliced(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:338:1)
+func (r *EnvoyTests) CustomHTTPFilterBodyIsSpliced(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:350:1)
 	if r.customHttpFilterBodyIsSpliced != nil {
 		return nil
 	}
@@ -199,7 +207,7 @@ func (r *EnvoyTests) CustomHTTPFilterBodyIsSpliced(ctx context.Context) error { 
 // caller-supplied YAML body round-trips verbatim under
 // static_resources.listeners with the builder-supplied name keyed
 // in.
-func (r *EnvoyTests) CustomListenerBodyIsSpliced(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:295:1)
+func (r *EnvoyTests) CustomListenerBodyIsSpliced(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:307:1)
 	if r.customListenerBodyIsSpliced != nil {
 		return nil
 	}
@@ -211,11 +219,49 @@ func (r *EnvoyTests) CustomListenerBodyIsSpliced(ctx context.Context) error { //
 // DefaultClusterTypeIsStrictDns asserts a cluster built with default
 // clusterType renders as `type: STRICT_DNS` in the rendered
 // bootstrap YAML.
-func (r *EnvoyTests) DefaultClusterTypeIsStrictDNS(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:227:1)
+func (r *EnvoyTests) DefaultClusterTypeIsStrictDNS(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:239:1)
 	if r.defaultClusterTypeIsStrictDns != nil {
 		return nil
 	}
 	q := r.query.Select("defaultClusterTypeIsStrictDns")
+
+	return q.Execute(ctx)
+}
+
+// DynamicResourcesConflictsWithStatic asserts that mixing
+// WithDynamicResources with any of WithListener / WithCluster /
+// WithConfigFile on the same Proxy makes ConfigFile() return a
+// non-nil error — the two configuration modes are exclusive.
+func (r *EnvoyTests) DynamicResourcesConflictsWithStatic(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:372:1)
+	if r.dynamicResourcesConflictsWithStatic != nil {
+		return nil
+	}
+	q := r.query.Select("dynamicResourcesConflictsWithStatic")
+
+	return q.Execute(ctx)
+}
+
+// DynamicResourcesRendersDynamicBootstrap asserts WithDynamicResources
+// renders a bootstrap whose dynamic_resources block points lds/cds at
+// the mounted xds directory and which carries no static_resources.
+func (r *EnvoyTests) DynamicResourcesRendersDynamicBootstrap(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:16:1)
+	if r.dynamicResourcesRendersDynamicBootstrap != nil {
+		return nil
+	}
+	q := r.query.Select("dynamicResourcesRendersDynamicBootstrap")
+
+	return q.Execute(ctx)
+}
+
+// DynamicResourcesRequiresLdsAndCds asserts Service() rejects a
+// resource directory missing either of the two files the bootstrap's
+// dynamic_resources block points at, rather than booting an Envoy
+// that silently discovers nothing.
+func (r *EnvoyTests) DynamicResourcesRequiresLdsAndCds(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:349:1)
+	if r.dynamicResourcesRequiresLdsAndCds != nil {
+		return nil
+	}
+	q := r.query.Select("dynamicResourcesRequiresLdsAndCds")
 
 	return q.Execute(ctx)
 }
@@ -273,13 +319,13 @@ func (r *EnvoyTests) UnmarshalJSON(bs []byte) error {
 type EnvoyTestsL4TcpRoundTripOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:581:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:593:2)
 }
 
 // L4TcpRoundTrip stands up an alpine `nc` echo upstream behind an
 // Envoy TcpListener and asserts that bytes sent through Envoy come
 // back on the same TCP connection.
-func (r *EnvoyTests) L4TcpRoundTrip(ctx context.Context, opts ...EnvoyTestsL4TcpRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:578:1)
+func (r *EnvoyTests) L4TcpRoundTrip(ctx context.Context, opts ...EnvoyTestsL4TcpRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:590:1)
 	if r.l4TcpRoundTrip != nil {
 		return nil
 	}
@@ -319,21 +365,75 @@ func (r *EnvoyTests) L4TcpTLSRoundTrip(ctx context.Context, opts ...EnvoyTestsL4
 	return q.Execute(ctx)
 }
 
+// EnvoyTestsL4TcpXdsRoundTripOpts contains options for EnvoyTests.L4TcpXdsRoundTrip
+type EnvoyTestsL4TcpXdsRoundTripOpts struct {
+
+	// Default: "v1.32.1"
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/xds.go:137:2)
+}
+
+// L4TcpXdsRoundTrip stands up an alpine `nc` echo upstream behind an
+// Envoy TcpListener delivered over file-based xDS and asserts bytes
+// sent through Envoy come back on the same TCP connection. Also
+// asserts ListenerEndpoint resolves the listener's port out of the
+// mounted lds.yaml, since no Listener is registered on the Proxy in
+// this mode.
+func (r *EnvoyTests) L4TcpXdsRoundTrip(ctx context.Context, opts ...EnvoyTestsL4TcpXdsRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:134:1)
+	if r.l4TcpXdsRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("l4TcpXdsRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `envoyTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].EnvoyTag) {
+			q = q.Arg("envoyTag", opts[i].EnvoyTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // EnvoyTestsL7HttpRoundTripOpts contains options for EnvoyTests.L7HttpRoundTrip
 type EnvoyTestsL7HttpRoundTripOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:534:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:546:2)
 }
 
 // L7HttpRoundTrip stands up an HTTP upstream behind an Envoy
 // HttpListener and asserts a request through Envoy returns a fresh
 // random marker served by the upstream.
-func (r *EnvoyTests) L7HttpRoundTrip(ctx context.Context, opts ...EnvoyTestsL7HttpRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:531:1)
+func (r *EnvoyTests) L7HttpRoundTrip(ctx context.Context, opts ...EnvoyTestsL7HttpRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:543:1)
 	if r.l7HttpRoundTrip != nil {
 		return nil
 	}
 	q := r.query.Select("l7HttpRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `envoyTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].EnvoyTag) {
+			q = q.Arg("envoyTag", opts[i].EnvoyTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// EnvoyTestsL7HttpXdsRoundTripOpts contains options for EnvoyTests.L7HttpXdsRoundTrip
+type EnvoyTestsL7HttpXdsRoundTripOpts struct {
+
+	// Default: "v1.32.1"
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/xds.go:85:2)
+}
+
+// L7HttpXdsRoundTrip stands up an HTTP upstream behind an Envoy
+// proxy whose listeners and clusters arrive over file-based xDS
+// rather than static_resources, and asserts a request through Envoy
+// returns a fresh random marker served by the upstream.
+func (r *EnvoyTests) L7HttpXdsRoundTrip(ctx context.Context, opts ...EnvoyTestsL7HttpXdsRoundTripOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:82:1)
+	if r.l7HttpXdsRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("l7HttpXdsRoundTrip")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `envoyTag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].EnvoyTag) {
@@ -469,7 +569,7 @@ func (r *EnvoyTests) PlaintextUpstreamSecurityRendersNoTransportSocket(ctx conte
 // RejectsDuplicateListenerName asserts that wiring two listeners
 // sharing the same name into a Proxy causes ConfigFile() to return a
 // non-nil error.
-func (r *EnvoyTests) RejectsDuplicateListenerName(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:260:1)
+func (r *EnvoyTests) RejectsDuplicateListenerName(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:272:1)
 	if r.rejectsDuplicateListenerName != nil {
 		return nil
 	}
@@ -482,7 +582,7 @@ func (r *EnvoyTests) RejectsDuplicateListenerName(ctx context.Context) error { /
 // factories reject names that don't match [A-Za-z0-9_-]+ with a
 // non-nil error. AC calls out Envoy.Cluster and Envoy.VirtualHost
 // explicitly; RoutePrefix's cluster arg shares the same validator.
-func (r *EnvoyTests) RejectsInvalidComponentName(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:180:1)
+func (r *EnvoyTests) RejectsInvalidComponentName(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:192:1)
 	if r.rejectsInvalidComponentName != nil {
 		return nil
 	}
@@ -494,7 +594,7 @@ func (r *EnvoyTests) RejectsInvalidComponentName(ctx context.Context) error { //
 // RejectsUnknownClusterReference asserts a listener whose filter
 // chain references a cluster not registered via WithCluster causes
 // ConfigFile() to return a non-nil error.
-func (r *EnvoyTests) RejectsUnknownClusterReference(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:277:1)
+func (r *EnvoyTests) RejectsUnknownClusterReference(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:289:1)
 	if r.rejectsUnknownClusterReference != nil {
 		return nil
 	}
@@ -506,7 +606,7 @@ func (r *EnvoyTests) RejectsUnknownClusterReference(ctx context.Context) error {
 // RejectsUnknownClusterType asserts Envoy.Cluster rejects clusterType
 // values outside {STATIC, STRICT_DNS, LOGICAL_DNS} with a non-nil
 // error.
-func (r *EnvoyTests) RejectsUnknownClusterType(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:210:1)
+func (r *EnvoyTests) RejectsUnknownClusterType(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:222:1)
 	if r.rejectsUnknownClusterType != nil {
 		return nil
 	}
@@ -519,15 +619,15 @@ func (r *EnvoyTests) RejectsUnknownClusterType(ctx context.Context) error { // e
 type EnvoyTestsRoundTripsOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:120:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:126:2)
 
-	Parallel int // envoy-tests (../../../daggerverse/envoy/tests/main.go:122:2)
+	Parallel int // envoy-tests (../../../daggerverse/envoy/tests/main.go:128:2)
 }
 
 // RoundTrips runs every L7/L4 + TLS/mTLS round-trip — each spins an
 // Envoy proxy plus an upstream service plus a curl client. The
 // heaviest of the three groups.
-func (r *EnvoyTests) RoundTrips(ctx context.Context, opts ...EnvoyTestsRoundTripsOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:117:1)
+func (r *EnvoyTests) RoundTrips(ctx context.Context, opts ...EnvoyTestsRoundTripsOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:123:1)
 	if r.roundTrips != nil {
 		return nil
 	}
@@ -550,14 +650,14 @@ func (r *EnvoyTests) RoundTrips(ctx context.Context, opts ...EnvoyTestsRoundTrip
 type EnvoyTestsServiceWithoutConfigFailsOpts struct {
 
 	// Default: "v1.32.1"
-	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:434:2)
+	EnvoyTag string // envoy-tests (../../../daggerverse/envoy/tests/main.go:446:2)
 }
 
 // ServiceWithoutConfigFails asserts that Service() on a Proxy with
 // no listeners, clusters, or override produces a container whose
 // admin port never opens (the envoy binary refuses to start without
 // -c).
-func (r *EnvoyTests) ServiceWithoutConfigFails(ctx context.Context, opts ...EnvoyTestsServiceWithoutConfigFailsOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:431:1)
+func (r *EnvoyTests) ServiceWithoutConfigFails(ctx context.Context, opts ...EnvoyTestsServiceWithoutConfigFailsOpts) error { // envoy-tests (../../../daggerverse/envoy/tests/main.go:443:1)
 	if r.serviceWithoutConfigFails != nil {
 		return nil
 	}
@@ -667,6 +767,47 @@ func (r *EnvoyTests) Validation(ctx context.Context, opts ...EnvoyTestsValidatio
 			q = q.Arg("parallel", opts[i].Parallel)
 		}
 	}
+
+	return q.Execute(ctx)
+}
+
+// XdsResourcesMatchStaticResources asserts that the lds.yaml /
+// cds.yaml discovery responses rendered by XdsResources.Directory()
+// are structurally equivalent to the static_resources block the same
+// components produce in static mode — identical apart from the
+// per-resource `@type` discriminator that only the xDS shape needs.
+func (r *EnvoyTests) XdsResourcesMatchStaticResources(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:194:1)
+	if r.xdsResourcesMatchStaticResources != nil {
+		return nil
+	}
+	q := r.query.Select("xdsResourcesMatchStaticResources")
+
+	return q.Execute(ctx)
+}
+
+// XdsResourcesRejectsInvalidResourceSet asserts Directory() surfaces
+// the same two errors (*Proxy).ConfigFile() does: two listeners
+// sharing a name, and a listener whose filter chain references a
+// cluster that isn't in the resource set.
+func (r *EnvoyTests) XdsResourcesRejectsInvalidResourceSet(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:277:1)
+	if r.xdsResourcesRejectsInvalidResourceSet != nil {
+		return nil
+	}
+	q := r.query.Select("xdsResourcesRejectsInvalidResourceSet")
+
+	return q.Execute(ctx)
+}
+
+// XdsResourcesRejectsSecureComponents asserts Directory() refuses
+// TLS / mTLS listeners and clusters: their rendered resources point
+// at key material under /etc/envoy/secrets that only the static
+// Service() path mounts, so a proxy fed them through an opaque
+// resource directory would boot and then fail every handshake.
+func (r *EnvoyTests) XdsResourcesRejectsSecureComponents(ctx context.Context) error { // envoy-tests (../../../daggerverse/envoy/tests/xds.go:313:1)
+	if r.xdsResourcesRejectsSecureComponents != nil {
+		return nil
+	}
+	q := r.query.Select("xdsResourcesRejectsSecureComponents")
 
 	return q.Execute(ctx)
 }

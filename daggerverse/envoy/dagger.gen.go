@@ -335,14 +335,15 @@ func (r *ServerSecurity) UnmarshalJSON(bs []byte) error {
 
 func (r Proxy) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Registry     string
-		Tag          string
-		AdminPort    int
-		Override     *dagger.File
-		Listeners    []*Listener
-		Clusters     []*Cluster
-		BindingHosts []string
-		BindingSvcs  []*dagger.Service
+		Registry         string
+		Tag              string
+		AdminPort        int
+		Override         *dagger.File
+		Listeners        []*Listener
+		Clusters         []*Cluster
+		BindingHosts     []string
+		BindingSvcs      []*dagger.Service
+		DynamicResources *dagger.Directory
 	}
 	concrete.Registry = r.Registry
 	concrete.Tag = r.Tag
@@ -352,19 +353,21 @@ func (r Proxy) MarshalJSON() ([]byte, error) {
 	concrete.Clusters = r.Clusters
 	concrete.BindingHosts = r.BindingHosts
 	concrete.BindingSvcs = r.BindingSvcs
+	concrete.DynamicResources = r.DynamicResources
 	return json.Marshal(&concrete)
 }
 
 func (r *Proxy) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Registry     string
-		Tag          string
-		AdminPort    int
-		Override     *dagger.File
-		Listeners    []*Listener
-		Clusters     []*Cluster
-		BindingHosts []string
-		BindingSvcs  []*dagger.Service
+		Registry         string
+		Tag              string
+		AdminPort        int
+		Override         *dagger.File
+		Listeners        []*Listener
+		Clusters         []*Cluster
+		BindingHosts     []string
+		BindingSvcs      []*dagger.Service
+		DynamicResources *dagger.Directory
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -378,6 +381,7 @@ func (r *Proxy) UnmarshalJSON(bs []byte) error {
 	r.Clusters = concrete.Clusters
 	r.BindingHosts = concrete.BindingHosts
 	r.BindingSvcs = concrete.BindingSvcs
+	r.DynamicResources = concrete.DynamicResources
 	return nil
 }
 
@@ -454,6 +458,30 @@ func (r *VirtualHost) UnmarshalJSON(bs []byte) error {
 	r.Name = concrete.Name
 	r.Domains = concrete.Domains
 	r.Routes = concrete.Routes
+	return nil
+}
+
+func (r XdsResources) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Listeners []*Listener
+		Clusters  []*Cluster
+	}
+	concrete.Listeners = r.Listeners
+	concrete.Clusters = r.Clusters
+	return json.Marshal(&concrete)
+}
+
+func (r *XdsResources) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Listeners []*Listener
+		Clusters  []*Cluster
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Listeners = concrete.Listeners
+	r.Clusters = concrete.Clusters
 	return nil
 }
 
@@ -1036,6 +1064,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Envoy).VirtualHost(&parent, name, domains)
+		case "XdsResources":
+			var parent Envoy
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Envoy).XdsResources(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -1094,7 +1129,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Proxy).Service(&parent)
+			return (*Proxy).Service(&parent, ctx)
 		case "WithCluster":
 			var parent Proxy
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1123,6 +1158,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Proxy).WithConfigFile(&parent, f), nil
+		case "WithDynamicResources":
+			var parent Proxy
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var dir *dagger.Directory
+			if inputArgs["dir"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dir"]), &dir)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dir", err))
+				}
+			}
+			return (*Proxy).WithDynamicResources(&parent, dir), nil
 		case "WithListener":
 			var parent Proxy
 			err = json.Unmarshal(parentJSON, &parent)
@@ -1196,6 +1245,46 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*VirtualHost).WithRoute(&parent, route), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "XdsResources":
+		switch fnName {
+		case "Directory":
+			var parent XdsResources
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*XdsResources).Directory(&parent)
+		case "WithCluster":
+			var parent XdsResources
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var c *Cluster
+			if inputArgs["c"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["c"]), &c)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg c", err))
+				}
+			}
+			return (*XdsResources).WithCluster(&parent, c), nil
+		case "WithListener":
+			var parent XdsResources
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var l *Listener
+			if inputArgs["l"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["l"]), &l)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg l", err))
+				}
+			}
+			return (*XdsResources).WithListener(&parent, l), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
