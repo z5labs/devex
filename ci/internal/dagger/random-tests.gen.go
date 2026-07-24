@@ -143,7 +143,7 @@ func (r *RandomTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *RandomTests) SerialShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:110:1)
+func (r *RandomTests) SerialShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:148:1)
 	if r.serialShouldNotBeCached != nil {
 		return nil
 	}
@@ -152,7 +152,7 @@ func (r *RandomTests) SerialShouldNotBeCached(ctx context.Context) error { // ra
 	return q.Execute(ctx)
 }
 
-func (r *RandomTests) Sha256ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:76:1)
+func (r *RandomTests) Sha256ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:114:1)
 	if r.sha256ShouldNotBeCached != nil {
 		return nil
 	}
@@ -161,7 +161,7 @@ func (r *RandomTests) Sha256ShouldNotBeCached(ctx context.Context) error { // ra
 	return q.Execute(ctx)
 }
 
-func (r *RandomTests) Sha512ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:93:1)
+func (r *RandomTests) Sha512ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:131:1)
 	if r.sha512ShouldNotBeCached != nil {
 		return nil
 	}
@@ -170,7 +170,7 @@ func (r *RandomTests) Sha512ShouldNotBeCached(ctx context.Context) error { // ra
 	return q.Execute(ctx)
 }
 
-func (r *RandomTests) UUIDV4ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:42:1)
+func (r *RandomTests) UUIDV4ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:80:1)
 	if r.uuidV4ShouldNotBeCached != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (r *RandomTests) UUIDV4ShouldNotBeCached(ctx context.Context) error { // ra
 	return q.Execute(ctx)
 }
 
-func (r *RandomTests) UUIDV7ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:59:1)
+func (r *RandomTests) UUIDV7ShouldNotBeCached(ctx context.Context) error { // random-tests (../../../daggerverse/random/tests/main.go:97:1)
 	if r.uuidV7ShouldNotBeCached != nil {
 		return nil
 	}
