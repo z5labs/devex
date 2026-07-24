@@ -266,6 +266,9 @@ type JSONValueID string
 type KicadCiID string
 
 // A unique identifier for an object.
+type KicadFpID string
+
+// A unique identifier for an object.
 type KicadID string
 
 // A unique identifier for an object.
@@ -276,6 +279,9 @@ type KicadProjectID string
 
 // A unique identifier for an object.
 type KicadSchID string
+
+// A unique identifier for an object.
+type KicadSymID string
 
 // A unique identifier for an object.
 type LLMID string
@@ -13164,6 +13170,16 @@ func (r *Query) LoadKicadCiFromID(id KicadCiID) *KicadCi {
 	}
 }
 
+// Load a KicadFp from its ID.
+func (r *Query) LoadKicadFpFromID(id KicadFpID) *KicadFp {
+	q := r.query.Select("loadKicadFpFromID")
+	q = q.Arg("id", id)
+
+	return &KicadFp{
+		query: q,
+	}
+}
+
 // Load a Kicad from its ID.
 func (r *Query) LoadKicadFromID(id KicadID) *Kicad {
 	q := r.query.Select("loadKicadFromID")
@@ -13200,6 +13216,16 @@ func (r *Query) LoadKicadSchFromID(id KicadSchID) *KicadSch {
 	q = q.Arg("id", id)
 
 	return &KicadSch{
+		query: q,
+	}
+}
+
+// Load a KicadSym from its ID.
+func (r *Query) LoadKicadSymFromID(id KicadSymID) *KicadSym {
+	q := r.query.Select("loadKicadSymFromID")
+	q = q.Arg("id", id)
+
+	return &KicadSym{
 		query: q,
 	}
 }

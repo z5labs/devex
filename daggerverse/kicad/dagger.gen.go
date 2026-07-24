@@ -63,9 +63,11 @@ func (r Kicad) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Registry string
 		Tag      string
+		Full     bool
 	}
 	concrete.Registry = r.Registry
 	concrete.Tag = r.Tag
+	concrete.Full = r.Full
 	return json.Marshal(&concrete)
 }
 
@@ -73,6 +75,7 @@ func (r *Kicad) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Registry string
 		Tag      string
+		Full     bool
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -80,6 +83,7 @@ func (r *Kicad) UnmarshalJSON(bs []byte) error {
 	}
 	r.Registry = concrete.Registry
 	r.Tag = concrete.Tag
+	r.Full = concrete.Full
 	return nil
 }
 
@@ -116,6 +120,30 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 	r.DrcEnabled = concrete.DrcEnabled
 	r.DrcSchematicParity = concrete.DrcSchematicParity
 	r.Outputs = concrete.Outputs
+	return nil
+}
+
+func (r Fp) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Kicad  *Kicad
+		Source *dagger.Directory
+	}
+	concrete.Kicad = r.Kicad
+	concrete.Source = r.Source
+	return json.Marshal(&concrete)
+}
+
+func (r *Fp) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Kicad  *Kicad
+		Source *dagger.Directory
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Kicad = concrete.Kicad
+	r.Source = concrete.Source
 	return nil
 }
 
@@ -156,6 +184,30 @@ func (r *Project) UnmarshalJSON(bs []byte) error {
 	r.VarValues = concrete.VarValues
 	r.Variant = concrete.Variant
 	r.DrawingSheet = concrete.DrawingSheet
+	return nil
+}
+
+func (r Sym) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Kicad  *Kicad
+		Source *dagger.File
+	}
+	concrete.Kicad = r.Kicad
+	concrete.Source = r.Source
+	return json.Marshal(&concrete)
+}
+
+func (r *Sym) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Kicad  *Kicad
+		Source *dagger.File
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Kicad = concrete.Kicad
+	r.Source = concrete.Source
 	return nil
 }
 
@@ -371,6 +423,39 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "Fp":
+		switch fnName {
+		case "Svg":
+			var parent Fp
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var footprint string
+			if inputArgs["footprint"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["footprint"]), &footprint)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg footprint", err))
+				}
+			}
+			return (*Fp).Svg(&parent, ctx, footprint)
+		case "Upgrade":
+			var parent Fp
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var force bool
+			if inputArgs["force"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["force"]), &force)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg force", err))
+				}
+			}
+			return (*Fp).Upgrade(&parent, ctx, force)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Kicad":
 		switch fnName {
 		case "Ci":
@@ -394,6 +479,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Kicad).Container(&parent), nil
+		case "Fp":
+			var parent Kicad
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Kicad).Fp(&parent, source), nil
 		case "Project":
 			var parent Kicad
 			err = json.Unmarshal(parentJSON, &parent)
@@ -408,6 +507,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Kicad).Project(&parent, source), nil
+		case "Sym":
+			var parent Kicad
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.File
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Kicad).Sym(&parent, source), nil
 		case "Version":
 			var parent Kicad
 			err = json.Unmarshal(parentJSON, &parent)
@@ -435,12 +548,47 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
 				}
 			}
-			return New(registry, tag), nil
+			var full bool
+			if inputArgs["full"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["full"]), &full)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg full", err))
+				}
+			}
+			return New(registry, tag, full), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
 	case "Pcb":
 		switch fnName {
+		case "Brep":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Brep(&parent, ctx, boardOnly, excludeDnp, outputName)
 		case "Drc":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -511,6 +659,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Drill(&parent, ctx, format, units, origin, separatePlatedHoles, generateMap)
+		case "Dxf":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var layers []string
+			if inputArgs["layers"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["layers"]), &layers)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg layers", err))
+				}
+			}
+			var units string
+			if inputArgs["units"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["units"]), &units)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg units", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Dxf(&parent, ctx, layers, units, outputName)
+		case "Gencad":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Gencad(&parent, ctx, outputName)
 		case "Gerbers":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -539,6 +729,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Gerbers(&parent, ctx, layers, precision, checkZones)
+		case "Glb":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Glb(&parent, ctx, boardOnly, excludeDnp, outputName)
+		case "Import":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var inputPath string
+			if inputArgs["inputPath"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["inputPath"]), &inputPath)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg inputPath", err))
+				}
+			}
+			var format string
+			if inputArgs["format"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["format"]), &format)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Import(&parent, ctx, inputPath, format, outputName)
 		case "Ipc2581":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -567,6 +813,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Ipc2581(&parent, ctx, version, units, outputName)
+		case "Ipcd356":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Ipcd356(&parent, ctx, outputName)
+		case "Odb":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var compression string
+			if inputArgs["compression"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["compression"]), &compression)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg compression", err))
+				}
+			}
+			var units string
+			if inputArgs["units"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["units"]), &units)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg units", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Odb(&parent, ctx, compression, units, outputName)
 		case "Pdf":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -588,6 +876,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Pdf(&parent, ctx, layers, outputName)
+		case "Pdf3d":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Pdf3d(&parent, ctx, boardOnly, excludeDnp, outputName)
 		case "PdfPerLayer":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -602,6 +918,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).PdfPerLayer(&parent, ctx, layers)
+		case "Ply":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Ply(&parent, ctx, boardOnly, excludeDnp, outputName)
 		case "Pos":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -644,6 +988,97 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Pos(&parent, ctx, side, format, units, smdOnly, outputName)
+		case "Ps":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var layers []string
+			if inputArgs["layers"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["layers"]), &layers)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg layers", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Ps(&parent, ctx, layers, outputName)
+		case "Render":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var side string
+			if inputArgs["side"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["side"]), &side)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg side", err))
+				}
+			}
+			var quality string
+			if inputArgs["quality"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["quality"]), &quality)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg quality", err))
+				}
+			}
+			var width int
+			if inputArgs["width"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["width"]), &width)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg width", err))
+				}
+			}
+			var height int
+			if inputArgs["height"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["height"]), &height)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg height", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Render(&parent, ctx, side, quality, width, height, outputName)
+		case "Stats":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var format string
+			if inputArgs["format"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["format"]), &format)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
+				}
+			}
+			var units string
+			if inputArgs["units"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["units"]), &units)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg units", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Stats(&parent, ctx, format, units, outputName)
 		case "Step":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -672,6 +1107,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).Step(&parent, ctx, boardOnly, excludeDnp, outputName)
+		case "Stl":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Stl(&parent, ctx, boardOnly, excludeDnp, outputName)
+		case "Stpz":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Stpz(&parent, ctx, boardOnly, excludeDnp, outputName)
 		case "Svg":
 			var parent Pcb
 			err = json.Unmarshal(parentJSON, &parent)
@@ -707,6 +1198,111 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pcb).SvgPerLayer(&parent, ctx, layers)
+		case "U3d":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).U3d(&parent, ctx, boardOnly, excludeDnp, outputName)
+		case "Upgrade":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var force bool
+			if inputArgs["force"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["force"]), &force)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg force", err))
+				}
+			}
+			return (*Pcb).Upgrade(&parent, ctx, force)
+		case "Vrml":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var units string
+			if inputArgs["units"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["units"]), &units)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg units", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Vrml(&parent, ctx, boardOnly, excludeDnp, units, outputName)
+		case "Xao":
+			var parent Pcb
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var boardOnly bool
+			if inputArgs["boardOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["boardOnly"]), &boardOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg boardOnly", err))
+				}
+			}
+			var excludeDnp bool
+			if inputArgs["excludeDnp"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["excludeDnp"]), &excludeDnp)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg excludeDnp", err))
+				}
+			}
+			var outputName string
+			if inputArgs["outputName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["outputName"]), &outputName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg outputName", err))
+				}
+			}
+			return (*Pcb).Xao(&parent, ctx, boardOnly, excludeDnp, outputName)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -850,6 +1446,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Sch).Bom(&parent, ctx, fields, groupBy, sortField, excludeDnp, outputName)
+		case "Dxf":
+			var parent Sch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Sch).Dxf(&parent, ctx)
 		case "Erc":
 			var parent Sch
 			err = json.Unmarshal(parentJSON, &parent)
@@ -899,6 +1502,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Sch).Pdf(&parent, ctx, outputName)
+		case "Ps":
+			var parent Sch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Sch).Ps(&parent, ctx)
 		case "Svg":
 			var parent Sch
 			err = json.Unmarshal(parentJSON, &parent)
@@ -906,6 +1516,39 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Sch).Svg(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "Sym":
+		switch fnName {
+		case "Svg":
+			var parent Sym
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var symbol string
+			if inputArgs["symbol"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["symbol"]), &symbol)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg symbol", err))
+				}
+			}
+			return (*Sym).Svg(&parent, ctx, symbol)
+		case "Upgrade":
+			var parent Sym
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var force bool
+			if inputArgs["force"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["force"]), &force)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg force", err))
+				}
+			}
+			return (*Sym).Upgrade(&parent, ctx, force)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

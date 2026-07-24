@@ -297,6 +297,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ErcReportsViolations(&parent, ctx)
+		case "FpSvgExportsFootprint":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FpSvgExportsFootprint(&parent, ctx)
+		case "FpUpgradeResavesLibrary":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FpUpgradeResavesLibrary(&parent, ctx)
+		case "GencadProducesGencad":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GencadProducesGencad(&parent, ctx)
 		case "GerbersDefaultExportsAllLayers":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -311,6 +332,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GerbersProduceOneFilePerLayer(&parent, ctx)
+		case "GlbBoardOnlyProducesGlb":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GlbBoardOnlyProducesGlb(&parent, ctx)
+		case "ImportRejectsUnknownFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ImportRejectsUnknownFormat(&parent, ctx)
 		case "Ipc2581ProducesXml":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +353,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).Ipc2581ProducesXml(&parent, ctx)
+		case "Ipcd356ProducesNetlist":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).Ipcd356ProducesNetlist(&parent, ctx)
 		case "JobsetRejectsMissingFile":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -346,6 +388,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).NetlistRejectsInvalidFormat(&parent, ctx)
+		case "OdbProducesArchive":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).OdbProducesArchive(&parent, ctx)
 		case "PcbAutoDiscoversSingleBoard":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -353,6 +402,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PcbAutoDiscoversSingleBoard(&parent, ctx)
+		case "PcbDxfProducesDxf":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PcbDxfProducesDxf(&parent, ctx)
 		case "PcbPdfIsSingleMultipageFile":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -367,6 +423,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PcbPdfPerLayerProducesFilePerLayer(&parent, ctx)
+		case "PcbPsProducesPostscript":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PcbPsProducesPostscript(&parent, ctx)
 		case "PcbRejectsAmbiguousAutoDiscovery":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -395,6 +458,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PcbSvgProducesSingleSvg(&parent, ctx)
+		case "PcbUpgradeProducesBoard":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PcbUpgradeProducesBoard(&parent, ctx)
 		case "PosDefaultsToAsciiBothSides":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -409,6 +479,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RejectsOutputNameWithPathSeparator(&parent, ctx)
+		case "RenderProducesPng":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RenderProducesPng(&parent, ctx)
 		case "SchAutoDiscoversSingleSchematic":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -416,6 +493,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SchAutoDiscoversSingleSchematic(&parent, ctx)
+		case "SchDxfProducesFilePerSheet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SchDxfProducesFilePerSheet(&parent, ctx)
 		case "SchPdfProducesPdf":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -423,6 +507,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SchPdfProducesPdf(&parent, ctx)
+		case "SchPsProducesFilePerSheet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SchPsProducesFilePerSheet(&parent, ctx)
 		case "SchSvgProducesOneFilePerSheet":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -430,6 +521,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SchSvgProducesOneFilePerSheet(&parent, ctx)
+		case "StatsProducesReport":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StatsProducesReport(&parent, ctx)
 		case "StepBoardOnlyProducesStepFile":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -437,6 +535,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).StepBoardOnlyProducesStepFile(&parent, ctx)
+		case "StepWithComponentModelsIncludesModels":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StepWithComponentModelsIncludesModels(&parent, ctx)
+		case "SymSvgExportsSymbol":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SymSvgExportsSymbol(&parent, ctx)
+		case "SymUpgradeResavesLibrary":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SymUpgradeResavesLibrary(&parent, ctx)
+		case "ThreeDExportRequiresFullImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ThreeDExportRequiresFullImage(&parent, ctx)
 		case "VersionReportsKicadRelease":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -444,6 +570,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).VersionReportsKicadRelease(&parent, ctx)
+		case "VrmlBoardOnlyProducesVrml":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).VrmlBoardOnlyProducesVrml(&parent, ctx)
 		case "WithDrawingSheetAppliesCustomSheet":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

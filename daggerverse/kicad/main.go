@@ -28,10 +28,14 @@ import (
 const (
 	// kicadImagePath is the repository under the configured registry. The
 	// default `10.0` tag is the slim CI image (~770MB); the `-full` variant
-	// bundles 3D component models and is a follow-up.
+	// (~1.34GB) additionally bundles the 3D component-model libraries.
 	kicadImagePath  = "kicad/kicad"
 	defaultRegistry = "docker.io"
 	defaultTag      = "10.0"
+
+	// fullSuffix is appended to the tag to select the -full image variant,
+	// which bundles the 3D component-model libraries the slim image omits.
+	fullSuffix = "-full"
 
 	// projectDir is where the caller's source is mounted. It is root-owned
 	// and the container runs as UID 1000, so it is read-only in practice.
@@ -67,6 +71,8 @@ type Kicad struct {
 	Registry string
 	// +private
 	Tag string
+	// +private
+	Full bool
 }
 
 // New returns a Kicad module backed by <registry>/kicad/kicad:<tag>.
@@ -77,6 +83,13 @@ func New(
 	// Image tag for kicad/kicad.
 	// +default="10.0"
 	tag string,
+	// Select the -full image variant, which bundles the 3D component-model
+	// libraries the slim image omits. The suffix is appended to tag, so
+	// full=true with the default 10.0 tag resolves 10.0-full. Required for any
+	// 3D export that includes component models (Step without boardOnly, Glb,
+	// Stl, ...); ~1.34GB against the slim image's ~770MB.
+	// +default=false
+	full bool,
 ) *Kicad {
 	if registry == "" {
 		registry = defaultRegistry
@@ -84,7 +97,7 @@ func New(
 	if tag == "" {
 		tag = defaultTag
 	}
-	return &Kicad{Registry: registry, Tag: tag}
+	return &Kicad{Registry: registry, Tag: tag, Full: full}
 }
 
 // Container returns the bare kicad image. This is the escape hatch for every
@@ -118,7 +131,24 @@ func (k *Kicad) Project(source *dagger.Directory) *Project {
 }
 
 func (k *Kicad) image() string {
-	return fmt.Sprintf("%s/%s:%s", k.Registry, kicadImagePath, k.Tag)
+	return fmt.Sprintf("%s/%s:%s", k.Registry, kicadImagePath, k.resolvedTag())
+}
+
+// resolvedTag applies the -full suffix when full is set, unless the tag
+// already carries it (so New(tag: "10.0-full") and New(full: true) agree).
+func (k *Kicad) resolvedTag() string {
+	if k.Full && !strings.HasSuffix(k.Tag, fullSuffix) {
+		return k.Tag + fullSuffix
+	}
+	return k.Tag
+}
+
+// hasComponentModels reports whether the selected image bundles the 3D
+// component-model libraries — true for the -full variant, whether reached via
+// full=true or a tag that already ends in -full. 3D exports consult this to
+// fail loudly rather than silently emit a board-only model on the slim image.
+func (k *Kicad) hasComponentModels() bool {
+	return strings.HasSuffix(k.resolvedTag(), fullSuffix)
 }
 
 // Project is a KiCad project tree plus the options that apply to nearly every

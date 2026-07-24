@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Kicad
-func (r *Binding) AsKicad() *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
+func (r *Binding) AsKicad() *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:69:6)
 	q := r.query.Select("asKicad")
 
 	return &Kicad{
@@ -27,6 +27,15 @@ func (r *Binding) AsKicadCi() *KicadCi { // kicad (../../../../../daggerverse/ki
 	}
 }
 
+// Retrieve the binding value, as type KicadFp
+func (r *Binding) AsKicadFp() *KicadFp { // kicad (../../../../../daggerverse/kicad/library.go:36:6)
+	q := r.query.Select("asKicadFp")
+
+	return &KicadFp{
+		query: q,
+	}
+}
+
 // Retrieve the binding value, as type KicadPcb
 func (r *Binding) AsKicadPcb() *KicadPcb { // kicad (../../../../../daggerverse/kicad/pcb.go:14:6)
 	q := r.query.Select("asKicadPcb")
@@ -37,7 +46,7 @@ func (r *Binding) AsKicadPcb() *KicadPcb { // kicad (../../../../../daggerverse/
 }
 
 // Retrieve the binding value, as type KicadProject
-func (r *Binding) AsKicadProject() *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
+func (r *Binding) AsKicadProject() *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:156:6)
 	q := r.query.Select("asKicadProject")
 
 	return &KicadProject{
@@ -50,6 +59,15 @@ func (r *Binding) AsKicadSch() *KicadSch { // kicad (../../../../../daggerverse/
 	q := r.query.Select("asKicadSch")
 
 	return &KicadSch{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type KicadSym
+func (r *Binding) AsKicadSym() *KicadSym { // kicad (../../../../../daggerverse/kicad/library.go:98:6)
+	q := r.query.Select("asKicadSym")
+
+	return &KicadSym{
 		query: q,
 	}
 }
@@ -78,8 +96,32 @@ func (r *Env) WithKicadCiOutput(name string, description string) *Env { // kicad
 	}
 }
 
+// Create or update a binding of type KicadFp in the environment
+func (r *Env) WithKicadFpInput(name string, value *KicadFp, description string) *Env { // kicad (../../../../../daggerverse/kicad/library.go:36:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withKicadFpInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired KicadFp output to be assigned in the environment
+func (r *Env) WithKicadFpOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/library.go:36:6)
+	q := r.query.Select("withKicadFpOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
 // Create or update a binding of type Kicad in the environment
-func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
+func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:69:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKicadInput")
 	q = q.Arg("name", name)
@@ -92,7 +134,7 @@ func (r *Env) WithKicadInput(name string, value *Kicad, description string) *Env
 }
 
 // Declare a desired Kicad output to be assigned in the environment
-func (r *Env) WithKicadOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
+func (r *Env) WithKicadOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:69:6)
 	q := r.query.Select("withKicadOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -127,7 +169,7 @@ func (r *Env) WithKicadPcbOutput(name string, description string) *Env { // kica
 }
 
 // Create or update a binding of type KicadProject in the environment
-func (r *Env) WithKicadProjectInput(name string, value *KicadProject, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
+func (r *Env) WithKicadProjectInput(name string, value *KicadProject, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:156:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKicadProjectInput")
 	q = q.Arg("name", name)
@@ -140,7 +182,7 @@ func (r *Env) WithKicadProjectInput(name string, value *KicadProject, descriptio
 }
 
 // Declare a desired KicadProject output to be assigned in the environment
-func (r *Env) WithKicadProjectOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
+func (r *Env) WithKicadProjectOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/main.go:156:6)
 	q := r.query.Select("withKicadProjectOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -174,10 +216,34 @@ func (r *Env) WithKicadSchOutput(name string, description string) *Env { // kica
 	}
 }
 
+// Create or update a binding of type KicadSym in the environment
+func (r *Env) WithKicadSymInput(name string, value *KicadSym, description string) *Env { // kicad (../../../../../daggerverse/kicad/library.go:98:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withKicadSymInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired KicadSym output to be assigned in the environment
+func (r *Env) WithKicadSymOutput(name string, description string) *Env { // kicad (../../../../../daggerverse/kicad/library.go:98:6)
+	q := r.query.Select("withKicadSymOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
 // Kicad wraps kicad-cli as Dagger functions. Construct via New(); call
 // Container() for the raw image, or Project(source) to reach the typed
 // pcb/sch helpers.
-type Kicad struct { // kicad (../../../../../daggerverse/kicad/main.go:65:6)
+type Kicad struct { // kicad (../../../../../daggerverse/kicad/main.go:69:6)
 	query *querybuilder.Selection
 
 	id      *ID
@@ -206,10 +272,22 @@ func (r *Kicad) Ci(source *Directory) *KicadCi { // kicad (../../../../../dagger
 // Container returns the bare kicad image. This is the escape hatch for every
 // subcommand this module does not wrap — kicad-cli's long tail of exotic and
 // legacy exports stays reachable via `container with-exec`.
-func (r *Kicad) Container() *Container { // kicad (../../../../../daggerverse/kicad/main.go:95:1)
+func (r *Kicad) Container() *Container { // kicad (../../../../../daggerverse/kicad/main.go:108:1)
 	q := r.query.Select("container")
 
 	return &Container{
+		query: q,
+	}
+}
+
+// Fp binds a footprint library directory (a .pretty folder, or any directory
+// of .kicad_mod files) to the toolchain for the `fp` command family.
+func (r *Kicad) Fp(source *Directory) *KicadFp { // kicad (../../../../../daggerverse/kicad/library.go:45:1)
+	assertNotNil("source", source)
+	q := r.query.Select("fp")
+	q = q.Arg("source", source)
+
+	return &KicadFp{
 		query: q,
 	}
 }
@@ -266,7 +344,7 @@ func (r *Kicad) UnmarshalJSON(bs []byte) error {
 // Project binds a KiCad project directory to the toolchain. source is the
 // whole project tree, not a single file, because kicad-cli resolves
 // sub-sheets, footprint libraries and drawing sheets relative to it.
-func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:116:1)
+func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:129:1)
 	assertNotNil("source", source)
 	q := r.query.Select("project")
 	q = q.Arg("source", source)
@@ -276,9 +354,23 @@ func (r *Kicad) Project(source *Directory) *KicadProject { // kicad (../../../..
 	}
 }
 
+// Sym binds a symbol library file (.kicad_sym) to the toolchain for the `sym`
+// command family. It takes a lone *File, not a directory, because a symbol
+// library is a single self-contained file — the footprint library's on-disk
+// counterpart is a directory, which is why Fp takes a *Directory instead.
+func (r *Kicad) Sym(source *File) *KicadSym { // kicad (../../../../../daggerverse/kicad/library.go:109:1)
+	assertNotNil("source", source)
+	q := r.query.Select("sym")
+	q = q.Arg("source", source)
+
+	return &KicadSym{
+		query: q,
+	}
+}
+
 // Version returns the KiCad release the pinned image ships, as reported by
 // `kicad-cli version`.
-func (r *Kicad) Version(ctx context.Context) (string, error) { // kicad (../../../../../daggerverse/kicad/main.go:103:1)
+func (r *Kicad) Version(ctx context.Context) (string, error) { // kicad (../../../../../daggerverse/kicad/main.go:116:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -456,6 +548,126 @@ func (r *KicadCi) AsNode() Node {
 	}
 }
 
+// Fp is a footprint library (a .pretty directory of .kicad_mod files) bound to
+// the toolchain.
+type KicadFp struct { // kicad (../../../../../daggerverse/kicad/library.go:36:6)
+	query *querybuilder.Selection
+
+	id *ID
+}
+
+func (r *KicadFp) WithGraphQLQuery(q *querybuilder.Selection) *KicadFp {
+	return &KicadFp{
+		query: q,
+	}
+}
+
+// A unique identifier for this KicadFp.
+func (r *KicadFp) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *KicadFp) XXX_GraphQLType() string {
+	return "KicadFp"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *KicadFp) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *KicadFp) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *KicadFp) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *KicadFp) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = KicadFp{query: selectNode(dag.query, id, "KicadFp")}
+	return nil
+}
+
+// KicadFpSvgOpts contains options for KicadFp.Svg
+type KicadFpSvgOpts struct {
+	//
+	// Export only this footprint from the library; empty exports all.
+	//
+	Footprint string // kicad (../../../../../daggerverse/kicad/library.go:58:2)
+}
+
+// Svg exports the footprint library to SVG, one file per footprint, and
+// returns the directory. Pass footprint to export a single footprint by name
+// instead of the whole library.
+func (r *KicadFp) Svg(opts ...KicadFpSvgOpts) *Directory { // kicad (../../../../../daggerverse/kicad/library.go:54:1)
+	q := r.query.Select("svg")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `footprint` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Footprint) {
+			q = q.Arg("footprint", opts[i].Footprint)
+		}
+	}
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// KicadFpUpgradeOpts contains options for KicadFp.Upgrade
+type KicadFpUpgradeOpts struct {
+	//
+	// Resave even when the library is already at the latest format version.
+	//
+	Force bool // kicad (../../../../../daggerverse/kicad/library.go:82:2)
+}
+
+// Upgrade resaves the footprint library in the current KiCad format and returns
+// the upgraded .pretty directory.
+func (r *KicadFp) Upgrade(opts ...KicadFpUpgradeOpts) *Directory { // kicad (../../../../../daggerverse/kicad/library.go:78:1)
+	q := r.query.Select("upgrade")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `force` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Force) {
+			q = q.Arg("force", opts[i].Force)
+		}
+	}
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// AsNode returns this KicadFp as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KicadFp) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Pcb is a board selected within a Project. Every method here execs
 // kicad-cli, so each carries a session cache directive; selecting the board
 // itself is pure config and carries none.
@@ -468,6 +680,39 @@ type KicadPcb struct { // kicad (../../../../../daggerverse/kicad/pcb.go:14:6)
 
 func (r *KicadPcb) WithGraphQLQuery(q *querybuilder.Selection) *KicadPcb {
 	return &KicadPcb{
+		query: q,
+	}
+}
+
+// KicadPcbBrepOpts contains options for KicadPcb.Brep
+type KicadPcbBrepOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:108:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:110:2)
+
+	// Default: "board.brep"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:112:2)
+}
+
+// Brep exports the board as an OpenCASCADE BREP model.
+func (r *KicadPcb) Brep(opts ...KicadPcbBrepOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:105:1)
+	q := r.query.Select("brep")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
 		query: q,
 	}
 }
@@ -583,6 +828,62 @@ func (r *KicadPcb) Drill(opts ...KicadPcbDrillOpts) *Directory { // kicad (../..
 	}
 }
 
+// KicadPcbDxfOpts contains options for KicadPcb.Dxf
+type KicadPcbDxfOpts struct {
+	//
+	// Output units: mm or in.
+	//
+	//
+	// Default: "mm"
+	Units string // kicad (../../../../../daggerverse/kicad/pcb_util.go:26:2)
+
+	// Default: "board.dxf"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:28:2)
+}
+
+// Dxf plots the given layers into a single DXF drawing (`--mode-single`).
+func (r *KicadPcb) Dxf(layers []string, opts ...KicadPcbDxfOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:20:1)
+	q := r.query.Select("dxf")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `units` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Units) {
+			q = q.Arg("units", opts[i].Units)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+	q = q.Arg("layers", layers)
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbGencadOpts contains options for KicadPcb.Gencad
+type KicadPcbGencadOpts struct {
+
+	// Default: "board.cad"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:129:2)
+}
+
+// Gencad exports the board in GenCAD format — a legacy interchange format still
+// used by some test-fixture and assembly houses.
+func (r *KicadPcb) Gencad(opts ...KicadPcbGencadOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:126:1)
+	q := r.query.Select("gencad")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
 // KicadPcbGerbersOpts contains options for KicadPcb.Gerbers
 type KicadPcbGerbersOpts struct {
 	//
@@ -622,6 +923,46 @@ func (r *KicadPcb) Gerbers(opts ...KicadPcbGerbersOpts) *Directory { // kicad (.
 	}
 
 	return &Directory{
+		query: q,
+	}
+}
+
+// KicadPcbGlbOpts contains options for KicadPcb.Glb
+type KicadPcbGlbOpts struct {
+	//
+	// Export the bare board, with no component models.
+	//
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:77:2)
+	//
+	// Exclude models for components flagged Do Not Populate.
+	//
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:80:2)
+
+	// Default: "board.glb"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:82:2)
+}
+
+// Glb exports the board as a binary glTF (GLB) model. Like every 3D export it
+// needs the -full image for component models; pass boardOnly for board
+// geometry alone on the slim image.
+func (r *KicadPcb) Glb(opts ...KicadPcbGlbOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:73:1)
+	q := r.query.Select("glb")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
 		query: q,
 	}
 }
@@ -675,6 +1016,43 @@ func (r *KicadPcb) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// KicadPcbImportOpts contains options for KicadPcb.Import
+type KicadPcbImportOpts struct {
+	//
+	// Input format hint: auto, pads, altium, eagle, cadstar, fabmaster, pcad
+	// or solidworks.
+	//
+	//
+	// Default: "auto"
+	Format string // kicad (../../../../../daggerverse/kicad/pcb_util.go:272:2)
+
+	// Default: "imported.kicad_pcb"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:274:2)
+}
+
+// Import converts a non-KiCad board file into KiCad format and returns the
+// produced .kicad_pcb. inputPath names the foreign file within the project
+// source; unlike the export commands it is not auto-discovered, since it is not
+// a .kicad_pcb and the board selected by Pcb() is irrelevant here.
+func (r *KicadPcb) Import(inputPath string, opts ...KicadPcbImportOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:265:1)
+	q := r.query.Select("import")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `format` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Format) {
+			q = q.Arg("format", opts[i].Format)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+	q = q.Arg("inputPath", inputPath)
+
+	return &File{
+		query: q,
+	}
+}
+
 // KicadPcbIpc2581Opts contains options for KicadPcb.Ipc2581
 type KicadPcbIpc2581Opts struct {
 	//
@@ -682,22 +1060,22 @@ type KicadPcbIpc2581Opts struct {
 	//
 	//
 	// Default: "C"
-	Version string // kicad (../../../../../daggerverse/kicad/pcb.go:256:2)
+	Version string // kicad (../../../../../daggerverse/kicad/pcb.go:238:2)
 	//
 	// Units: mm or in.
 	//
 	//
 	// Default: "mm"
-	Units string // kicad (../../../../../daggerverse/kicad/pcb.go:259:2)
+	Units string // kicad (../../../../../daggerverse/kicad/pcb.go:241:2)
 
 	// Default: "board.xml"
-	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:261:2)
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:243:2)
 }
 
 // Ipc2581 exports the board in IPC-2581 format — a single XML file carrying
 // the fabrication and assembly data that would otherwise be spread across
 // Gerbers, drill files and a BOM.
-func (r *KicadPcb) Ipc2581(opts ...KicadPcbIpc2581Opts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:252:1)
+func (r *KicadPcb) Ipc2581(opts ...KicadPcbIpc2581Opts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:234:1)
 	q := r.query.Select("ipc2581")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -719,11 +1097,78 @@ func (r *KicadPcb) Ipc2581(opts ...KicadPcbIpc2581Opts) *File { // kicad (../../
 	}
 }
 
+// KicadPcbIpcd356Opts contains options for KicadPcb.Ipcd356
+type KicadPcbIpcd356Opts struct {
+
+	// Default: "board.d356"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:155:2)
+}
+
+// Ipcd356 generates an IPC-D-356 netlist file, the bare-board electrical test
+// format a fab house uses to flying-probe an unpopulated board.
+func (r *KicadPcb) Ipcd356(opts ...KicadPcbIpcd356Opts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:152:1)
+	q := r.query.Select("ipcd356")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbOdbOpts contains options for KicadPcb.Odb
+type KicadPcbOdbOpts struct {
+	//
+	// Archive compression: zip, tgz or none. none writes an uncompressed
+	// directory tree rather than a single file.
+	//
+	//
+	// Default: "zip"
+	Compression string // kicad (../../../../../daggerverse/kicad/pcb_util.go:182:2)
+	//
+	// Units: mm or in.
+	//
+	//
+	// Default: "mm"
+	Units string // kicad (../../../../../daggerverse/kicad/pcb_util.go:185:2)
+
+	// Default: "odb.zip"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:187:2)
+}
+
+// Odb exports the board in ODB++ format as a single compressed archive — the
+// fabrication data package many modern fab houses prefer over Gerbers.
+func (r *KicadPcb) Odb(opts ...KicadPcbOdbOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:177:1)
+	q := r.query.Select("odb")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `compression` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Compression) {
+			q = q.Arg("compression", opts[i].Compression)
+		}
+		// `units` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Units) {
+			q = q.Arg("units", opts[i].Units)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
 // KicadPcbPdfOpts contains options for KicadPcb.Pdf
 type KicadPcbPdfOpts struct {
 
 	// Default: "board.pdf"
-	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:300:2)
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:282:2)
 }
 
 // Pdf plots the given layers into a single PDF.
@@ -732,7 +1177,7 @@ type KicadPcbPdfOpts struct {
 // rather than one function taking a mode flag: a Dagger function has exactly
 // one return type, so modelling `--mode-single` vs `--mode-separate` as a
 // parameter would force *Directory onto the common single-file case.
-func (r *KicadPcb) Pdf(layers []string, opts ...KicadPcbPdfOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:295:1)
+func (r *KicadPcb) Pdf(layers []string, opts ...KicadPcbPdfOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:277:1)
 	q := r.query.Select("pdf")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `outputName` optional argument
@@ -747,12 +1192,79 @@ func (r *KicadPcb) Pdf(layers []string, opts ...KicadPcbPdfOpts) *File { // kica
 	}
 }
 
+// KicadPcbPdf3DOpts contains options for KicadPcb.Pdf3D
+type KicadPcbPdf3DOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:184:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:186:2)
+
+	// Default: "board-3d.pdf"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:188:2)
+}
+
+// Pdf3d exports the board as a 3D PDF (a PDF carrying an embedded U3D model).
+// Exposed as `pdf-3d` on the CLI.
+func (r *KicadPcb) Pdf3D(opts ...KicadPcbPdf3DOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:181:1)
+	q := r.query.Select("pdf3D")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
 // PdfPerLayer plots each layer into its own PDF and returns the directory.
-func (r *KicadPcb) PdfPerLayer(layers []string) *Directory { // kicad (../../../../../daggerverse/kicad/pcb.go:326:1)
+func (r *KicadPcb) PdfPerLayer(layers []string) *Directory { // kicad (../../../../../daggerverse/kicad/pcb.go:308:1)
 	q := r.query.Select("pdfPerLayer")
 	q = q.Arg("layers", layers)
 
 	return &Directory{
+		query: q,
+	}
+}
+
+// KicadPcbPlyOpts contains options for KicadPcb.Ply
+type KicadPcbPlyOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:123:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:125:2)
+
+	// Default: "board.ply"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:127:2)
+}
+
+// Ply exports the board as a PLY mesh.
+func (r *KicadPcb) Ply(opts ...KicadPcbPlyOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:120:1)
+	q := r.query.Select("ply")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
 		query: q,
 	}
 }
@@ -821,26 +1333,225 @@ func (r *KicadPcb) Pos(opts ...KicadPcbPosOpts) *File { // kicad (../../../../..
 	}
 }
 
+// KicadPcbPsOpts contains options for KicadPcb.Ps
+type KicadPcbPsOpts struct {
+
+	// Default: "board.ps"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:62:2)
+}
+
+// Ps plots the given layers into a single PostScript file (`--mode-single`).
+func (r *KicadPcb) Ps(layers []string, opts ...KicadPcbPsOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:57:1)
+	q := r.query.Select("ps")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+	q = q.Arg("layers", layers)
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbRenderOpts contains options for KicadPcb.Render
+type KicadPcbRenderOpts struct {
+	//
+	// Camera side: top, bottom, left, right, front or back.
+	//
+	//
+	// Default: "top"
+	Side string // kicad (../../../../../daggerverse/kicad/pcb_util.go:221:2)
+	//
+	// Render quality: basic, high, user or job_settings.
+	//
+	//
+	// Default: "basic"
+	Quality string // kicad (../../../../../daggerverse/kicad/pcb_util.go:224:2)
+	//
+	// Image width in pixels.
+	//
+	//
+	// Default: 1600
+	Width int // kicad (../../../../../daggerverse/kicad/pcb_util.go:227:2)
+	//
+	// Image height in pixels.
+	//
+	//
+	// Default: 900
+	Height int // kicad (../../../../../daggerverse/kicad/pcb_util.go:230:2)
+
+	// Default: "render.png"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:232:2)
+}
+
+// Render ray-traces the board's 3D view to a PNG or JPEG image; the output
+// format follows the outputName extension. Like the 3D model exports it is
+// only meaningful with component models, so it wants the -full image — but
+// unlike them it degrades to a bare-board render on the slim image rather than
+// failing, because a board-only render is still a useful artifact.
+func (r *KicadPcb) Render(opts ...KicadPcbRenderOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:217:1)
+	q := r.query.Select("render")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `side` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Side) {
+			q = q.Arg("side", opts[i].Side)
+		}
+		// `quality` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Quality) {
+			q = q.Arg("quality", opts[i].Quality)
+		}
+		// `width` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Width) {
+			q = q.Arg("width", opts[i].Width)
+		}
+		// `height` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Height) {
+			q = q.Arg("height", opts[i].Height)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbStatsOpts contains options for KicadPcb.Stats
+type KicadPcbStatsOpts struct {
+	//
+	// Report format: report (human-readable) or json.
+	//
+	//
+	// Default: "report"
+	Format string // kicad (../../../../../daggerverse/kicad/pcb_util.go:92:2)
+	//
+	// Report units: mm or in.
+	//
+	//
+	// Default: "mm"
+	Units string // kicad (../../../../../daggerverse/kicad/pcb_util.go:95:2)
+
+	// Default: "stats.txt"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_util.go:97:2)
+}
+
+// Stats generates a board statistics report (pad, via, track and area counts).
+func (r *KicadPcb) Stats(opts ...KicadPcbStatsOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:88:1)
+	q := r.query.Select("stats")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `format` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Format) {
+			q = q.Arg("format", opts[i].Format)
+		}
+		// `units` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Units) {
+			q = q.Arg("units", opts[i].Units)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
 // KicadPcbStepOpts contains options for KicadPcb.Step
 type KicadPcbStepOpts struct {
 	//
 	// Export the bare board, with no component models.
 	//
-	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb.go:217:2)
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb.go:219:2)
 	//
 	// Exclude models for components flagged Do Not Populate.
 	//
-	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb.go:220:2)
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb.go:222:2)
 
 	// Default: "board.step"
-	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:222:2)
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:224:2)
 }
 
 // Step exports the board as a STEP model. The default `10.0` image is the
-// slim variant, which ships no 3D component models — pass boardOnly to make
-// that explicit, or use the `-full` image tag for populated assemblies.
-func (r *KicadPcb) Step(opts ...KicadPcbStepOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:213:1)
+// slim variant, which ships no 3D component models: a with-models export
+// (boardOnly=false) fails there naming the -full image, rather than silently
+// emitting a board-only model. Pass boardOnly for board geometry alone, or
+// select the -full image for populated assemblies.
+func (r *KicadPcb) Step(opts ...KicadPcbStepOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:215:1)
 	q := r.query.Select("step")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbStlOpts contains options for KicadPcb.Stl
+type KicadPcbStlOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:93:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:95:2)
+
+	// Default: "board.stl"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:97:2)
+}
+
+// Stl exports the board as an STL mesh.
+func (r *KicadPcb) Stl(opts ...KicadPcbStlOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:90:1)
+	q := r.query.Select("stl")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbStpzOpts contains options for KicadPcb.Stpz
+type KicadPcbStpzOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:168:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:170:2)
+
+	// Default: "board.stpz"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:172:2)
+}
+
+// Stpz exports the board as a zip-compressed STEP (STPZ) model.
+func (r *KicadPcb) Stpz(opts ...KicadPcbStpzOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:165:1)
+	q := r.query.Select("stpz")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `boardOnly` optional argument
 		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
@@ -865,11 +1576,11 @@ func (r *KicadPcb) Step(opts ...KicadPcbStepOpts) *File { // kicad (../../../../
 type KicadPcbSvgOpts struct {
 
 	// Default: "board.svg"
-	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:356:2)
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb.go:338:2)
 }
 
 // Svg plots the given layers into a single SVG.
-func (r *KicadPcb) Svg(layers []string, opts ...KicadPcbSvgOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:351:1)
+func (r *KicadPcb) Svg(layers []string, opts ...KicadPcbSvgOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb.go:333:1)
 	q := r.query.Select("svg")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `outputName` optional argument
@@ -885,11 +1596,159 @@ func (r *KicadPcb) Svg(layers []string, opts ...KicadPcbSvgOpts) *File { // kica
 }
 
 // SvgPerLayer plots each layer into its own SVG and returns the directory.
-func (r *KicadPcb) SvgPerLayer(layers []string) *Directory { // kicad (../../../../../daggerverse/kicad/pcb.go:382:1)
+func (r *KicadPcb) SvgPerLayer(layers []string) *Directory { // kicad (../../../../../daggerverse/kicad/pcb.go:364:1)
 	q := r.query.Select("svgPerLayer")
 	q = q.Arg("layers", layers)
 
 	return &Directory{
+		query: q,
+	}
+}
+
+// KicadPcbU3DOpts contains options for KicadPcb.U3D
+type KicadPcbU3DOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:138:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:140:2)
+
+	// Default: "board.u3d"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:142:2)
+}
+
+// U3d exports the board as a Universal 3D (U3D) model.
+func (r *KicadPcb) U3D(opts ...KicadPcbU3DOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:135:1)
+	q := r.query.Select("u3D")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbUpgradeOpts contains options for KicadPcb.Upgrade
+type KicadPcbUpgradeOpts struct {
+	//
+	// Resave even when the board is already at the latest format version.
+	//
+	Force bool // kicad (../../../../../daggerverse/kicad/pcb_util.go:312:2)
+}
+
+// Upgrade resaves the board in the current KiCad file format and returns the
+// upgraded .kicad_pcb. kicad-cli's `pcb upgrade` rewrites the file in place and
+// has no output flag, so the board runs against a writable copy (owned by the
+// image's UID-1000 user) rather than the read-only mounted source.
+func (r *KicadPcb) Upgrade(opts ...KicadPcbUpgradeOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_util.go:308:1)
+	q := r.query.Select("upgrade")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `force` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Force) {
+			q = q.Arg("force", opts[i].Force)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbVrmlOpts contains options for KicadPcb.Vrml
+type KicadPcbVrmlOpts struct {
+	//
+	// Acknowledge board-geometry-only output on the slim image, skipping the
+	// -full guard. VRML has no board-only mode, so this cannot exclude models
+	// on the -full image.
+	//
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:208:2)
+	//
+	// Exclude models for components flagged Do Not Populate.
+	//
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:211:2)
+	//
+	// Output units: mm, m, in or tenths.
+	//
+	//
+	// Default: "mm"
+	Units string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:214:2)
+
+	// Default: "board.wrl"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:216:2)
+}
+
+// Vrml exports the board as a VRML model. Unlike the other 3D exports
+// kicad-cli's `pcb export vrml` has no --board-only flag, so boardOnly here is
+// a module-level acknowledgement rather than a kicad-cli switch: it gates the
+// -full-image guard only. On the slim image no component models resolve, so
+// boardOnly=true yields the board geometry alone; on the -full image the
+// models are always embedded regardless, which is why boardOnly cannot suppress
+// them for VRML.
+func (r *KicadPcb) Vrml(opts ...KicadPcbVrmlOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:202:1)
+	q := r.query.Select("vrml")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `units` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Units) {
+			q = q.Arg("units", opts[i].Units)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// KicadPcbXaoOpts contains options for KicadPcb.Xao
+type KicadPcbXaoOpts struct {
+	BoardOnly bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:153:2)
+
+	ExcludeDnp bool // kicad (../../../../../daggerverse/kicad/pcb_3d.go:155:2)
+
+	// Default: "board.xao"
+	OutputName string // kicad (../../../../../daggerverse/kicad/pcb_3d.go:157:2)
+}
+
+// Xao exports the board as an XAO model (Salome geometry exchange).
+func (r *KicadPcb) Xao(opts ...KicadPcbXaoOpts) *File { // kicad (../../../../../daggerverse/kicad/pcb_3d.go:150:1)
+	q := r.query.Select("xao")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `boardOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BoardOnly) {
+			q = q.Arg("boardOnly", opts[i].BoardOnly)
+		}
+		// `excludeDnp` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExcludeDnp) {
+			q = q.Arg("excludeDnp", opts[i].ExcludeDnp)
+		}
+		// `outputName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OutputName) {
+			q = q.Arg("outputName", opts[i].OutputName)
+		}
+	}
+
+	return &File{
 		query: q,
 	}
 }
@@ -904,7 +1763,7 @@ func (r *KicadPcb) AsNode() Node {
 
 // Project is a KiCad project tree plus the options that apply to nearly every
 // kicad-cli subcommand. It is immutable: every With* returns a copy.
-type KicadProject struct { // kicad (../../../../../daggerverse/kicad/main.go:126:6)
+type KicadProject struct { // kicad (../../../../../daggerverse/kicad/main.go:156:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -980,7 +1839,7 @@ func (r *KicadProject) UnmarshalJSON(bs []byte) error {
 // The jobset's outputs are written relative to the project, which is why the
 // whole tree comes back rather than a lone output folder: the jobset — not
 // this module — decides where its artifacts land.
-func (r *KicadProject) Jobset(path string) *Directory { // kicad (../../../../../daggerverse/kicad/main.go:211:1)
+func (r *KicadProject) Jobset(path string) *Directory { // kicad (../../../../../daggerverse/kicad/main.go:241:1)
 	q := r.query.Select("jobset")
 	q = q.Arg("path", path)
 
@@ -994,14 +1853,14 @@ type KicadProjectPcbOpts struct {
 	//
 	// Project-relative path to the .kicad_pcb; empty auto-discovers.
 	//
-	Path string // kicad (../../../../../daggerverse/kicad/main.go:186:2)
+	Path string // kicad (../../../../../daggerverse/kicad/main.go:216:2)
 }
 
 // Pcb selects a board within the project. An empty path auto-discovers the
 // single *.kicad_pcb in the tree and errors when there are zero or more than
 // one; discovery is deferred to the exec so the error surfaces on the call
 // that needed the board.
-func (r *KicadProject) Pcb(opts ...KicadProjectPcbOpts) *KicadPcb { // kicad (../../../../../daggerverse/kicad/main.go:183:1)
+func (r *KicadProject) Pcb(opts ...KicadProjectPcbOpts) *KicadPcb { // kicad (../../../../../daggerverse/kicad/main.go:213:1)
 	q := r.query.Select("pcb")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `path` optional argument
@@ -1020,13 +1879,13 @@ type KicadProjectSchOpts struct {
 	//
 	// Project-relative path to the .kicad_sch; empty auto-discovers.
 	//
-	Path string // kicad (../../../../../daggerverse/kicad/main.go:197:2)
+	Path string // kicad (../../../../../daggerverse/kicad/main.go:227:2)
 }
 
 // Sch selects a schematic within the project. An empty path auto-discovers
 // the single *.kicad_sch in the tree, ignoring the sub-sheets of a
 // hierarchical design, and errors when there are zero or more than one root.
-func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (../../../../../daggerverse/kicad/main.go:194:1)
+func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (../../../../../daggerverse/kicad/main.go:224:1)
 	q := r.query.Select("sch")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `path` optional argument
@@ -1043,7 +1902,7 @@ func (r *KicadProject) Sch(opts ...KicadProjectSchOpts) *KicadSch { // kicad (..
 // WithDrawingSheet overrides the project's drawing sheet with the supplied
 // .kicad_wks file (`--drawing-sheet`). It applies to the plotting exports;
 // subcommands that do not accept the flag ignore it.
-func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:173:1)
+func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:203:1)
 	assertNotNil("sheet", sheet)
 	q := r.query.Select("withDrawingSheet")
 	q = q.Arg("sheet", sheet)
@@ -1060,7 +1919,7 @@ func (r *KicadProject) WithDrawingSheet(sheet *File) *KicadProject { // kicad (.
 // cannot accept map parameters. Validation is deferred to the exec: builder
 // methods have no error return, so a bad name surfaces when the export or
 // check that would have used it runs.
-func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:148:1)
+func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:178:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -1079,7 +1938,7 @@ func (r *KicadProject) WithVar(name string, value string) *KicadProject { // kic
 // name, so an unrecognised variant would otherwise produce a wrong export with
 // no signal. Like WithVar, the check is deferred to the exec that uses it,
 // because a builder method has no error return.
-func (r *KicadProject) WithVariant(variant string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:164:1)
+func (r *KicadProject) WithVariant(variant string) *KicadProject { // kicad (../../../../../daggerverse/kicad/main.go:194:1)
 	q := r.query.Select("withVariant")
 	q = q.Arg("variant", variant)
 
@@ -1167,6 +2026,17 @@ func (r *KicadSch) Bom(opts ...KicadSchBomOpts) *File { // kicad (../../../../..
 	}
 
 	return &File{
+		query: q,
+	}
+}
+
+// Dxf plots the schematic to DXF, one file per sheet, and returns the
+// directory. Like Svg there is no single-file counterpart: kicad-cli always
+// plots schematics per sheet.
+func (r *KicadSch) Dxf() *Directory { // kicad (../../../../../daggerverse/kicad/sch.go:179:1)
+	q := r.query.Select("dxf")
+
+	return &Directory{
 		query: q,
 	}
 }
@@ -1308,6 +2178,16 @@ func (r *KicadSch) Pdf(opts ...KicadSchPdfOpts) *File { // kicad (../../../../..
 	}
 }
 
+// Ps plots the schematic to PostScript, one file per sheet, and returns the
+// directory.
+func (r *KicadSch) Ps() *Directory { // kicad (../../../../../daggerverse/kicad/sch.go:197:1)
+	q := r.query.Select("ps")
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // Svg plots the schematic to SVG, one file per sheet, and returns the
 // directory. Unlike Pcb.Svg there is no single-file counterpart: kicad-cli
 // always plots schematics per sheet.
@@ -1327,6 +2207,125 @@ func (r *KicadSch) AsNode() Node {
 	}
 }
 
+// Sym is a symbol library (a .kicad_sym file) bound to the toolchain.
+type KicadSym struct { // kicad (../../../../../daggerverse/kicad/library.go:98:6)
+	query *querybuilder.Selection
+
+	id *ID
+}
+
+func (r *KicadSym) WithGraphQLQuery(q *querybuilder.Selection) *KicadSym {
+	return &KicadSym{
+		query: q,
+	}
+}
+
+// A unique identifier for this KicadSym.
+func (r *KicadSym) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *KicadSym) XXX_GraphQLType() string {
+	return "KicadSym"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *KicadSym) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *KicadSym) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *KicadSym) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *KicadSym) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = KicadSym{query: selectNode(dag.query, id, "KicadSym")}
+	return nil
+}
+
+// KicadSymSvgOpts contains options for KicadSym.Svg
+type KicadSymSvgOpts struct {
+	//
+	// Export only this symbol from the library; empty exports all.
+	//
+	Symbol string // kicad (../../../../../daggerverse/kicad/library.go:122:2)
+}
+
+// Svg exports the symbol library to SVG, one file per symbol unit, and returns
+// the directory. Pass symbol to export a single symbol by name instead of the
+// whole library.
+func (r *KicadSym) Svg(opts ...KicadSymSvgOpts) *Directory { // kicad (../../../../../daggerverse/kicad/library.go:118:1)
+	q := r.query.Select("svg")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `symbol` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Symbol) {
+			q = q.Arg("symbol", opts[i].Symbol)
+		}
+	}
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// KicadSymUpgradeOpts contains options for KicadSym.Upgrade
+type KicadSymUpgradeOpts struct {
+	//
+	// Resave even when the library is already at the latest format version.
+	//
+	Force bool // kicad (../../../../../daggerverse/kicad/library.go:146:2)
+}
+
+// Upgrade resaves the symbol library in the current KiCad format and returns
+// the upgraded .kicad_sym file.
+func (r *KicadSym) Upgrade(opts ...KicadSymUpgradeOpts) *File { // kicad (../../../../../daggerverse/kicad/library.go:142:1)
+	q := r.query.Select("upgrade")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `force` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Force) {
+			q = q.Arg("force", opts[i].Force)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
+// AsNode returns this KicadSym as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KicadSym) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // KicadOpts contains options for Query.Kicad
 type KicadOpts struct {
 	//
@@ -1334,17 +2333,25 @@ type KicadOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // kicad (../../../../../daggerverse/kicad/main.go:76:2)
+	Registry string // kicad (../../../../../daggerverse/kicad/main.go:82:2)
 	//
 	// Image tag for kicad/kicad.
 	//
 	//
 	// Default: "10.0"
-	Tag string // kicad (../../../../../daggerverse/kicad/main.go:79:2)
+	Tag string // kicad (../../../../../daggerverse/kicad/main.go:85:2)
+	//
+	// Select the -full image variant, which bundles the 3D component-model
+	// libraries the slim image omits. The suffix is appended to tag, so
+	// full=true with the default 10.0 tag resolves 10.0-full. Required for any
+	// 3D export that includes component models (Step without boardOnly, Glb,
+	// Stl, ...); ~1.34GB against the slim image's ~770MB.
+	//
+	Full bool // kicad (../../../../../daggerverse/kicad/main.go:92:2)
 }
 
 // New returns a Kicad module backed by <registry>/kicad/kicad:<tag>.
-func (r *Query) Kicad(opts ...KicadOpts) *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:73:1)
+func (r *Query) Kicad(opts ...KicadOpts) *Kicad { // kicad (../../../../../daggerverse/kicad/main.go:79:1)
 	q := r.query.Select("kicad")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -1354,6 +2361,10 @@ func (r *Query) Kicad(opts ...KicadOpts) *Kicad { // kicad (../../../../../dagge
 		// `tag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
+		}
+		// `full` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Full) {
+			q = q.Arg("full", opts[i].Full)
 		}
 	}
 

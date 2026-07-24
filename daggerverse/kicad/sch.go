@@ -171,6 +171,43 @@ func (s *Sch) Svg(ctx context.Context) (*dagger.Directory, error) {
 	return exec.Directory(outputDir), nil
 }
 
+// Dxf plots the schematic to DXF, one file per sheet, and returns the
+// directory. Like Svg there is no single-file counterpart: kicad-cli always
+// plots schematics per sheet.
+//
+// +cache="session"
+func (s *Sch) Dxf(ctx context.Context) (*dagger.Directory, error) {
+	sheet, ctr, err := s.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"kicad-cli", "sch", "export", "dxf", "--output", outputDir + "/"}
+	args = append(args, s.Project.hoisted(cmdFlags{defineVar: true, variant: true, drawingSheet: true})...)
+	exec, err := runExport(ctx, ctr, "kicad-cli sch export dxf", append(args, sheet))
+	if err != nil {
+		return nil, err
+	}
+	return exec.Directory(outputDir), nil
+}
+
+// Ps plots the schematic to PostScript, one file per sheet, and returns the
+// directory.
+//
+// +cache="session"
+func (s *Sch) Ps(ctx context.Context) (*dagger.Directory, error) {
+	sheet, ctr, err := s.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	args := []string{"kicad-cli", "sch", "export", "ps", "--output", outputDir + "/"}
+	args = append(args, s.Project.hoisted(cmdFlags{defineVar: true, variant: true, drawingSheet: true})...)
+	exec, err := runExport(ctx, ctr, "kicad-cli sch export ps", append(args, sheet))
+	if err != nil {
+		return nil, err
+	}
+	return exec.Directory(outputDir), nil
+}
+
 // resolve validates the deferred Project config and turns the (possibly
 // empty) schematic path into a concrete one, alongside a prepared container.
 func (s *Sch) resolve(ctx context.Context) (string, *dagger.Container, error) {

@@ -206,8 +206,10 @@ func (b *Pcb) Pos(
 }
 
 // Step exports the board as a STEP model. The default `10.0` image is the
-// slim variant, which ships no 3D component models — pass boardOnly to make
-// that explicit, or use the `-full` image tag for populated assemblies.
+// slim variant, which ships no 3D component models: a with-models export
+// (boardOnly=false) fails there naming the -full image, rather than silently
+// emitting a board-only model. Pass boardOnly for board geometry alone, or
+// select the -full image for populated assemblies.
 //
 // +cache="session"
 func (b *Pcb) Step(
@@ -221,27 +223,7 @@ func (b *Pcb) Step(
 	// +default="board.step"
 	outputName string,
 ) (*dagger.File, error) {
-	if err := checkOutputName(outputName); err != nil {
-		return nil, err
-	}
-	board, ctr, err := b.resolve(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := outputDir + "/" + outputName
-	args := []string{"kicad-cli", "pcb", "export", "step", "--force", "--output", out}
-	args = append(args, b.Project.hoisted(cmdFlags{defineVar: true, variant: true})...)
-	if boardOnly {
-		args = append(args, "--board-only")
-	}
-	if excludeDnp {
-		args = append(args, "--no-dnp")
-	}
-	exec, err := runExport(ctx, ctr, "kicad-cli pcb export step", append(args, board))
-	if err != nil {
-		return nil, err
-	}
-	return exec.File(out), nil
+	return b.export3D(ctx, "step", outputName, boardOnly, excludeDnp)
 }
 
 // Ipc2581 exports the board in IPC-2581 format — a single XML file carrying
