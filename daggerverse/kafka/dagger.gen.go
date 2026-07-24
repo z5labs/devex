@@ -336,13 +336,13 @@ func (r *SchemaRegistryClientSecurity) UnmarshalJSON(bs []byte) error {
 func (r RedpandaCluster) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		ClusterID          string
-		BrokerSvc          *dagger.Service
-		BrokerHost         string
+		BrokerSvcs         []*dagger.Service
+		BrokerHosts        []string
 		ClientSecurityMode string
 	}
 	concrete.ClusterID = r.ClusterID
-	concrete.BrokerSvc = r.BrokerSvc
-	concrete.BrokerHost = r.BrokerHost
+	concrete.BrokerSvcs = r.BrokerSvcs
+	concrete.BrokerHosts = r.BrokerHosts
 	concrete.ClientSecurityMode = r.ClientSecurityMode
 	return json.Marshal(&concrete)
 }
@@ -350,8 +350,8 @@ func (r RedpandaCluster) MarshalJSON() ([]byte, error) {
 func (r *RedpandaCluster) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		ClusterID          string
-		BrokerSvc          *dagger.Service
-		BrokerHost         string
+		BrokerSvcs         []*dagger.Service
+		BrokerHosts        []string
 		ClientSecurityMode string
 	}
 	err := json.Unmarshal(bs, &concrete)
@@ -359,8 +359,8 @@ func (r *RedpandaCluster) UnmarshalJSON(bs []byte) error {
 		return err
 	}
 	r.ClusterID = concrete.ClusterID
-	r.BrokerSvc = concrete.BrokerSvc
-	r.BrokerHost = concrete.BrokerHost
+	r.BrokerSvcs = concrete.BrokerSvcs
+	r.BrokerHosts = concrete.BrokerHosts
 	r.ClientSecurityMode = concrete.ClientSecurityMode
 	return nil
 }

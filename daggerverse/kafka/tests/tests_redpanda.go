@@ -53,6 +53,236 @@ func freshRedpandaCluster(ctx context.Context, redpandaImageTag string) (*dagger
 	}), nil
 }
 
+// freshRedpandaClusterMultiBroker spins up a PLAINTEXT Redpanda cluster of
+// `brokers` nodes for one test. The nodes form a single Raft group via
+// Redpanda's seed-driven bootstrap over the internal RPC listener.
+func freshRedpandaClusterMultiBroker(ctx context.Context, redpandaImageTag string, brokers int) (*dagger.KafkaRedpandaCluster, error) {
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, err
+	}
+	k := dag.Kafka()
+	return k.RedpandaCluster(clusterId, k.RedpandaPlaintextServerSecurity(), dagger.KafkaRedpandaClusterOpts{
+		Tag:     redpandaImageTag,
+		Brokers: brokers,
+	}), nil
+}
+
+// freshTlsRedpandaClusterMultiBroker is the TLS counterpart of
+// freshRedpandaClusterMultiBroker: it mints a fresh CA, stands up a
+// `brokers`-node Redpanda cluster with TLS on every node's external Kafka
+// listener (each node's leaf SAN'd to its own hostname), and returns the
+// truststore so a franz-go client can verify any broker it is routed to.
+func freshTlsRedpandaClusterMultiBroker(ctx context.Context, redpandaImageTag string, brokers int) (
+	cluster *dagger.KafkaRedpandaCluster,
+	trustStore *dagger.File, trustStorePwd *dagger.Secret,
+	err error,
+) {
+	ca, err := freshCa(ctx, "tls-redpanda-multi")
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	caKs := ca.KeyStore()
+	serverSec := dag.Kafka().RedpandaTLSServerSecurity(caKs.Pkcs12(), caKs.Password())
+	ts := ca.TrustStore()
+
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	cluster = dag.Kafka().RedpandaCluster(clusterId, serverSec, dagger.KafkaRedpandaClusterOpts{
+		Tag:     redpandaImageTag,
+		Brokers: brokers,
+	})
+	return cluster, ts.Pkcs12(), ts.Password(), nil
+}
+
+// RedpandaMultiBrokerControllerPolicyRejected pins the two construction-time
+// policies Redpanda enforces: `controllers != 1` is rejected (Redpanda has no
+// separate controller role) and `brokers < 1` is rejected. Resolving
+// BootstrapServers forces the server-side constructor to run its validation
+// without booting any container, so both rejections are exercised cheaply.
+func (t *Tests) RedpandaMultiBrokerControllerPolicyRejected(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	k := dag.Kafka()
+
+	// controllers != 1 must be rejected.
+	for _, controllers := range []int{2, 3} {
+		clusterId, err := newClusterId(ctx)
+		if err != nil {
+			return err
+		}
+		cluster := k.RedpandaCluster(clusterId, k.RedpandaPlaintextServerSecurity(), dagger.KafkaRedpandaClusterOpts{
+			Tag:         redpandaImageTag,
+			Controllers: controllers,
+			Brokers:     1,
+		})
+		if _, err := cluster.BootstrapServers(ctx); err == nil {
+			return fmt.Errorf("expected RedpandaCluster(controllers=%d) to fail, got nil error", controllers)
+		}
+	}
+
+	// brokers < 1 must be rejected. Dagger drops the zero value and applies
+	// the +default=1, so the sub-1 case uses -1.
+	clusterId, err := newClusterId(ctx)
+	if err != nil {
+		return err
+	}
+	cluster := k.RedpandaCluster(clusterId, k.RedpandaPlaintextServerSecurity(), dagger.KafkaRedpandaClusterOpts{
+		Tag:     redpandaImageTag,
+		Brokers: -1,
+	})
+	if _, err := cluster.BootstrapServers(ctx); err == nil {
+		return fmt.Errorf("expected RedpandaCluster(brokers=-1) to fail, got nil error")
+	}
+	return nil
+}
+
+// RedpandaMultiBrokerBootstrapServersListsEveryNode proves the constructor
+// accepts brokers=3 and returns a cluster advertising all three broker
+// bootstrap addresses. Resolving BootstrapServers forces the server-side
+// constructor (validation + the full container graph, including the per-node
+// seed list) to run without booting the containers, so the accept path is
+// exercised cheaply — the real three-node Raft round-trip is covered by
+// RedpandaThreeBrokerReplicationFactorThreeProduceConsume.
+func (t *Tests) RedpandaMultiBrokerBootstrapServersListsEveryNode(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, err := freshRedpandaClusterMultiBroker(ctx, redpandaImageTag, 3)
+	if err != nil {
+		return fmt.Errorf("create redpanda cluster: %w", err)
+	}
+	bs, err := cluster.BootstrapServers(ctx)
+	if err != nil {
+		return fmt.Errorf("expected RedpandaCluster(brokers=3) to construct, got: %w", err)
+	}
+	if len(bs) != 3 {
+		return fmt.Errorf("expected 3 bootstrap servers for a 3-broker cluster, got %d: %v", len(bs), bs)
+	}
+	return nil
+}
+
+// RedpandaThreeBrokerReplicationFactorThreeProduceConsume stands up a real
+// three-node Redpanda cluster and drives a produce → consume round-trip over
+// an RF=3 topic. A successful round-trip proves the three nodes formed a
+// single Raft group over the internal RPC listener (seed-driven bootstrap) and
+// that inter-node replication is actually exercised — an RF=3 topic can only be
+// created and written if all three brokers reach each other.
+func (t *Tests) RedpandaThreeBrokerReplicationFactorThreeProduceConsume(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, err := freshRedpandaClusterMultiBroker(ctx, redpandaImageTag, 3)
+	if err != nil {
+		return fmt.Errorf("create redpanda cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return redpandaReplicatedProduceConsumeOn(ctx, cluster, dag.Kafka().PlaintextClientSecurity(), 3)
+}
+
+// RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume is the TLS
+// counterpart: a three-node Redpanda cluster with TLS on every node's external
+// Kafka listener, driving a produce → consume round-trip over an RF=3 topic.
+// The franz-go client verifies whichever node it is routed to against the
+// cluster truststore, proving every node's leaf is SAN'd to its own hostname.
+func (t *Tests) RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, ts, tsPwd, err := freshTlsRedpandaClusterMultiBroker(ctx, redpandaImageTag, 3)
+	if err != nil {
+		return fmt.Errorf("create redpanda tls cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+	return redpandaReplicatedProduceConsumeOn(ctx, cluster, dag.Kafka().TLSClientSecurity(ts, tsPwd), 3)
+}
+
+// redpandaReplicatedProduceConsumeOn creates an RF=`rf` topic on the given
+// cluster, produces one record, and consumes it back — the shared body behind
+// the PLAINTEXT and TLS multi-broker round-trips.
+func redpandaReplicatedProduceConsumeOn(
+	ctx context.Context,
+	cluster *dagger.KafkaRedpandaCluster,
+	clientSec *dagger.KafkaClientSecurity,
+	rf int,
+) error {
+	client := cluster.Client(clientSec)
+
+	topic, err := randomTopicName(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.CreateTopic(ctx, topic, dagger.KafkaClientCreateTopicOpts{
+		Partitions:        1,
+		ReplicationFactor: rf,
+	}); err != nil {
+		return fmt.Errorf("create RF=%d topic %q: %w", rf, topic, err)
+	}
+
+	const wantKey, wantVal = "k", "v"
+	if err := client.Produce(ctx, topic, wantKey, wantVal, dagger.KafkaClientProduceOpts{
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	}); err != nil {
+		return fmt.Errorf("produce: %w", err)
+	}
+
+	records, err := consume(ctx, client, topic, dagger.KafkaClientConsumeOpts{
+		MaxMessages:   1,
+		Timeout:       "15s",
+		KeyEncoding:   "raw",
+		ValueEncoding: "raw",
+	})
+	if err != nil {
+		return fmt.Errorf("consume: %w", err)
+	}
+	if len(records) != 1 {
+		return fmt.Errorf("expected 1 record, got %d", len(records))
+	}
+	gotKey, err := records[0].Key(ctx)
+	if err != nil {
+		return fmt.Errorf("read key: %w", err)
+	}
+	gotVal, err := records[0].Value(ctx)
+	if err != nil {
+		return fmt.Errorf("read value: %w", err)
+	}
+	if gotKey != wantKey || gotVal != wantVal {
+		return fmt.Errorf("redpanda replicated round-trip mismatch: got (%q, %q), want (%q, %q)", gotKey, gotVal, wantKey, wantVal)
+	}
+	return nil
+}
+
+// RedpandaMultiBrokerSchemaRegistryRoundTrip proves Redpanda's bundled Schema
+// Registry still works against a multi-node cluster: it stands up a three-node
+// cluster, registers a schema against cluster.SchemaRegistry() (which points
+// at node 0, whose service cascades the whole cluster online), and asserts the
+// lookup-by-id round-trip. The `_schemas` topic itself is replicated across the
+// cluster, so a successful round-trip proves the registry reaches a formed
+// multi-node Raft group.
+func (t *Tests) RedpandaMultiBrokerSchemaRegistryRoundTrip(
+	ctx context.Context,
+	// +default="v26.1.7"
+	redpandaImageTag string,
+) error {
+	cluster, err := freshRedpandaClusterMultiBroker(ctx, redpandaImageTag, 3)
+	if err != nil {
+		return fmt.Errorf("create redpanda cluster: %w", err)
+	}
+	defer cluster.Stop(ctx)
+
+	return redpandaSchemaRegistryRegisterLookupRoundTripOn(ctx,
+		cluster.SchemaRegistry(plaintextSchemaRegistrySecurity()),
+		plaintextSchemaRegistryClientSecurity())
+}
+
 // RedpandaClusterProduceListTopicsRoundTrip is the PLAINTEXT happy-path
 // round-trip for Kafka.RedpandaCluster: spin up a single-node Redpanda,
 // create a topic, produce one record, then assert the freshly-created

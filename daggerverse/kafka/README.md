@@ -14,9 +14,11 @@ PKCS#12), so `RedpandaCluster` returns its own type and accepts its own
 security profile — see the dedicated section below.
 
 The module supports plaintext, TLS, and mTLS on the external client-facing
-listener. The internal listeners (inter-broker and controller-quorum) are
-**always mTLS**, secured by a per-cluster CA the module mints internally and
-never surfaces on the API.
+listener. For the `*Cluster` constructors (Apache/Confluent) the internal
+listeners (inter-broker and controller-quorum) are **always mTLS**, secured by
+a per-cluster CA the module mints internally and never surfaces on the API.
+Redpanda has no equivalent env-var PKI, so its internal RPC listener is
+plaintext — see the "RedpandaCluster" section for the rationale.
 
 ## Security profiles
 
@@ -326,29 +328,70 @@ cluster := dag.Kafka().RedpandaCluster(
     dagger.KafkaRedpandaClusterOpts{
         Tag:      "v26.1.7",
         Registry: "docker.io",
+        Brokers:  3, // omit (or 1) for a single node
     },
 )
 client := cluster.Client(dag.Kafka().PlaintextClientSecurity()) // or TLSClientSecurity(...)
 ```
 
-`RedpandaCluster` is single-node only — `controllers != 1` or `brokers
-!= 1` are rejected. Redpanda runs broker and Raft roles in the same
-process, so there is no separate controller container. The broker is
-started via `rpk redpanda start --mode dev-container` (which bundles
-`--overprovisioned`, `--reserve-memory 0M`, `--check=false`, and
-`--unsafe-bypass-fsync`).
+`RedpandaCluster` runs a genuine multi-broker cluster: `brokers` nodes
+(node IDs `0..N-1`, hostnames `redpanda-<n>-<suffix>`) form a single
+Raft group over the internal RPC listener (`:33145`). Redpanda runs
+broker and Raft roles in the same process, so there is no separate
+controller container — every node is a full broker that also
+participates in Raft. Each broker is started via `rpk redpanda start
+--mode dev-container` (which bundles `--overprovisioned`,
+`--reserve-memory 0M`, `--check=false`, and `--unsafe-bypass-fsync`).
 
-- `RedpandaCluster.BootstrapServers(ctx) ([]string, error)` —
-  `[host:9092]`.
+Node hostnames are deterministic (derived from `clusterId`), so the seed
+list is computed before any container is built and pinned onto every
+node via `WithHostname` + session-wide DNS. A multi-node cluster uses
+Redpanda's **seed-driven bootstrap**: every node shares the identical
+`seed_servers` list (all N nodes) with `empty_seed_starts_cluster=false`,
+so the nodes deterministically form one Raft group with **no**
+node-to-node `WithServiceBinding`. The nodes are symmetric Raft peers, so
+a binding can't be used to bring them up (binding A→B forces Dagger to
+fully ready B before it boots A, but B can't ready its ports until the
+cluster forms, which needs A — a deadlock); instead `Client` /
+`SchemaRegistry` start every node **concurrently** so they boot together
+and discover each other by hostname over session-wide DNS. A single-broker
+cluster keeps the legacy `empty_seed_starts_cluster=true` self-bootstrap.
+
+### Controllers policy
+
+`controllers` **must be 1** — Redpanda has no separate controller role
+(broker and Raft duties share one process), so a controller count is not
+a meaningful concept. Any other value is rejected at construction time
+with a Redpanda-specific error; size the cluster with `brokers` instead.
+`brokers < 1` is likewise rejected.
+
+### Inter-node RPC security
+
+The internal RPC listener (`:33145`) that carries Raft traffic between
+nodes is **PLAINTEXT and unauthenticated even on a TLS cluster**.
+Redpanda's RPC-listener TLS would need its own internal CA + per-node
+leaves + mutual trust — a whole parallel PKI — for traffic that never
+leaves the Dagger engine's isolated per-session network. This
+deliberately differs from the Apache path (which always mTLS-encrypts its
+internal + controller listeners) because Redpanda has no equivalent
+`KAFKA_*` PKCS#12 env-var contract to reuse. TLS here is scoped to the
+client-facing Kafka listener + bundled Schema Registry REST endpoint,
+which is what external clients actually verify; every node's external
+leaf is SAN'd to its own hostname so a client routed to any broker
+verifies successfully.
+
+- `RedpandaCluster.BootstrapServers(ctx) ([]string, error)` — one
+  `host:9092` per broker.
 - `RedpandaCluster.BindBrokers(c *dagger.Container) *dagger.Container`
-  — same shape as `Cluster.BindBrokers`.
+  — binds every broker, same shape as `Cluster.BindBrokers`.
 - `RedpandaCluster.Client(ctx, security *KafkaClientSecurity)
-  (*KafkaClient, error)` — returns the same `*Client` the Apache
-  constructors return. The Kafka wire protocol matches, so
-  producer/consumer code is shared.
-- `RedpandaCluster.SchemaRegistry(ctx) *SchemaRegistry` — the bundled
-  in-broker Schema Registry as the shared `*SchemaRegistry` type — see
-  "Bundled Schema Registry" below.
+  (*KafkaClient, error)` — starts every broker (bringing the Raft group
+  online) and returns the same `*Client` the Apache constructors return.
+  The Kafka wire protocol matches, so producer/consumer code is shared.
+- `RedpandaCluster.SchemaRegistry(ctx, security) (*SchemaRegistry, error)`
+  — the bundled in-broker Schema Registry (on node 0) as the shared
+  `*SchemaRegistry` type — see "Bundled Schema Registry" below.
+- `RedpandaCluster.Stop(ctx) error` — tears down every node service.
 
 ### Security profile
 
@@ -365,18 +408,19 @@ Redpanda reads PEM (`server.crt`, `server.key`) from its
 constructors hand to the JVM. The API surface still accepts the same
 PKCS#12 CA you'd hand to `TLSServerSecurity` — the constructor loads
 the CA via `certificate-management`'s existing PKCS#12 loader, issues
-the per-cluster server leaf, then mounts the PEM cert/key files into
-the broker container at `/etc/redpanda/certs/server.{crt,key}` and
-points the rendered `redpanda.yaml` at those paths (the YAML never
-embeds PEM material itself). Callers don't have to convert between
-formats. The server private key crosses into the broker container as
-a `*dagger.Secret` (mounted via `WithMountedSecret`) so its plaintext
-never lands in the module workdir. The CA cert *is* mounted, at
-`/etc/redpanda/certs/ca.crt` — it is the truststore for the bundled
-Schema Registry's internal broker client, which must dial the TLS-only
-Kafka listener to persist `_schemas` (see "Bundled Schema Registry"
-below). mTLS on the external listener (client-auth) is a follow-up;
-this story is server-side TLS only.
+**one server leaf per node** (each SAN'd to that node's own hostname),
+then mounts the PEM cert/key files into each broker container at
+`/etc/redpanda/certs/server.{crt,key}` and points the per-node rendered
+`redpanda.yaml` at those paths (the YAML never embeds PEM material
+itself). Callers don't have to convert between formats. Each node's
+private key crosses into its container as a `*dagger.Secret` (mounted
+via `WithMountedSecret`) so its plaintext never lands in the module
+workdir. The CA cert *is* mounted (shared across nodes) at
+`/etc/redpanda/certs/ca.crt` — it is the truststore for each node's
+bundled Schema Registry / pandaproxy broker client, which must dial the
+TLS-only Kafka listener to persist `_schemas` (see "Bundled Schema
+Registry" below). mTLS on the external listener (client-auth) is a
+follow-up; this path is server-side TLS only.
 
 ### Client
 
@@ -674,10 +718,10 @@ underneath:
   ships Kafka 4.2.0. The constructor silently disables Confluent's
   phone-home telemetry (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`).
 - `RedpandaCluster` → `<registry>/redpandadata/redpanda:<tag>` (default
-  `docker.io/redpandadata/redpanda:v26.1.7`). Single-node only;
-  separate `*RedpandaCluster` / `*RedpandaServerSecurity` types
-  because the config layer doesn't share the `KAFKA_*` env-var
-  contract — see the "RedpandaCluster" section.
+  `docker.io/redpandadata/redpanda:v26.1.7`). Multi-broker (Raft) via
+  the `brokers` parameter; separate `*RedpandaCluster` /
+  `*RedpandaServerSecurity` types because the config layer doesn't share
+  the `KAFKA_*` env-var contract — see the "RedpandaCluster" section.
 
 `registry` (default `docker.io`) and `tag` are the only caller-
 overridable parts; the `apache/kafka{-native,}`, `confluentinc/cp-kafka`,

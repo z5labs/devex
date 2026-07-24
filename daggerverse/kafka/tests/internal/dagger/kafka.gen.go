@@ -46,7 +46,7 @@ func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../dagg
 }
 
 // Retrieve the binding value, as type KafkaRedpandaCluster
-func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	q := r.query.Select("asKafkaRedpandaCluster")
 
 	return &KafkaRedpandaCluster{
@@ -55,7 +55,7 @@ func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../
 }
 
 // Retrieve the binding value, as type KafkaRedpandaServerSecurity
-func (r *Binding) AsKafkaRedpandaServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Binding) AsKafkaRedpandaServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	q := r.query.Select("asKafkaRedpandaServerSecurity")
 
 	return &KafkaRedpandaServerSecurity{
@@ -214,7 +214,7 @@ func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (
 }
 
 // Create or update a binding of type KafkaRedpandaCluster in the environment
-func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaRedpandaClusterInput")
 	q = q.Arg("name", name)
@@ -227,7 +227,7 @@ func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaClu
 }
 
 // Declare a desired KafkaRedpandaCluster output to be assigned in the environment
-func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	q := r.query.Select("withKafkaRedpandaClusterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -238,7 +238,7 @@ func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *E
 }
 
 // Create or update a binding of type KafkaRedpandaServerSecurity in the environment
-func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedpandaServerSecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedpandaServerSecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaRedpandaServerSecurityInput")
 	q = q.Arg("name", name)
@@ -251,7 +251,7 @@ func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedp
 }
 
 // Declare a desired KafkaRedpandaServerSecurity output to be assigned in the environment
-func (r *Env) WithKafkaRedpandaServerSecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Env) WithKafkaRedpandaServerSecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	q := r.query.Select("withKafkaRedpandaServerSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -949,28 +949,52 @@ func (r *Kafka) PlaintextServerSecurity() *KafkaServerSecurity { // kafka (../..
 type KafkaRedpandaClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:87:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:119:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:89:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:121:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:91:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:123:2)
 
 	// Default: "v26.1.7"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:93:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:125:2)
 }
 
-// RedpandaCluster spins up a single-node Redpanda cluster using the
+// RedpandaCluster spins up a Redpanda cluster of `brokers` nodes using the
 // `redpandadata/redpanda` image. Redpanda runs broker and Raft duties in the
-// same process, so there is no separate controller container.
+// same process, so there is no separate controller container — every node is
+// a full broker that also participates in the Raft group.
 //
-// Multi-node (controllers != 1 or brokers != 1) is rejected — multi-broker
-// Redpanda needs `--seeds` plumbing + per-node `rpc_server` advertising
-// that doesn't fit single-story scope. The wire protocol matches Kafka,
-// so RedpandaCluster.Client() returns the same *Client type the Apache
-// constructors return.
-func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaRedpandaServerSecurity, opts ...KafkaRedpandaClusterOpts) *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:83:1)
+// Topology: node hostnames are deterministic (redpanda-<n>-<suffix>, node IDs
+// 0..N-1, suffix derived from clusterId), so the seed list is computed before
+// any container is built and pinned onto every node via WithHostname +
+// session-wide DNS. For brokers > 1 the cluster uses Redpanda's seed-driven
+// bootstrap: every node shares the identical seed_servers list (all N nodes)
+// and empty_seed_starts_cluster=false, so the nodes deterministically form one
+// Raft group over the internal RPC listener (:33145) with NO node-to-node
+// WithServiceBinding — they are started concurrently and discover each other
+// by hostname over session-wide DNS. A single-broker cluster keeps the legacy
+// empty_seed_starts_cluster=true bootstrap (empty seed list).
+//
+// controllers must be 1: Redpanda has no separate controller role, so a
+// controller count is not a meaningful concept and any other value is
+// rejected (see the constructor's error). Size the cluster with `brokers`.
+//
+// Inter-node RPC security: the internal RPC listener (:33145) that carries
+// Raft traffic is PLAINTEXT and unauthenticated even when the external Kafka
+// listener is TLS. Redpanda's RPC-listener TLS would need its own internal
+// CA + per-node leaves + mutual trust — a whole parallel PKI — for traffic
+// that never leaves the Dagger engine's isolated per-session network. This
+// deliberately differs from the Apache path (which always mTLS-encrypts its
+// internal + controller listeners) because Redpanda has no equivalent PKCS#12
+// env-var contract to reuse; TLS here is scoped to the client-facing Kafka
+// listener + bundled Schema Registry REST endpoint, which is what external
+// clients actually verify.
+//
+// The wire protocol matches Kafka, so RedpandaCluster.Client() returns the
+// same *Client type the Apache constructors return.
+func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaRedpandaServerSecurity, opts ...KafkaRedpandaClusterOpts) *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:115:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("redpandaCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -1002,7 +1026,7 @@ func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaR
 // RedpandaPlaintextServerSecurity returns a RedpandaServerSecurity profile
 // configured for unencrypted, unauthenticated traffic on the external Kafka
 // listener.
-func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:49:1)
+func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:57:1)
 	q := r.query.Select("redpandaPlaintextServerSecurity")
 
 	return &KafkaRedpandaServerSecurity{
@@ -1012,13 +1036,13 @@ func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity {
 
 // RedpandaTlsServerSecurity returns a RedpandaServerSecurity profile that
 // terminates TLS on the external Kafka listener. caKeyStore is a PKCS#12
-// archive of the CA cert + private key used to mint the per-cluster server
-// leaf — same shape as Kafka.TlsServerSecurity, so callers don't have to
+// archive of the CA cert + private key used to mint the per-node server
+// leaves — same shape as Kafka.TlsServerSecurity, so callers don't have to
 // convert between formats even though Redpanda itself reads PEM internally.
-// The leaf carries the broker's stable hostname as a DNS SAN so franz-go
-// clients dialing the bootstrap address can verify the cert against the
-// matching truststore.
-func (r *Kafka) RedpandaTLSServerSecurity(caKeyStore *File, caKeyStorePassword *Secret) *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:61:1)
+// Each node's leaf carries that node's stable hostname as a DNS SAN so
+// franz-go clients dialing any broker in the bootstrap list can verify the
+// cert against the matching truststore.
+func (r *Kafka) RedpandaTLSServerSecurity(caKeyStore *File, caKeyStorePassword *Secret) *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:69:1)
 	assertNotNil("caKeyStore", caKeyStore)
 	assertNotNil("caKeyStorePassword", caKeyStorePassword)
 	q := r.query.Select("redpandaTlsServerSecurity")
@@ -1746,9 +1770,14 @@ func (r *KafkaCluster) AsNode() Node {
 // the Kafka wire protocol but is a from-scratch C++ implementation with a
 // completely different configuration layer (`rpk redpanda start`, a YAML
 // config file, PEM cert/key files instead of PKCS#12), so it gets its own
-// return type to make the divergence visible at the API surface. Single
-// node only in this story (controllers=1, brokers=1).
-type KafkaRedpandaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+// return type to make the divergence visible at the API surface.
+//
+// Supports a genuine multi-broker Raft cluster: N brokers (node IDs 0..N-1)
+// form a single Raft group over the internal RPC listener, discovering each
+// other by deterministic hostname (redpanda-<n>-<suffix>) via the engine's
+// session-wide DNS. Redpanda runs broker and Raft duties in the SAME process,
+// so there is no separate controller container.
+type KafkaRedpandaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -1761,9 +1790,9 @@ func (r *KafkaRedpandaCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kafk
 	}
 }
 
-// BindBrokers binds the single Redpanda broker service into the given
-// container so the container can reach it by hostname.
-func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:430:1)
+// BindBrokers binds every Redpanda broker service into the given container so
+// the container can reach them by the same hostnames BootstrapServers reports.
+func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:602:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1773,9 +1802,9 @@ func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka
 	}
 }
 
-// BootstrapServers returns the bootstrap address (single broker:9092) for
-// this Redpanda cluster.
-func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:384:1)
+// BootstrapServers returns the host:port bootstrap addresses for every broker
+// in this Redpanda cluster.
+func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:542:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1784,10 +1813,10 @@ func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, 
 	return response, q.Execute(ctx)
 }
 
-// Client starts the Redpanda broker service and returns a franz-go-backed
-// *Client targeting it. The Kafka wire protocol matches Apache Kafka, so
-// the existing *Client + *ClientSecurity (PKCS#12) are reused unchanged.
-func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:439:1)
+// Client starts every Redpanda broker service — bringing the whole Raft group
+// online — and returns a franz-go-backed *Client targeting them. The Kafka
+// wire protocol matches Apache Kafka, so the existing *Client(PKCS#12) are reused unchanged.
+func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:615:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1850,10 +1879,13 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 // *SchemaRegistry type Kafka.ConfluentSchemaRegistry returns, so callers can
 // treat the bundled and separate-container registries uniformly.
 //
-// `rpk redpanda start` runs a Schema Registry inside the broker process on
-// :8081 — no extra container — so the returned *SchemaRegistry points at the
-// broker service itself. Redpanda's SR speaks the Confluent Schema Registry
-// REST API, so the *SchemaRegistryClient from Client() works unchanged.
+// `rpk redpanda start` runs a Schema Registry inside every broker process on
+// :8081 — no extra container. The returned *SchemaRegistry points at the first
+// broker (node 0); because the registry client only starts that one service,
+// this method brings the whole cluster online (startAll) before returning, so
+// the registry is backed by a formed Raft group. Redpanda's SR speaks the
+// Confluent Schema Registry REST API, so the *SchemaRegistryClient from
+// Client() works unchanged.
 //
 // security must match the cluster's mode (PLAINTEXT or TLS — Redpanda has no
 // mTLS): on a TLS cluster the bundled SR REST endpoint terminates HTTPS
@@ -1862,11 +1894,11 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 // client. The profile's CA keystore is unused here (the leaf is already
 // minted); it is required only for API uniformity with the other registries.
 //
-// The returned registry is Bundled: its service is the broker itself, so
-// Stop is a no-op on it — call cluster.Stop to tear the registry down with
-// the cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
+// The returned registry is Bundled: its service is a broker itself, so Stop is
+// a no-op on it — call cluster.Stop to tear the registry down with the
+// cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
 // *SchemaRegistry type therefore can't accidentally kill the cluster.
-func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecurity) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:410:1)
+func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecurity) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:575:1)
 	assertNotNil("security", security)
 	q := r.query.Select("schemaRegistry")
 	q = q.Arg("security", security)
@@ -1876,11 +1908,11 @@ func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecur
 	}
 }
 
-// Stop tears down the broker container backing this Redpanda cluster.
-// Tests should call this in a defer so the broker `Container.asService`
+// Stop tears down every broker container backing this Redpanda cluster.
+// Tests should call this in a defer so each broker `Container.asService`
 // span closes when the test work is done. Kill is set so Service.Stop
 // skips graceful shutdown — see Cluster.Stop for the rationale.
-func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:455:1)
+func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:631:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1902,7 +1934,7 @@ func (r *KafkaRedpandaCluster) AsNode() Node {
 // issued leaf internally for redpanda.yaml. Separate type from
 // *ServerSecurity so a caller can't accidentally hand an Apache profile
 // (e.g. MtlsServerSecurity, not supported here yet) to RedpandaCluster.
-type KafkaRedpandaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+type KafkaRedpandaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	query *querybuilder.Selection
 
 	id *ID

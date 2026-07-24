@@ -899,6 +899,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).RedpandaClusterTlsRoundTrip(&parent, ctx, redpandaImageTag)
+		case "RedpandaMultiBrokerBootstrapServersListsEveryNode":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaImageTag string
+			if inputArgs["redpandaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaImageTag"]), &redpandaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaImageTag", err))
+				}
+			}
+			return nil, (*Tests).RedpandaMultiBrokerBootstrapServersListsEveryNode(&parent, ctx, redpandaImageTag)
+		case "RedpandaMultiBrokerControllerPolicyRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaImageTag string
+			if inputArgs["redpandaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaImageTag"]), &redpandaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaImageTag", err))
+				}
+			}
+			return nil, (*Tests).RedpandaMultiBrokerControllerPolicyRejected(&parent, ctx, redpandaImageTag)
+		case "RedpandaMultiBrokerSchemaRegistryRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaImageTag string
+			if inputArgs["redpandaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaImageTag"]), &redpandaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaImageTag", err))
+				}
+			}
+			return nil, (*Tests).RedpandaMultiBrokerSchemaRegistryRoundTrip(&parent, ctx, redpandaImageTag)
 		case "RedpandaSchemaRegistryBundledStopIsNoOp":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -941,6 +983,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).RedpandaSchemaRegistryTlsRegisterLookupRoundTrip(&parent, ctx, redpandaImageTag)
+		case "RedpandaThreeBrokerReplicationFactorThreeProduceConsume":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaImageTag string
+			if inputArgs["redpandaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaImageTag"]), &redpandaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaImageTag", err))
+				}
+			}
+			return nil, (*Tests).RedpandaThreeBrokerReplicationFactorThreeProduceConsume(&parent, ctx, redpandaImageTag)
+		case "RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var redpandaImageTag string
+			if inputArgs["redpandaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["redpandaImageTag"]), &redpandaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg redpandaImageTag", err))
+				}
+			}
+			return nil, (*Tests).RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume(&parent, ctx, redpandaImageTag)
 		case "SchemaRegistry":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
