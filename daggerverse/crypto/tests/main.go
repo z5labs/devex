@@ -2,7 +2,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"crypto"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/pem"
 	"fmt"
 	"strings"
 
@@ -50,7 +56,167 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("EcdsaP256KeyEmitsValidFormats", t.EcdsaP256KeyEmitsValidFormats)
 	jobs = jobs.WithJob("Ed25519KeyEmitsValidFormats", t.Ed25519KeyEmitsValidFormats)
 
+	jobs = jobs.WithJob("ExamplesCookbook", t.exampleSmoke)
+
 	return jobs.Run(ctx)
+}
+
+// exampleSmoke runs every examples/go cookbook recipe end-to-end, so the suite
+// fails if the examples rot against the crypto API. It is intentionally
+// unexported so it stays out of this module's Dagger schema (and the root ci/
+// bindings); it is driven only as a job in All.
+func (t *Tests) exampleSmoke(ctx context.Context) error {
+	ex := dag.CryptoExamples()
+
+	got, err := ex.HashSourceFile(ctx, dagger.CryptoExamplesHashSourceFileOpts{File: helloFile()})
+	if err != nil {
+		return fmt.Errorf("example recipe HashSourceFile: %w", err)
+	}
+	if got != helloSha256 {
+		return fmt.Errorf("example recipe HashSourceFile: got %s, want %s", got, helloSha256)
+	}
+
+	got, err = ex.HashWithSha3(ctx, dagger.CryptoExamplesHashWithSha3Opts{File: helloFile()})
+	if err != nil {
+		return fmt.Errorf("example recipe HashWithSha3: %w", err)
+	}
+	if got != helloSha3_512 {
+		return fmt.Errorf("example recipe HashWithSha3: got %s, want %s", got, helloSha3_512)
+	}
+
+	if err := exampleRsaKeypair(ctx, ex); err != nil {
+		return err
+	}
+	return exampleEd25519SshKey(ctx, ex)
+}
+
+// exampleRsaKeypair asserts GenerateRsaKeypair emits both halves of one
+// keypair. 2048 bits keeps the recipe quick; the recipe's own default is 4096.
+func exampleRsaKeypair(ctx context.Context, ex *dagger.CryptoExamples) error {
+	dir, err := pin(ctx, ex.GenerateRsaKeypair(dagger.CryptoExamplesGenerateRsaKeypairOpts{Bits: 2048}))
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: %w", err)
+	}
+
+	privPem, err := dir.File("key.pem").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: read key.pem: %w", err)
+	}
+	if !strings.HasPrefix(privPem, "-----BEGIN PRIVATE KEY-----") {
+		// Don't echo any portion of private-key material into CI logs.
+		return fmt.Errorf("example recipe GenerateRsaKeypair: key.pem missing PKCS#8 PEM header (%d bytes)", len(privPem))
+	}
+
+	pubPem, err := dir.File("key.pub.pem").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: read key.pub.pem: %w", err)
+	}
+	if !strings.HasPrefix(pubPem, "-----BEGIN PUBLIC KEY-----") {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: key.pub.pem missing SPKI PEM header, got: %q", trim(pubPem))
+	}
+
+	// The halves must belong to the *same* key. Deriving them from two
+	// independent selections off a `+cache="never"` generator would silently
+	// run the generator twice and pair a private key with a stranger's public
+	// key, so assert the recipe pins one instance before fanning out.
+	priv, err := parsePrivatePem(privPem)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: parse key.pem: %w", err)
+	}
+	wantPub, err := marshalPublicPem(priv)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: re-encode public key: %w", err)
+	}
+	if pubPem != wantPub {
+		return fmt.Errorf("example recipe GenerateRsaKeypair: key.pub.pem is not the public half of key.pem")
+	}
+	return nil
+}
+
+// exampleEd25519SshKey asserts GenerateEd25519SshKey emits an ssh-shaped
+// identity whose public line really belongs to the private key beside it.
+func exampleEd25519SshKey(ctx context.Context, ex *dagger.CryptoExamples) error {
+	dir, err := pin(ctx, ex.GenerateEd25519SshKey())
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: %w", err)
+	}
+
+	privPem, err := dir.File("id_ed25519").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: read id_ed25519: %w", err)
+	}
+	if !strings.HasPrefix(privPem, "-----BEGIN PRIVATE KEY-----") {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: id_ed25519 missing PKCS#8 PEM header (%d bytes)", len(privPem))
+	}
+
+	sshPub, err := dir.File("id_ed25519.pub").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: read id_ed25519.pub: %w", err)
+	}
+	if !strings.HasPrefix(sshPub, "ssh-ed25519 ") {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: id_ed25519.pub missing %q prefix, got: %q", "ssh-ed25519", trim(sshPub))
+	}
+
+	priv, err := parsePrivatePem(privPem)
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: parse id_ed25519: %w", err)
+	}
+	edPriv, ok := priv.(ed25519.PrivateKey)
+	if !ok {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: id_ed25519 holds a %T, want an Ed25519 key", priv)
+	}
+
+	// An OpenSSH public key line is `<algo> <base64 blob>[ comment]`, and the
+	// blob's last field is the raw 32-byte Ed25519 public key — so a suffix
+	// match is an exact check that both files came from one generated key.
+	fields := strings.Fields(sshPub)
+	if len(fields) < 2 {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: id_ed25519.pub is not an authorized_keys line, got: %q", trim(sshPub))
+	}
+	blob, err := base64.StdEncoding.DecodeString(fields[1])
+	if err != nil {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: decode id_ed25519.pub blob: %w", err)
+	}
+	if !bytes.HasSuffix(blob, edPriv.Public().(ed25519.PublicKey)) {
+		return fmt.Errorf("example recipe GenerateEd25519SshKey: id_ed25519.pub is not the public half of id_ed25519")
+	}
+	return nil
+}
+
+// pin resolves dir to a concrete Directory ID and reloads it, so every later
+// read selects off one snapshot. Reading two files straight off the returned
+// handle would instead build two independent queries, and both key recipes
+// carry `+cache="never"` — so each read would re-run the recipe and the test
+// would compare files from two different keypairs.
+func pin(ctx context.Context, dir *dagger.Directory) (*dagger.Directory, error) {
+	id, err := dir.ID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.LoadDirectoryFromID(dagger.DirectoryID(id)), nil
+}
+
+// parsePrivatePem decodes a PKCS#8 PEM private key.
+func parsePrivatePem(s string) (any, error) {
+	block, _ := pem.Decode([]byte(s))
+	if block == nil {
+		return nil, fmt.Errorf("no PEM block found")
+	}
+	return x509.ParsePKCS8PrivateKey(block.Bytes)
+}
+
+// marshalPublicPem renders priv's public half as an SPKI PEM block, in the
+// same encoding crypto's PublicKeyPem emits.
+func marshalPublicPem(priv any) (string, error) {
+	pub, ok := priv.(interface{ Public() crypto.PublicKey })
+	if !ok {
+		return "", fmt.Errorf("private key type %T has no Public() method", priv)
+	}
+	der, err := x509.MarshalPKIXPublicKey(pub.Public())
+	if err != nil {
+		return "", err
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})), nil
 }
 
 // helloFile returns a *dagger.File whose contents are "hello".

@@ -182,9 +182,6 @@ type CryptoEcdsaKeyID string
 type CryptoEd25519KeyID string
 
 // A unique identifier for an object.
-type CryptoExamplesID string
-
-// A unique identifier for an object.
 type CryptoID string
 
 // A unique identifier for an object.
@@ -12901,16 +12898,6 @@ func (r *Query) LoadCryptoEd25519KeyFromID(id CryptoEd25519KeyID) *CryptoEd25519
 	q = q.Arg("id", id)
 
 	return &CryptoEd25519Key{
-		query: q,
-	}
-}
-
-// Load a CryptoExamples from its ID.
-func (r *Query) LoadCryptoExamplesFromID(id CryptoExamplesID) *CryptoExamples {
-	q := r.query.Select("loadCryptoExamplesFromID")
-	q = q.Arg("id", id)
-
-	return &CryptoExamples{
 		query: q,
 	}
 }

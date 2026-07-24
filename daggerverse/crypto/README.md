@@ -60,3 +60,20 @@ the `ctx` and return the error):
 pubFile := dag.Crypto().GenerateEd25519Key().OpenSSHPublicKey()
 line, err := pubFile.Contents(ctx)
 ```
+
+## Examples
+
+`examples/go/` is a runnable cookbook module: four recipes that call crypto the
+way a downstream consumer would. Run one to learn the API end-to-end.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/crypto/examples/go call \
+  hash-source-file --file=./go.mod
+dagger -m github.com/z5labs/devex/daggerverse/crypto/examples/go call \
+  generate-ed-25519-ssh-key export --path ./ssh
+```
+
+`hash-source-file` and `hash-with-sha-3` contrast the SHA-2 and SHA-3 families
+on the same bytes; `generate-rsa-keypair` and `generate-ed-25519-ssh-key` each
+return a directory holding both halves of a fresh key. The suite in `tests/`
+runs every recipe, so the cookbook cannot silently rot against the API.
