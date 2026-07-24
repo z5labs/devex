@@ -19,7 +19,7 @@ func (r *Binding) AsZig() *Zig { // zig (../../../../../daggerverse/zig/main.go:
 }
 
 // Retrieve the binding value, as type ZigCi
-func (r *Binding) AsZigCi() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+func (r *Binding) AsZigCi() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:25:6)
 	q := r.query.Select("asZigCi")
 
 	return &ZigCi{
@@ -37,7 +37,7 @@ func (r *Binding) AsZigSectionSizes() *ZigSectionSizes { // zig (../../../../../
 }
 
 // Create or update a binding of type ZigCi in the environment
-func (r *Env) WithZigCiInput(name string, value *ZigCi, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+func (r *Env) WithZigCiInput(name string, value *ZigCi, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:25:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZigCiInput")
 	q = q.Arg("name", name)
@@ -50,7 +50,7 @@ func (r *Env) WithZigCiInput(name string, value *ZigCi, description string) *Env
 }
 
 // Declare a desired ZigCi output to be assigned in the environment
-func (r *Env) WithZigCiOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+func (r *Env) WithZigCiOutput(name string, description string) *Env { // zig (../../../../../daggerverse/zig/ci.go:25:6)
 	q := r.query.Select("withZigCiOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -302,7 +302,7 @@ func (r *Zig) Cc(source *Directory, files []string, opts ...ZigCcOpts) *File { /
 }
 
 // Ci returns a new pipeline builder bound to the supplied source.
-func (r *Zig) Ci(source *Directory) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:41:1)
+func (r *Zig) Ci(source *Directory) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:49:1)
 	assertNotNil("source", source)
 	q := r.query.Select("ci")
 	q = q.Arg("source", source)
@@ -636,11 +636,17 @@ func (r *Zig) AsNode() Node {
 // Zig.Ci(source); enable check stages via the With* methods; call Run to
 // execute checks-then-build, or Check to run only the parallel checks.
 //
-// Stage 1 runs the enabled static checks in parallel (Fmt, Test); errors are
-// aggregated. Stage 2 builds the source and Run returns the produced zig-out
-// directory. Downstream consumers compose that directory into their own
-// pipelines (package, sign, publish, ...).
-type ZigCi struct { // zig (../../../../../daggerverse/zig/ci.go:19:6)
+// Stage 1 runs the enabled checks in parallel (Fmt, Test, and — when WithBuild
+// was called — a Build check that compiles the source); errors are aggregated.
+// Stage 2 builds the source and Run returns the produced zig-out directory.
+// Downstream consumers compose that directory into their own pipelines
+// (package, sign, publish, ...).
+//
+// The Build check exists because fmt and test alone do not gate compilation:
+// fmt checks syntax, not types, and many projects (firmware especially) have no
+// test step, so a build-free Check reports a false green on code that does not
+// compile. See issue #161.
+type ZigCi struct { // zig (../../../../../daggerverse/zig/ci.go:25:6)
 	query *querybuilder.Selection
 
 	check *Void
@@ -661,11 +667,21 @@ func (r *ZigCi) WithGraphQLQuery(q *querybuilder.Selection) *ZigCi {
 	}
 }
 
-// Check runs the enabled check stages (Fmt, Test) in parallel via
-// github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
-// when callers want to run the checks independently of the build (for example
-// multi-target pipelines that share one check run across N target builds).
-func (r *ZigCi) Check(ctx context.Context) error { // zig (../../../../../daggerverse/zig/ci.go:87:1)
+// Check runs the enabled check stages in parallel via
+// github.com/dagger/dagger/util/parallel and returns the aggregated error. The
+// enabled stages are Fmt (WithFmt), Test (WithTest), and Build (WithBuild).
+//
+// The Build stage compiles the source (`zig build`) and discards the artifact —
+// it exists so Check gates on "does it compile?", the fundamental correctness
+// check for a compiled language. Without it, a project whose only failure is a
+// compile error passes Check on the strength of fmt alone (a false green): fmt
+// checks syntax, not types, and firmware projects frequently have no test step.
+// See issue #161.
+//
+// Build is opt-in via WithBuild so callers can still run a build-free Check —
+// for example multi-target pipelines that share one target-independent check
+// run (fmt, test) across N target builds.
+func (r *ZigCi) Check(ctx context.Context) error { // zig (../../../../../daggerverse/zig/ci.go:117:1)
 	if r.check != nil {
 		return nil
 	}
@@ -726,7 +742,12 @@ func (r *ZigCi) UnmarshalJSON(bs []byte) error {
 // Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns the
 // produced zig-out directory. On stage-1 failure, returns the aggregated error
 // from Check and a nil directory (stage 2 is skipped).
-func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:106:1)
+//
+// Run always builds regardless of WithBuild — it must produce the directory it
+// returns. When WithBuild was called, Check also builds (stage 1); that build
+// and stage 2 share inputs, so session caching makes stage 2 a cache hit rather
+// than a second compile.
+func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:144:1)
 	q := r.query.Select("run")
 
 	return &Directory{
@@ -736,18 +757,29 @@ func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:
 
 // ZigCiWithBuildOpts contains options for ZigCi.WithBuild
 type ZigCiWithBuildOpts struct {
-	Optimize string // zig (../../../../../daggerverse/zig/ci.go:68:2)
+	Optimize string // zig (../../../../../daggerverse/zig/ci.go:87:2)
 
-	Target string // zig (../../../../../daggerverse/zig/ci.go:70:2)
+	Target string // zig (../../../../../daggerverse/zig/ci.go:89:2)
 
-	Steps []string // zig (../../../../../daggerverse/zig/ci.go:72:2)
+	Steps []string // zig (../../../../../daggerverse/zig/ci.go:91:2)
 }
 
-// WithBuild configures the build stage parameters (forwarded to Zig.Build).
-// optimize, when non-empty, must be one of Debug, ReleaseSafe, ReleaseFast,
-// ReleaseSmall; target sets -Dtarget; steps names build steps. Build is always
-// executed by Run regardless of whether this method is called.
-func (r *ZigCi) WithBuild(opts ...ZigCiWithBuildOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:66:1)
+// WithBuild enables the build check stage and configures its parameters
+// (forwarded to Zig.Build). optimize, when non-empty, must be one of Debug,
+// ReleaseSafe, ReleaseFast, ReleaseSmall; target sets -Dtarget; steps names
+// build steps.
+//
+// Calling WithBuild makes Check compile the source (`zig build`) as one of its
+// parallel checks, so a project that does not type-check fails Check rather
+// than reporting a false green — the fmt and (optional) test checks alone do
+// not compile the code. Without WithBuild, Check runs only the enabled static
+// checks and never builds, preserving a build-free Check for multi-target
+// pipelines that share one check run across N target builds.
+//
+// Run always builds regardless of whether this method is called (it must
+// produce the zig-out directory it returns); WithBuild's optimize/target/steps
+// configure that build too.
+func (r *ZigCi) WithBuild(opts ...ZigCiWithBuildOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:85:1)
 	q := r.query.Select("withBuild")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `optimize` optional argument
@@ -770,7 +802,7 @@ func (r *ZigCi) WithBuild(opts ...ZigCiWithBuildOpts) *ZigCi { // zig (../../../
 }
 
 // WithFmt enables the `zig fmt --check` check stage.
-func (r *ZigCi) WithFmt() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:46:1)
+func (r *ZigCi) WithFmt() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:54:1)
 	q := r.query.Select("withFmt")
 
 	return &ZigCi{
@@ -780,12 +812,12 @@ func (r *ZigCi) WithFmt() *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:
 
 // ZigCiWithTestOpts contains options for ZigCi.WithTest
 type ZigCiWithTestOpts struct {
-	Root string // zig (../../../../../daggerverse/zig/ci.go:55:2)
+	Root string // zig (../../../../../daggerverse/zig/ci.go:63:2)
 }
 
 // WithTest enables the test check stage. root maps onto Zig.Test's optional
 // root: empty runs `zig build test`; non-empty runs `zig test <root>`.
-func (r *ZigCi) WithTest(opts ...ZigCiWithTestOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:53:1)
+func (r *ZigCi) WithTest(opts ...ZigCiWithTestOpts) *ZigCi { // zig (../../../../../daggerverse/zig/ci.go:61:1)
 	q := r.query.Select("withTest")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `root` optional argument

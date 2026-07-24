@@ -96,9 +96,16 @@ jobs:
           echo "checks=$jobs" >> "$GITHUB_OUTPUT"
 
       - id: route
-        # Re-shape the (already-filtered) check list into {name, module, filter}
-        # objects so each run job can load only its own tests module instead of
-        # the whole ci/ aggregator. ci:* checks stay on the root module.
+        # Re-shape the (already-filtered) check list into
+        # {name, module, filter, timeout} objects so each run job can load only
+        # its own tests module instead of the whole ci/ aggregator. ci:* checks
+        # stay on the root module.
+        #
+        # timeout is the leg's dagger/checks step bound in minutes. 6 fits every
+        # leg that runs one module's suite; ci:generated is the exception (#184)
+        # because it runs codegen for every module in the workspace, so it pays
+        # in one leg the module-build cost the other legs spread across
+        # themselves — measured at ~5m of engine work on a cold engine.
         env:
           CHECKS: ${{ steps.select.outputs.checks }}
         run: |
@@ -119,11 +126,16 @@ jobs:
             $checks | map(
               (split(":")[0]) as $prefix |
               if $prefix == "ci" then
-                { name: ., module: ".", filter: . }
+                { name: ., module: ".", filter: .,
+                  timeout: ({"ci:generated": 15, "ci:generated-self-test": 8}[.] // 6) }
               else
-                { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])) }
+                { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])),
+                  timeout: 6 }
               end
             )
+            # jobTimeout is the job cap: the step bound plus setup headroom.
+            # Computed here because GitHub expressions have no arithmetic.
+            | map(. + { jobTimeout: (.timeout + 4) })
           ')
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
@@ -132,9 +144,10 @@ jobs:
     needs: [list]
     runs-on: ubuntu-latest
     # Per matrix leg. Observed real legs finish in <4m; this is only a backstop
-    # above the 6m dagger/checks step bound + setup, so the step's timeout is
-    # what fails a telemetry-drain hang fast, not this job cap.
-    timeout-minutes: 10
+    # above the leg's dagger/checks step bound (matrix.job.timeout) + setup, so
+    # the step's timeout is what fails a telemetry-drain hang fast, not this job
+    # cap.
+    timeout-minutes: ${{ matrix.job.jobTimeout }}
     strategy:
       fail-fast: false
       # Burst-throttling mitigation (#125): the matrix fans out one leg per
@@ -177,7 +190,9 @@ jobs:
           fi
 
       # Fail fast on the Dagger Cloud telemetry-drain hang. The check itself runs
-      # in ~1-4m; a leg still going at 6m is almost certainly stuck draining
+      # in ~1-4m (matrix.job.timeout, set by the route step, is that leg's bound:
+      # 6m for a normal suite, 15m for the whole-workspace ci:generated codegen
+      # sweep); a leg still going past it is almost certainly stuck draining
       # telemetry to api.dagger.cloud (upstream dagger/dagger#7048, #12178),
       # which otherwise hangs the leg until the job timeout. Bounding the step
       # makes the job fail quickly so ci-auto-rerun.yml re-runs the failed leg on
@@ -186,7 +201,7 @@ jobs:
       # same stuck engine and re-hits the ongoing stall). Telemetry stays on
       # (cloud-token set); we only bound how long a stuck drain may hang.
       - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
-        timeout-minutes: 6
+        timeout-minutes: ${{ matrix.job.timeout }}
         with:
           version: ${{ env.DAGGER_VERSION }}
           module: ${{ matrix.job.module }}

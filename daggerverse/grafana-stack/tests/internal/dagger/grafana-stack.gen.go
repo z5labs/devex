@@ -1390,7 +1390,7 @@ func (r *GrafanaStackTempo) WithMtls(clientCa *File) *GrafanaStackTempo { // gra
 }
 
 // WithTls enables TLS on every Tempo listener: the native HTTP query API
-// (:3200, via server.tls_config) and both OTLP receivers (gRPC :4317 and
+// (:3200, via server.http_tls_config) and both OTLP receivers (gRPC :4317 and
 // HTTP :4318, via distributor.receivers.otlp.protocols.{grpc,http}.tls).
 // serverCert is the PEM server certificate and serverKey its PEM private key.
 // After this call HttpEndpoint / OtlpHttpEndpoint return https:// URLs;
