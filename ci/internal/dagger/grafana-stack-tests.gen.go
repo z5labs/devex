@@ -45,12 +45,21 @@ func (r *Env) WithGrafanaStackTestsOutput(name string, description string) *Env 
 type GrafanaStackTests struct { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/main.go:19:6)
 	query *querybuilder.Selection
 
-	all                     *Void
-	grafanaProxiesLokiQuery *Void
-	id                      *ID
-	lokiAcceptsOtlpLogs     *Void
-	mimirAcceptsOtlpMetrics *Void
-	tempoAcceptsOtlpTraces  *Void
+	all                             *Void
+	grafanaProxiesLokiQuery         *Void
+	grafanaProxiesLokiQueryOverMtls *Void
+	grafanaProxiesLokiQueryOverTls  *Void
+	grafanaTlsRejectsPlaintext      *Void
+	id                              *ID
+	lokiAcceptsOtlpLogs             *Void
+	lokiMtlsRequiresClientCert      *Void
+	lokiTlsRoundTrip                *Void
+	mimirAcceptsOtlpMetrics         *Void
+	mimirMtlsRequiresClientCert     *Void
+	mimirTlsRoundTrip               *Void
+	tempoAcceptsOtlpTraces          *Void
+	tempoMtlsRequiresClientCert     *Void
+	tempoTlsRoundTrip               *Void
 }
 
 func (r *GrafanaStackTests) WithGraphQLQuery(q *querybuilder.Selection) *GrafanaStackTests {
@@ -179,6 +188,96 @@ func (r *GrafanaStackTests) GrafanaProxiesLokiQuery(ctx context.Context, opts ..
 	return q.Execute(ctx)
 }
 
+// GrafanaStackTestsGrafanaProxiesLokiQueryOverMtlsOpts contains options for GrafanaStackTests.GrafanaProxiesLokiQueryOverMtls
+type GrafanaStackTestsGrafanaProxiesLokiQueryOverMtlsOpts struct {
+
+	// Default: "3.4.1"
+	LokiTag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:656:2)
+
+	// Default: "12.0.0"
+	GrafanaTag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:658:2)
+}
+
+// GrafanaProxiesLokiQueryOverMtls wires a TLS Grafana to an mTLS-required Loki
+// datasource: Grafana presents a client cert to reach Loki. It asserts the
+// proxied query succeeds with the right client cert, and that a Grafana whose
+// datasource presents a client cert from an untrusted CA fails.
+func (r *GrafanaStackTests) GrafanaProxiesLokiQueryOverMtls(ctx context.Context, opts ...GrafanaStackTestsGrafanaProxiesLokiQueryOverMtlsOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:653:1)
+	if r.grafanaProxiesLokiQueryOverMtls != nil {
+		return nil
+	}
+	q := r.query.Select("grafanaProxiesLokiQueryOverMtls")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `lokiTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LokiTag) {
+			q = q.Arg("lokiTag", opts[i].LokiTag)
+		}
+		// `grafanaTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].GrafanaTag) {
+			q = q.Arg("grafanaTag", opts[i].GrafanaTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsGrafanaProxiesLokiQueryOverTLSOpts contains options for GrafanaStackTests.GrafanaProxiesLokiQueryOverTLS
+type GrafanaStackTestsGrafanaProxiesLokiQueryOverTLSOpts struct {
+
+	// Default: "3.4.1"
+	LokiTag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:593:2)
+
+	// Default: "12.0.0"
+	GrafanaTag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:595:2)
+}
+
+// GrafanaProxiesLokiQueryOverTls wires a TLS Grafana to a TLS Loki datasource
+// (Grafana verifies Loki via the pinned CA), pushes a marker to Loki over
+// https, and asserts an authenticated LogQL query *through* Grafana's
+// datasource proxy (itself served over https) returns the marker.
+func (r *GrafanaStackTests) GrafanaProxiesLokiQueryOverTLS(ctx context.Context, opts ...GrafanaStackTestsGrafanaProxiesLokiQueryOverTLSOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:590:1)
+	if r.grafanaProxiesLokiQueryOverTls != nil {
+		return nil
+	}
+	q := r.query.Select("grafanaProxiesLokiQueryOverTls")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `lokiTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LokiTag) {
+			q = q.Arg("lokiTag", opts[i].LokiTag)
+		}
+		// `grafanaTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].GrafanaTag) {
+			q = q.Arg("grafanaTag", opts[i].GrafanaTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsGrafanaTLSRejectsPlaintextOpts contains options for GrafanaStackTests.GrafanaTLSRejectsPlaintext
+type GrafanaStackTestsGrafanaTLSRejectsPlaintextOpts struct {
+
+	// Default: "12.0.0"
+	GrafanaTag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:544:2)
+}
+
+// GrafanaTlsRejectsPlaintext stands up a TLS-enabled Grafana and asserts its
+// :3000 listener answers over https and refuses a plaintext client.
+func (r *GrafanaStackTests) GrafanaTLSRejectsPlaintext(ctx context.Context, opts ...GrafanaStackTestsGrafanaTLSRejectsPlaintextOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:541:1)
+	if r.grafanaTlsRejectsPlaintext != nil {
+		return nil
+	}
+	q := r.query.Select("grafanaTlsRejectsPlaintext")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `grafanaTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].GrafanaTag) {
+			q = q.Arg("grafanaTag", opts[i].GrafanaTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // A unique identifier for this GrafanaStackTests.
 func (r *GrafanaStackTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
@@ -254,6 +353,56 @@ func (r *GrafanaStackTests) LokiAcceptsOtlpLogs(ctx context.Context, opts ...Gra
 	return q.Execute(ctx)
 }
 
+// GrafanaStackTestsLokiMtlsRequiresClientCertOpts contains options for GrafanaStackTests.LokiMtlsRequiresClientCert
+type GrafanaStackTestsLokiMtlsRequiresClientCertOpts struct {
+
+	// Default: "3.4.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:255:2)
+}
+
+// LokiMtlsRequiresClientCert stands up an mTLS-required Loki and asserts a
+// push presenting a valid client cert is accepted while one without any client
+// cert is refused.
+func (r *GrafanaStackTests) LokiMtlsRequiresClientCert(ctx context.Context, opts ...GrafanaStackTestsLokiMtlsRequiresClientCertOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:252:1)
+	if r.lokiMtlsRequiresClientCert != nil {
+		return nil
+	}
+	q := r.query.Select("lokiMtlsRequiresClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsLokiTLSRoundTripOpts contains options for GrafanaStackTests.LokiTLSRoundTrip
+type GrafanaStackTestsLokiTLSRoundTripOpts struct {
+
+	// Default: "3.4.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:178:2)
+}
+
+// LokiTlsRoundTrip stands up a TLS-enabled Loki, pushes an OTLP log over
+// https, reads the marker back over https, and asserts a plaintext client is
+// refused.
+func (r *GrafanaStackTests) LokiTLSRoundTrip(ctx context.Context, opts ...GrafanaStackTestsLokiTLSRoundTripOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:175:1)
+	if r.lokiTlsRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("lokiTlsRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // GrafanaStackTestsMimirAcceptsOtlpMetricsOpts contains options for GrafanaStackTests.MimirAcceptsOtlpMetrics
 type GrafanaStackTestsMimirAcceptsOtlpMetricsOpts struct {
 
@@ -281,6 +430,55 @@ func (r *GrafanaStackTests) MimirAcceptsOtlpMetrics(ctx context.Context, opts ..
 	return q.Execute(ctx)
 }
 
+// GrafanaStackTestsMimirMtlsRequiresClientCertOpts contains options for GrafanaStackTests.MimirMtlsRequiresClientCert
+type GrafanaStackTestsMimirMtlsRequiresClientCertOpts struct {
+
+	// Default: "2.15.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:496:2)
+}
+
+// MimirMtlsRequiresClientCert asserts an mTLS-required Mimir accepts an OTLP
+// metric push presenting a valid client cert and refuses one without.
+func (r *GrafanaStackTests) MimirMtlsRequiresClientCert(ctx context.Context, opts ...GrafanaStackTestsMimirMtlsRequiresClientCertOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:493:1)
+	if r.mimirMtlsRequiresClientCert != nil {
+		return nil
+	}
+	q := r.query.Select("mimirMtlsRequiresClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsMimirTLSRoundTripOpts contains options for GrafanaStackTests.MimirTLSRoundTrip
+type GrafanaStackTestsMimirTLSRoundTripOpts struct {
+
+	// Default: "2.15.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:427:2)
+}
+
+// MimirTlsRoundTrip stands up a TLS-enabled Mimir, pushes an OTLP metric over
+// https, queries it back over https, and asserts a plaintext client is
+// refused.
+func (r *GrafanaStackTests) MimirTLSRoundTrip(ctx context.Context, opts ...GrafanaStackTestsMimirTLSRoundTripOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:424:1)
+	if r.mimirTlsRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("mimirTlsRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // GrafanaStackTestsTempoAcceptsOtlpTracesOpts contains options for GrafanaStackTests.TempoAcceptsOtlpTraces
 type GrafanaStackTestsTempoAcceptsOtlpTracesOpts struct {
 
@@ -298,6 +496,55 @@ func (r *GrafanaStackTests) TempoAcceptsOtlpTraces(ctx context.Context, opts ...
 		return nil
 	}
 	q := r.query.Select("tempoAcceptsOtlpTraces")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsTempoMtlsRequiresClientCertOpts contains options for GrafanaStackTests.TempoMtlsRequiresClientCert
+type GrafanaStackTestsTempoMtlsRequiresClientCertOpts struct {
+
+	// Default: "2.7.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:378:2)
+}
+
+// TempoMtlsRequiresClientCert asserts an mTLS-required Tempo accepts an OTLP
+// span push presenting a valid client cert and refuses one without.
+func (r *GrafanaStackTests) TempoMtlsRequiresClientCert(ctx context.Context, opts ...GrafanaStackTestsTempoMtlsRequiresClientCertOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:375:1)
+	if r.tempoMtlsRequiresClientCert != nil {
+		return nil
+	}
+	q := r.query.Select("tempoMtlsRequiresClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// GrafanaStackTestsTempoTLSRoundTripOpts contains options for GrafanaStackTests.TempoTLSRoundTrip
+type GrafanaStackTestsTempoTLSRoundTripOpts struct {
+
+	// Default: "2.7.1"
+	Tag string // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:302:2)
+}
+
+// TempoTlsRoundTrip stands up a TLS-enabled Tempo, pushes a span over the
+// https OTLP receiver, reads it back over the https query API, and asserts a
+// plaintext client is refused.
+func (r *GrafanaStackTests) TempoTLSRoundTrip(ctx context.Context, opts ...GrafanaStackTestsTempoTLSRoundTripOpts) error { // grafana-stack-tests (../../../daggerverse/grafana-stack/tests/tls.go:299:1)
+	if r.tempoTlsRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("tempoTlsRoundTrip")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `tag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
