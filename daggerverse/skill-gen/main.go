@@ -49,6 +49,13 @@ type SkillGen struct{}
 // serverCa and clientCert are public PEM certs (*dagger.File); clientKey is the
 // PEM PKCS#8 private key kept as a *dagger.Secret end-to-end.
 //
+// psqlImage overrides the psql container image baked into the generated
+// scripts/query.sh and scripts/.env.example. The generated script already
+// honours a PSQL_IMAGE override at runtime, so this is purely a
+// generation-time convenience: teams on a private or locked-down registry can
+// bake their own default in so the skill works out of the box. It is
+// substituted raw into the script and so is charset-validated up front.
+//
 // +cache="never"
 func (s *SkillGen) Postgres(
 	ctx context.Context,
@@ -67,8 +74,14 @@ func (s *SkillGen) Postgres(
 	// clientKey is the PEM PKCS#8 client private key for mTLS. Provide with clientCert.
 	// +optional
 	clientKey *dagger.Secret,
+	// psqlImage is the container image the generated scripts/query.sh runs psql in.
+	// +default="docker.io/alpine/psql:17.7"
+	psqlImage string,
 ) (*dagger.Directory, error) {
 	if err := skill.ValidateDBName(db); err != nil {
+		return nil, err
+	}
+	if err := skill.ValidatePsqlImage(psqlImage); err != nil {
 		return nil, err
 	}
 
@@ -82,7 +95,7 @@ func (s *SkillGen) Postgres(
 		dagger.PostgresClientOpts{Port: port},
 	)
 
-	model := &skill.Model{DBName: db, Host: host, Port: port, User: user}
+	model := &skill.Model{DBName: db, Host: host, Port: port, User: user, PsqlImage: psqlImage}
 	queries := []struct {
 		name  string
 		sql   string

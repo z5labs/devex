@@ -106,6 +106,12 @@ func genSkillSec(ctx context.Context, cluster *dagger.PostgresCluster, pass *dag
 	return dir, db, nil
 }
 
+// defaultPsqlImage mirrors skill.DefaultPsqlImage — the psql image baked into
+// a generated skill when the caller doesn't override psqlImage. It is spelled
+// out here rather than imported because tests/ is its own Go module; that's
+// the point, since these tests pin the default as a caller-visible contract.
+const defaultPsqlImage = "docker.io/alpine/psql:17.7"
+
 // ddlFull builds a schema with two tables, an FK, an enum, a view, an index,
 // and comments — enough to populate every reference file.
 var ddlFull = []string{
@@ -156,6 +162,121 @@ func (t *Tests) RejectsInvalidDbName(ctx context.Context) error {
 	}
 	if !strings.Contains(err.Error(), "invalid db name") {
 		return fmt.Errorf("expected 'invalid db name' error, got: %v", err)
+	}
+	return nil
+}
+
+// RejectsInvalidPsqlImage pins that a psql image outside the inert charset is
+// rejected before any introspection. The image is substituted raw into the
+// generated query.sh (inside a "${PSQL_IMAGE:-…}" default word, where the shell
+// still expands), so a value carrying shell metacharacters must never reach
+// rendering. No cluster is needed — validation precedes the network.
+//
+// +cache="never"
+func (t *Tests) RejectsInvalidPsqlImage(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = dag.SkillGen().
+		Postgres("unused-host", "postgres", "postgres", pass, dagger.SkillGenPostgresOpts{
+			PsqlImage: "psql:17.7}\"; touch /tmp/pwn",
+		}).
+		Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected rejection of invalid psql image, got nil error")
+	}
+	if !strings.Contains(err.Error(), "invalid psql image") {
+		return fmt.Errorf("expected 'invalid psql image' error, got: %v", err)
+	}
+	return nil
+}
+
+// BakesCustomPsqlImage pins that a caller-supplied psqlImage lands in the
+// generated scripts/query.sh and scripts/.env.example in place of the default,
+// so a team on a private registry gets a skill that runs out of the box
+// without every consumer exporting PSQL_IMAGE by hand.
+//
+// +cache="never"
+func (t *Tests) BakesCustomPsqlImage(ctx context.Context) error {
+	const image = "registry.internal:5000/team/psql:16.4"
+
+	cluster, pass, err := bootCluster(ctx)
+	if err != nil {
+		return err
+	}
+	if err := applyDDL(ctx, cluster, ddlBase...); err != nil {
+		return err
+	}
+	host, port, user, db, err := coords(ctx, cluster)
+	if err != nil {
+		return err
+	}
+	dir := dag.SkillGen().Postgres(host, user, db, pass, dagger.SkillGenPostgresOpts{
+		Port:      port,
+		PsqlImage: image,
+	})
+
+	query, err := dir.File("scripts/query.sh").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	if want := `PSQL_IMAGE="${PSQL_IMAGE:-` + image + `}"`; !strings.Contains(query, want) {
+		return fmt.Errorf("query.sh missing %q:\n%s", want, query)
+	}
+	if strings.Contains(query, defaultPsqlImage) {
+		return fmt.Errorf("query.sh still carries the default psql image:\n%s", query)
+	}
+
+	env, err := dir.File("scripts/.env.example").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	if want := "# PSQL_IMAGE=" + image; !strings.Contains(env, want) {
+		return fmt.Errorf(".env.example missing %q:\n%s", want, env)
+	}
+
+	// The regen command must carry the flag forward, or the drift check the
+	// README documents would regenerate with the default and report false drift.
+	readme, err := dir.File("README.md").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	if want := "--psql-image '" + image + "'"; !strings.Contains(readme, want) {
+		return fmt.Errorf("README regen command missing %q:\n%s", want, readme)
+	}
+	return nil
+}
+
+// DefaultsPsqlImage pins the v1 default: omitting psqlImage bakes
+// docker.io/alpine/psql:17.7 and leaves the regen command free of the flag.
+//
+// +cache="never"
+func (t *Tests) DefaultsPsqlImage(ctx context.Context) error {
+	cluster, pass, err := bootCluster(ctx)
+	if err != nil {
+		return err
+	}
+	if err := applyDDL(ctx, cluster, ddlBase...); err != nil {
+		return err
+	}
+	dir, _, err := genSkill(ctx, cluster, pass)
+	if err != nil {
+		return err
+	}
+	query, err := dir.File("scripts/query.sh").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	if want := `PSQL_IMAGE="${PSQL_IMAGE:-` + defaultPsqlImage + `}"`; !strings.Contains(query, want) {
+		return fmt.Errorf("query.sh missing default psql image line %q:\n%s", want, query)
+	}
+	readme, err := dir.File("README.md").Contents(ctx)
+	if err != nil {
+		return err
+	}
+	if strings.Contains(readme, "--psql-image") {
+		return fmt.Errorf("README regen command names --psql-image for the default image:\n%s", readme)
 	}
 	return nil
 }

@@ -186,6 +186,88 @@ func TestRowCountExampleIsShellSafe(t *testing.T) {
 	}
 }
 
+// TestRenderCustomPsqlImage pins that a caller-supplied image replaces the
+// baked default in both generated script files, and that the README's regen
+// command carries the flag forward — without it, the drift check the README
+// documents would regenerate with the default image and report false drift.
+func TestRenderCustomPsqlImage(t *testing.T) {
+	m := fixtureModel()
+	m.PsqlImage = "registry.internal:5000/team/psql:16.4"
+	files := mustRender(t, m)
+
+	want := `PSQL_IMAGE="${PSQL_IMAGE:-registry.internal:5000/team/psql:16.4}"`
+	if !strings.Contains(files[PathQuery], want) {
+		t.Errorf("query.sh missing custom psql image line %q:\n%s", want, files[PathQuery])
+	}
+	if strings.Contains(files[PathQuery], DefaultPsqlImage) {
+		t.Errorf("query.sh still carries the default psql image:\n%s", files[PathQuery])
+	}
+	if !strings.Contains(files[PathEnvExample], "# PSQL_IMAGE=registry.internal:5000/team/psql:16.4") {
+		t.Errorf(".env.example missing custom psql image key:\n%s", files[PathEnvExample])
+	}
+	if !strings.Contains(files[PathREADME], "--psql-image 'registry.internal:5000/team/psql:16.4'") {
+		t.Errorf("README regen command missing --psql-image:\n%s", files[PathREADME])
+	}
+	if err := Verify(files, m.DBName); err != nil {
+		t.Errorf("Verify on custom-image tree: %v", err)
+	}
+}
+
+// TestRenderDefaultPsqlImage pins that an unset PsqlImage renders exactly what
+// an explicit default does, so omitting the module param reproduces v1 output.
+func TestRenderDefaultPsqlImage(t *testing.T) {
+	implicit := mustRender(t, fixtureModel())
+
+	m := fixtureModel()
+	m.PsqlImage = DefaultPsqlImage
+	explicit := mustRender(t, m)
+
+	for _, p := range []string{PathQuery, PathEnvExample, PathREADME} {
+		if implicit[p] != explicit[p] {
+			t.Errorf("%s differs between unset and explicitly-default PsqlImage", p)
+		}
+	}
+	want := `PSQL_IMAGE="${PSQL_IMAGE:-` + DefaultPsqlImage + `}"`
+	if !strings.Contains(implicit[PathQuery], want) {
+		t.Errorf("query.sh missing default psql image line %q:\n%s", want, implicit[PathQuery])
+	}
+	// The default must not bloat the regen command documented in the README.
+	if strings.Contains(implicit[PathREADME], "--psql-image") {
+		t.Errorf("README regen command names --psql-image for the default image:\n%s", implicit[PathREADME])
+	}
+}
+
+// TestValidatePsqlImage pins the charset that keeps a raw-substituted image
+// inert inside query.sh's "${PSQL_IMAGE:-…}" default word.
+func TestValidatePsqlImage(t *testing.T) {
+	valid := []string{
+		DefaultPsqlImage,
+		"psql",
+		"registry.internal:5000/team/psql:16.4",
+		"docker.io/alpine/psql@sha256:" + strings.Repeat("a", 64),
+	}
+	for _, img := range valid {
+		if err := ValidatePsqlImage(img); err != nil {
+			t.Errorf("ValidatePsqlImage(%q) = %v, want nil", img, err)
+		}
+	}
+	invalid := []string{
+		"",
+		"psql:17.7 --privileged",       // word splitting
+		"$(touch /tmp/pwn)",            // command substitution
+		"psql:`id`",                    // backtick substitution
+		"psql:${HOME}",                 // parameter expansion
+		"psql:17.7}\"; touch /tmp/pwn", // closes the expansion and the string
+		`psql:17.7\n`,                  // backslash escape
+		"-psql:17.7",                   // leading dash reads as a flag
+	}
+	for _, img := range invalid {
+		if err := ValidatePsqlImage(img); err == nil {
+			t.Errorf("ValidatePsqlImage(%q) = nil, want error", img)
+		}
+	}
+}
+
 func mustRender(t *testing.T, m *Model) map[string]string {
 	t.Helper()
 	files, err := Render(m)

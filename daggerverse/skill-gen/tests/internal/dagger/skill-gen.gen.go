@@ -117,19 +117,25 @@ func (r *SkillGen) UnmarshalJSON(bs []byte) error {
 type SkillGenPostgresOpts struct {
 
 	// Default: 5432
-	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:57:2)
+	Port int // skill-gen (../../../../../daggerverse/skill-gen/main.go:64:2)
 	//
 	// serverCa pins the server's CA (sslmode=verify-full). Required for TLS/mTLS; omit for plaintext.
 	//
-	ServerCa *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:63:2)
+	ServerCa *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:70:2)
 	//
 	// clientCert is the PEM client leaf for mTLS; its CN must equal `user`. Provide with clientKey.
 	//
-	ClientCert *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:66:2)
+	ClientCert *File // skill-gen (../../../../../daggerverse/skill-gen/main.go:73:2)
 	//
 	// clientKey is the PEM PKCS#8 client private key for mTLS. Provide with clientCert.
 	//
-	ClientKey *Secret // skill-gen (../../../../../daggerverse/skill-gen/main.go:69:2)
+	ClientKey *Secret // skill-gen (../../../../../daggerverse/skill-gen/main.go:76:2)
+	//
+	// psqlImage is the container image the generated scripts/query.sh runs psql in.
+	//
+	//
+	// Default: "docker.io/alpine/psql:17.7"
+	PsqlImage string // skill-gen (../../../../../daggerverse/skill-gen/main.go:79:2)
 }
 
 // Postgres introspects the PostgreSQL database at host:port and returns a
@@ -159,7 +165,14 @@ type SkillGenPostgresOpts struct {
 //
 // serverCa and clientCert are public PEM certs (*dagger.File); clientKey is the
 // PEM PKCS#8 private key kept as a *dagger.Secret end-to-end.
-func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:53:1)
+//
+// psqlImage overrides the psql container image baked into the generated
+// scripts/query.sh and scripts/.env.example. The generated script already
+// honours a PSQL_IMAGE override at runtime, so this is purely a
+// generation-time convenience: teams on a private or locked-down registry can
+// bake their own default in so the skill works out of the box. It is
+// substituted raw into the script and so is charset-validated up front.
+func (r *SkillGen) Postgres(host string, user string, db string, password *Secret, opts ...SkillGenPostgresOpts) *Directory { // skill-gen (../../../../../daggerverse/skill-gen/main.go:60:1)
 	assertNotNil("password", password)
 	q := r.query.Select("postgres")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -178,6 +191,10 @@ func (r *SkillGen) Postgres(host string, user string, db string, password *Secre
 		// `clientKey` optional argument
 		if !querybuilder.IsZeroValue(opts[i].ClientKey) {
 			q = q.Arg("clientKey", opts[i].ClientKey)
+		}
+		// `psqlImage` optional argument
+		if !querybuilder.IsZeroValue(opts[i].PsqlImage) {
+			q = q.Arg("psqlImage", opts[i].PsqlImage)
 		}
 	}
 	q = q.Arg("host", host)

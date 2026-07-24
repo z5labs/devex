@@ -97,12 +97,16 @@ func Render(m *Model) (map[string]string, error) {
 	}
 	// Host/user/db flow into a bash script and an .env example, so they are
 	// substituted as single-quoted shell literals; port is a rendered integer
-	// and needs no quoting.
+	// and needs no quoting. The psql image is substituted raw — it lands inside
+	// query.sh's `"${PSQL_IMAGE:-…}"` default word, where quoting it would
+	// change the byte output — and is instead constrained to an inert charset
+	// by ValidatePsqlImage before it ever reaches here.
 	subst := strings.NewReplacer(
 		"<host>", shellSingleQuote(m.Host),
 		"<port>", fmt.Sprintf("%d", m.Port),
 		"<user>", shellSingleQuote(m.User),
 		"<dbname>", shellSingleQuote(m.DBName),
+		"<psql-image>", m.psqlImage(),
 	)
 
 	files := map[string]string{
@@ -140,15 +144,33 @@ func baseName(p string) string {
 	return p
 }
 
+// psqlImage is the effective psql image: the Model's value, or the default
+// when unset.
+func (m *Model) psqlImage() string {
+	if m.PsqlImage == "" {
+		return DefaultPsqlImage
+	}
+	return m.PsqlImage
+}
+
 // regenCommand builds a deterministic `dagger call` regeneration command with
 // the given trailing subcommand. The password is referenced as
 // env:PGPASSWORD — never the secret value — so the command is safe to commit.
 // Host/user/db are single-quoted so a value with shell metacharacters stays a
 // single, inert argument when the command is copy-pasted from the README.
+//
+// --psql-image is emitted only when it differs from the default, so a skill
+// generated without it keeps the shorter v1 command. Emitting it when it does
+// differ matters: the README's drift check regenerates and diffs against the
+// committed tree, and dropping the flag would report spurious drift.
 func (m *Model) regenCommand(_ string, trailer string) string {
+	image := ""
+	if m.psqlImage() != DefaultPsqlImage {
+		image = " --psql-image " + shellSingleQuote(m.psqlImage())
+	}
 	return fmt.Sprintf(
-		"dagger call skill-gen postgres --host %s --port %d --user %s --db %s --password env:PGPASSWORD %s",
-		shellSingleQuote(m.Host), m.Port, shellSingleQuote(m.User), shellSingleQuote(m.DBName), trailer,
+		"dagger call skill-gen postgres --host %s --port %d --user %s --db %s --password env:PGPASSWORD%s %s",
+		shellSingleQuote(m.Host), m.Port, shellSingleQuote(m.User), shellSingleQuote(m.DBName), image, trailer,
 	)
 }
 

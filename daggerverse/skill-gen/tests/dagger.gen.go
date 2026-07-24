@@ -206,6 +206,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "BakesCustomPsqlImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BakesCustomPsqlImage(&parent, ctx)
+		case "DefaultsPsqlImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DefaultsPsqlImage(&parent, ctx)
 		case "GeneratesPgSkillFromCluster":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -269,6 +283,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RejectsInvalidDbName(&parent, ctx)
+		case "RejectsInvalidPsqlImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RejectsInvalidPsqlImage(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
