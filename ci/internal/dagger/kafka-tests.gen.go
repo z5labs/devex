@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type KafkaTests
-func (r *Binding) AsKafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
+func (r *Binding) AsKafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:44:6)
 	q := r.query.Select("asKafkaTests")
 
 	return &KafkaTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsKafkaTests() *KafkaTests { // kafka-tests (../../../daggerve
 }
 
 // Create or update a binding of type KafkaTests in the environment
-func (r *Env) WithKafkaTestsInput(name string, value *KafkaTests, description string) *Env { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
+func (r *Env) WithKafkaTestsInput(name string, value *KafkaTests, description string) *Env { // kafka-tests (../../../daggerverse/kafka/tests/main.go:44:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithKafkaTestsInput(name string, value *KafkaTests, description st
 }
 
 // Declare a desired KafkaTests output to be assigned in the environment
-func (r *Env) WithKafkaTestsOutput(name string, description string) *Env { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
+func (r *Env) WithKafkaTestsOutput(name string, description string) *Env { // kafka-tests (../../../daggerverse/kafka/tests/main.go:44:6)
 	q := r.query.Select("withKafkaTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -42,7 +42,7 @@ func (r *Env) WithKafkaTestsOutput(name string, description string) *Env { // ka
 	}
 }
 
-type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
+type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.go:44:6)
 	query *querybuilder.Selection
 
 	all                                                        *Void
@@ -91,6 +91,16 @@ type KafkaTests struct { // kafka-tests (../../../daggerverse/kafka/tests/main.g
 	propertiesFileContainsBootstrapAndSecurityProtocol         *Void
 	propertiesFileContainsMtlsSettings                         *Void
 	propertiesFileContainsTlsSettings                          *Void
+	protobufConsumeMessageIndexMismatchErrors                  *Void
+	protobufConsumeUnframedErrors                              *Void
+	protobufDeserializeRequiresDescriptorSet                   *Void
+	protobufDeserializeRequiresSchemaRegistryAware             *Void
+	protobufFramedProduceConsumeRoundTrip                      *Void
+	protobufKeyFramedProduceConsumeRoundTrip                   *Void
+	protobufNonZeroMessageIndexRoundTrip                       *Void
+	protobufSerializeRequiresDescriptorSet                     *Void
+	protobufSerializeRequiresMessageName                       *Void
+	protobufSerializeRequiresSchemaId                          *Void
 	redpanda                                                   *Void
 	redpandaClusterProduceListTopicsRoundTrip                  *Void
 	redpandaClusterTlsRoundTrip                                *Void
@@ -126,15 +136,15 @@ func (r *KafkaTests) WithGraphQLQuery(q *querybuilder.Selection) *KafkaTests {
 type KafkaTestsAllOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:63:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:68:2)
 
 	// Default: "8.2.0"
-	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:65:2)
+	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:70:2)
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:67:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:72:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:69:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:74:2)
 }
 
 // All runs every kafka round-trip test as a convenience for local
@@ -154,7 +164,7 @@ type KafkaTestsAllOpts struct {
 // groups run at once and how many tests run at once within each group.
 // Defaults to 0 (unbounded). Pass any positive integer for a specific
 // cap.
-func (r *KafkaTests) All(ctx context.Context, opts ...KafkaTestsAllOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:60:1)
+func (r *KafkaTests) All(ctx context.Context, opts ...KafkaTestsAllOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:65:1)
 	if r.all != nil {
 		return nil
 	}
@@ -266,15 +276,15 @@ func (r *KafkaTests) ApacheClusterTLSRoundTrip(ctx context.Context, opts ...Kafk
 type KafkaTestsApacheJvmOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:311:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:346:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:313:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:348:2)
 }
 
 // ApacheJVM runs the three apache/kafka JVM-image round-trip tests.
 // Each test owns a fresh ApacheCluster, so the group holds no shared
 // clusters of its own.
-func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:308:1)
+func (r *KafkaTests) ApacheJvm(ctx context.Context, opts ...KafkaTestsApacheJvmOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:343:1)
 	if r.apacheJvm != nil {
 		return nil
 	}
@@ -585,14 +595,14 @@ func (r *KafkaTests) ClusterClientCanListTopicsOnFreshCluster(ctx context.Contex
 type KafkaTestsConfluentOpts struct {
 
 	// Default: "8.2.0"
-	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:343:2)
+	ConfluentImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:378:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:345:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:380:2)
 }
 
 // Confluent runs the three confluentinc/cp-kafka round-trip tests.
 // Each test owns a fresh ConfluentCluster.
-func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:340:1)
+func (r *KafkaTests) Confluent(ctx context.Context, opts ...KafkaTestsConfluentOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:375:1)
 	if r.confluent != nil {
 		return nil
 	}
@@ -1143,16 +1153,16 @@ func (r *KafkaTests) MtlsRoundTrip(ctx context.Context, opts ...KafkaTestsMtlsRo
 type KafkaTestsNativeOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:187:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:222:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:189:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:224:2)
 }
 
 // Native runs every apache/kafka-native test as one group. It boots
 // the three shared ApacheNativeClusters up front, fans the shared-cluster
 // and fresh-cluster native tests across a par pool capped at parallel,
 // and tears the shared clusters down on return.
-func (r *KafkaTests) Native(ctx context.Context, opts ...KafkaTestsNativeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:184:1)
+func (r *KafkaTests) Native(ctx context.Context, opts ...KafkaTestsNativeOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:219:1)
 	if r.native != nil {
 		return nil
 	}
@@ -1380,19 +1390,233 @@ func (r *KafkaTests) PropertiesFileContainsTLSSettings(ctx context.Context, opts
 	return q.Execute(ctx)
 }
 
+// KafkaTestsProtobufConsumeMessageIndexMismatchErrorsOpts contains options for KafkaTests.ProtobufConsumeMessageIndexMismatchErrors
+type KafkaTestsProtobufConsumeMessageIndexMismatchErrorsOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:423:2)
+}
+
+// ProtobufConsumeMessageIndexMismatchErrors pins the guard that makes the
+// message-index array load-bearing rather than decorative. A record produced
+// as devex.kafka.test.User (index [0]) but consumed as devex.kafka.test.Event
+// (index [1]) must be rejected: protobuf wire bytes are not self-describing,
+// so decoding one message type's bytes against another's descriptor would
+// otherwise succeed and hand back silent garbage.
+func (r *KafkaTests) ProtobufConsumeMessageIndexMismatchErrors(ctx context.Context, opts ...KafkaTestsProtobufConsumeMessageIndexMismatchErrorsOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:420:1)
+	if r.protobufConsumeMessageIndexMismatchErrors != nil {
+		return nil
+	}
+	q := r.query.Select("protobufConsumeMessageIndexMismatchErrors")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsProtobufConsumeUnframedErrorsOpts contains options for KafkaTests.ProtobufConsumeUnframedErrors
+type KafkaTestsProtobufConsumeUnframedErrorsOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:367:2)
+}
+
+// ProtobufConsumeUnframedErrors pins the negative consume path: a record
+// produced without a Confluent wire header, consumed with
+// valueDeserializeAs="PROTOBUF"pointing at the missing header rather than trying to parse arbitrary bytes
+// as a protobuf message. No registry is started — PROTOBUF decoding never
+// needs one, and the header check fires before the descriptor set is even
+// read.
+func (r *KafkaTests) ProtobufConsumeUnframedErrors(ctx context.Context, opts ...KafkaTestsProtobufConsumeUnframedErrorsOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:364:1)
+	if r.protobufConsumeUnframedErrors != nil {
+		return nil
+	}
+	q := r.query.Select("protobufConsumeUnframedErrors")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// ProtobufDeserializeRequiresDescriptorSet mirrors the produce-side guard on
+// the consume path. It must fail before a broker connection is opened, which
+// the unroutable bootstrap address proves: a missing guard would surface as a
+// dial timeout rather than a validation error.
+func (r *KafkaTests) ProtobufDeserializeRequiresDescriptorSet(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:133:1)
+	if r.protobufDeserializeRequiresDescriptorSet != nil {
+		return nil
+	}
+	q := r.query.Select("protobufDeserializeRequiresDescriptorSet")
+
+	return q.Execute(ctx)
+}
+
+// ProtobufDeserializeRequiresSchemaRegistryAware pins that PROTOBUF consume
+// needs schemaRegistryAware=true: without it the 5-byte header is never
+// stripped, so neither the wire id nor the message-index array that follows it
+// is reachable.
+func (r *KafkaTests) ProtobufDeserializeRequiresSchemaRegistryAware(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:162:1)
+	if r.protobufDeserializeRequiresSchemaRegistryAware != nil {
+		return nil
+	}
+	q := r.query.Select("protobufDeserializeRequiresSchemaRegistryAware")
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsProtobufFramedProduceConsumeRoundTripOpts contains options for KafkaTests.ProtobufFramedProduceConsumeRoundTrip
+type KafkaTestsProtobufFramedProduceConsumeRoundTripOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:203:2)
+}
+
+// ProtobufFramedProduceConsumeRoundTrip is the happy-path data round-trip for
+// PROTOBUF serde: register user.proto to get a schema id, Produce a JSON
+// document with valueSerializeAs="PROTOBUF" + the descriptor set + the message
+// name (so it is protobuf-encoded, then framed with the header *and* the
+// message-index array), and Consume it back with valueDeserializeAs="PROTOBUF"
+//
+// The asserted invariant is byte-equality of the consumed value to the
+// canonical JSON form of the original input, proving the
+// JSON->protobuf-binary->JSON pipeline preserves the datum. devex.kafka.test.User
+// is the first message in the file, so this exercises the single-zero-byte
+// shortcut form of the message-index array.
+func (r *KafkaTests) ProtobufFramedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsProtobufFramedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:200:1)
+	if r.protobufFramedProduceConsumeRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("protobufFramedProduceConsumeRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsProtobufKeyFramedProduceConsumeRoundTripOpts contains options for KafkaTests.ProtobufKeyFramedProduceConsumeRoundTrip
+type KafkaTestsProtobufKeyFramedProduceConsumeRoundTripOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:246:2)
+}
+
+// ProtobufKeyFramedProduceConsumeRoundTrip drives PROTOBUF serde on the *key*
+// rather than the value. Key and value are plumbed through independent
+// protoMessages instances, independent validation calls, and independent
+// framing branches, so the value round-trip alone would not catch a
+// copy-paste slip on the key side. Both fields are encoded here — with
+// different message types, so a crossed wire between them fails rather than
+// coincidentally passing.
+func (r *KafkaTests) ProtobufKeyFramedProduceConsumeRoundTrip(ctx context.Context, opts ...KafkaTestsProtobufKeyFramedProduceConsumeRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:243:1)
+	if r.protobufKeyFramedProduceConsumeRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("protobufKeyFramedProduceConsumeRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// KafkaTestsProtobufNonZeroMessageIndexRoundTripOpts contains options for KafkaTests.ProtobufNonZeroMessageIndexRoundTrip
+type KafkaTestsProtobufNonZeroMessageIndexRoundTripOpts struct {
+
+	// Default: "4.2.0"
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:228:2)
+}
+
+// ProtobufNonZeroMessageIndexRoundTrip drives the same pipeline against
+// devex.kafka.test.Event, the *second* top-level message in user.proto. Its
+// Confluent message-index path is [1] rather than [0], so the frame carries
+// the length-prefixed varint form of the index array instead of the
+// single-zero-byte shortcut. Without a correctly written and re-read index the
+// consume side would either mis-parse the payload or reject the record, so a
+// green round-trip here is what proves the index round-trips rather than being
+// accidentally skipped.
+func (r *KafkaTests) ProtobufNonZeroMessageIndexRoundTrip(ctx context.Context, opts ...KafkaTestsProtobufNonZeroMessageIndexRoundTripOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:225:1)
+	if r.protobufNonZeroMessageIndexRoundTrip != nil {
+		return nil
+	}
+	q := r.query.Select("protobufNonZeroMessageIndexRoundTrip")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `kafkaImageTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KafkaImageTag) {
+			q = q.Arg("kafkaImageTag", opts[i].KafkaImageTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// ProtobufSerializeRequiresDescriptorSet pins the up-front validation contract
+// of valueSerializeAs="PROTOBUF": Produce must reject a missing descriptor set
+// before any broker, registry, or file I/O. dag.Kafka().Client(...) builds
+// without I/O and the bootstrap address is unroutable, so a nil error here
+// would mean the guard never fired.
+func (r *KafkaTests) ProtobufSerializeRequiresDescriptorSet(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:51:1)
+	if r.protobufSerializeRequiresDescriptorSet != nil {
+		return nil
+	}
+	q := r.query.Select("protobufSerializeRequiresDescriptorSet")
+
+	return q.Execute(ctx)
+}
+
+// ProtobufSerializeRequiresMessageName is the sibling guard: a descriptor set
+// alone is not enough, because a FileDescriptorSet can hold many message types
+// and nothing in it says which one the payload is.
+func (r *KafkaTests) ProtobufSerializeRequiresMessageName(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:77:1)
+	if r.protobufSerializeRequiresMessageName != nil {
+		return nil
+	}
+	q := r.query.Select("protobufSerializeRequiresMessageName")
+
+	return q.Execute(ctx)
+}
+
+// ProtobufSerializeRequiresSchemaID pins that PROTOBUF mode also demands a
+// positive schema id. The id is not optional the way it arguably is for a bare
+// JSON payload: the Confluent message-index array lives inside the frame, so
+// an unframed Protobuf record has nowhere to record which message type it
+// holds and no consumer could decode it.
+func (r *KafkaTests) ProtobufSerializeRequiresSchemaID(ctx context.Context) error { // kafka-tests (../../../daggerverse/kafka/tests/tests_protobuf.go:105:1)
+	if r.protobufSerializeRequiresSchemaId != nil {
+		return nil
+	}
+	q := r.query.Select("protobufSerializeRequiresSchemaId")
+
+	return q.Execute(ctx)
+}
+
 // KafkaTestsRedpandaOpts contains options for KafkaTests.Redpanda
 type KafkaTestsRedpandaOpts struct {
 
 	// Default: "v26.1.7"
-	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:376:2)
+	RedpandaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:411:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:378:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:413:2)
 }
 
 // Redpanda runs the redpandadata/redpanda round-trip tests — the two
 // Kafka-wire round-trips, the PLAINTEXT and TLS bundled-Schema-Registry
 // round-trips, and the bundled-registry Stop-is-a-no-op lifecycle test.
-func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:373:1)
+func (r *KafkaTests) Redpanda(ctx context.Context, opts ...KafkaTestsRedpandaOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:408:1)
 	if r.redpanda != nil {
 		return nil
 	}
@@ -1696,9 +1920,9 @@ func (r *KafkaTests) RedpandaThreeBrokerTLSReplicationFactorThreeProduceConsume(
 type KafkaTestsSchemaRegistryOpts struct {
 
 	// Default: "4.2.0"
-	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:108:2)
+	KafkaImageTag string // kafka-tests (../../../daggerverse/kafka/tests/main.go:113:2)
 
-	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:110:2)
+	Parallel int // kafka-tests (../../../daggerverse/kafka/tests/main.go:115:2)
 }
 
 // SchemaRegistry runs the Schema Registry tests — ConfluentSchemaRegistry,
@@ -1706,7 +1930,7 @@ type KafkaTestsSchemaRegistryOpts struct {
 // owns the cluster (and, for the round-trips, the registry service) it boots,
 // so the group's only lifetime guarantee is that both are torn down once it
 // returns.
-func (r *KafkaTests) SchemaRegistry(ctx context.Context, opts ...KafkaTestsSchemaRegistryOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:105:1)
+func (r *KafkaTests) SchemaRegistry(ctx context.Context, opts ...KafkaTestsSchemaRegistryOpts) error { // kafka-tests (../../../daggerverse/kafka/tests/main.go:110:1)
 	if r.schemaRegistry != nil {
 		return nil
 	}
@@ -2049,7 +2273,12 @@ func (r *KafkaTests) AsNode() Node {
 //   - tests_schema_registry.go — ConfluentSchemaRegistry tests: the
 //     register/lookup/delete round-trip and the
 //     non-PLAINTEXT-cluster rejection.
-func (r *Query) KafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:39:6)
+//   - tests_protobuf.go  — PROTOBUF serde tests: the descriptor-set /
+//     message-name / schema-id validation guards, the
+//     framed produce->consume round-trips (value, key,
+//     and non-zero message index), and the unframed +
+//     index-mismatch negative paths.
+func (r *Query) KafkaTests() *KafkaTests { // kafka-tests (../../../daggerverse/kafka/tests/main.go:44:6)
 	q := r.query.Select("kafkaTests")
 
 	return &KafkaTests{
