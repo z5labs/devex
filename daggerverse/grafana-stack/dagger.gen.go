@@ -75,45 +75,45 @@ func (r *GrafanaStack) UnmarshalJSON(bs []byte) error {
 
 func (r Grafana) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Image         string
-		ConfigFile    *dagger.File
-		AdminPassword *dagger.Secret
-		Storage       *dagger.CacheVolume
-		LokiNames     []string
-		LokiSvcs      []*dagger.Service
-		TempoNames    []string
-		TempoSvcs     []*dagger.Service
-		MimirNames    []string
-		MimirSvcs     []*dagger.Service
-		Dashboards    *dagger.Directory
+		Image            string
+		ConfigFile       *dagger.File
+		AdminPassword    *dagger.Secret
+		Storage          *dagger.CacheVolume
+		LokiDatasources  []*LokiDatasource
+		TempoDatasources []*TempoDatasource
+		MimirDatasources []*MimirDatasource
+		CustomConfig     bool
+		ServerCert       *dagger.File
+		ServerKey        *dagger.Secret
+		Dashboards       *dagger.Directory
 	}
 	concrete.Image = r.Image
 	concrete.ConfigFile = r.ConfigFile
 	concrete.AdminPassword = r.AdminPassword
 	concrete.Storage = r.Storage
-	concrete.LokiNames = r.LokiNames
-	concrete.LokiSvcs = r.LokiSvcs
-	concrete.TempoNames = r.TempoNames
-	concrete.TempoSvcs = r.TempoSvcs
-	concrete.MimirNames = r.MimirNames
-	concrete.MimirSvcs = r.MimirSvcs
+	concrete.LokiDatasources = r.LokiDatasources
+	concrete.TempoDatasources = r.TempoDatasources
+	concrete.MimirDatasources = r.MimirDatasources
+	concrete.CustomConfig = r.CustomConfig
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
 	concrete.Dashboards = r.Dashboards
 	return json.Marshal(&concrete)
 }
 
 func (r *Grafana) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Image         string
-		ConfigFile    *dagger.File
-		AdminPassword *dagger.Secret
-		Storage       *dagger.CacheVolume
-		LokiNames     []string
-		LokiSvcs      []*dagger.Service
-		TempoNames    []string
-		TempoSvcs     []*dagger.Service
-		MimirNames    []string
-		MimirSvcs     []*dagger.Service
-		Dashboards    *dagger.Directory
+		Image            string
+		ConfigFile       *dagger.File
+		AdminPassword    *dagger.Secret
+		Storage          *dagger.CacheVolume
+		LokiDatasources  []*LokiDatasource
+		TempoDatasources []*TempoDatasource
+		MimirDatasources []*MimirDatasource
+		CustomConfig     bool
+		ServerCert       *dagger.File
+		ServerKey        *dagger.Secret
+		Dashboards       *dagger.Directory
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -123,33 +123,45 @@ func (r *Grafana) UnmarshalJSON(bs []byte) error {
 	r.ConfigFile = concrete.ConfigFile
 	r.AdminPassword = concrete.AdminPassword
 	r.Storage = concrete.Storage
-	r.LokiNames = concrete.LokiNames
-	r.LokiSvcs = concrete.LokiSvcs
-	r.TempoNames = concrete.TempoNames
-	r.TempoSvcs = concrete.TempoSvcs
-	r.MimirNames = concrete.MimirNames
-	r.MimirSvcs = concrete.MimirSvcs
+	r.LokiDatasources = concrete.LokiDatasources
+	r.TempoDatasources = concrete.TempoDatasources
+	r.MimirDatasources = concrete.MimirDatasources
+	r.CustomConfig = concrete.CustomConfig
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
 	r.Dashboards = concrete.Dashboards
 	return nil
 }
 
 func (r Loki) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	concrete.Image = r.Image
 	concrete.ConfigFile = r.ConfigFile
 	concrete.Storage = r.Storage
+	concrete.CustomConfig = r.CustomConfig
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
 func (r *Loki) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -158,26 +170,42 @@ func (r *Loki) UnmarshalJSON(bs []byte) error {
 	r.Image = concrete.Image
 	r.ConfigFile = concrete.ConfigFile
 	r.Storage = concrete.Storage
+	r.CustomConfig = concrete.CustomConfig
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
 func (r Mimir) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	concrete.Image = r.Image
 	concrete.ConfigFile = r.ConfigFile
 	concrete.Storage = r.Storage
+	concrete.CustomConfig = r.CustomConfig
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
 func (r *Mimir) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -186,26 +214,42 @@ func (r *Mimir) UnmarshalJSON(bs []byte) error {
 	r.Image = concrete.Image
 	r.ConfigFile = concrete.ConfigFile
 	r.Storage = concrete.Storage
+	r.CustomConfig = concrete.CustomConfig
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
 func (r Tempo) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	concrete.Image = r.Image
 	concrete.ConfigFile = r.ConfigFile
 	concrete.Storage = r.Storage
+	concrete.CustomConfig = r.CustomConfig
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
 	return json.Marshal(&concrete)
 }
 
 func (r *Tempo) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Image      string
-		ConfigFile *dagger.File
-		Storage    *dagger.CacheVolume
+		Image        string
+		ConfigFile   *dagger.File
+		Storage      *dagger.CacheVolume
+		CustomConfig bool
+		ServerCert   *dagger.File
+		ServerKey    *dagger.Secret
+		ClientCa     *dagger.File
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -214,6 +258,10 @@ func (r *Tempo) UnmarshalJSON(bs []byte) error {
 	r.Image = concrete.Image
 	r.ConfigFile = concrete.ConfigFile
 	r.Storage = concrete.Storage
+	r.CustomConfig = concrete.CustomConfig
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
 	return nil
 }
 
@@ -349,7 +397,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Grafana).Service(&parent), nil
+			return (*Grafana).Service(&parent)
 		case "WithDashboard":
 			var parent Grafana
 			err = json.Unmarshal(parentJSON, &parent)
@@ -405,7 +453,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg loki", err))
 				}
 			}
-			return (*Grafana).WithLokiDatasource(&parent, name, loki), nil
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Grafana).WithLokiDatasource(&parent, name, loki, caCert, clientCert, clientKey), nil
 		case "WithMimirDatasource":
 			var parent Grafana
 			err = json.Unmarshal(parentJSON, &parent)
@@ -426,7 +495,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg mimir", err))
 				}
 			}
-			return (*Grafana).WithMimirDatasource(&parent, name, mimir), nil
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Grafana).WithMimirDatasource(&parent, name, mimir, caCert, clientCert, clientKey), nil
 		case "WithTempoDatasource":
 			var parent Grafana
 			err = json.Unmarshal(parentJSON, &parent)
@@ -447,7 +537,49 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tempo", err))
 				}
 			}
-			return (*Grafana).WithTempoDatasource(&parent, name, tempo), nil
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Grafana).WithTempoDatasource(&parent, name, tempo, caCert, clientCert, clientKey), nil
+		case "WithTls":
+			var parent Grafana
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*Grafana).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -625,7 +757,42 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Loki).Service(&parent), nil
+			return (*Loki).Service(&parent)
+		case "WithMtls":
+			var parent Loki
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*Loki).WithMtls(&parent, clientCa), nil
+		case "WithTls":
+			var parent Loki
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*Loki).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -651,7 +818,42 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Mimir).Service(&parent), nil
+			return (*Mimir).Service(&parent)
+		case "WithMtls":
+			var parent Mimir
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*Mimir).WithMtls(&parent, clientCa), nil
+		case "WithTls":
+			var parent Mimir
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*Mimir).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -684,7 +886,42 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Tempo).Service(&parent), nil
+			return (*Tempo).Service(&parent)
+		case "WithMtls":
+			var parent Tempo
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var clientCa *dagger.File
+			if inputArgs["clientCa"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCa"]), &clientCa)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCa", err))
+				}
+			}
+			return (*Tempo).WithMtls(&parent, clientCa), nil
+		case "WithTls":
+			var parent Tempo
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var serverCert *dagger.File
+			if inputArgs["serverCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverCert"]), &serverCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverCert", err))
+				}
+			}
+			var serverKey *dagger.Secret
+			if inputArgs["serverKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["serverKey"]), &serverKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg serverKey", err))
+				}
+			}
+			return (*Tempo).WithTls(&parent, serverCert, serverKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

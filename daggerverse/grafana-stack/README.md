@@ -4,8 +4,9 @@ A Dagger module that spins up Loki, Tempo, and Mimir as Dagger services
 for local development and testing, plus a Grafana UI wired up to all
 three with file-based datasource and dashboard provisioning. Each
 backend runs in single-binary / monolithic mode and exposes both its
-native ingest API and an OTLP/HTTP receiver. Plaintext is the only
-supported transport on every listener.
+native ingest API and an OTLP/HTTP receiver. Every listener defaults to
+plaintext; `WithTls` (and optional `WithMtls`) enable TLS on the backends
+and on the Grafana UI. See [TLS and mTLS](#tls-and-mtls).
 
 ## Backends and ports
 
@@ -79,6 +80,11 @@ url, err = mimir.Endpoint(ctx)         // http://<host>:9009
 url, err = mimir.OtlpHttpEndpoint(ctx) // http://<host>:9009/otlp/v1/metrics
 ```
 
+After `WithTls`, the HTTP-scheme endpoints above return `https://` URLs
+(`Loki.Endpoint`, `Mimir.Endpoint`, `Tempo.HttpEndpoint`, every
+`OtlpHttpEndpoint`, and `Grafana.Endpoint`). `Tempo.OtlpGrpcEndpoint` stays
+scheme-less. See [TLS and mTLS](#tls-and-mtls).
+
 ## Grafana UI
 
 `Grafana(registry, tag, configFile, adminPassword, storage)` returns a
@@ -125,17 +131,117 @@ file)` appends `.json` to the supplied name if missing;
 preserving filenames. Callers wanting folder grouping should embed it
 in the dashboard JSON itself.
 
-## Plaintext-only
+## TLS and mTLS
 
-Every listener is plaintext HTTP/gRPC. The story explicitly defers TLS
-to a follow-up, so there is no `tls:` block in any default config and no
-mechanism for the constructor functions to materialize a serving cert.
-If you need TLS today, supply a fully-formed `configFile` with your own
-TLS configuration and front the service with your own proxy.
+Every listener defaults to plaintext. `WithTls` enables TLS on every
+listener a backend exposes; `WithMtls` additionally requires clients to
+present a certificate signed by a supplied CA (mutual TLS). Both are
+builder methods that return a new value, so they chain off the
+constructor:
 
-For TLS material, pair this module with
-[`daggerverse/certificate-management`](../certificate-management) and
-[`daggerverse/crypto`](../crypto).
+```go
+loki := dag.GrafanaStack().Loki().
+    WithTls(serverCert, serverKey).   // https on :3100 (native + OTLP)
+    WithMtls(clientCa)                // require a client cert too
+
+url, _ := loki.OtlpHttpEndpoint(ctx)  // now https://<host>:3100/otlp/v1/logs
+```
+
+- `WithTls(serverCert *dagger.File, serverKey *dagger.Secret)` — the
+  server certificate (PEM) and its private key (PEM, supplied as a
+  `*dagger.Secret` so it never lands in the layer cache). The cert's SAN
+  must cover the hostname clients dial. After this call the backend's
+  `Endpoint` / `OtlpHttpEndpoint` (and `Tempo.HttpEndpoint`) return
+  `https://` URLs.
+- `WithMtls(clientCa *dagger.File)` — the CA (PEM) that must have signed
+  any client certificate. Must be combined with `WithTls`; `Service`
+  returns an error otherwise.
+
+What each backend renders into its config:
+
+| Backend | Native HTTP + OTLP HTTP        | OTLP gRPC                                            |
+|---------|-------------------------------|-----------------------------------------------------|
+| Loki    | `server.http_tls_config`      | — (internal gRPC stays plaintext)                   |
+| Mimir   | `server.http_tls_config`      | — (internal gRPC stays plaintext)                   |
+| Tempo   | `server.http_tls_config` (`:3200`) | `distributor.receivers.otlp.protocols.{grpc,http}.tls` |
+
+Loki and Mimir serve their OTLP HTTP receiver on the same listener as the
+native API, so one `http_tls_config` block secures both. Tempo's OTLP
+receivers are separate OpenTelemetry Collector components, so TLS is
+rendered into each protocol's `tls:` block. Under mTLS the dskit blocks
+set `client_auth_type: RequireAndVerifyClientCert`; the OTLP receiver
+blocks gain a `client_ca_file` (its presence is what makes the receiver
+require a client cert).
+
+`Tempo.OtlpGrpcEndpoint` stays scheme-less in every mode — gRPC callers
+supply `host:port` and configure TLS on their own dialer.
+
+If you pass your own `configFile`, the module does **not** splice TLS into
+it (you own its `tls:` blocks); it still mounts the cert material at the
+fixed paths below and switches the endpoint scheme, so your config can
+reference them:
+
+| Backend | cert | key | client CA (mTLS) |
+|---------|------|-----|------------------|
+| Loki    | `/etc/loki/tls/tls.crt`    | `/etc/loki/tls/tls.key`    | `/etc/loki/tls/ca.crt`    |
+| Tempo   | `/etc/tempo/tls/tls.crt`   | `/etc/tempo/tls/tls.key`   | `/etc/tempo/tls/ca.crt`   |
+| Mimir   | `/etc/mimir/tls/tls.crt`   | `/etc/mimir/tls/tls.key`   | `/etc/mimir/tls/ca.crt`   |
+| Grafana | `/etc/grafana/tls/tls.crt` | `/etc/grafana/tls/tls.key` | —                         |
+
+### Grafana UI TLS
+
+`Grafana.WithTls(serverCert, serverKey)` switches the `:3000` listener from
+`http` to `https` (`[server] protocol = https` plus `cert_file` /
+`cert_key`). After this call `Grafana.Endpoint` returns an `https://` URL.
+
+There is **no `Grafana.WithMtls`**: Grafana core cannot require client
+certificates on its own HTTP listener (its `[server]` section has no
+client-cert-auth setting; the upstream guidance is to terminate mTLS at a
+reverse proxy). Requiring client certs at the Grafana UI is tracked as a
+follow-up. Note this does *not* limit reaching an **mTLS backend** — see
+below, where Grafana presents a client certificate to the backend.
+
+### Datasource provisioning over TLS
+
+`WithLokiDatasource` / `WithTempoDatasource` / `WithMimirDatasource` detect
+the TLS state of the backend builder and render the datasource YAML
+accordingly. Each takes optional client-side TLS material:
+
+```go
+g := dag.GrafanaStack().Grafana(adminPassword).
+    WithTls(grafanaCert, grafanaKey).
+    // TLS backend: Grafana verifies it against caCert.
+    WithLokiDatasource("loki", tlsLoki, dagger.GrafanaStackGrafanaWithLokiDatasourceOpts{
+        CaCert: caCert,
+    }).
+    // mTLS backend: Grafana also presents a client cert to reach it.
+    WithMimirDatasource("mimir", mtlsMimir, dagger.GrafanaStackGrafanaWithMimirDatasourceOpts{
+        CaCert:     caCert,
+        ClientCert: clientCert,
+        ClientKey:  clientKey,
+    })
+```
+
+- When the backend has TLS, the datasource URL becomes `https://` and the
+  entry sets `jsonData.tlsAuthWithCACert: true` with the CA referenced via
+  `secureJsonData.tlsCACert`. Supply `caCert` (the CA that signed the
+  backend's server cert); when omitted, the backend's own server cert is
+  pinned (correct only for a self-signed server cert).
+- When the backend has mTLS, the entry also sets `jsonData.tlsAuth: true`
+  with `secureJsonData.tlsClientCert` / `tlsClientKey`. Supply `clientCert`
+  / `clientKey`; `Service` returns an error if they are missing.
+
+TLS material is mounted per datasource under
+`/etc/grafana/tls/datasources/<name>/` and referenced from the
+provisioning YAML via Grafana's `$__file{}` expansion, so the client key
+stays a secret mount rather than being inlined into the config.
+
+### Cert material
+
+Pair this module with
+[`daggerverse/certificate-management`](../certificate-management) (issues
+CA / server / client certs) and [`daggerverse/crypto`](../crypto)
+(generates keys); the `tests/` module uses both to mint per-test material.
 
 ## Default configs
 
@@ -174,12 +280,25 @@ multi-tenant production deployment.
 `tests/` contains a sibling Dagger module that exercises each backend
 end-to-end:
 
-| Test                       | What it does                                                       |
-|----------------------------|--------------------------------------------------------------------|
-| `LokiAcceptsOtlpLogs`      | POST OTLP/HTTP log → poll LogQL until marker visible.              |
-| `TempoAcceptsOtlpTraces`   | POST OTLP/HTTP span → GET `/api/traces/<hex>` checks.              |
-| `MimirAcceptsOtlpMetrics`  | POST OTLP/HTTP gauge → poll Prometheus API for series.             |
-| `GrafanaProxiesLokiQuery`  | POST OTLP/HTTP log → query through Grafana's datasource proxy API. |
+| Test                                | What it does                                                              |
+|-------------------------------------|--------------------------------------------------------------------------|
+| `LokiAcceptsOtlpLogs`               | POST OTLP/HTTP log → poll LogQL until marker visible.                     |
+| `TempoAcceptsOtlpTraces`            | POST OTLP/HTTP span → GET `/api/traces/<hex>` checks.                     |
+| `MimirAcceptsOtlpMetrics`           | POST OTLP/HTTP gauge → poll Prometheus API for series.                    |
+| `GrafanaProxiesLokiQuery`           | POST OTLP/HTTP log → query through Grafana's datasource proxy API.        |
+| `LokiTlsRoundTrip`                  | Push + read back over **https**; assert a plaintext client is rejected.  |
+| `LokiMtlsRequiresClientCert`        | mTLS Loki accepts a push with a valid client cert, rejects one without.  |
+| `TempoTlsRoundTrip`                 | Push a span + read it back over https; assert plaintext is rejected.     |
+| `TempoMtlsRequiresClientCert`       | mTLS Tempo accepts/rejects an OTLP span push by client-cert presence.    |
+| `MimirTlsRoundTrip`                 | Push a metric + query it back over https; assert plaintext is rejected.  |
+| `MimirMtlsRequiresClientCert`       | mTLS Mimir accepts/rejects an OTLP metric push by client-cert presence.  |
+| `GrafanaTlsRejectsPlaintext`        | TLS Grafana answers over https and refuses a plaintext client.           |
+| `GrafanaProxiesLokiQueryOverTls`    | TLS Grafana proxies a LogQL query to a TLS Loki datasource end-to-end.   |
+| `GrafanaProxiesLokiQueryOverMtls`   | TLS Grafana presents a client cert to an mTLS Loki; a rogue cert fails.  |
+
+The TLS/mTLS tests mint their own CA / server / client certs per run via
+the `certificate-management` and `crypto` modules, so nothing is
+hard-coded. Each carries `+check` (its own CI runner) and `+cache="never"`.
 
 Run all four in parallel:
 
