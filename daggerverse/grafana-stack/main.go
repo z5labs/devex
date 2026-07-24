@@ -85,8 +85,8 @@ const tlsCertName = "tls.crt"
 const tlsKeyName = "tls.key"
 const tlsCaName = "ca.crt"
 
-// clientAuthRequireAndVerify is the dskit http_tls_config / server tls_config
-// client_auth_type that requires and verifies a client certificate on every
+// clientAuthRequireAndVerify is the dskit http_tls_config client_auth_type
+// that requires and verifies a client certificate on every
 // incoming connection (mutual TLS).
 const clientAuthRequireAndVerify = "RequireAndVerifyClientCert"
 
@@ -296,7 +296,7 @@ func (g *GrafanaStack) Tempo(
 }
 
 // WithTls enables TLS on every Tempo listener: the native HTTP query API
-// (:3200, via server.tls_config) and both OTLP receivers (gRPC :4317 and
+// (:3200, via server.http_tls_config) and both OTLP receivers (gRPC :4317 and
 // HTTP :4318, via distributor.receivers.otlp.protocols.{grpc,http}.tls).
 // serverCert is the PEM server certificate and serverKey its PEM private key.
 // After this call HttpEndpoint / OtlpHttpEndpoint return https:// URLs;
@@ -1106,7 +1106,7 @@ func renderDskitHTTPTLSConfig(base []byte, name, dir string, mtls bool) (*dagger
 }
 
 // renderTempoTLSConfig parses Tempo's default YAML config and enables TLS on
-// every listener: server.tls_config for the native HTTP query API, and
+// every listener: server.http_tls_config for the native HTTP query API, and
 // distributor.receivers.otlp.protocols.{grpc,http}.tls for the two OTLP
 // receivers. The result is staged as a workdir file.
 func renderTempoTLSConfig(base []byte, name, dir string, mtls bool) (*dagger.File, error) {
@@ -1116,11 +1116,14 @@ func renderTempoTLSConfig(base []byte, name, dir string, mtls bool) (*dagger.Fil
 	}
 	root := documentMapping(&doc)
 
+	// Tempo's `server` block is a dskit server.Config, so the native HTTP
+	// API's TLS lives under http_tls_config (same key as Loki/Mimir), not
+	// a `tls_config` key.
 	serverBlk, err := blockNode(serverTLSBlock(dir, mtls))
 	if err != nil {
 		return nil, fmt.Errorf("build %s server tls block: %w", name, err)
 	}
-	setMapKey(ensureMapNode(root, "server"), "tls_config", serverBlk)
+	setMapKey(ensureMapNode(root, "server"), "http_tls_config", serverBlk)
 
 	protocols := ensureMapNode(ensureMapNode(ensureMapNode(ensureMapNode(root, "distributor"), "receivers"), "otlp"), "protocols")
 	for _, proto := range []string{"grpc", "http"} {
