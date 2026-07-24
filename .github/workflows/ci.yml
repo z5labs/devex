@@ -25,6 +25,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Full history so the change-detection step can diff against the PR
+          # merge-base / the push's before-SHA (see the "Select affected" step).
+          fetch-depth: 0
 
       - name: Cache Dagger engine image
         id: engine-cache
@@ -57,13 +61,66 @@ jobs:
           list: "true"
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      - id: route
-        # Re-shape the bare check list into {name, module, filter} objects so
-        # each run job can load only its own tests module instead of the whole
-        # ci/ aggregator (10 toolchains → 2 modules per job). ci:* checks stay
-        # on the root module.
+      - name: Install Dagger CLI
+        # Needed to `dagger call` the ci module's affected-checks function in the
+        # next step. The engine image is already docker-loaded above, so this
+        # provisions from the local image (no registry pull).
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - id: select
+        # Narrow the check universe (steps.list.outputs.checks) to the minimum set
+        # a change could affect (issue #170). "What changed" is computed here from
+        # git; the change -> affected-checks mapping is resolved by the ci module's
+        # affected-checks function, which walks the *live* Dagger module dependency
+        # graph (dag.CurrentWorkspace()), so it never goes stale.
+        #
+        # A check is skipped only when it provably cannot be affected — any doubt
+        # and it runs:
+        #   - a change outside a daggerverse module (CI infra, ci/, root
+        #     dagger.json, docs, ...) or an uncomputable diff -> the FULL suite;
+        #   - a check whose module can't be resolved -> kept;
+        #   - ci:* checks -> always run.
+        # Both push and pull_request minimize: the diff base is the PR merge-base
+        # (three-dot), or the push's before-SHA. Any failure -> the full suite.
         env:
           CHECKS: ${{ steps.list.outputs.checks }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          ZERO=0000000000000000000000000000000000000000
+          changed=""
+          case "$EVENT_NAME" in
+            pull_request)
+              changed="$(git diff --name-only "$PR_BASE...$PR_HEAD")" || changed=""
+              ;;
+            push)
+              if [ "$PUSH_BEFORE" = "$ZERO" ]; then
+                changed=""   # new branch / no base -> full suite
+              else
+                changed="$(git diff --name-only "$PUSH_BEFORE" "$PUSH_AFTER")" || changed=""
+              fi
+              ;;
+          esac
+          printf 'changed files:\n%s\n---\n' "${changed:-<none: running full suite>}"
+          # On any failure, fall back to the full universe rather than risk a skip.
+          jobs="$(dagger -m . call affected-checks --checks="$CHECKS" --changed="$changed")" || jobs="$CHECKS"
+          [ -n "$jobs" ] || jobs="$CHECKS"
+          echo "selected checks: $jobs"
+          echo "checks=$jobs" >> "$GITHUB_OUTPUT"
+
+      - id: route
+        # Re-shape the (already-filtered) check list into {name, module, filter}
+        # objects so each run job can load only its own tests module instead of
+        # the whole ci/ aggregator. ci:* checks stay on the root module.
+        env:
+          CHECKS: ${{ steps.select.outputs.checks }}
         run: |
           jobs=$(jq -nc \
             --argjson checks "$CHECKS" \
@@ -155,3 +212,31 @@ jobs:
           module: ${{ matrix.job.module }}
           filter: ${{ matrix.job.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+
+  # Single, stable status check for branch protection. Because the run matrix is
+  # dynamic — and now change-aware, so unaffected legs are intentionally absent
+  # (issue #170) — the per-leg check names cannot be required directly: a skipped
+  # leg would leave its required check pending forever. Require ONLY "CI Gate" in
+  # branch protection instead. It always runs and passes iff `list` succeeded and
+  # no executed leg failed (an all-skipped `run` — impossible today since ci:*
+  # always runs — is treated as success).
+  gate:
+    name: CI Gate
+    needs: [list, run]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify required jobs
+        env:
+          LIST_RESULT: ${{ needs.list.result }}
+          RUN_RESULT: ${{ needs.run.result }}
+        run: |
+          echo "list=$LIST_RESULT run=$RUN_RESULT"
+          if [ "$LIST_RESULT" != "success" ]; then
+            echo "::error::list job did not succeed"
+            exit 1
+          fi
+          case "$RUN_RESULT" in
+            success|skipped) echo "all selected checks passed" ;;
+            *) echo "::error::one or more checks failed"; exit 1 ;;
+          esac
