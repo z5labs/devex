@@ -163,7 +163,7 @@ What each backend renders into its config:
 |---------|-------------------------------|-----------------------------------------------------|
 | Loki    | `server.http_tls_config`      | — (internal gRPC stays plaintext)                   |
 | Mimir   | `server.http_tls_config`      | — (internal gRPC stays plaintext)                   |
-| Tempo   | `server.tls_config` (`:3200`) | `distributor.receivers.otlp.protocols.{grpc,http}.tls` |
+| Tempo   | `server.http_tls_config` (`:3200`) | `distributor.receivers.otlp.protocols.{grpc,http}.tls` |
 
 Loki and Mimir serve their OTLP HTTP receiver on the same listener as the
 native API, so one `http_tls_config` block secures both. Tempo's OTLP
