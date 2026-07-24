@@ -45,48 +45,67 @@ func (r *Env) WithKicadTestsOutput(name string, description string) *Env { // ki
 type KicadTests struct { // kicad-tests (../../../daggerverse/kicad/tests/main.go:25:6)
 	query *querybuilder.Selection
 
-	all                                *Void
-	bomDefaultFieldsProduceCsvHeader   *Void
-	ciCheckFailsOnViolations           *Void
-	ciCheckRunsErcAndDrc               *Void
-	ciRunProducesFabricationOutputs    *Void
-	ciRunShortCircuitsOnFailingCheck   *Void
-	containerHasKicadCli               *Void
-	drcCleanProjectPasses              *Void
-	drcReportsViolations               *Void
-	drcSchematicParityDetectsMismatch  *Void
-	drillProducesExcellonFiles         *Void
-	drillRejectsInvalidFormat          *Void
-	ercCleanProjectPasses              *Void
-	ercReportsViolations               *Void
-	gerbersDefaultExportsAllLayers     *Void
-	gerbersProduceOneFilePerLayer      *Void
-	id                                 *ID
-	ipc2581ProducesXml                 *Void
-	jobsetRejectsMissingFile           *Void
-	jobsetRunProducesDeclaredOutputs   *Void
-	netlistDefaultsToKicadSexpr        *Void
-	netlistRejectsInvalidFormat        *Void
-	pcbAutoDiscoversSingleBoard        *Void
-	pcbPdfIsSingleMultipageFile        *Void
-	pcbPdfPerLayerProducesFilePerLayer *Void
-	pcbRejectsAmbiguousAutoDiscovery   *Void
-	pcbRejectsExplicitPathNotFound     *Void
-	pcbRejectsMissingBoard             *Void
-	pcbSvgProducesSingleSvg            *Void
-	posDefaultsToAsciiBothSides        *Void
-	rejectsOutputNameWithPathSeparator *Void
-	schAutoDiscoversSingleSchematic    *Void
-	schPdfProducesPdf                  *Void
-	schSvgProducesOneFilePerSheet      *Void
-	stepBoardOnlyProducesStepFile      *Void
-	versionReportsKicadRelease         *Void
-	withDrawingSheetAppliesCustomSheet *Void
-	withVarRejectsNameContainingEquals *Void
-	withVarSubstitutesTextVariable     *Void
-	withVariantIgnoredByChecks         *Void
-	withVariantRejectsUnknownVariant   *Void
-	withVariantSelectsDesignVariant    *Void
+	all                                   *Void
+	bomDefaultFieldsProduceCsvHeader      *Void
+	ciCheckFailsOnViolations              *Void
+	ciCheckRunsErcAndDrc                  *Void
+	ciRunProducesFabricationOutputs       *Void
+	ciRunShortCircuitsOnFailingCheck      *Void
+	containerHasKicadCli                  *Void
+	drcCleanProjectPasses                 *Void
+	drcReportsViolations                  *Void
+	drcSchematicParityDetectsMismatch     *Void
+	drillProducesExcellonFiles            *Void
+	drillRejectsInvalidFormat             *Void
+	ercCleanProjectPasses                 *Void
+	ercReportsViolations                  *Void
+	fpSvgExportsFootprint                 *Void
+	fpUpgradeResavesLibrary               *Void
+	gencadProducesGencad                  *Void
+	gerbersDefaultExportsAllLayers        *Void
+	gerbersProduceOneFilePerLayer         *Void
+	glbBoardOnlyProducesGlb               *Void
+	id                                    *ID
+	importRejectsUnknownFormat            *Void
+	ipc2581ProducesXml                    *Void
+	ipcd356ProducesNetlist                *Void
+	jobsetRejectsMissingFile              *Void
+	jobsetRunProducesDeclaredOutputs      *Void
+	netlistDefaultsToKicadSexpr           *Void
+	netlistRejectsInvalidFormat           *Void
+	odbProducesArchive                    *Void
+	pcbAutoDiscoversSingleBoard           *Void
+	pcbDxfProducesDxf                     *Void
+	pcbPdfIsSingleMultipageFile           *Void
+	pcbPdfPerLayerProducesFilePerLayer    *Void
+	pcbPsProducesPostscript               *Void
+	pcbRejectsAmbiguousAutoDiscovery      *Void
+	pcbRejectsExplicitPathNotFound        *Void
+	pcbRejectsMissingBoard                *Void
+	pcbSvgProducesSingleSvg               *Void
+	pcbUpgradeProducesBoard               *Void
+	posDefaultsToAsciiBothSides           *Void
+	rejectsOutputNameWithPathSeparator    *Void
+	renderProducesPng                     *Void
+	schAutoDiscoversSingleSchematic       *Void
+	schDxfProducesFilePerSheet            *Void
+	schPdfProducesPdf                     *Void
+	schPsProducesFilePerSheet             *Void
+	schSvgProducesOneFilePerSheet         *Void
+	statsProducesReport                   *Void
+	stepBoardOnlyProducesStepFile         *Void
+	stepWithComponentModelsIncludesModels *Void
+	symSvgExportsSymbol                   *Void
+	symUpgradeResavesLibrary              *Void
+	threeDexportRequiresFullImage         *Void
+	versionReportsKicadRelease            *Void
+	vrmlBoardOnlyProducesVrml             *Void
+	withDrawingSheetAppliesCustomSheet    *Void
+	withVarRejectsNameContainingEquals    *Void
+	withVarSubstitutesTextVariable        *Void
+	withVariantIgnoredByChecks            *Void
+	withVariantRejectsUnknownVariant      *Void
+	withVariantSelectsDesignVariant       *Void
 }
 
 func (r *KicadTests) WithGraphQLQuery(q *querybuilder.Selection) *KicadTests {
@@ -123,7 +142,7 @@ func (r *KicadTests) All(ctx context.Context, opts ...KicadTestsAllOpts) error {
 
 // BomDefaultFieldsProduceCsvHeader asserts the default field list produces
 // the matching CSV header and one row per component.
-func (r *KicadTests) BomDefaultFieldsProduceCsvHeader(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:390:1)
+func (r *KicadTests) BomDefaultFieldsProduceCsvHeader(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:410:1)
 	if r.bomDefaultFieldsProduceCsvHeader != nil {
 		return nil
 	}
@@ -137,7 +156,7 @@ func (r *KicadTests) BomDefaultFieldsProduceCsvHeader(ctx context.Context) error
 // failures rather than short-circuiting on the first. ERC fails with a
 // pin_not_connected violation and DRC fails with its "DRC violations" report;
 // requiring both signatures proves both jobs ran and both errors propagated.
-func (r *KicadTests) CiCheckFailsOnViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:686:1)
+func (r *KicadTests) CiCheckFailsOnViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:706:1)
 	if r.ciCheckFailsOnViolations != nil {
 		return nil
 	}
@@ -150,7 +169,7 @@ func (r *KicadTests) CiCheckFailsOnViolations(ctx context.Context) error { // ki
 // against a clean project and returns nil. blinky passes both ERC and DRC on
 // its own, so a nil return proves the fan-out ran the enabled stages and
 // aggregated no error.
-func (r *KicadTests) CiCheckRunsErcAndDrc(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:670:1)
+func (r *KicadTests) CiCheckRunsErcAndDrc(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:690:1)
 	if r.ciCheckRunsErcAndDrc != nil {
 		return nil
 	}
@@ -163,7 +182,7 @@ func (r *KicadTests) CiCheckRunsErcAndDrc(ctx context.Context) error { // kicad-
 // blinky project — checks then outputs — and asserts Run returns one directory
 // holding the whole fabrication package: gerbers/ and drill/ subdirectories,
 // plus pos.pos and bom.csv at the root.
-func (r *KicadTests) CiRunProducesFabricationOutputs(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:708:1)
+func (r *KicadTests) CiRunProducesFabricationOutputs(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:728:1)
 	if r.ciRunProducesFabricationOutputs != nil {
 		return nil
 	}
@@ -177,7 +196,7 @@ func (r *KicadTests) CiRunProducesFabricationOutputs(ctx context.Context) error 
 // and fabrication outputs requested must return the aggregated check error and
 // no directory. The error carries the ERC report, proving the failure came
 // from stage 1 rather than from an export.
-func (r *KicadTests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:749:1)
+func (r *KicadTests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:769:1)
 	if r.ciRunShortCircuitsOnFailingCheck != nil {
 		return nil
 	}
@@ -188,7 +207,7 @@ func (r *KicadTests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error
 
 // ContainerHasKicadCli asserts the base image exposes kicad-cli on PATH, so
 // the escape hatch documented on Container() actually works.
-func (r *KicadTests) ContainerHasKicadCli(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:101:1)
+func (r *KicadTests) ContainerHasKicadCli(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:121:1)
 	if r.containerHasKicadCli != nil {
 		return nil
 	}
@@ -198,7 +217,7 @@ func (r *KicadTests) ContainerHasKicadCli(ctx context.Context) error { // kicad-
 }
 
 // DrcCleanProjectPasses asserts a clean board returns nil.
-func (r *KicadTests) DrcCleanProjectPasses(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:222:1)
+func (r *KicadTests) DrcCleanProjectPasses(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:242:1)
 	if r.drcCleanProjectPasses != nil {
 		return nil
 	}
@@ -209,7 +228,7 @@ func (r *KicadTests) DrcCleanProjectPasses(ctx context.Context) error { // kicad
 
 // DrcReportsViolations asserts a board with overlapping footprints fails and
 // that the violation list makes it into the error.
-func (r *KicadTests) DrcReportsViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:231:1)
+func (r *KicadTests) DrcReportsViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:251:1)
 	if r.drcReportsViolations != nil {
 		return nil
 	}
@@ -221,7 +240,7 @@ func (r *KicadTests) DrcReportsViolations(ctx context.Context) error { // kicad-
 // DrcSchematicParityDetectsMismatch asserts schematicParity surfaces a board
 // whose pad nets disagree with the schematic — a class of defect plain DRC
 // never looks for.
-func (r *KicadTests) DrcSchematicParityDetectsMismatch(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:245:1)
+func (r *KicadTests) DrcSchematicParityDetectsMismatch(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:265:1)
 	if r.drcSchematicParityDetectsMismatch != nil {
 		return nil
 	}
@@ -232,7 +251,7 @@ func (r *KicadTests) DrcSchematicParityDetectsMismatch(ctx context.Context) erro
 
 // DrillProducesExcellonFiles asserts the default drill export writes an
 // Excellon file for the board.
-func (r *KicadTests) DrillProducesExcellonFiles(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:299:1)
+func (r *KicadTests) DrillProducesExcellonFiles(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:319:1)
 	if r.drillProducesExcellonFiles != nil {
 		return nil
 	}
@@ -243,7 +262,7 @@ func (r *KicadTests) DrillProducesExcellonFiles(ctx context.Context) error { // 
 
 // DrillRejectsInvalidFormat asserts an out-of-range enum is rejected with the
 // legal set spelled out, rather than passed through to kicad-cli.
-func (r *KicadTests) DrillRejectsInvalidFormat(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:513:1)
+func (r *KicadTests) DrillRejectsInvalidFormat(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:533:1)
 	if r.drillRejectsInvalidFormat != nil {
 		return nil
 	}
@@ -253,7 +272,7 @@ func (r *KicadTests) DrillRejectsInvalidFormat(ctx context.Context) error { // k
 }
 
 // ErcCleanProjectPasses asserts a clean schematic returns nil.
-func (r *KicadTests) ErcCleanProjectPasses(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:201:1)
+func (r *KicadTests) ErcCleanProjectPasses(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:221:1)
 	if r.ercCleanProjectPasses != nil {
 		return nil
 	}
@@ -264,7 +283,7 @@ func (r *KicadTests) ErcCleanProjectPasses(ctx context.Context) error { // kicad
 
 // ErcReportsViolations asserts a schematic with a dangling pin fails and that
 // the violation list — not just a count — makes it into the error.
-func (r *KicadTests) ErcReportsViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:210:1)
+func (r *KicadTests) ErcReportsViolations(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:230:1)
 	if r.ercReportsViolations != nil {
 		return nil
 	}
@@ -273,9 +292,42 @@ func (r *KicadTests) ErcReportsViolations(ctx context.Context) error { // kicad-
 	return q.Execute(ctx)
 }
 
+// FpSvgExportsFootprint asserts the footprint-library SVG export lands one SVG
+// per footprint, named after the footprint, in the returned directory.
+func (r *KicadTests) FpSvgExportsFootprint(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:993:1)
+	if r.fpSvgExportsFootprint != nil {
+		return nil
+	}
+	q := r.query.Select("fpSvgExportsFootprint")
+
+	return q.Execute(ctx)
+}
+
+// FpUpgradeResavesLibrary asserts the footprint-library upgrade returns the
+// resaved .pretty directory with its .kicad_mod file in place.
+func (r *KicadTests) FpUpgradeResavesLibrary(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:1006:1)
+	if r.fpUpgradeResavesLibrary != nil {
+		return nil
+	}
+	q := r.query.Select("fpUpgradeResavesLibrary")
+
+	return q.Execute(ctx)
+}
+
+// GencadProducesGencad asserts the GenCAD export produces a GenCAD file, which
+// opens with a $HEADER section naming the format.
+func (r *KicadTests) GencadProducesGencad(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:894:1)
+	if r.gencadProducesGencad != nil {
+		return nil
+	}
+	q := r.query.Select("gencadProducesGencad")
+
+	return q.Execute(ctx)
+}
+
 // GerbersDefaultExportsAllLayers asserts an empty layer list plots every
 // layer the board defines rather than silently plotting none.
-func (r *KicadTests) GerbersDefaultExportsAllLayers(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:281:1)
+func (r *KicadTests) GerbersDefaultExportsAllLayers(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:301:1)
 	if r.gerbersDefaultExportsAllLayers != nil {
 		return nil
 	}
@@ -286,11 +338,22 @@ func (r *KicadTests) GerbersDefaultExportsAllLayers(ctx context.Context) error {
 
 // GerbersProduceOneFilePerLayer asserts an explicit layer list plots exactly
 // those layers (plus the job file that ties them together).
-func (r *KicadTests) GerbersProduceOneFilePerLayer(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:261:1)
+func (r *KicadTests) GerbersProduceOneFilePerLayer(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:281:1)
 	if r.gerbersProduceOneFilePerLayer != nil {
 		return nil
 	}
 	q := r.query.Select("gerbersProduceOneFilePerLayer")
+
+	return q.Execute(ctx)
+}
+
+// GlbBoardOnlyProducesGlb asserts the board-only GLB export produces a real
+// binary glTF, whose files open with the "glTF" magic.
+func (r *KicadTests) GlbBoardOnlyProducesGlb(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:836:1)
+	if r.glbBoardOnlyProducesGlb != nil {
+		return nil
+	}
+	q := r.query.Select("glbBoardOnlyProducesGlb")
 
 	return q.Execute(ctx)
 }
@@ -344,9 +407,21 @@ func (r *KicadTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// ImportRejectsUnknownFormat asserts the import format enum is validated,
+// listing every format kicad-cli accepts, rather than passed through. Import
+// converts a foreign board and needs no real fixture to prove the validation.
+func (r *KicadTests) ImportRejectsUnknownFormat(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:936:1)
+	if r.importRejectsUnknownFormat != nil {
+		return nil
+	}
+	q := r.query.Select("importRejectsUnknownFormat")
+
+	return q.Execute(ctx)
+}
+
 // Ipc2581ProducesXml asserts the IPC-2581 export produces an XML document at
 // the requested revision.
-func (r *KicadTests) Ipc2581ProducesXML(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:424:1)
+func (r *KicadTests) Ipc2581ProducesXML(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:444:1)
 	if r.ipc2581ProducesXml != nil {
 		return nil
 	}
@@ -355,9 +430,20 @@ func (r *KicadTests) Ipc2581ProducesXML(ctx context.Context) error { // kicad-te
 	return q.Execute(ctx)
 }
 
+// Ipcd356ProducesNetlist asserts the IPC-D-356 export produces a bare-board
+// test netlist, whose records carry the format's CODE/UNITS parameters.
+func (r *KicadTests) Ipcd356ProducesNetlist(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:907:1)
+	if r.ipcd356ProducesNetlist != nil {
+		return nil
+	}
+	q := r.query.Select("ipcd356ProducesNetlist")
+
+	return q.Execute(ctx)
+}
+
 // JobsetRejectsMissingFile asserts a jobset path that is not in the tree is
 // reported as such, naming the path.
-func (r *KicadTests) JobsetRejectsMissingFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:557:1)
+func (r *KicadTests) JobsetRejectsMissingFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:577:1)
 	if r.jobsetRejectsMissingFile != nil {
 		return nil
 	}
@@ -368,7 +454,7 @@ func (r *KicadTests) JobsetRejectsMissingFile(ctx context.Context) error { // ki
 
 // JobsetRunProducesDeclaredOutputs asserts a jobset runs and its declared
 // output folder comes back populated.
-func (r *KicadTests) JobsetRunProducesDeclaredOutputs(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:541:1)
+func (r *KicadTests) JobsetRunProducesDeclaredOutputs(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:561:1)
 	if r.jobsetRunProducesDeclaredOutputs != nil {
 		return nil
 	}
@@ -379,7 +465,7 @@ func (r *KicadTests) JobsetRunProducesDeclaredOutputs(ctx context.Context) error
 
 // NetlistDefaultsToKicadSexpr asserts the default netlist format is KiCad's
 // own s-expression export, carrying the nets the schematic declares.
-func (r *KicadTests) NetlistDefaultsToKicadSexpr(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:406:1)
+func (r *KicadTests) NetlistDefaultsToKicadSexpr(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:426:1)
 	if r.netlistDefaultsToKicadSexpr != nil {
 		return nil
 	}
@@ -390,7 +476,7 @@ func (r *KicadTests) NetlistDefaultsToKicadSexpr(ctx context.Context) error { //
 
 // NetlistRejectsInvalidFormat asserts the netlist format enum is validated
 // the same way, listing every format kicad-cli accepts.
-func (r *KicadTests) NetlistRejectsInvalidFormat(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:527:1)
+func (r *KicadTests) NetlistRejectsInvalidFormat(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:547:1)
 	if r.netlistRejectsInvalidFormat != nil {
 		return nil
 	}
@@ -399,10 +485,21 @@ func (r *KicadTests) NetlistRejectsInvalidFormat(ctx context.Context) error { //
 	return q.Execute(ctx)
 }
 
+// OdbProducesArchive asserts the ODB++ export produces a zip archive, which
+// opens with the "PK" local-file-header magic.
+func (r *KicadTests) OdbProducesArchive(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:920:1)
+	if r.odbProducesArchive != nil {
+		return nil
+	}
+	q := r.query.Select("odbProducesArchive")
+
+	return q.Execute(ctx)
+}
+
 // PcbAutoDiscoversSingleBoard asserts an empty path finds the project's only
 // board — the produced drill file is named after it, so a wrong pick would
 // show up in the output name.
-func (r *KicadTests) PcbAutoDiscoversSingleBoard(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:130:1)
+func (r *KicadTests) PcbAutoDiscoversSingleBoard(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:150:1)
 	if r.pcbAutoDiscoversSingleBoard != nil {
 		return nil
 	}
@@ -411,10 +508,21 @@ func (r *KicadTests) PcbAutoDiscoversSingleBoard(ctx context.Context) error { //
 	return q.Execute(ctx)
 }
 
+// PcbDxfProducesDxf asserts the single-file DXF plot produces a DXF drawing,
+// whose ASCII form opens with a SECTION record.
+func (r *KicadTests) PcbDxfProducesDxf(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:860:1)
+	if r.pcbDxfProducesDxf != nil {
+		return nil
+	}
+	q := r.query.Select("pcbDxfProducesDxf")
+
+	return q.Execute(ctx)
+}
+
 // PcbPdfIsSingleMultipageFile asserts --mode-single produces one real PDF.
 // The assertion goes through Export + os.ReadFile rather than Contents()
 // because Contents mangles non-UTF-8 bytes.
-func (r *KicadTests) PcbPdfIsSingleMultipageFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:345:1)
+func (r *KicadTests) PcbPdfIsSingleMultipageFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:365:1)
 	if r.pcbPdfIsSingleMultipageFile != nil {
 		return nil
 	}
@@ -425,7 +533,7 @@ func (r *KicadTests) PcbPdfIsSingleMultipageFile(ctx context.Context) error { //
 
 // PcbPdfPerLayerProducesFilePerLayer asserts --mode-separate lands one PDF
 // per requested layer in the returned directory.
-func (r *KicadTests) PcbPdfPerLayerProducesFilePerLayer(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:312:1)
+func (r *KicadTests) PcbPdfPerLayerProducesFilePerLayer(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:332:1)
 	if r.pcbPdfPerLayerProducesFilePerLayer != nil {
 		return nil
 	}
@@ -434,9 +542,20 @@ func (r *KicadTests) PcbPdfPerLayerProducesFilePerLayer(ctx context.Context) err
 	return q.Execute(ctx)
 }
 
+// PcbPsProducesPostscript asserts the single-file PostScript plot produces a
+// document opening with the "%!PS" magic.
+func (r *KicadTests) PcbPsProducesPostscript(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:874:1)
+	if r.pcbPsProducesPostscript != nil {
+		return nil
+	}
+	q := r.query.Select("pcbPsProducesPostscript")
+
+	return q.Execute(ctx)
+}
+
 // PcbRejectsAmbiguousAutoDiscovery asserts a project with two boards and no
 // board named after the project file errors, naming both candidates.
-func (r *KicadTests) PcbRejectsAmbiguousAutoDiscovery(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:143:1)
+func (r *KicadTests) PcbRejectsAmbiguousAutoDiscovery(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:163:1)
 	if r.pcbRejectsAmbiguousAutoDiscovery != nil {
 		return nil
 	}
@@ -447,7 +566,7 @@ func (r *KicadTests) PcbRejectsAmbiguousAutoDiscovery(ctx context.Context) error
 
 // PcbRejectsExplicitPathNotFound asserts an explicit path that is not in the
 // tree is reported as such, naming the path.
-func (r *KicadTests) PcbRejectsExplicitPathNotFound(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:171:1)
+func (r *KicadTests) PcbRejectsExplicitPathNotFound(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:191:1)
 	if r.pcbRejectsExplicitPathNotFound != nil {
 		return nil
 	}
@@ -458,7 +577,7 @@ func (r *KicadTests) PcbRejectsExplicitPathNotFound(ctx context.Context) error {
 
 // PcbRejectsMissingBoard asserts a project with no board at all errors,
 // rather than letting kicad-cli fail on an empty argument.
-func (r *KicadTests) PcbRejectsMissingBoard(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:158:1)
+func (r *KicadTests) PcbRejectsMissingBoard(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:178:1)
 	if r.pcbRejectsMissingBoard != nil {
 		return nil
 	}
@@ -468,7 +587,7 @@ func (r *KicadTests) PcbRejectsMissingBoard(ctx context.Context) error { // kica
 }
 
 // PcbSvgProducesSingleSvg asserts --mode-single produces one SVG document.
-func (r *KicadTests) PcbSvgProducesSingleSvg(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:352:1)
+func (r *KicadTests) PcbSvgProducesSingleSvg(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:372:1)
 	if r.pcbSvgProducesSingleSvg != nil {
 		return nil
 	}
@@ -477,9 +596,21 @@ func (r *KicadTests) PcbSvgProducesSingleSvg(ctx context.Context) error { // kic
 	return q.Execute(ctx)
 }
 
+// PcbUpgradeProducesBoard asserts the in-place board upgrade returns a resaved
+// .kicad_pcb. kicad-cli's upgrade has no output flag and rewrites the file in
+// place, so a returned board proves the writable-copy path worked.
+func (r *KicadTests) PcbUpgradeProducesBoard(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:951:1)
+	if r.pcbUpgradeProducesBoard != nil {
+		return nil
+	}
+	q := r.query.Select("pcbUpgradeProducesBoard")
+
+	return q.Execute(ctx)
+}
+
 // PosDefaultsToAsciiBothSides asserts the default position file is the ascii
 // format covering both sides, and lists the board's footprints.
-func (r *KicadTests) PosDefaultsToASCIIBothSides(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:372:1)
+func (r *KicadTests) PosDefaultsToASCIIBothSides(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:392:1)
 	if r.posDefaultsToAsciiBothSides != nil {
 		return nil
 	}
@@ -490,7 +621,7 @@ func (r *KicadTests) PosDefaultsToASCIIBothSides(ctx context.Context) error { //
 
 // RejectsOutputNameWithPathSeparator asserts an artifact name that would walk
 // out of the module-owned output directory is rejected up front.
-func (r *KicadTests) RejectsOutputNameWithPathSeparator(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:499:1)
+func (r *KicadTests) RejectsOutputNameWithPathSeparator(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:519:1)
 	if r.rejectsOutputNameWithPathSeparator != nil {
 		return nil
 	}
@@ -499,10 +630,22 @@ func (r *KicadTests) RejectsOutputNameWithPathSeparator(ctx context.Context) err
 	return q.Execute(ctx)
 }
 
+// RenderProducesPng asserts the 3D render produces a PNG image, which opens
+// with the PNG signature. On the slim image this is a bare-board render, which
+// is a valid PNG all the same.
+func (r *KicadTests) RenderProducesPng(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:928:1)
+	if r.renderProducesPng != nil {
+		return nil
+	}
+	q := r.query.Select("renderProducesPng")
+
+	return q.Execute(ctx)
+}
+
 // SchAutoDiscoversSingleSchematic asserts an empty path finds the project's
 // schematic; the netlist records the source sheet, so it names what was
 // picked.
-func (r *KicadTests) SchAutoDiscoversSingleSchematic(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:187:1)
+func (r *KicadTests) SchAutoDiscoversSingleSchematic(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:207:1)
 	if r.schAutoDiscoversSingleSchematic != nil {
 		return nil
 	}
@@ -511,8 +654,19 @@ func (r *KicadTests) SchAutoDiscoversSingleSchematic(ctx context.Context) error 
 	return q.Execute(ctx)
 }
 
+// SchDxfProducesFilePerSheet asserts the schematic DXF plot lands one file per
+// sheet in the returned directory.
+func (r *KicadTests) SchDxfProducesFilePerSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:965:1)
+	if r.schDxfProducesFilePerSheet != nil {
+		return nil
+	}
+	q := r.query.Select("schDxfProducesFilePerSheet")
+
+	return q.Execute(ctx)
+}
+
 // SchPdfProducesPdf asserts the schematic PDF export produces a real PDF.
-func (r *KicadTests) SchPdfProducesPdf(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:365:1)
+func (r *KicadTests) SchPdfProducesPdf(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:385:1)
 	if r.schPdfProducesPdf != nil {
 		return nil
 	}
@@ -521,10 +675,21 @@ func (r *KicadTests) SchPdfProducesPdf(ctx context.Context) error { // kicad-tes
 	return q.Execute(ctx)
 }
 
+// SchPsProducesFilePerSheet asserts the schematic PostScript plot lands one
+// file per sheet in the returned directory.
+func (r *KicadTests) SchPsProducesFilePerSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:978:1)
+	if r.schPsProducesFilePerSheet != nil {
+		return nil
+	}
+	q := r.query.Select("schPsProducesFilePerSheet")
+
+	return q.Execute(ctx)
+}
+
 // SchSvgProducesOneFilePerSheet asserts a hierarchical schematic plots one
 // SVG per sheet, which also proves the root sheet — not a sub-sheet — was the
 // one auto-discovered.
-func (r *KicadTests) SchSvgProducesOneFilePerSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:329:1)
+func (r *KicadTests) SchSvgProducesOneFilePerSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:349:1)
 	if r.schSvgProducesOneFilePerSheet != nil {
 		return nil
 	}
@@ -533,9 +698,20 @@ func (r *KicadTests) SchSvgProducesOneFilePerSheet(ctx context.Context) error { 
 	return q.Execute(ctx)
 }
 
+// StatsProducesReport asserts the board statistics report is produced and reads
+// as a human-readable report.
+func (r *KicadTests) StatsProducesReport(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:881:1)
+	if r.statsProducesReport != nil {
+		return nil
+	}
+	q := r.query.Select("statsProducesReport")
+
+	return q.Execute(ctx)
+}
+
 // StepBoardOnlyProducesStepFile asserts the board-only STEP export produces a
 // real ISO-10303-21 file. Asserted via Export + os.ReadFile, not Contents.
-func (r *KicadTests) StepBoardOnlyProducesStepFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:440:1)
+func (r *KicadTests) StepBoardOnlyProducesStepFile(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:460:1)
 	if r.stepBoardOnlyProducesStepFile != nil {
 		return nil
 	}
@@ -544,13 +720,75 @@ func (r *KicadTests) StepBoardOnlyProducesStepFile(ctx context.Context) error { 
 	return q.Execute(ctx)
 }
 
+// StepWithComponentModelsIncludesModels asserts a with-models STEP on the -full
+// image differs from the boardOnly output. The blinky R1 footprint references a
+// component 3D model that only the -full image bundles, so the populated
+// assembly carries geometry the bare board does not — proving the with-models
+// path actually resolved and embedded the model rather than falling back to
+// board geometry.
+func (r *KicadTests) StepWithComponentModelsIncludesModels(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:810:1)
+	if r.stepWithComponentModelsIncludesModels != nil {
+		return nil
+	}
+	q := r.query.Select("stepWithComponentModelsIncludesModels")
+
+	return q.Execute(ctx)
+}
+
+// SymSvgExportsSymbol asserts the symbol-library SVG export lands one SVG per
+// symbol unit in the returned directory.
+func (r *KicadTests) SymSvgExportsSymbol(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:1020:1)
+	if r.symSvgExportsSymbol != nil {
+		return nil
+	}
+	q := r.query.Select("symSvgExportsSymbol")
+
+	return q.Execute(ctx)
+}
+
+// SymUpgradeResavesLibrary asserts the symbol-library upgrade returns the
+// resaved .kicad_sym file.
+func (r *KicadTests) SymUpgradeResavesLibrary(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:1033:1)
+	if r.symUpgradeResavesLibrary != nil {
+		return nil
+	}
+	q := r.query.Select("symUpgradeResavesLibrary")
+
+	return q.Execute(ctx)
+}
+
+// ThreeDExportRequiresFullImage asserts a with-models 3D export on the slim
+// image fails with an error naming the -full tag, rather than silently emitting
+// a board-only model. Glb stands in for the whole step-family here; every one
+// of them routes through the same require3DModels guard.
+func (r *KicadTests) ThreeDexportRequiresFullImage(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:790:1)
+	if r.threeDexportRequiresFullImage != nil {
+		return nil
+	}
+	q := r.query.Select("threeDexportRequiresFullImage")
+
+	return q.Execute(ctx)
+}
+
 // VersionReportsKicadRelease asserts Version reports the release the pinned
 // image ships, i.e. a 10.x version for the default 10.0 tag.
-func (r *KicadTests) VersionReportsKicadRelease(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:116:1)
+func (r *KicadTests) VersionReportsKicadRelease(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:136:1)
 	if r.versionReportsKicadRelease != nil {
 		return nil
 	}
 	q := r.query.Select("versionReportsKicadRelease")
+
+	return q.Execute(ctx)
+}
+
+// VrmlBoardOnlyProducesVrml asserts the board-only VRML export produces a VRML
+// v2.0 document. VRML has no kicad-cli board-only flag, so boardOnly here only
+// skips the -full guard; on the slim image the output is board geometry alone.
+func (r *KicadTests) VrmlBoardOnlyProducesVrml(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:844:1)
+	if r.vrmlBoardOnlyProducesVrml != nil {
+		return nil
+	}
+	q := r.query.Select("vrmlBoardOnlyProducesVrml")
 
 	return q.Execute(ctx)
 }
@@ -560,7 +798,7 @@ func (r *KicadTests) VersionReportsKicadRelease(ctx context.Context) error { // 
 // it. The board's SVG plot renders worksheet text as literal <text> elements
 // (unlike the PDF plot, which strokes it to geometry), so the marker string is
 // greppable in the exported document rather than only in rendered pixels.
-func (r *KicadTests) WithDrawingSheetAppliesCustomSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:575:1)
+func (r *KicadTests) WithDrawingSheetAppliesCustomSheet(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:595:1)
 	if r.withDrawingSheetAppliesCustomSheet != nil {
 		return nil
 	}
@@ -572,7 +810,7 @@ func (r *KicadTests) WithDrawingSheetAppliesCustomSheet(ctx context.Context) err
 // WithVarRejectsNameContainingEquals asserts a name that would corrupt
 // kicad-cli's `name=value` encoding is rejected. WithVar is a builder with no
 // error return, so the error has to surface on the exec that uses it.
-func (r *KicadTests) WithVarRejectsNameContainingEquals(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:476:1)
+func (r *KicadTests) WithVarRejectsNameContainingEquals(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:496:1)
 	if r.withVarRejectsNameContainingEquals != nil {
 		return nil
 	}
@@ -585,7 +823,7 @@ func (r *KicadTests) WithVarRejectsNameContainingEquals(ctx context.Context) err
 // project file declares. The blinky board carries a `${LEDCOLOR}` silkscreen
 // text; the IPC-2581 export records resolved text verbatim, so it shows which
 // value won.
-func (r *KicadTests) WithVarSubstitutesTextVariable(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:452:1)
+func (r *KicadTests) WithVarSubstitutesTextVariable(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:472:1)
 	if r.withVarSubstitutesTextVariable != nil {
 		return nil
 	}
@@ -598,7 +836,7 @@ func (r *KicadTests) WithVarSubstitutesTextVariable(ctx context.Context) error {
 // and DRC with a variant selected. kicad-cli rejects --variant on sch erc and
 // pcb drc, so the module drops the flag there; a clean pass proves it was
 // dropped rather than passed through, which would fail as a usage error.
-func (r *KicadTests) WithVariantIgnoredByChecks(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:653:1)
+func (r *KicadTests) WithVariantIgnoredByChecks(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:673:1)
 	if r.withVariantIgnoredByChecks != nil {
 		return nil
 	}
@@ -611,7 +849,7 @@ func (r *KicadTests) WithVariantIgnoredByChecks(ctx context.Context) error { // 
 // a clear error naming the variants the project does declare. kicad-cli
 // silently falls back to the default variant for an unknown name, so this is
 // the module's own validation rather than a passed-through kicad-cli error.
-func (r *KicadTests) WithVariantRejectsUnknownVariant(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:631:1)
+func (r *KicadTests) WithVariantRejectsUnknownVariant(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:651:1)
 	if r.withVariantRejectsUnknownVariant != nil {
 		return nil
 	}
@@ -624,7 +862,7 @@ func (r *KicadTests) WithVariantRejectsUnknownVariant(ctx context.Context) error
 // project produce different BOMs. The variants fixture overrides R1's value per
 // variant (1k vs 10k), which the default BOM's Value column records verbatim,
 // so the selected variant is observable in exported text rather than geometry.
-func (r *KicadTests) WithVariantSelectsDesignVariant(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:604:1)
+func (r *KicadTests) WithVariantSelectsDesignVariant(ctx context.Context) error { // kicad-tests (../../../daggerverse/kicad/tests/main.go:624:1)
 	if r.withVariantSelectsDesignVariant != nil {
 		return nil
 	}

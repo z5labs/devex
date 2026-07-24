@@ -1,0 +1,43 @@
+(footprint "R_0805"
+	(version 20240108)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layer "F.Cu")
+	(descr "0805 resistor, hand-authored test fixture")
+	(attr smd)
+	(fp_line
+		(start -1.6 -0.9)
+		(end 1.6 -0.9)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "aaaaaaaa-0000-4000-8000-000000000001")
+	)
+	(fp_line
+		(start -1.6 0.9)
+		(end 1.6 0.9)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "aaaaaaaa-0000-4000-8000-000000000002")
+	)
+	(pad "1" smd roundrect
+		(at -0.9375 0)
+		(size 1.025 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(roundrect_rratio 0.243902)
+		(uuid "aaaaaaaa-0000-4000-8000-000000000011")
+	)
+	(pad "2" smd roundrect
+		(at 0.9375 0)
+		(size 1.025 1.4)
+		(layers "F.Cu" "F.Paste" "F.Mask")
+		(roundrect_rratio 0.243902)
+		(uuid "aaaaaaaa-0000-4000-8000-000000000012")
+	)
+	(embedded_fonts no)
+)

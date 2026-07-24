@@ -109,6 +109,17 @@
 			(pintype "passive")
 			(uuid "66666666-0000-4000-8000-000000000016")
 		)
+		(model "/usr/share/kicad/3dmodels/Resistor_SMD.3dshapes/R_0805_2012Metric.step"
+			(offset
+				(xyz 0 0 0)
+			)
+			(scale
+				(xyz 1 1 1)
+			)
+			(rotate
+				(xyz 0 0 0)
+			)
+		)
 		(embedded_fonts no)
 	)
 	(footprint "blinky:LED_0805"

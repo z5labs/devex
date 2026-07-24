@@ -91,6 +91,26 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiRunProducesFabricationOutputs", t.CiRunProducesFabricationOutputs)
 	jobs = jobs.WithJob("CiRunShortCircuitsOnFailingCheck", t.CiRunShortCircuitsOnFailingCheck)
 
+	jobs = jobs.WithJob("ThreeDExportRequiresFullImage", t.ThreeDExportRequiresFullImage)
+	jobs = jobs.WithJob("StepWithComponentModelsIncludesModels", t.StepWithComponentModelsIncludesModels)
+	jobs = jobs.WithJob("GlbBoardOnlyProducesGlb", t.GlbBoardOnlyProducesGlb)
+	jobs = jobs.WithJob("VrmlBoardOnlyProducesVrml", t.VrmlBoardOnlyProducesVrml)
+	jobs = jobs.WithJob("PcbDxfProducesDxf", t.PcbDxfProducesDxf)
+	jobs = jobs.WithJob("PcbPsProducesPostscript", t.PcbPsProducesPostscript)
+	jobs = jobs.WithJob("StatsProducesReport", t.StatsProducesReport)
+	jobs = jobs.WithJob("GencadProducesGencad", t.GencadProducesGencad)
+	jobs = jobs.WithJob("Ipcd356ProducesNetlist", t.Ipcd356ProducesNetlist)
+	jobs = jobs.WithJob("OdbProducesArchive", t.OdbProducesArchive)
+	jobs = jobs.WithJob("RenderProducesPng", t.RenderProducesPng)
+	jobs = jobs.WithJob("ImportRejectsUnknownFormat", t.ImportRejectsUnknownFormat)
+	jobs = jobs.WithJob("PcbUpgradeProducesBoard", t.PcbUpgradeProducesBoard)
+	jobs = jobs.WithJob("SchDxfProducesFilePerSheet", t.SchDxfProducesFilePerSheet)
+	jobs = jobs.WithJob("SchPsProducesFilePerSheet", t.SchPsProducesFilePerSheet)
+	jobs = jobs.WithJob("FpSvgExportsFootprint", t.FpSvgExportsFootprint)
+	jobs = jobs.WithJob("FpUpgradeResavesLibrary", t.FpUpgradeResavesLibrary)
+	jobs = jobs.WithJob("SymSvgExportsSymbol", t.SymSvgExportsSymbol)
+	jobs = jobs.WithJob("SymUpgradeResavesLibrary", t.SymUpgradeResavesLibrary)
+
 	return jobs.Run(ctx)
 }
 
@@ -761,6 +781,267 @@ func (t *Tests) CiRunShortCircuitsOnFailingCheck(ctx context.Context) error {
 	return nil
 }
 
+// ------------------------------------------- 3D exports, image variant
+
+// ThreeDExportRequiresFullImage asserts a with-models 3D export on the slim
+// image fails with an error naming the -full tag, rather than silently emitting
+// a board-only model. Glb stands in for the whole step-family here; every one
+// of them routes through the same require3DModels guard.
+func (t *Tests) ThreeDExportRequiresFullImage(ctx context.Context) error {
+	_, err := dag.Kicad().Project(fixture("blinky")).Pcb().Glb().Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a with-models Glb on the slim image to fail, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"component 3D models", "10.0-full"} {
+		if !strings.Contains(msg, want) {
+			return fmt.Errorf("expected the guard error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// StepWithComponentModelsIncludesModels asserts a with-models STEP on the -full
+// image differs from the boardOnly output. The blinky R1 footprint references a
+// component 3D model that only the -full image bundles, so the populated
+// assembly carries geometry the bare board does not — proving the with-models
+// path actually resolved and embedded the model rather than falling back to
+// board geometry.
+func (t *Tests) StepWithComponentModelsIncludesModels(ctx context.Context) error {
+	pcb := dag.Kicad(dagger.KicadOpts{Full: true}).Project(fixture("blinky")).Pcb()
+
+	withModels, err := exportBytes(ctx, pcb.Step(), "with-models.step")
+	if err != nil {
+		return fmt.Errorf("with-models Step: %w", err)
+	}
+	boardOnly, err := exportBytes(ctx, pcb.Step(dagger.KicadPcbStepOpts{BoardOnly: true}), "board-only.step")
+	if err != nil {
+		return fmt.Errorf("board-only Step: %w", err)
+	}
+	if bytes.Equal(withModels, boardOnly) {
+		return fmt.Errorf("expected the with-models STEP to differ from the board-only STEP, got identical output")
+	}
+	if len(withModels) <= len(boardOnly) {
+		return fmt.Errorf("expected the with-models STEP (%d bytes) to be larger than the board-only STEP (%d bytes)",
+			len(withModels), len(boardOnly))
+	}
+	if !bytes.HasPrefix(withModels, []byte("ISO-10303-21;")) {
+		return fmt.Errorf("expected the with-models output to be a STEP file, got %q", firstBytes(withModels, 13))
+	}
+	return nil
+}
+
+// GlbBoardOnlyProducesGlb asserts the board-only GLB export produces a real
+// binary glTF, whose files open with the "glTF" magic.
+func (t *Tests) GlbBoardOnlyProducesGlb(ctx context.Context) error {
+	f := dag.Kicad().Project(fixture("blinky")).Pcb().Glb(dagger.KicadPcbGlbOpts{BoardOnly: true})
+	return assertMagic(ctx, f, "board.glb", []byte("glTF"))
+}
+
+// VrmlBoardOnlyProducesVrml asserts the board-only VRML export produces a VRML
+// v2.0 document. VRML has no kicad-cli board-only flag, so boardOnly here only
+// skips the -full guard; on the slim image the output is board geometry alone.
+func (t *Tests) VrmlBoardOnlyProducesVrml(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().
+		Vrml(dagger.KicadPcbVrmlOpts{BoardOnly: true}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Vrml: %w", err)
+	}
+	if !strings.HasPrefix(out, "#VRML") {
+		return fmt.Errorf("expected a VRML document, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// ------------------------------------------- long-tail 2D and utility
+
+// PcbDxfProducesDxf asserts the single-file DXF plot produces a DXF drawing,
+// whose ASCII form opens with a SECTION record.
+func (t *Tests) PcbDxfProducesDxf(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().
+		Dxf([]string{"F.Cu", "Edge.Cuts"}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Dxf: %w", err)
+	}
+	if !strings.Contains(out, "SECTION") {
+		return fmt.Errorf("expected a DXF drawing, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// PcbPsProducesPostscript asserts the single-file PostScript plot produces a
+// document opening with the "%!PS" magic.
+func (t *Tests) PcbPsProducesPostscript(ctx context.Context) error {
+	f := dag.Kicad().Project(fixture("blinky")).Pcb().Ps([]string{"F.Cu", "Edge.Cuts"})
+	return assertMagic(ctx, f, "board.ps", []byte("%!PS"))
+}
+
+// StatsProducesReport asserts the board statistics report is produced and reads
+// as a human-readable report.
+func (t *Tests) StatsProducesReport(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().Stats().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Stats: %w", err)
+	}
+	if !strings.Contains(out, "PCB statistics") {
+		return fmt.Errorf("expected a board statistics report, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// GencadProducesGencad asserts the GenCAD export produces a GenCAD file, which
+// opens with a $HEADER section naming the format.
+func (t *Tests) GencadProducesGencad(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().Gencad().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Gencad: %w", err)
+	}
+	if !strings.Contains(out, "$HEADER") || !strings.Contains(out, "GENCAD") {
+		return fmt.Errorf("expected a GenCAD document, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// Ipcd356ProducesNetlist asserts the IPC-D-356 export produces a bare-board
+// test netlist, whose records carry the format's CODE/UNITS parameters.
+func (t *Tests) Ipcd356ProducesNetlist(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().Ipcd356().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Ipcd356: %w", err)
+	}
+	if !strings.Contains(out, "UNITS") {
+		return fmt.Errorf("expected an IPC-D-356 netlist, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// OdbProducesArchive asserts the ODB++ export produces a zip archive, which
+// opens with the "PK" local-file-header magic.
+func (t *Tests) OdbProducesArchive(ctx context.Context) error {
+	f := dag.Kicad().Project(fixture("blinky")).Pcb().Odb()
+	return assertMagic(ctx, f, "odb.zip", []byte("PK\x03\x04"))
+}
+
+// RenderProducesPng asserts the 3D render produces a PNG image, which opens
+// with the PNG signature. On the slim image this is a bare-board render, which
+// is a valid PNG all the same.
+func (t *Tests) RenderProducesPng(ctx context.Context) error {
+	f := dag.Kicad().Project(fixture("blinky")).Pcb().Render()
+	return assertMagic(ctx, f, "render.png", []byte("\x89PNG\r\n\x1a\n"))
+}
+
+// ImportRejectsUnknownFormat asserts the import format enum is validated,
+// listing every format kicad-cli accepts, rather than passed through. Import
+// converts a foreign board and needs no real fixture to prove the validation.
+func (t *Tests) ImportRejectsUnknownFormat(ctx context.Context) error {
+	_, err := dag.Kicad().Project(fixture("blinky")).Pcb().
+		Import("foreign.brd", dagger.KicadPcbImportOpts{Format: "verilog"}).Sync(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an error for an invalid import format, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be one of") || !strings.Contains(err.Error(), "eagle") {
+		return fmt.Errorf("expected the legal format set in the error, got: %v", err)
+	}
+	return nil
+}
+
+// PcbUpgradeProducesBoard asserts the in-place board upgrade returns a resaved
+// .kicad_pcb. kicad-cli's upgrade has no output flag and rewrites the file in
+// place, so a returned board proves the writable-copy path worked.
+func (t *Tests) PcbUpgradeProducesBoard(ctx context.Context) error {
+	out, err := dag.Kicad().Project(fixture("blinky")).Pcb().
+		Upgrade(dagger.KicadPcbUpgradeOpts{Force: true}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Upgrade: %w", err)
+	}
+	if !strings.Contains(out, "(kicad_pcb") {
+		return fmt.Errorf("expected an upgraded .kicad_pcb, got:\n%s", head(out))
+	}
+	return nil
+}
+
+// SchDxfProducesFilePerSheet asserts the schematic DXF plot lands one file per
+// sheet in the returned directory.
+func (t *Tests) SchDxfProducesFilePerSheet(ctx context.Context) error {
+	entries, err := dag.Kicad().Project(fixture("blinky")).Sch().Dxf().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Sch.Dxf: %w", err)
+	}
+	if !contains(entries, "blinky.dxf") {
+		return fmt.Errorf("expected blinky.dxf, got %v", entries)
+	}
+	return nil
+}
+
+// SchPsProducesFilePerSheet asserts the schematic PostScript plot lands one
+// file per sheet in the returned directory.
+func (t *Tests) SchPsProducesFilePerSheet(ctx context.Context) error {
+	entries, err := dag.Kicad().Project(fixture("blinky")).Sch().Ps().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Sch.Ps: %w", err)
+	}
+	if !contains(entries, "blinky.ps") {
+		return fmt.Errorf("expected blinky.ps, got %v", entries)
+	}
+	return nil
+}
+
+// --------------------------------------------- fp and sym libraries
+
+// FpSvgExportsFootprint asserts the footprint-library SVG export lands one SVG
+// per footprint, named after the footprint, in the returned directory.
+func (t *Tests) FpSvgExportsFootprint(ctx context.Context) error {
+	entries, err := dag.Kicad().Fp(fixtureDir("fplib/test.pretty")).Svg().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Fp.Svg: %w", err)
+	}
+	if !contains(entries, "R_0805.svg") {
+		return fmt.Errorf("expected R_0805.svg, got %v", entries)
+	}
+	return nil
+}
+
+// FpUpgradeResavesLibrary asserts the footprint-library upgrade returns the
+// resaved .pretty directory with its .kicad_mod file in place.
+func (t *Tests) FpUpgradeResavesLibrary(ctx context.Context) error {
+	entries, err := dag.Kicad().Fp(fixtureDir("fplib/test.pretty")).
+		Upgrade(dagger.KicadFpUpgradeOpts{Force: true}).Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Fp.Upgrade: %w", err)
+	}
+	if !contains(entries, "R_0805.kicad_mod") {
+		return fmt.Errorf("expected R_0805.kicad_mod, got %v", entries)
+	}
+	return nil
+}
+
+// SymSvgExportsSymbol asserts the symbol-library SVG export lands one SVG per
+// symbol unit in the returned directory.
+func (t *Tests) SymSvgExportsSymbol(ctx context.Context) error {
+	entries, err := dag.Kicad().Sym(fixtureFile("symlib/test.kicad_sym")).Svg().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Sym.Svg: %w", err)
+	}
+	if !contains(entries, "R_unit1.svg") {
+		return fmt.Errorf("expected R_unit1.svg, got %v", entries)
+	}
+	return nil
+}
+
+// SymUpgradeResavesLibrary asserts the symbol-library upgrade returns the
+// resaved .kicad_sym file.
+func (t *Tests) SymUpgradeResavesLibrary(ctx context.Context) error {
+	out, err := dag.Kicad().Sym(fixtureFile("symlib/test.kicad_sym")).
+		Upgrade(dagger.KicadSymUpgradeOpts{Force: true}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Sym.Upgrade: %w", err)
+	}
+	if !strings.Contains(out, "kicad_symbol_lib") {
+		return fmt.Errorf("expected an upgraded .kicad_sym, got:\n%s", head(out))
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
 
 // fixture returns the named hand-authored KiCad project under fixtures/.
@@ -769,10 +1050,33 @@ func fixture(name string) *dagger.Directory {
 }
 
 // fixtureFile returns a single file under fixtures/ by project-relative path,
-// for the inputs — like a drawing sheet — that WithDrawingSheet takes as a
-// lone *dagger.File rather than a project directory.
+// for the inputs — like a drawing sheet or a symbol library — that a function
+// takes as a lone *dagger.File rather than a project directory.
 func fixtureFile(path string) *dagger.File {
 	return dag.CurrentModule().Source().File("fixtures/" + path)
+}
+
+// fixtureDir returns a subdirectory under fixtures/ by project-relative path,
+// for the library inputs (a .pretty footprint library) that are a directory
+// but not a whole KiCad project.
+func fixtureDir(path string) *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/" + path)
+}
+
+// exportBytes exports a file artifact and returns its raw bytes, for the
+// assertions that compare whole files rather than just their leading magic.
+func exportBytes(ctx context.Context, f *dagger.File, name string) ([]byte, error) {
+	dir, err := os.MkdirTemp(".", "kicad-")
+	if err != nil {
+		return nil, fmt.Errorf("temp dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	path := filepath.Join(dir, name)
+	if _, err := f.Export(ctx, path); err != nil {
+		return nil, fmt.Errorf("export %s: %w", name, err)
+	}
+	return os.ReadFile(path)
 }
 
 // assertMagic exports a binary artifact and compares its leading bytes.
