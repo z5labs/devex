@@ -985,16 +985,67 @@ func applyServerTLSMaterial(ctr *dagger.Container, dir string, serverCert *dagge
 	return ctr
 }
 
-// ensureMap returns parent[key] as a map, creating an empty one (and storing
-// it) when the key is absent or not a mapping. Used to walk into a config
-// tree parsed from YAML so a TLS block can be spliced in.
-func ensureMap(parent map[string]any, key string) map[string]any {
-	if m, ok := parent[key].(map[string]any); ok {
-		return m
+// documentMapping returns the top-level mapping node of a parsed YAML
+// document, creating an empty one for an empty document. Splicing operates on
+// yaml.Node (not map[string]any) so untouched scalars keep their exact source
+// representation — notably Loki's `from: 2020-05-15`, which a map round-trip
+// would rewrite to a full RFC3339 timestamp that Loki's config parser rejects.
+func documentMapping(doc *yaml.Node) *yaml.Node {
+	if doc.Kind == yaml.DocumentNode {
+		if len(doc.Content) == 0 {
+			m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+			doc.Content = []*yaml.Node{m}
+			return m
+		}
+		return doc.Content[0]
 	}
-	m := map[string]any{}
-	parent[key] = m
-	return m
+	return doc
+}
+
+// ensureMapNode returns the mapping node stored under key in a mapping node,
+// creating (and appending) an empty mapping when the key is absent.
+func ensureMapNode(mapping *yaml.Node, key string) *yaml.Node {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			return mapping.Content[i+1]
+		}
+	}
+	child := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	mapping.Content = append(mapping.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		child)
+	return child
+}
+
+// setMapKey sets (or replaces) key -> value in a mapping node.
+func setMapKey(mapping *yaml.Node, key string, value *yaml.Node) {
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == key {
+			mapping.Content[i+1] = value
+			return
+		}
+	}
+	mapping.Content = append(mapping.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		value)
+}
+
+// blockNode converts a freshly-built map (no user-supplied scalars, so a
+// map round-trip is safe here) into a yaml.Node ready to splice into a config
+// tree.
+func blockNode(m map[string]any) (*yaml.Node, error) {
+	b, err := yaml.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal(b, &doc); err != nil {
+		return nil, err
+	}
+	if doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 {
+		return doc.Content[0], nil
+	}
+	return &doc, nil
 }
 
 // serverTLSBlock renders a dskit http_tls_config / server tls_config block
@@ -1036,17 +1087,18 @@ func receiverTLSBlock(dir string, mtls bool) map[string]any {
 // result as a workdir file. Because the OTLP receiver is served on the same
 // HTTP listener, one block secures both the native API and the OTLP ingester.
 func renderDskitHTTPTLSConfig(base []byte, name, dir string, mtls bool) (*dagger.File, error) {
-	var root map[string]any
-	if err := yaml.Unmarshal(base, &root); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s config: %w", name, err)
 	}
-	if root == nil {
-		root = map[string]any{}
+	root := documentMapping(&doc)
+	blk, err := blockNode(serverTLSBlock(dir, mtls))
+	if err != nil {
+		return nil, fmt.Errorf("build %s tls block: %w", name, err)
 	}
-	server := ensureMap(root, "server")
-	server["http_tls_config"] = serverTLSBlock(dir, mtls)
+	setMapKey(ensureMapNode(root, "server"), "http_tls_config", blk)
 
-	out, err := yaml.Marshal(root)
+	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return nil, fmt.Errorf("render %s config: %w", name, err)
 	}
@@ -1058,23 +1110,28 @@ func renderDskitHTTPTLSConfig(base []byte, name, dir string, mtls bool) (*dagger
 // distributor.receivers.otlp.protocols.{grpc,http}.tls for the two OTLP
 // receivers. The result is staged as a workdir file.
 func renderTempoTLSConfig(base []byte, name, dir string, mtls bool) (*dagger.File, error) {
-	var root map[string]any
-	if err := yaml.Unmarshal(base, &root); err != nil {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(base, &doc); err != nil {
 		return nil, fmt.Errorf("parse %s config: %w", name, err)
 	}
-	if root == nil {
-		root = map[string]any{}
+	root := documentMapping(&doc)
+
+	serverBlk, err := blockNode(serverTLSBlock(dir, mtls))
+	if err != nil {
+		return nil, fmt.Errorf("build %s server tls block: %w", name, err)
 	}
+	setMapKey(ensureMapNode(root, "server"), "tls_config", serverBlk)
 
-	server := ensureMap(root, "server")
-	server["tls_config"] = serverTLSBlock(dir, mtls)
-
-	protocols := ensureMap(ensureMap(ensureMap(ensureMap(root, "distributor"), "receivers"), "otlp"), "protocols")
+	protocols := ensureMapNode(ensureMapNode(ensureMapNode(ensureMapNode(root, "distributor"), "receivers"), "otlp"), "protocols")
 	for _, proto := range []string{"grpc", "http"} {
-		ensureMap(protocols, proto)["tls"] = receiverTLSBlock(dir, mtls)
+		blk, err := blockNode(receiverTLSBlock(dir, mtls))
+		if err != nil {
+			return nil, fmt.Errorf("build %s %s tls block: %w", name, proto, err)
+		}
+		setMapKey(ensureMapNode(protocols, proto), "tls", blk)
 	}
 
-	out, err := yaml.Marshal(root)
+	out, err := yaml.Marshal(&doc)
 	if err != nil {
 		return nil, fmt.Errorf("render %s config: %w", name, err)
 	}
