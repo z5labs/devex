@@ -258,10 +258,24 @@ func buildKafkaCluster(
 			// value even on controller-only nodes that have no advertised
 			// listeners. Strip it so the controller boots regardless of
 			// distro (no-op for the Apache images, which don't pre-set it).
+			// A controller must NOT set advertised.listeners at all — the
+			// Apache docker entrypoint hard-rejects it ("KAFKA_ADVERTISED_-
+			// LISTENERS is not supported on a KRaft controller").
 			WithoutEnvVariable("KAFKA_ADVERTISED_LISTENERS").
 			WithEnvVariable("KAFKA_NODE_ID", fmt.Sprintf("%d", nodeID)).
 			WithEnvVariable("KAFKA_PROCESS_ROLES", "controller").
-			WithEnvVariable("KAFKA_LISTENERS", "CONTROLLER://0.0.0.0:9093").
+			// Bind the CONTROLLER listener to this controller's pinned DNS
+			// hostname rather than 0.0.0.0. A controller-only node can't set
+			// advertised.listeners, so Kafka 4.x derives the advertised
+			// controller endpoint it registers into the quorum metadata from
+			// the `listeners` host. With 0.0.0.0 (no hostname) that endpoint
+			// falls back to localhost:9093 (KAFKA-20228); the localhost then
+			// propagates through the quorum, peers dial themselves, the
+			// quorum never forms, and the leg flakes (issue #171). Pinning
+			// the resolvable hostname here (it resolves to this container's
+			// own IP via WithHostname + session DNS, so the bind succeeds)
+			// keeps the registered endpoint the DNS name, never localhost.
+			WithEnvVariable("KAFKA_LISTENERS", fmt.Sprintf("CONTROLLER://%s:9093", controllerHosts[i])).
 			WithEnvVariable("KAFKA_CONTROLLER_LISTENER_NAMES", "CONTROLLER").
 			WithEnvVariable("KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", "CONTROLLER:SSL").
 			WithEnvVariable("KAFKA_CONTROLLER_QUORUM_VOTERS", quorumVoters).
