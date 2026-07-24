@@ -127,7 +127,7 @@ func (r *Binding) AsEnvoyVirtualHost() *EnvoyVirtualHost { // envoy (../../../..
 }
 
 // Retrieve the binding value, as type EnvoyXdsResources
-func (r *Binding) AsEnvoyXdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+func (r *Binding) AsEnvoyXdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:128:6)
 	q := r.query.Select("asEnvoyXdsResources")
 
 	return &EnvoyXdsResources{
@@ -448,7 +448,7 @@ func (r *Env) WithEnvoyVirtualHostOutput(name string, description string) *Env {
 }
 
 // Create or update a binding of type EnvoyXdsResources in the environment
-func (r *Env) WithEnvoyXdsResourcesInput(name string, value *EnvoyXdsResources, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+func (r *Env) WithEnvoyXdsResourcesInput(name string, value *EnvoyXdsResources, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:128:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withEnvoyXdsResourcesInput")
 	q = q.Arg("name", name)
@@ -461,7 +461,7 @@ func (r *Env) WithEnvoyXdsResourcesInput(name string, value *EnvoyXdsResources, 
 }
 
 // Declare a desired EnvoyXdsResources output to be assigned in the environment
-func (r *Env) WithEnvoyXdsResourcesOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+func (r *Env) WithEnvoyXdsResourcesOutput(name string, description string) *Env { // envoy (../../../../../daggerverse/envoy/xds.go:128:6)
 	q := r.query.Select("withEnvoyXdsResourcesOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -886,7 +886,7 @@ func (r *Envoy) VirtualHost(name string, domains []string) *EnvoyVirtualHost { /
 // XdsResources returns an empty discovery-resource set. Feed it
 // listeners and clusters, then hand Directory() to
 // (*Proxy).WithDynamicResources.
-func (r *Envoy) XdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:132:1)
+func (r *Envoy) XdsResources() *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:136:1)
 	q := r.query.Select("xdsResources")
 
 	return &EnvoyXdsResources{
@@ -1845,7 +1845,7 @@ func (r *EnvoyProxy) WithConfigFile(f *File) *EnvoyProxy { // envoy (../../../..
 // only Envoy's initial discovery path runs. Callers wanting to test
 // reload semantics need to launch a fresh Proxy per resource
 // snapshot.
-func (r *EnvoyProxy) WithDynamicResources(dir *Directory) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/xds.go:60:1)
+func (r *EnvoyProxy) WithDynamicResources(dir *Directory) *EnvoyProxy { // envoy (../../../../../daggerverse/envoy/xds.go:64:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withDynamicResources")
 	q = q.Arg("dir", dir)
@@ -2508,7 +2508,7 @@ func (r *EnvoyVirtualHost) AsNode() Node {
 // builders take (Listener, Cluster) into the discovery-resource files
 // a file-based xDS Proxy consumes. Composition mirrors Proxy: WithX
 // methods return shallow copies.
-type EnvoyXdsResources struct { // envoy (../../../../../daggerverse/envoy/xds.go:124:6)
+type EnvoyXdsResources struct { // envoy (../../../../../daggerverse/envoy/xds.go:128:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -2528,7 +2528,7 @@ func (r *EnvoyXdsResources) WithGraphQLQuery(q *querybuilder.Selection) *EnvoyXd
 	}
 }
 
-func (r *EnvoyXdsResources) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // envoy (../../../../../daggerverse/envoy/xds.go:126:2)
+func (r *EnvoyXdsResources) Clusters(ctx context.Context) ([]EnvoyCluster, error) { // envoy (../../../../../daggerverse/envoy/xds.go:130:2)
 	q := r.query.Select("clusters")
 
 	q = q.Select("id")
@@ -2579,7 +2579,7 @@ func (r *EnvoyXdsResources) Clusters(ctx context.Context) ([]EnvoyCluster, error
 // any component carries TLS / mTLS security, whose key material only
 // (*Proxy).Service() can mount and which the Proxy cannot see through
 // an opaque resource directory.
-func (r *EnvoyXdsResources) Directory() *Directory { // envoy (../../../../../daggerverse/envoy/xds.go:169:1)
+func (r *EnvoyXdsResources) Directory() *Directory { // envoy (../../../../../daggerverse/envoy/xds.go:173:1)
 	q := r.query.Select("directory")
 
 	return &Directory{
@@ -2636,7 +2636,7 @@ func (r *EnvoyXdsResources) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *EnvoyXdsResources) Listeners(ctx context.Context) ([]EnvoyListener, error) { // envoy (../../../../../daggerverse/envoy/xds.go:125:2)
+func (r *EnvoyXdsResources) Listeners(ctx context.Context) ([]EnvoyListener, error) { // envoy (../../../../../daggerverse/envoy/xds.go:129:2)
 	q := r.query.Select("listeners")
 
 	q = q.Select("id")
@@ -2669,7 +2669,7 @@ func (r *EnvoyXdsResources) Listeners(ctx context.Context) ([]EnvoyListener, err
 }
 
 // WithCluster appends a cluster to the CDS resource set.
-func (r *EnvoyXdsResources) WithCluster(c *EnvoyCluster) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:144:1)
+func (r *EnvoyXdsResources) WithCluster(c *EnvoyCluster) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:148:1)
 	assertNotNil("c", c)
 	q := r.query.Select("withCluster")
 	q = q.Arg("c", c)
@@ -2680,7 +2680,7 @@ func (r *EnvoyXdsResources) WithCluster(c *EnvoyCluster) *EnvoyXdsResources { //
 }
 
 // WithListener appends a listener to the LDS resource set.
-func (r *EnvoyXdsResources) WithListener(l *EnvoyListener) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:137:1)
+func (r *EnvoyXdsResources) WithListener(l *EnvoyListener) *EnvoyXdsResources { // envoy (../../../../../daggerverse/envoy/xds.go:141:1)
 	assertNotNil("l", l)
 	q := r.query.Select("withListener")
 	q = q.Arg("l", l)
