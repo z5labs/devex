@@ -5,8 +5,8 @@ for local development and testing, in two distributions —
 `otel/opentelemetry-collector` (core) and
 `otel/opentelemetry-collector-contrib`. A small builder API composes
 receivers, processors, and exporters into pipelines without writing
-the collector YAML by hand. Plaintext is the only supported transport;
-TLS lands in a follow‑up.
+the collector YAML by hand. Transports default to plaintext; TLS and
+mTLS are opt‑in (see [TLS](#tls)).
 
 ## Collectors
 
@@ -80,12 +80,55 @@ pipeline‑rendered YAML; inspecting it does not launch the service.
 ```go
 svc := col.Service()                     // listens on :4317 (OTLP gRPC) + :4318 (OTLP HTTP)
 grpc, _ := col.OtlpGrpcEndpoint(ctx)     // <host>:4317   (no scheme)
-http, _ := col.OtlpHttpEndpoint(ctx)     // http://<host>:4318
+http, _ := col.OtlpHttpEndpoint(ctx)     // http://<host>:4318 (https:// once WithTls is set)
 ```
 
 When neither pipelines nor an override config are supplied, `Service`
 launches the collector with no `--config` flag and the binary refuses
 to start — a deliberate failure mode.
+
+## TLS
+
+Cert material crosses the module boundary as `*dagger.File` (public
+certs) and `*dagger.Secret` (private keys), both PEM‑encoded; the
+[`certificate-management`](../certificate-management) and
+[`crypto`](../crypto) modules mint it.
+
+### Receiver side
+
+`WithTls` terminates TLS on both OTLP receivers (gRPC :4317 and HTTP
+:4318); `WithMtls` additionally requires a client certificate signed by
+the supplied CA on every incoming connection (and must be combined with
+`WithTls`).
+
+```go
+col := o.Core().
+    WithPipeline(logs).
+    WithTls(serverCert /* *dagger.File */, serverKey /* *dagger.Secret */).
+    WithMtls(clientCa /* *dagger.File */) // optional
+
+http, _ := col.OtlpHttpEndpoint(ctx)     // now https://<host>:4318
+```
+
+After `WithTls`, `OtlpHttpEndpoint` returns an `https://` URL;
+`OtlpGrpcEndpoint` stays scheme‑less, so configure gRPC clients for TLS
+out of band.
+
+### Exporter side
+
+`OtlpExporter` and `OtlpHTTPExporter` take optional `CaCert`,
+`ClientCert`, and `ClientKey`. Setting `CaCert` pins the receiver's CA
+(and switches the exporter off plaintext); `ClientCert` + `ClientKey`
+(required together) present an mTLS identity.
+
+```go
+toRecv := o.OtlpHTTPExporter("recv", "https://recv:4318",
+    dagger.OtelOtlpHTTPExporterOpts{
+        CaCert:     recvCa,     // *dagger.File
+        ClientCert: clientCert, // *dagger.File (optional; with ClientKey)
+        ClientKey:  clientKey,  // *dagger.Secret
+    })
+```
 
 ## Tests
 

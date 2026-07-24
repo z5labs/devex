@@ -45,23 +45,30 @@ func (r *Env) WithOtelTestsOutput(name string, description string) *Env { // ote
 type OtelTests struct { // otel-tests (../../../daggerverse/otel/tests/main.go:15:6)
 	query *querybuilder.Selection
 
-	all                                   *Void
-	bindsCollectorIntoFreshContainer      *Void
-	conflictingComponentBodiesAreRejected *Void
-	contrib                               *Void
-	contribForwardsLogsToLoki             *Void
-	core                                  *Void
-	coreForwardsLogsToLoki                *Void
-	coreForwardsMetricsToMimir            *Void
-	coreForwardsTracesToTempo             *Void
-	customComponentBodyIsSpliced          *Void
-	debugPipelineAcceptsOtlpPush          *Void
-	id                                    *ID
-	rejectsInvalidComponentName           *Void
-	rejectsUnknownPipelineSignal          *Void
-	serviceWithoutPipelinesOrConfigFails  *Void
-	sharedReceiverIsDedupedInRenderedYaml *Void
-	validation                            *Void
+	all                                     *Void
+	bindsCollectorIntoFreshContainer        *Void
+	conflictingComponentBodiesAreRejected   *Void
+	contrib                                 *Void
+	contribForwardsLogsToLoki               *Void
+	core                                    *Void
+	coreForwardsLogsToLoki                  *Void
+	coreForwardsMetricsToMimir              *Void
+	coreForwardsTracesToTempo               *Void
+	customComponentBodyIsSpliced            *Void
+	debugPipelineAcceptsOtlpPush            *Void
+	id                                      *ID
+	otlpExporterRejectsClientCertWithoutKey *Void
+	otlpExporterTlsRendersCaFile            *Void
+	rejectsInvalidComponentName             *Void
+	rejectsUnknownPipelineSignal            *Void
+	serviceWithoutPipelinesOrConfigFails    *Void
+	sharedReceiverIsDedupedInRenderedYaml   *Void
+	tls                                     *Void
+	tlsPipelineForwardsToLoki               *Void
+	validation                              *Void
+	withMtlsRejectsWithoutClientCert        *Void
+	withTlsAcceptsTlsRejectsPlaintext       *Void
+	withTlsInjectsReceiverTls               *Void
 }
 
 func (r *OtelTests) WithGraphQLQuery(q *querybuilder.Selection) *OtelTests {
@@ -494,6 +501,43 @@ func (r *OtelTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// OtlpExporterRejectsClientCertWithoutKey asserts the factories reject a
+// client cert supplied without its key (and vice versa), since an mTLS
+// identity needs both halves.
+func (r *OtelTests) OtlpExporterRejectsClientCertWithoutKey(ctx context.Context) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:153:1)
+	if r.otlpExporterRejectsClientCertWithoutKey != nil {
+		return nil
+	}
+	q := r.query.Select("otlpExporterRejectsClientCertWithoutKey")
+
+	return q.Execute(ctx)
+}
+
+// OtelTestsOtlpExporterTLSRendersCaFileOpts contains options for OtelTests.OtlpExporterTLSRendersCaFile
+type OtelTestsOtlpExporterTLSRendersCaFileOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:115:2)
+}
+
+// OtlpExporterTlsRendersCaFile asserts that supplying CaCert to
+// OtlpHttpExporter renders a tls.ca_file pointing at the per-component
+// mount path and drops the plaintext insecure flag.
+func (r *OtelTests) OtlpExporterTLSRendersCaFile(ctx context.Context, opts ...OtelTestsOtlpExporterTLSRendersCaFileOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:112:1)
+	if r.otlpExporterTlsRendersCaFile != nil {
+		return nil
+	}
+	q := r.query.Select("otlpExporterTlsRendersCaFile")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // RejectsInvalidComponentName asserts every component factory and the
 // Custom* escape hatches reject empty / non-conforming names (and
 // non-conforming kinds, where applicable) with a non-nil error.
@@ -568,6 +612,80 @@ func (r *OtelTests) SharedReceiverIsDedupedInRenderedYaml(ctx context.Context, o
 	return q.Execute(ctx)
 }
 
+// OtelTestsTLSOpts contains options for OtelTests.TLS
+type OtelTestsTLSOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:28:2)
+
+	// Default: "3.4.1"
+	LokiTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:30:2)
+
+	Parallel int // otel-tests (../../../daggerverse/otel/tests/tls.go:32:2)
+}
+
+// Tls runs the otel TLS/mTLS suite: receiver-side TLS enforcement,
+// exporter-side TLS rendering, and an end-to-end TLS pipeline hop that
+// lands in Loki. Carries its own +check so CI schedules it on its own
+// runner alongside Validation/Core/Contrib.
+func (r *OtelTests) TLS(ctx context.Context, opts ...OtelTestsTLSOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:25:1)
+	if r.tls != nil {
+		return nil
+	}
+	q := r.query.Select("tls")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
+		}
+		// `lokiTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LokiTag) {
+			q = q.Arg("lokiTag", opts[i].LokiTag)
+		}
+		// `parallel` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Parallel) {
+			q = q.Arg("parallel", opts[i].Parallel)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// OtelTestsTLSPipelineForwardsToLokiOpts contains options for OtelTests.TLSPipelineForwardsToLoki
+type OtelTestsTLSPipelineForwardsToLokiOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:311:2)
+
+	// Default: "3.4.1"
+	LokiTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:313:2)
+}
+
+// TlsPipelineForwardsToLoki is the end-to-end TLS pipeline test: a
+// plaintext edge collector forwards over a TLS hop (its OtlpHttpExporter
+// pins the downstream CA) to a WithTls receiver collector, which relays
+// the logs to Loki where they are queryable. Exercises exporter-side TLS
+// (criterion 3) and a full TLS pipeline (criterion 4) with an observable
+// sink.
+func (r *OtelTests) TLSPipelineForwardsToLoki(ctx context.Context, opts ...OtelTestsTLSPipelineForwardsToLokiOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:308:1)
+	if r.tlsPipelineForwardsToLoki != nil {
+		return nil
+	}
+	q := r.query.Select("tlsPipelineForwardsToLoki")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
+		}
+		// `lokiTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LokiTag) {
+			q = q.Arg("lokiTag", opts[i].LokiTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
 // OtelTestsValidationOpts contains options for OtelTests.Validation
 type OtelTestsValidationOpts struct {
 
@@ -592,6 +710,83 @@ func (r *OtelTests) Validation(ctx context.Context, opts ...OtelTestsValidationO
 		// `parallel` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Parallel) {
 			q = q.Arg("parallel", opts[i].Parallel)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// OtelTestsWithMtlsRejectsWithoutClientCertOpts contains options for OtelTests.WithMtlsRejectsWithoutClientCert
+type OtelTestsWithMtlsRejectsWithoutClientCertOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:239:2)
+}
+
+// WithMtlsRejectsWithoutClientCert asserts a WithTls+WithMtls collector
+// accepts a push presenting a client cert signed by the trusted CA and
+// rejects one that presents none.
+func (r *OtelTests) WithMtlsRejectsWithoutClientCert(ctx context.Context, opts ...OtelTestsWithMtlsRejectsWithoutClientCertOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:236:1)
+	if r.withMtlsRejectsWithoutClientCert != nil {
+		return nil
+	}
+	q := r.query.Select("withMtlsRejectsWithoutClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// OtelTestsWithTLSAcceptsTLSRejectsPlaintextOpts contains options for OtelTests.WithTLSAcceptsTLSRejectsPlaintext
+type OtelTestsWithTLSAcceptsTLSRejectsPlaintextOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:174:2)
+}
+
+// WithTlsAcceptsTlsRejectsPlaintext asserts a WithTls collector accepts an
+// OTLP/HTTP push over TLS (client verifying against the issuing CA) and
+// rejects a plaintext push on the same port.
+func (r *OtelTests) WithTLSAcceptsTLSRejectsPlaintext(ctx context.Context, opts ...OtelTestsWithTLSAcceptsTLSRejectsPlaintextOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:171:1)
+	if r.withTlsAcceptsTlsRejectsPlaintext != nil {
+		return nil
+	}
+	q := r.query.Select("withTlsAcceptsTlsRejectsPlaintext")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// OtelTestsWithTLSInjectsReceiverTLSOpts contains options for OtelTests.WithTLSInjectsReceiverTLS
+type OtelTestsWithTLSInjectsReceiverTLSOpts struct {
+
+	// Default: "0.130.1"
+	CollectorTag string // otel-tests (../../../daggerverse/otel/tests/tls.go:67:2)
+}
+
+// WithTlsInjectsReceiverTls asserts WithTls (and WithMtls) splice a `tls:`
+// block referencing the fixed server cert/key (and client CA) mount paths
+// into both the grpc and http protocols of every otlp receiver in the
+// rendered config. Render-only: no service is stood up, so dummy material
+// suffices.
+func (r *OtelTests) WithTLSInjectsReceiverTLS(ctx context.Context, opts ...OtelTestsWithTLSInjectsReceiverTLSOpts) error { // otel-tests (../../../daggerverse/otel/tests/tls.go:64:1)
+	if r.withTlsInjectsReceiverTls != nil {
+		return nil
+	}
+	q := r.query.Select("withTlsInjectsReceiverTls")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `collectorTag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CollectorTag) {
+			q = q.Arg("collectorTag", opts[i].CollectorTag)
 		}
 	}
 

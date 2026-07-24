@@ -6,6 +6,14 @@
   },
   "dependencies": [
     {
+      "name": "certificate-management",
+      "source": "../../certificate-management"
+    },
+    {
+      "name": "crypto",
+      "source": "../../crypto"
+    },
+    {
       "name": "grafana-stack",
       "source": "../../grafana-stack"
     },
