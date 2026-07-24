@@ -9,6 +9,7 @@ require (
 	github.com/twmb/franz-go/pkg/sr v1.7.0
 	github.com/z5labs/avro-go v0.5.0
 	go.opentelemetry.io/otel/sdk v1.43.0
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 	software.sslmate.com/src/go-pkcs12 v0.7.1
 )
@@ -32,7 +33,6 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260226221140-a57be14db171 // indirect
 	google.golang.org/grpc v1.79.3 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
 )
 
 require (

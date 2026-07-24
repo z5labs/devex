@@ -682,7 +682,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySecurity", err))
 				}
 			}
-			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, commitOffsets, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs, registry, registrySecurity)
+			var keyDescriptorSet *dagger.File
+			if inputArgs["keyDescriptorSet"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyDescriptorSet"]), &keyDescriptorSet)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyDescriptorSet", err))
+				}
+			}
+			var keyMessageName string
+			if inputArgs["keyMessageName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyMessageName"]), &keyMessageName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyMessageName", err))
+				}
+			}
+			var valueDescriptorSet *dagger.File
+			if inputArgs["valueDescriptorSet"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["valueDescriptorSet"]), &valueDescriptorSet)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueDescriptorSet", err))
+				}
+			}
+			var valueMessageName string
+			if inputArgs["valueMessageName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["valueMessageName"]), &valueMessageName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueMessageName", err))
+				}
+			}
+			return (*Client).Consume(&parent, ctx, topic, maxMessages, timeout, keyEncoding, valueEncoding, group, commitOffsets, schemaRegistryAware, keyDeserializeAs, valueDeserializeAs, registry, registrySecurity, keyDescriptorSet, keyMessageName, valueDescriptorSet, valueMessageName)
 		case "CreateTopic":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)
@@ -850,7 +878,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registrySecurity", err))
 				}
 			}
-			return nil, (*Client).Produce(&parent, ctx, topic, key, value, keyEncoding, valueEncoding, keySchemaId, valueSchemaId, keySerializeAs, valueSerializeAs, registry, registrySecurity)
+			var keyDescriptorSet *dagger.File
+			if inputArgs["keyDescriptorSet"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyDescriptorSet"]), &keyDescriptorSet)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyDescriptorSet", err))
+				}
+			}
+			var keyMessageName string
+			if inputArgs["keyMessageName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["keyMessageName"]), &keyMessageName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg keyMessageName", err))
+				}
+			}
+			var valueDescriptorSet *dagger.File
+			if inputArgs["valueDescriptorSet"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["valueDescriptorSet"]), &valueDescriptorSet)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueDescriptorSet", err))
+				}
+			}
+			var valueMessageName string
+			if inputArgs["valueMessageName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["valueMessageName"]), &valueMessageName)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg valueMessageName", err))
+				}
+			}
+			return nil, (*Client).Produce(&parent, ctx, topic, key, value, keyEncoding, valueEncoding, keySchemaId, valueSchemaId, keySerializeAs, valueSerializeAs, registry, registrySecurity, keyDescriptorSet, keyMessageName, valueDescriptorSet, valueMessageName)
 		case "PropertiesFile":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)

@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Kafka
-func (r *Binding) AsKafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Binding) AsKafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("asKafka")
 
 	return &Kafka{
@@ -190,7 +190,7 @@ func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type Kafka in the environment
-func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaInput")
 	q = q.Arg("name", name)
@@ -203,7 +203,7 @@ func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env
 }
 
 // Declare a desired Kafka output to be assigned in the environment
-func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("withKafkaOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -408,7 +408,7 @@ func (r *Env) WithKafkaServerSecurityOutput(name string, description string) *En
 // Kafka is the root namespace for every exported function in this module.
 // All cluster constructors and security helpers hang off *Kafka so the
 // generated Dagger SDK surfaces them under `dag.Kafka().<Func>(...)`.
-type Kafka struct { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+type Kafka struct { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -1154,41 +1154,65 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:654:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:749:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:751:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:753:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:660:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:755:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:662:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:757:2)
 	//
 	// commitOffsets, when true and group is set, commits the consumed
 	// records' offsets before returning so the group persists with committed
 	// offsets (and thus reportable lag). Ignored when group is empty.
 	//
-	CommitOffsets bool // kafka (../../../../../daggerverse/kafka/client.go:668:2)
+	CommitOffsets bool // kafka (../../../../../daggerverse/kafka/client.go:763:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:670:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:765:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:672:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:767:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:674:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:769:2)
 	//
 	// registry resolves the Avro schema text by id when keyDeserializeAs /
 	// valueDeserializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:679:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:774:2)
 	//
 	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
 	// schema text against a secured registry. Nil (the default) resolves over
 	// plaintext HTTP, reproducing today's behaviour.
 	//
-	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:685:2)
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:780:2)
+	//
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keyDeserializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	KeyDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:786:2)
+	//
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keyDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	KeyMessageName string // kafka (../../../../../daggerverse/kafka/client.go:792:2)
+	//
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueDeserializeAs is "PROTOBUF";
+	// ignored otherwise.
+	//
+	ValueDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:798:2)
+	//
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	ValueMessageName string // kafka (../../../../../daggerverse/kafka/client.go:804:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
@@ -1235,7 +1259,20 @@ type KafkaClientConsumeOpts struct {
 // per id for the duration of the call. The JSON shape follows the Avro
 // spec's JSON encoding; logical types, decimal, and fixed are not yet
 // supported.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:650:1)
+//
+// keyDeserializeAs / valueDeserializeAs set to "PROTOBUF" strip the
+// Confluent message-index array that follows the wire header, then decode
+// the remaining Protobuf wire bytes against a *caller-supplied* descriptor
+// set and re-serialise them to JSON via protojson. keyDescriptorSet /
+// valueDescriptorSet (a precompiled FileDescriptorSet) and keyMessageName /
+// valueMessageName are required in this mode and are validated before any
+// broker I/O, as is schemaRegistryAware=true. registry is *not* required —
+// the descriptor set already carries the message definition, so no schema
+// text is ever fetched; the wire id is still surfaced on ConsumedRecord.
+// The descriptor set is exported and parsed at most once per call, not once
+// per record. A record whose message-index names a different message than
+// the one requested is rejected rather than decoded into garbage.
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:745:1)
 	if r.consume != nil {
 		return *r.consume, nil
 	}
@@ -1285,6 +1322,22 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
 			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
+		// `keyDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyDescriptorSet) {
+			q = q.Arg("keyDescriptorSet", opts[i].KeyDescriptorSet)
+		}
+		// `keyMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyMessageName) {
+			q = q.Arg("keyMessageName", opts[i].KeyMessageName)
+		}
+		// `valueDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueDescriptorSet) {
+			q = q.Arg("valueDescriptorSet", opts[i].ValueDescriptorSet)
+		}
+		// `valueMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueMessageName) {
+			q = q.Arg("valueMessageName", opts[i].ValueMessageName)
+		}
 	}
 	q = q.Arg("topic", topic)
 
@@ -1298,15 +1351,15 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 type KafkaClientCreateTopicOpts struct {
 
 	// Default: 1
-	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:441:2)
+	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:481:2)
 
 	// Default: 1
-	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:443:2)
+	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:483:2)
 }
 
 // CreateTopic creates a new topic with the given partition count and
 // replication factor. Errors out if the topic already exists.
-func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:437:1)
+func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:477:1)
 	if r.createTopic != nil {
 		return nil
 	}
@@ -1327,7 +1380,7 @@ func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...Kafk
 }
 
 // DeleteTopic deletes the named topic.
-func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:471:1)
+func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:511:1)
 	if r.deleteTopic != nil {
 		return nil
 	}
@@ -1430,7 +1483,7 @@ func (r *KafkaClient) ListConsumerGroups(ctx context.Context) ([]string, error) 
 }
 
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:825:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:967:1)
 	q := r.query.Select("listTopics")
 
 	var response []string
@@ -1443,29 +1496,53 @@ func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kaf
 type KafkaClientProduceOpts struct {
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:525:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:579:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:527:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:581:2)
 
-	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:529:2)
+	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:583:2)
 
-	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:531:2)
+	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:585:2)
 
-	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:533:2)
+	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:587:2)
 
-	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:535:2)
+	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:589:2)
 	//
 	// registry resolves the Avro schema text by id when keySerializeAs /
 	// valueSerializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:540:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:594:2)
 	//
 	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
 	// schema text against a secured registry. Nil (the default) resolves over
 	// plaintext HTTP, reproducing today's behaviour.
 	//
-	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:546:2)
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:600:2)
+	//
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keySerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	KeyDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:606:2)
+	//
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keySerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	KeyMessageName string // kafka (../../../../../daggerverse/kafka/client.go:612:2)
+	//
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueSerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	ValueDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:618:2)
+	//
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueSerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	ValueMessageName string // kafka (../../../../../daggerverse/kafka/client.go:624:2)
 }
 
 // Produce synchronously writes one record to the topic. Key and value are
@@ -1494,7 +1571,21 @@ type KafkaClientProduceOpts struct {
 // I/O — and registry must be supplied so the schema text can be resolved
 // by id. The JSON shape follows the Avro spec's JSON encoding; logical
 // types, decimal, and fixed are not yet supported.
-func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:519:1)
+//
+// keySerializeAs / valueSerializeAs set to "PROTOBUF" interpret the decoded
+// bytes as a protobuf-JSON document and marshal it to Protobuf wire bytes
+// against a *caller-supplied* descriptor set. The module never runs protoc:
+// keyDescriptorSet / valueDescriptorSet must be a precompiled
+// FileDescriptorSet (`protoc --descriptor_set_out=x.desc --include_imports
+// x.proto`) and keyMessageName / valueMessageName the fully-qualified message
+// name within it. Both are required in this mode and are checked before any
+// broker, registry, or file I/O. The id is required too, because framing a
+// Protobuf payload also carries the Confluent message-index array that names
+// which message in the .proto file the payload is — records produced this way
+// are readable by stock Confluent Protobuf consumers. Unlike "AVRO", registry
+// is not consulted: the descriptor set already carries the message definition.
+// The JSON shape is protojson's canonical protobuf JSON mapping.
+func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:573:1)
 	if r.produce != nil {
 		return nil
 	}
@@ -1532,6 +1623,22 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
 			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
+		// `keyDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyDescriptorSet) {
+			q = q.Arg("keyDescriptorSet", opts[i].KeyDescriptorSet)
+		}
+		// `keyMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyMessageName) {
+			q = q.Arg("keyMessageName", opts[i].KeyMessageName)
+		}
+		// `valueDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueDescriptorSet) {
+			q = q.Arg("valueDescriptorSet", opts[i].ValueDescriptorSet)
+		}
+		// `valueMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueMessageName) {
+			q = q.Arg("valueMessageName", opts[i].ValueMessageName)
+		}
 	}
 	q = q.Arg("topic", topic)
 	q = q.Arg("key", key)
@@ -1550,7 +1657,7 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 // export the parent directory (`props.Directory()`) so the relative
 // references resolve. Passwords appear plaintext, which is a Kafka CLI
 // constraint.
-func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:256:1)
+func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:296:1)
 	q := r.query.Select("propertiesFile")
 
 	return &File{
@@ -2699,7 +2806,7 @@ func (r *KafkaServerSecurity) AsNode() Node {
 // Kafka is the root namespace for every exported function in this module.
 // All cluster constructors and security helpers hang off *Kafka so the
 // generated Dagger SDK surfaces them under `dag.Kafka().<Func>(...)`.
-func (r *Query) Kafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Query) Kafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("kafka")
 
 	return &Kafka{

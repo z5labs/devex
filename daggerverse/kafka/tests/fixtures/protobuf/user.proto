@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package devex.kafka.test;
+
+// User is the primary message used by the kafka module's PROTOBUF serde
+// round-trip tests. It is the first message declared in the file, so its
+// Confluent message-index path is [0] — the single-zero-byte shortcut form
+// of the wire-format index array.
+//
+// Every field is deliberately a type whose protojson rendering is stable and
+// unsurprising: a single-word field name needs no lowerCamelCase remapping,
+// and int32 renders as a JSON number (only 64-bit integer types render as
+// JSON strings).
+message User {
+  string name = 1;
+  int32 age = 2;
+  repeated string tags = 3;
+}
+
+// Event is the second top-level message. Its message-index path is [1], which
+// forces the length-prefixed varint form of the index array rather than the
+// first-message shortcut, so the tests cover both index encodings.
+message Event {
+  string id = 1;
+  Nested nested = 2;
+
+  // Nested is a nested message, reached at index path [1, 0].
+  message Nested {
+    string note = 1;
+  }
+}

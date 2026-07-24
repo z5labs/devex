@@ -850,6 +850,111 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).PropertiesFileContainsTlsSettings(&parent, ctx, kafkaImageTag)
+		case "ProtobufConsumeMessageIndexMismatchErrors":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ProtobufConsumeMessageIndexMismatchErrors(&parent, ctx, kafkaImageTag)
+		case "ProtobufConsumeUnframedErrors":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ProtobufConsumeUnframedErrors(&parent, ctx, kafkaImageTag)
+		case "ProtobufDeserializeRequiresDescriptorSet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProtobufDeserializeRequiresDescriptorSet(&parent, ctx)
+		case "ProtobufDeserializeRequiresSchemaRegistryAware":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProtobufDeserializeRequiresSchemaRegistryAware(&parent, ctx)
+		case "ProtobufFramedProduceConsumeRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ProtobufFramedProduceConsumeRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ProtobufKeyFramedProduceConsumeRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ProtobufKeyFramedProduceConsumeRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ProtobufNonZeroMessageIndexRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var kafkaImageTag string
+			if inputArgs["kafkaImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["kafkaImageTag"]), &kafkaImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
+				}
+			}
+			return nil, (*Tests).ProtobufNonZeroMessageIndexRoundTrip(&parent, ctx, kafkaImageTag)
+		case "ProtobufSerializeRequiresDescriptorSet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProtobufSerializeRequiresDescriptorSet(&parent, ctx)
+		case "ProtobufSerializeRequiresMessageName":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProtobufSerializeRequiresMessageName(&parent, ctx)
+		case "ProtobufSerializeRequiresSchemaID":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProtobufSerializeRequiresSchemaID(&parent, ctx)
 		case "Redpanda":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

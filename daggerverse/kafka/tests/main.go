@@ -27,6 +27,11 @@
 //   - tests_schema_registry.go — ConfluentSchemaRegistry tests: the
 //                          register/lookup/delete round-trip and the
 //                          non-PLAINTEXT-cluster rejection.
+//   - tests_protobuf.go  — PROTOBUF serde tests: the descriptor-set /
+//                          message-name / schema-id validation guards, the
+//                          framed produce->consume round-trips (value, key,
+//                          and non-zero message index), and the unframed +
+//                          index-mismatch negative paths.
 package main
 
 import (
@@ -169,6 +174,36 @@ func (t *Tests) SchemaRegistry(
 	})
 	jobs = jobs.WithJob("AvroBytesFieldRoundTrip", func(ctx context.Context) error {
 		return t.AvroBytesFieldRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProtobufSerializeRequiresDescriptorSet", func(ctx context.Context) error {
+		return t.ProtobufSerializeRequiresDescriptorSet(ctx)
+	})
+	jobs = jobs.WithJob("ProtobufSerializeRequiresMessageName", func(ctx context.Context) error {
+		return t.ProtobufSerializeRequiresMessageName(ctx)
+	})
+	jobs = jobs.WithJob("ProtobufSerializeRequiresSchemaID", func(ctx context.Context) error {
+		return t.ProtobufSerializeRequiresSchemaID(ctx)
+	})
+	jobs = jobs.WithJob("ProtobufDeserializeRequiresDescriptorSet", func(ctx context.Context) error {
+		return t.ProtobufDeserializeRequiresDescriptorSet(ctx)
+	})
+	jobs = jobs.WithJob("ProtobufDeserializeRequiresSchemaRegistryAware", func(ctx context.Context) error {
+		return t.ProtobufDeserializeRequiresSchemaRegistryAware(ctx)
+	})
+	jobs = jobs.WithJob("ProtobufConsumeUnframedErrors", func(ctx context.Context) error {
+		return t.ProtobufConsumeUnframedErrors(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProtobufConsumeMessageIndexMismatchErrors", func(ctx context.Context) error {
+		return t.ProtobufConsumeMessageIndexMismatchErrors(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProtobufFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.ProtobufFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProtobufNonZeroMessageIndexRoundTrip", func(ctx context.Context) error {
+		return t.ProtobufNonZeroMessageIndexRoundTrip(ctx, kafkaImageTag)
+	})
+	jobs = jobs.WithJob("ProtobufKeyFramedProduceConsumeRoundTrip", func(ctx context.Context) error {
+		return t.ProtobufKeyFramedProduceConsumeRoundTrip(ctx, kafkaImageTag)
 	})
 
 	return jobs.Run(ctx)

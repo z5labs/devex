@@ -184,18 +184,36 @@ func applySerializeAs(b []byte, mode, field string) ([]byte, error) {
 // registry, and codec cache that only the Produce call has, so it is handled
 // here: the schema id is required (a zero / negative id errors before any
 // broker or registry I/O), then the bytes are mapped from JSON and
-// Avro-binary-encoded.
-func serializeField(ctx context.Context, b []byte, mode, field string, schemaID int, codecs *avroSchemas) ([]byte, error) {
+// Avro-binary-encoded. "PROTOBUF" likewise requires the id and maps the JSON
+// against the caller-supplied descriptor set in protos.
+//
+// The second return value is the Confluent message-index path the framing step
+// must embed between the header and the payload. It is non-nil only in
+// PROTOBUF mode — Avro and JSON payloads carry no index.
+func serializeField(ctx context.Context, b []byte, mode, field string, schemaID int, codecs *avroSchemas, protos *protoMessages) ([]byte, []int, error) {
 	switch mode {
 	case "", "JSON":
-		return applySerializeAs(b, mode, field)
+		out, err := applySerializeAs(b, mode, field)
+		return out, nil, err
 	case "AVRO":
 		if schemaID <= 0 {
-			return nil, fmt.Errorf("%sSerializeAs=\"AVRO\" requires %sSchemaID > 0, got %d", field, field, schemaID)
+			return nil, nil, fmt.Errorf("%sSerializeAs=\"AVRO\" requires %sSchemaID > 0, got %d", field, field, schemaID)
 		}
-		return codecs.encode(ctx, schemaID, b)
+		out, err := codecs.encode(ctx, schemaID, b)
+		return out, nil, err
+	case "PROTOBUF":
+		// The id is required because the message index has nowhere to live
+		// without a frame: an unframed Protobuf payload is undecodable by any
+		// consumer, including this module's own PROTOBUF deserializer.
+		if schemaID <= 0 {
+			return nil, nil, fmt.Errorf("%sSerializeAs=\"PROTOBUF\" requires %sSchemaID > 0, got %d", field, field, schemaID)
+		}
+		if err := protos.validate(field, field+"SerializeAs"); err != nil {
+			return nil, nil, err
+		}
+		return protos.encode(ctx, b)
 	default:
-		return nil, fmt.Errorf("unsupported %sSerializeAs %q (want \"\"|\"JSON\"|\"AVRO\")", field, mode)
+		return nil, nil, fmt.Errorf("unsupported %sSerializeAs %q (want \"\"|\"JSON\"|\"AVRO\"|\"PROTOBUF\")", field, mode)
 	}
 }
 
@@ -205,7 +223,14 @@ func serializeField(ctx context.Context, b []byte, mode, field string, schemaID 
 // schema identified by the wire id and re-serialises it to JSON. schemaID is
 // the id extracted from the frame (0 when the record was unframed); a zero id
 // in AVRO mode means the record carried no wire header and cannot be decoded.
-func deserializeField(ctx context.Context, b []byte, mode, field string, schemaID int, schemaRegistryAware bool, codecs *avroSchemas) ([]byte, error) {
+//
+// "PROTOBUF" first strips the message-index array that the Confluent wire
+// format places between the header and a Protobuf payload, then decodes the
+// remainder against the caller-supplied descriptor set in protos. The wire id
+// is required only as proof the record was framed at all — unlike AVRO the
+// schema text is never fetched, because the descriptor set already carries the
+// message definition.
+func deserializeField(ctx context.Context, b []byte, mode, field string, schemaID int, schemaRegistryAware bool, codecs *avroSchemas, protos *protoMessages) ([]byte, error) {
 	switch mode {
 	case "", "JSON":
 		return applyDeserializeAs(b, mode, field)
@@ -217,8 +242,23 @@ func deserializeField(ctx context.Context, b []byte, mode, field string, schemaI
 			return nil, fmt.Errorf("%s record is missing the Confluent wire header (no schema id); cannot AVRO-decode", field)
 		}
 		return codecs.decode(ctx, schemaID, b)
+	case "PROTOBUF":
+		if !schemaRegistryAware {
+			return nil, fmt.Errorf("%sDeserializeAs=\"PROTOBUF\" requires schemaRegistryAware=true", field)
+		}
+		if schemaID <= 0 {
+			return nil, fmt.Errorf("%s record is missing the Confluent wire header (no schema id); cannot PROTOBUF-decode", field)
+		}
+		if err := protos.validate(field, field+"DeserializeAs"); err != nil {
+			return nil, err
+		}
+		payload, err := protos.stripIndex(ctx, b, field)
+		if err != nil {
+			return nil, err
+		}
+		return protos.decode(ctx, payload, field)
 	default:
-		return nil, fmt.Errorf("unsupported %sDeserializeAs %q (want \"\"|\"JSON\"|\"AVRO\")", field, mode)
+		return nil, fmt.Errorf("unsupported %sDeserializeAs %q (want \"\"|\"JSON\"|\"AVRO\"|\"PROTOBUF\")", field, mode)
 	}
 }
 
@@ -515,6 +555,20 @@ func (c *Client) DeleteTopic(ctx context.Context, name string) error {
 // by id. The JSON shape follows the Avro spec's JSON encoding; logical
 // types, decimal, and fixed are not yet supported.
 //
+// keySerializeAs / valueSerializeAs set to "PROTOBUF" interpret the decoded
+// bytes as a protobuf-JSON document and marshal it to Protobuf wire bytes
+// against a *caller-supplied* descriptor set. The module never runs protoc:
+// keyDescriptorSet / valueDescriptorSet must be a precompiled
+// FileDescriptorSet (`protoc --descriptor_set_out=x.desc --include_imports
+// x.proto`) and keyMessageName / valueMessageName the fully-qualified message
+// name within it. Both are required in this mode and are checked before any
+// broker, registry, or file I/O. The id is required too, because framing a
+// Protobuf payload also carries the Confluent message-index array that names
+// which message in the .proto file the payload is — records produced this way
+// are readable by stock Confluent Protobuf consumers. Unlike "AVRO", registry
+// is not consulted: the descriptor set already carries the message definition.
+// The JSON shape is protojson's canonical protobuf JSON mapping.
+//
 // +cache="never"
 func (c *Client) Produce(
 	ctx context.Context,
@@ -544,6 +598,30 @@ func (c *Client) Produce(
 	//
 	// +optional
 	registrySecurity *SchemaRegistryClientSecurity,
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keySerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	// +optional
+	keyDescriptorSet *dagger.File,
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keySerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	// +default=""
+	keyMessageName string,
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueSerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	// +optional
+	valueDescriptorSet *dagger.File,
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueSerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	// +default=""
+	valueMessageName string,
 ) error {
 	if keySchemaID < 0 {
 		return fmt.Errorf("keySchemaID must be >= 0, got %d", keySchemaID)
@@ -562,25 +640,29 @@ func (c *Client) Produce(
 	}
 
 	codecs := newAvroSchemas(registry, registrySecurity)
-	keyBytes, err = serializeField(ctx, keyBytes, keySerializeAs, "key", keySchemaID, codecs)
+	keyBytes, keyIndex, err := serializeField(ctx, keyBytes, keySerializeAs, "key", keySchemaID, codecs, newProtoMessages(keyDescriptorSet, keyMessageName))
 	if err != nil {
 		return fmt.Errorf("serialize key: %w", err)
 	}
-	valBytes, err = serializeField(ctx, valBytes, valueSerializeAs, "value", valueSchemaID, codecs)
+	valBytes, valIndex, err := serializeField(ctx, valBytes, valueSerializeAs, "value", valueSchemaID, codecs, newProtoMessages(valueDescriptorSet, valueMessageName))
 	if err != nil {
 		return fmt.Errorf("serialize value: %w", err)
 	}
 
+	// keyIndex / valIndex are non-nil only in PROTOBUF mode, where the
+	// Confluent frame carries a message-index array between the 5-byte header
+	// and the payload. AppendEncode writes nothing extra for a nil index, so
+	// Avro / JSON / pass-through framing is byte-identical to before.
 	var hdr sr.ConfluentHeader
 	if keySchemaID > 0 {
-		framed, err := hdr.AppendEncode(nil, keySchemaID, nil)
+		framed, err := hdr.AppendEncode(nil, keySchemaID, keyIndex)
 		if err != nil {
 			return fmt.Errorf("frame key with schema id %d: %w", keySchemaID, err)
 		}
 		keyBytes = append(framed, keyBytes...)
 	}
 	if valueSchemaID > 0 {
-		framed, err := hdr.AppendEncode(nil, valueSchemaID, nil)
+		framed, err := hdr.AppendEncode(nil, valueSchemaID, valIndex)
 		if err != nil {
 			return fmt.Errorf("frame value with schema id %d: %w", valueSchemaID, err)
 		}
@@ -646,6 +728,19 @@ func (c *Client) Produce(
 // spec's JSON encoding; logical types, decimal, and fixed are not yet
 // supported.
 //
+// keyDeserializeAs / valueDeserializeAs set to "PROTOBUF" strip the
+// Confluent message-index array that follows the wire header, then decode
+// the remaining Protobuf wire bytes against a *caller-supplied* descriptor
+// set and re-serialise them to JSON via protojson. keyDescriptorSet /
+// valueDescriptorSet (a precompiled FileDescriptorSet) and keyMessageName /
+// valueMessageName are required in this mode and are validated before any
+// broker I/O, as is schemaRegistryAware=true. registry is *not* required —
+// the descriptor set already carries the message definition, so no schema
+// text is ever fetched; the wire id is still surfaced on ConsumedRecord.
+// The descriptor set is exported and parsed at most once per call, not once
+// per record. A record whose message-index names a different message than
+// the one requested is rejected rather than decoded into garbage.
+//
 // +cache="never"
 func (c *Client) Consume(
 	ctx context.Context,
@@ -683,6 +778,30 @@ func (c *Client) Consume(
 	//
 	// +optional
 	registrySecurity *SchemaRegistryClientSecurity,
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keyDeserializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	// +optional
+	keyDescriptorSet *dagger.File,
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keyDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	// +default=""
+	keyMessageName string,
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueDeserializeAs is "PROTOBUF";
+	// ignored otherwise.
+	//
+	// +optional
+	valueDescriptorSet *dagger.File,
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	// +default=""
+	valueMessageName string,
 ) (string, error) {
 	if maxMessages <= 0 {
 		return "", fmt.Errorf("maxMessages must be > 0, got %d", maxMessages)
@@ -693,6 +812,29 @@ func (c *Client) Consume(
 		}
 		if registry == nil {
 			return "", fmt.Errorf("AVRO deserialize requires a schema registry to resolve schema text by id")
+		}
+	}
+	// One protoMessages per field, built up front so the descriptor set is
+	// exported and parsed at most once for the whole poll loop rather than
+	// once per record.
+	keyProtos := newProtoMessages(keyDescriptorSet, keyMessageName)
+	valProtos := newProtoMessages(valueDescriptorSet, valueMessageName)
+	if keyDeserializeAs == "PROTOBUF" || valueDeserializeAs == "PROTOBUF" {
+		if !schemaRegistryAware {
+			return "", fmt.Errorf(`PROTOBUF deserialize requires schemaRegistryAware=true so the wire schema id and message index are available`)
+		}
+		// Validate the descriptor-set arguments here, not just inside
+		// deserializeField, so a missing argument fails before a broker
+		// connection is opened rather than after the first record arrives.
+		if keyDeserializeAs == "PROTOBUF" {
+			if err := keyProtos.validate("key", "keyDeserializeAs"); err != nil {
+				return "", err
+			}
+		}
+		if valueDeserializeAs == "PROTOBUF" {
+			if err := valProtos.validate("value", "valueDeserializeAs"); err != nil {
+				return "", err
+			}
 		}
 	}
 	d, err := time.ParseDuration(timeout)
@@ -779,11 +921,11 @@ func (c *Client) Consume(
 				}
 			}
 			var err error
-			keyRaw, err = deserializeField(deadlineCtx, keyRaw, keyDeserializeAs, "key", keyID, schemaRegistryAware, codecs)
+			keyRaw, err = deserializeField(deadlineCtx, keyRaw, keyDeserializeAs, "key", keyID, schemaRegistryAware, codecs, keyProtos)
 			if err != nil {
 				return "", fmt.Errorf("deserialize key: %w", err)
 			}
-			valRaw, err = deserializeField(deadlineCtx, valRaw, valueDeserializeAs, "value", valID, schemaRegistryAware, codecs)
+			valRaw, err = deserializeField(deadlineCtx, valRaw, valueDeserializeAs, "value", valID, schemaRegistryAware, codecs, valProtos)
 			if err != nil {
 				return "", fmt.Errorf("deserialize value: %w", err)
 			}

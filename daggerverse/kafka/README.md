@@ -565,6 +565,30 @@ decoded, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
     RegistrySecurity:    srClientSec, // same client profile as Produce
 })
 
+// Protobuf wire format: the JSON input is marshalled to Protobuf wire
+// bytes against a caller-supplied FileDescriptorSet and framed on Produce
+// (header + message-index array); framed bytes are decoded back to JSON on
+// Consume. Note there is no Registry on either call — the descriptor set,
+// not the registry, is what resolves the message type.
+id, err = srClient.RegisterSchema(ctx, "my-topic-value", protoText, dagger.KafkaSchemaRegistryClientRegisterSchemaOpts{
+    SchemaType: "PROTOBUF",
+})
+err = client.Produce(ctx, "my-topic", "k", `{"name":"ada","age":36}`, dagger.KafkaClientProduceOpts{
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    ValueSchemaID:      id,
+    ValueSerializeAs:   "PROTOBUF", // JSON -> protobuf binary, then frame
+    ValueDescriptorSet: descSet,    // *dagger.File: `protoc --descriptor_set_out`
+    ValueMessageName:   "my.pkg.User",
+})
+msg, err := client.Consume(ctx, "my-topic", dagger.KafkaClientConsumeOpts{
+    MaxMessages: 1, Timeout: "10s",
+    KeyEncoding: "raw", ValueEncoding: "raw",
+    SchemaRegistryAware: true,       // required: supplies the wire id + index
+    ValueDeserializeAs:  "PROTOBUF", // protobuf binary -> JSON
+    ValueDescriptorSet:  descSet,
+    ValueMessageName:    "my.pkg.User",
+})
+
 // java client.properties (+ p12 sidecars in TLS / mTLS modes) for the
 // Apache Kafka CLI tools — export the parent directory so the relative
 // truststore.p12 / keystore.p12 references resolve.
@@ -576,7 +600,7 @@ props := client.PropertiesFile() // *dagger.File — resolve via .Contents(ctx) 
 
 The serde opts (`keySerializeAs` / `valueSerializeAs` on `Produce`,
 `keyDeserializeAs` / `valueDeserializeAs` on `Consume`) accept `""`
-(pass-through, the default), `"JSON"`, or `"AVRO"`.
+(pass-through, the default), `"JSON"`, `"AVRO"`, or `"PROTOBUF"`.
 
 `"JSON"` is wire-format enforcement only — it does not fetch or apply a
 registered schema. The producer side canonicalises (parse + re-marshal
@@ -602,6 +626,89 @@ shape follows the Avro spec's JSON encoding (unions as
 `{"<type>": value}`, bare `null` for the null branch, `bytes` as a
 one-char-per-byte string); logical types, `decimal`, and `fixed` are not
 yet supported.
+
+`"PROTOBUF"` is schema-bound like `"AVRO"`, but resolves its schema from a
+**caller-supplied descriptor set** rather than from the registry — see
+[The descriptor-set tradeoff](#the-descriptor-set-tradeoff) for why. The
+caller's string is treated as a [protobuf JSON][protojson] document and
+marshalled to Protobuf wire bytes on `Produce`, then framed; on `Consume`
+the framed payload is decoded and re-serialised back to JSON. Four opts
+drive it:
+
+| Opt | Meaning |
+| --- | --- |
+| `…SerializeAs` / `…DeserializeAs` | `"PROTOBUF"` |
+| `…SchemaID` | required on `Produce` (names the schema *and* frames the record) |
+| `…DescriptorSet` | `*dagger.File` — a precompiled `FileDescriptorSet` |
+| `…MessageName` | fully-qualified message name, e.g. `"my.pkg.User"` |
+
+`Produce` rejects a missing descriptor set, a missing message name, or a
+zero id **before any broker, registry, or file I/O**; `Consume` requires
+`schemaRegistryAware=true` (the wire id and message index both live in the
+frame) and rejects an unframed record. Unlike `"AVRO"`, **no `Registry` is
+needed on either call** — nothing resolves schema text by id, so a
+`Consume` in this mode never talks to a registry at all. The wire schema id
+is still surfaced on `ConsumedRecord.ValueSchemaID` / `KeySchemaID`.
+
+The JSON shape is protojson's canonical protobuf JSON mapping: field names
+are lowerCamelCase JSON names, 64-bit integers are JSON **strings**, enums
+are symbol names, and proto3 fields holding the zero value are **omitted**
+on output — so a round-tripped document is not always byte-identical to
+what went in. Unknown fields in the input are rejected rather than silently
+dropped. Decoded output is re-marshalled through `encoding/json`, which
+sorts object keys, so consumed values come back with alphabetically ordered
+keys rather than in proto field-number order.
+
+#### The descriptor-set tradeoff
+
+Schema Registry stores Protobuf schemas as `.proto` **text**, but decoding
+one fundamentally needs a compiled `FileDescriptor`. Compiling that text at
+runtime would mean shipping `protoc` and its well-known-type includes
+inside the module. This module does not: the caller compiles out-of-band
+and passes the result in, which keeps the daggerverse Go-only.
+
+```sh
+protoc --descriptor_set_out=user.desc --include_imports user.proto
+```
+
+Then hand `user.desc` over as a `*dagger.File` — from the host, from a
+build step, or from a module's own sources:
+
+```go
+descSet := dag.CurrentModule().Source().File("fixtures/protobuf/user.desc")
+```
+
+`--include_imports` matters whenever the `.proto` imports anything (well-known
+types included): the set must be self-contained or descriptor resolution
+fails with a clear error. Two consequences follow from the module never
+reading the registry:
+
+- Registering the matching `.proto` under a subject is still worth doing —
+  it is what mints the id and what makes the records legible to a stock
+  Confluent Protobuf consumer — but the module does not read that
+  registration back.
+- Nothing verifies the descriptor set actually matches the schema
+  registered under the wire id. A mismatched pair decodes to garbage
+  exactly as it would for any other Protobuf consumer handed the wrong
+  descriptor.
+
+#### Message-index wire format
+
+Unlike Avro and JSON, the Confluent Protobuf wire format is not just the
+5-byte `0x00 || uint32be(schemaID)` header. A **message-index array** sits
+between the header and the payload, naming which message inside the
+schema's `.proto` file the payload is an instance of — `[0]` for the first
+top-level message (encoded as a single `0` byte), `[1]` for the second,
+`[1, 0]` for a message nested inside the second. This module writes and
+reads it, so records interoperate with stock Confluent Protobuf serdes in
+both directions.
+
+The index is also checked: consuming a record whose index names a
+different message than `…MessageName` is an error rather than a decode into
+silent garbage, since Protobuf wire bytes are not self-describing enough to
+catch the mismatch on their own.
+
+[protojson]: https://protobuf.dev/programming-guides/json/
 
 Composition order is decode → serialize → frame on `Produce`,
 unframe → deserialize → encode on `Consume`.

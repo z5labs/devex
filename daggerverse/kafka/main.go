@@ -27,6 +27,10 @@
 //                          and ApicurioSchemaRegistry constructors, and the
 //                          pure-Go net/http admin client for the Schema
 //                          Registry REST API.
+//   - protobuf.go        — PROTOBUF serde: caller-supplied FileDescriptorSet
+//                          loading via protodesc/protoregistry, JSON <->
+//                          dynamicpb via protojson, and the Confluent
+//                          message-index path that Protobuf framing carries.
 //   - util.go            — shared helpers (writeWorkdirBytes,
 //                          clusterHostSuffix, randSuffix, dagFileBytes).
 package main
