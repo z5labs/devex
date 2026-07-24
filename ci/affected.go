@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"dagger/ci/affectedpkg"
+	"dagger/ci/gitdiff"
 	"dagger/ci/internal/dagger"
 )
 
@@ -27,27 +31,41 @@ func (ci *Ci) SelectionSelfTest(ctx context.Context) error {
 //
 //   - checks is the full check universe as a JSON array of names (exactly what
 //     `dagger check -l` / the dagger/checks action emits).
-//   - changed is the newline-separated list of repo-relative changed file paths.
-//     An empty value means "could not determine what changed" and, like any
-//     change outside a daggerverse module, yields the full universe.
+//   - base/head are the commit SHAs to diff. The CI caller passes the PR base and
+//     head, or the push's before/after; an empty or all-zeros base (new branch,
+//     missing base) yields the full universe.
 //
-// The dependency graph is read from the live Dagger Workspace (Dagger's own
-// resolved module graph, so it never goes stale): every check maps to its owning
-// module via Check.OriginalModule, and each module's transitive dependency
-// closure is walked via ModuleSource.Dependencies. The pure selection then runs
-// in affectedpkg so the logic stays unit-testable.
+// The whole computation is in-engine: the workspace's .git directory is exported
+// to scratch and diffed base...head (three-dot, merge-base) with a pure-Go git
+// implementation — no workflow-side git, no helper container. The dependency
+// graph is read from the live Dagger Workspace (Dagger's own resolved module
+// graph, so it never goes stale): every check maps to its owning module via
+// Check.OriginalModule, and each module's transitive dependency closure is walked
+// via ModuleSource.Dependencies. The pure selection then runs in affectedpkg so
+// the logic stays unit-testable.
 //
-// Fail-safe throughout: if the Workspace cannot be read at all, the full universe
-// is returned; if a single check cannot be resolved, it is left unresolved and
-// therefore always kept. A check is never skipped because of a resolution gap.
+// Fail-safe throughout: an unusable diff range or a failed git diff yields the
+// full universe; if the Workspace cannot be read at all, the full universe is
+// returned; if a single check cannot be resolved, it is left unresolved and
+// therefore always kept. A check is never skipped because of a gap.
 //
 // +cache="never"
-func (ci *Ci) AffectedChecks(ctx context.Context, checks string, changed string) (string, error) {
+func (ci *Ci) AffectedChecks(ctx context.Context, checks string, base string, head string) (string, error) {
 	var universe []string
 	if err := json.Unmarshal([]byte(checks), &universe); err != nil {
 		return "", fmt.Errorf("parse checks universe: %w", err)
 	}
-	changedFiles := nonEmptyLines(changed)
+
+	b, h, ok := affectedpkg.DiffRange(base, head)
+	if !ok {
+		// No usable diff range (new branch, missing base, ...) -> full suite.
+		return marshal(universe)
+	}
+	changedFiles, err := changedPaths(ctx, b, h)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "affected-checks: git diff failed (%v); running full suite\n", err)
+		return marshal(universe)
+	}
 
 	list, err := dag.CurrentWorkspace().Checks().List(ctx)
 	if err != nil {
@@ -89,6 +107,27 @@ func (ci *Ci) AffectedChecks(ctx context.Context, checks string, changed string)
 	return marshal(kept)
 }
 
+// changedPaths returns the repo-relative paths changed between base and head. It
+// materializes the workspace's .git directory into the module's scratch workdir
+// (the Export/WorkdirFile runtime-I/O pattern) and diffs base...head with go-git
+// — pure Go, no git binary and no helper container. Export is required because
+// go-git reads an os filesystem, whereas dag.CurrentWorkspace().Directory returns
+// a lazy Directory handle rather than mounted files.
+func changedPaths(ctx context.Context, base, head string) ([]string, error) {
+	suffix, err := uniqueSuffix()
+	if err != nil {
+		return nil, err
+	}
+	scratch := "affected-" + suffix
+	defer os.RemoveAll(scratch)
+
+	gitDir := dag.CurrentWorkspace().Directory(".git")
+	if _, err := gitDir.Export(ctx, filepath.Join(scratch, ".git")); err != nil {
+		return nil, fmt.Errorf("export .git: %w", err)
+	}
+	return gitdiff.ChangedFiles(scratch, base, head)
+}
+
 // gatherDeps records src's direct dependency directories into adj (keyed by
 // module directory) and recurses into each dependency, memoized by directory so
 // shared and diamond dependencies are walked once. It returns src's module
@@ -119,14 +158,12 @@ func gatherDeps(ctx context.Context, src *dagger.ModuleSource, adj map[string][]
 	return root, nil
 }
 
-func nonEmptyLines(s string) []string {
-	var out []string
-	for _, line := range strings.Split(s, "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			out = append(out, line)
-		}
+func uniqueSuffix() (string, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", err
 	}
-	return out
+	return hex.EncodeToString(b[:]), nil
 }
 
 func marshal(v []string) (string, error) {

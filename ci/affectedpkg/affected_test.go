@@ -58,6 +58,30 @@ func TestBuildClosuresTransitive(t *testing.T) {
 	}
 }
 
+func TestDiffRange(t *testing.T) {
+	const zero = "0000000000000000000000000000000000000000"
+	cases := []struct {
+		base, head string
+		wantOK     bool
+	}{
+		{"aaa", "bbb", true},
+		{"", "bbb", false},   // push with empty base
+		{"aaa", "", false},   // missing head
+		{zero, "bbb", false}, // new branch: before is all-zeros -> full
+		{"aaa", zero, false}, // defensive: zero head -> full
+		{"", "", false},      // nothing -> full
+	}
+	for _, tc := range cases {
+		b, h, ok := DiffRange(tc.base, tc.head)
+		if ok != tc.wantOK {
+			t.Errorf("DiffRange(%q,%q) ok=%v, want %v", tc.base, tc.head, ok, tc.wantOK)
+		}
+		if ok && (b != tc.base || h != tc.head) {
+			t.Errorf("DiffRange(%q,%q) = (%q,%q), want passthrough", tc.base, tc.head, b, h)
+		}
+	}
+}
+
 func TestSelectUnresolvedIsKept(t *testing.T) {
 	// A check present in the universe but absent from the closure map (the live
 	// Workspace could not resolve it) must never be skipped.

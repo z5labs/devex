@@ -13,6 +13,21 @@ package affectedpkg
 
 import "strings"
 
+// zeroSHA is git's all-zeros object id, which GitHub sends as
+// github.event.before for the first push to a new branch.
+const zeroSHA = "0000000000000000000000000000000000000000"
+
+// DiffRange validates a (base, head) commit pair for change detection. It
+// returns ok=false — meaning "no usable diff, run the full suite" — when either
+// side is empty or the base is the all-zeros SHA (new branch / no base). Callers
+// diff base...head (three-dot, merge-base) to obtain a change set.
+func DiffRange(base, head string) (b, h string, ok bool) {
+	if base == "" || head == "" || base == zeroSHA || head == zeroSHA {
+		return "", "", false
+	}
+	return base, head, true
+}
+
 // BuildClosures returns, per check name, the set of module directories a change
 // to which could affect that check: the transitive dependency closure of the
 // check's own module directory (including the module itself).

@@ -72,10 +72,14 @@ jobs:
 
       - id: select
         # Narrow the check universe (steps.list.outputs.checks) to the minimum set
-        # a change could affect (issue #170). "What changed" is computed here from
-        # git; the change -> affected-checks mapping is resolved by the ci module's
-        # affected-checks function, which walks the *live* Dagger module dependency
-        # graph (dag.CurrentWorkspace()), so it never goes stale.
+        # a change could affect (issue #170). The whole computation is in the ci
+        # module's affected-checks function: it diffs base...head against the
+        # workspace's .git with pure-Go go-git, then resolves the change ->
+        # affected-checks mapping from the *live* Dagger module dependency graph
+        # (dag.CurrentWorkspace()), so it never goes stale. This step only forwards
+        # context; base/head come straight from the event (PR base/head, else the
+        # push's before/after — GitHub sends all-zeros before for a new branch,
+        # which the function treats as "run everything").
         #
         # A check is skipped only when it provably cannot be affected — any doubt
         # and it runs:
@@ -83,34 +87,14 @@ jobs:
         #     dagger.json, docs, ...) or an uncomputable diff -> the FULL suite;
         #   - a check whose module can't be resolved -> kept;
         #   - ci:* checks -> always run.
-        # Both push and pull_request minimize: the diff base is the PR merge-base
-        # (three-dot), or the push's before-SHA. Any failure -> the full suite.
         env:
           CHECKS: ${{ steps.list.outputs.checks }}
-          EVENT_NAME: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          PUSH_BEFORE: ${{ github.event.before }}
-          PUSH_AFTER: ${{ github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -uo pipefail
-          ZERO=0000000000000000000000000000000000000000
-          changed=""
-          case "$EVENT_NAME" in
-            pull_request)
-              changed="$(git diff --name-only "$PR_BASE...$PR_HEAD")" || changed=""
-              ;;
-            push)
-              if [ "$PUSH_BEFORE" = "$ZERO" ]; then
-                changed=""   # new branch / no base -> full suite
-              else
-                changed="$(git diff --name-only "$PUSH_BEFORE" "$PUSH_AFTER")" || changed=""
-              fi
-              ;;
-          esac
-          printf 'changed files:\n%s\n---\n' "${changed:-<none: running full suite>}"
           # On any failure, fall back to the full universe rather than risk a skip.
-          jobs="$(dagger -m . call affected-checks --checks="$CHECKS" --changed="$changed")" || jobs="$CHECKS"
+          jobs="$(dagger -m . call affected-checks --checks="$CHECKS" --base="$BASE" --head="$HEAD")" || jobs="$CHECKS"
           [ -n "$jobs" ] || jobs="$CHECKS"
           echo "selected checks: $jobs"
           echo "checks=$jobs" >> "$GITHUB_OUTPUT"
