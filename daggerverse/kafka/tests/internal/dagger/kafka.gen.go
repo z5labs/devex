@@ -1657,7 +1657,7 @@ func (r *KafkaCluster) WithGraphQLQuery(q *querybuilder.Selection) *KafkaCluster
 // same hostname BootstrapServers reports, so the container can dial brokers
 // using the same address strings as a franz-go Client returned from
 // Cluster.Client.
-func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:387:1)
+func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:401:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1669,7 +1669,7 @@ func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../
 
 // BootstrapServers returns the host:port pairs each broker advertises on its
 // client-facing listener.
-func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:373:1)
+func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:387:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1680,7 +1680,7 @@ func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) {
 
 // Client starts every broker service in the cluster and returns a franz-go
 // Client wired with their bootstrap addresses.
-func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:398:1)
+func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:412:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1749,7 +1749,7 @@ func (r *KafkaCluster) UnmarshalJSON(bs []byte) error {
 // cluster just run out the clock (~5 min observed in Dagger trace
 // `972bc311bf374f817b7c88481229a10c`). SIGKILL returns immediately, which
 // is all a test needs.
-func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:347:1)
+func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:361:1)
 	if r.stop != nil {
 		return nil
 	}

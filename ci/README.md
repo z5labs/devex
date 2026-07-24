@@ -16,6 +16,35 @@ dagger check                      # run them all (one engine)
 CI fans each check onto its own runner via the `list` → `run` matrix in
 `.github/workflows/ci.yml`, which keeps the per-suite engines isolated.
 
+## Codegen freshness
+
+`ci:generated` fails when a module's committed `dagger.gen.go` or
+`internal/dagger/*.gen.go` differ from what `dagger develop` produces at
+the pinned `engineVersion`. It covers every `dagger.json` in the
+workspace — the root module's per-toolchain aggregator bindings under
+`ci/internal/dagger/` included — and names each stale module, printing
+its patch:
+
+```
+==> daggerverse/kafka/tests is not up-to-date:
+<patch>
+generated files are not up-to-date; run `dagger develop` in: daggerverse/kafka/tests
+```
+
+Dependency bindings embed the source location of every function
+(`// kafka (../../../../../daggerverse/kafka/cluster_kafka.go:401:1)`), so
+an edit that only shifts line numbers in `daggerverse/<m>` still leaves
+every dependent module stale. Re-run `dagger develop` in the module *and*
+in each dependent.
+
+`ci:generated-self-test` guards that check: it runs the same comparison
+against one module twice, pristine and then deliberately made stale, and
+fails unless the stale copy is reported. `ci:generated` previously routed
+through `Workspace.Generators()` — empty unless a module declares a
+`+generator` function — and so passed unconditionally for months (#184);
+the self-test is what makes that failure mode impossible to repeat
+silently.
+
 ## Adding a new daggerverse module
 
 When you add `daggerverse/<m>/` with a sibling `tests/` module:

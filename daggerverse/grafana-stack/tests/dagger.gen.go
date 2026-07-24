@@ -255,6 +255,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).GrafanaProxiesLokiQuery(&parent, ctx, lokiTag, grafanaTag)
+		case "GrafanaProxiesLokiQueryOverMtls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var lokiTag string
+			if inputArgs["lokiTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lokiTag"]), &lokiTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lokiTag", err))
+				}
+			}
+			var grafanaTag string
+			if inputArgs["grafanaTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["grafanaTag"]), &grafanaTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg grafanaTag", err))
+				}
+			}
+			return nil, (*Tests).GrafanaProxiesLokiQueryOverMtls(&parent, ctx, lokiTag, grafanaTag)
+		case "GrafanaProxiesLokiQueryOverTls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var lokiTag string
+			if inputArgs["lokiTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lokiTag"]), &lokiTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lokiTag", err))
+				}
+			}
+			var grafanaTag string
+			if inputArgs["grafanaTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["grafanaTag"]), &grafanaTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg grafanaTag", err))
+				}
+			}
+			return nil, (*Tests).GrafanaProxiesLokiQueryOverTls(&parent, ctx, lokiTag, grafanaTag)
+		case "GrafanaTlsRejectsPlaintext":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var grafanaTag string
+			if inputArgs["grafanaTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["grafanaTag"]), &grafanaTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg grafanaTag", err))
+				}
+			}
+			return nil, (*Tests).GrafanaTlsRejectsPlaintext(&parent, ctx, grafanaTag)
 		case "LokiAcceptsOtlpLogs":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -269,6 +325,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).LokiAcceptsOtlpLogs(&parent, ctx, tag)
+		case "LokiMtlsRequiresClientCert":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).LokiMtlsRequiresClientCert(&parent, ctx, tag)
+		case "LokiTlsRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).LokiTlsRoundTrip(&parent, ctx, tag)
 		case "MimirAcceptsOtlpMetrics":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +367,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).MimirAcceptsOtlpMetrics(&parent, ctx, tag)
+		case "MimirMtlsRequiresClientCert":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).MimirMtlsRequiresClientCert(&parent, ctx, tag)
+		case "MimirTlsRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).MimirTlsRoundTrip(&parent, ctx, tag)
 		case "TempoAcceptsOtlpTraces":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -297,6 +409,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).TempoAcceptsOtlpTraces(&parent, ctx, tag)
+		case "TempoMtlsRequiresClientCert":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).TempoMtlsRequiresClientCert(&parent, ctx, tag)
+		case "TempoTlsRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return nil, (*Tests).TempoTlsRoundTrip(&parent, ctx, tag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

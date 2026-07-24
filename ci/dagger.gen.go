@@ -219,14 +219,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			var ws *dagger.Workspace
-			if inputArgs["ws"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["ws"]), &ws)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ws", err))
-				}
+			return nil, (*Ci).Generated(&parent, ctx)
+		case "GeneratedSelfTest":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Ci).Generated(&parent, ctx, ws)
+			return nil, (*Ci).GeneratedSelfTest(&parent, ctx)
 		case "SelectionSelfTest":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
