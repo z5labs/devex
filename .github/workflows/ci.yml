@@ -133,6 +133,9 @@ jobs:
                   timeout: 6 }
               end
             )
+            # jobTimeout is the job cap: the step bound plus setup headroom.
+            # Computed here because GitHub expressions have no arithmetic.
+            | map(. + { jobTimeout: (.timeout + 4) })
           ')
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
@@ -144,7 +147,7 @@ jobs:
     # above the leg's dagger/checks step bound (matrix.job.timeout) + setup, so
     # the step's timeout is what fails a telemetry-drain hang fast, not this job
     # cap.
-    timeout-minutes: ${{ matrix.job.timeout + 4 }}
+    timeout-minutes: ${{ matrix.job.jobTimeout }}
     strategy:
       fail-fast: false
       # Burst-throttling mitigation (#125): the matrix fans out one leg per
