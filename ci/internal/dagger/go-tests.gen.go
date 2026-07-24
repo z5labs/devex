@@ -124,7 +124,7 @@ func (r *GoTests) All(ctx context.Context, opts ...GoTestsAllOpts) error { // go
 
 // BuildHelloWritesBinary builds the hello fixture into /out and asserts the
 // produced "hello" binary is non-empty.
-func (r *GoTests) BuildHelloWritesBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:447:1)
+func (r *GoTests) BuildHelloWritesBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:530:1)
 	if r.buildHelloWritesBinary != nil {
 		return nil
 	}
@@ -137,7 +137,7 @@ func (r *GoTests) BuildHelloWritesBinary(ctx context.Context, goImageTag string)
 // BuildMultipkgDotSlashEllipsis builds the multipkg fixture with the default
 // pkg=./... and asserts the produced multipkg binary is non-empty. Only the
 // root main package contributes a binary; pkg/foo is a library.
-func (r *GoTests) BuildMultipkgDotSlashEllipsis(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:328:1)
+func (r *GoTests) BuildMultipkgDotSlashEllipsis(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:411:1)
 	if r.buildMultipkgDotSlashEllipsis != nil {
 		return nil
 	}
@@ -154,7 +154,7 @@ func (r *GoTests) BuildMultipkgDotSlashEllipsis(ctx context.Context, goImageTag 
 // if Check were to call runBuild, `go build ./does-not-exist` would
 // fail and surface here as an error. A nil return therefore proves
 // both (a) the checks passed and (b) the build was skipped.
-func (r *GoTests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:141:1)
+func (r *GoTests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:224:1)
 	if r.ciCheckRunsEnabledChecksAndSkipsBuild != nil {
 		return nil
 	}
@@ -166,7 +166,7 @@ func (r *GoTests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goI
 
 // CiRunHelloAllStages runs Ci with every stage enabled against the hello
 // fixture and asserts a non-empty binary is produced.
-func (r *GoTests) CiRunHelloAllStages(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:179:1)
+func (r *GoTests) CiRunHelloAllStages(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:262:1)
 	if r.ciRunHelloAllStages != nil {
 		return nil
 	}
@@ -179,7 +179,7 @@ func (r *GoTests) CiRunHelloAllStages(ctx context.Context, goImageTag string) er
 // CiRunHelloDefaultsProduceModuleNameBinary asserts that Ci.Run with no
 // builders configured still produces a binary named after the go.mod
 // module path (example.com/hello → "hello").
-func (r *GoTests) CiRunHelloDefaultsProduceModuleNameBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:290:1)
+func (r *GoTests) CiRunHelloDefaultsProduceModuleNameBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:373:1)
 	if r.ciRunHelloDefaultsProduceModuleNameBinary != nil {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (r *GoTests) CiRunHelloDefaultsProduceModuleNameBinary(ctx context.Context,
 // string), so each underlying `withExec` failure surfaces as a separate
 // "exit code: 1" line. Counting those occurrences confirms both vet and
 // lint ran and both errors were propagated through Run.
-func (r *GoTests) CiRunVetBadAggregates(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:162:1)
+func (r *GoTests) CiRunVetBadAggregates(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:245:1)
 	if r.ciRunVetBadAggregates != nil {
 		return nil
 	}
@@ -208,7 +208,7 @@ func (r *GoTests) CiRunVetBadAggregates(ctx context.Context, goImageTag string) 
 
 // CiWithBuildCustomBinaryName configures a custom binary name via WithBuild
 // and asserts the produced File carries that name.
-func (r *GoTests) CiWithBuildCustomBinaryName(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:212:1)
+func (r *GoTests) CiWithBuildCustomBinaryName(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:295:1)
 	if r.ciWithBuildCustomBinaryName != nil {
 		return nil
 	}
@@ -220,7 +220,7 @@ func (r *GoTests) CiWithBuildCustomBinaryName(ctx context.Context, goImageTag st
 
 // CiWithFmtPasses runs Ci with the Fmt stage enabled against the
 // gofmt-clean hello fixture and asserts a non-empty binary is produced.
-func (r *GoTests) CiWithFmtPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:276:1)
+func (r *GoTests) CiWithFmtPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:359:1)
 	if r.ciWithFmtPasses != nil {
 		return nil
 	}
@@ -233,7 +233,7 @@ func (r *GoTests) CiWithFmtPasses(ctx context.Context, goImageTag string) error 
 // CiWithLintPasses runs Ci with the Lint stage enabled against the
 // clean hello fixture and asserts a non-empty binary is produced.
 // Uses the pinned default golangci-lint version.
-func (r *GoTests) CiWithLintPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:199:1)
+func (r *GoTests) CiWithLintPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:282:1)
 	if r.ciWithLintPasses != nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (r *GoTests) CiWithLintPasses(ctx context.Context, goImageTag string) error
 
 // CiWithTestPasses runs Ci with the Test stage enabled (no race) against
 // hello and asserts a non-empty binary is produced.
-func (r *GoTests) CiWithTestPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:235:1)
+func (r *GoTests) CiWithTestPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:318:1)
 	if r.ciWithTestPasses != nil {
 		return nil
 	}
@@ -257,7 +257,7 @@ func (r *GoTests) CiWithTestPasses(ctx context.Context, goImageTag string) error
 
 // CiWithTestRacePasses runs Ci with the Test stage enabled with -race and
 // asserts a non-empty binary is produced.
-func (r *GoTests) CiWithTestRacePasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:248:1)
+func (r *GoTests) CiWithTestRacePasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:331:1)
 	if r.ciWithTestRacePasses != nil {
 		return nil
 	}
@@ -269,7 +269,7 @@ func (r *GoTests) CiWithTestRacePasses(ctx context.Context, goImageTag string) e
 
 // CiWithVetPasses runs Ci with the Vet stage enabled against the vet-clean
 // hello fixture and asserts a non-empty binary is produced.
-func (r *GoTests) CiWithVetPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:263:1)
+func (r *GoTests) CiWithVetPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:346:1)
 	if r.ciWithVetPasses != nil {
 		return nil
 	}
@@ -282,7 +282,7 @@ func (r *GoTests) CiWithVetPasses(ctx context.Context, goImageTag string) error 
 // ContainerHasGoToolchain proves the base container is reachable, the source
 // is mounted at /src, and the golang image's `go` binary runs. This is the
 // canary for every other test — if it fails, the rest can't possibly pass.
-func (r *GoTests) ContainerHasGoToolchain(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:551:1)
+func (r *GoTests) ContainerHasGoToolchain(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:634:1)
 	if r.containerHasGoToolchain != nil {
 		return nil
 	}
@@ -302,7 +302,7 @@ func (r *GoTests) ContainerHasGoToolchain(ctx context.Context, goImageTag string
 // every test) but deliberately ignored: this test exercises the
 // empty-version inference path, so a caller-supplied override would
 // defeat what's being verified.
-func (r *GoTests) ContainerInfersVersionFromGoMod(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:533:1)
+func (r *GoTests) ContainerInfersVersionFromGoMod(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:616:1)
 	if r.containerInfersVersionFromGoMod != nil {
 		return nil
 	}
@@ -314,7 +314,7 @@ func (r *GoTests) ContainerInfersVersionFromGoMod(ctx context.Context, goImageTa
 
 // EnvContainsGoroot calls dag.Go(dagger.GoOpts{Version: goImageTag}).Env and asserts the output mentions GOROOT
 // — the canonical signal that `go env` ran inside the prepared container.
-func (r *GoTests) EnvContainsGoroot(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:499:1)
+func (r *GoTests) EnvContainsGoroot(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:582:1)
 	if r.envContainsGoroot != nil {
 		return nil
 	}
@@ -326,7 +326,7 @@ func (r *GoTests) EnvContainsGoroot(ctx context.Context, goImageTag string) erro
 
 // FmtHelloIsClean runs Fmt against the gofmt-clean hello fixture and asserts
 // the diff is empty.
-func (r *GoTests) FmtHelloIsClean(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:477:1)
+func (r *GoTests) FmtHelloIsClean(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:560:1)
 	if r.fmtHelloIsClean != nil {
 		return nil
 	}
@@ -339,7 +339,7 @@ func (r *GoTests) FmtHelloIsClean(ctx context.Context, goImageTag string) error 
 // GenerateHelloProducesFile runs go generate against the hello fixture and
 // asserts the //go:generate directive produced out.txt with the expected
 // content.
-func (r *GoTests) GenerateHelloProducesFile(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:420:1)
+func (r *GoTests) GenerateHelloProducesFile(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:503:1)
 	if r.generateHelloProducesFile != nil {
 		return nil
 	}
@@ -402,7 +402,7 @@ func (r *GoTests) UnmarshalJSON(bs []byte) error {
 // asserts the returned binary is non-empty. The version is pinned so CI
 // doesn't drift with upstream releases. Requires network egress for the
 // initial fetch; subsequent runs hit the go-mod-cache.
-func (r *GoTests) InstallSmallToolReturnsBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:359:1)
+func (r *GoTests) InstallSmallToolReturnsBinary(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:442:1)
 	if r.installSmallToolReturnsBinary != nil {
 		return nil
 	}
@@ -414,7 +414,7 @@ func (r *GoTests) InstallSmallToolReturnsBinary(ctx context.Context, goImageTag 
 
 // ModDownloadHelloPasses runs ModDownload against the hello fixture and
 // asserts no error.
-func (r *GoTests) ModDownloadHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:401:1)
+func (r *GoTests) ModDownloadHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:484:1)
 	if r.modDownloadHelloPasses != nil {
 		return nil
 	}
@@ -426,7 +426,7 @@ func (r *GoTests) ModDownloadHelloPasses(ctx context.Context, goImageTag string)
 
 // ModTidyHelloIsIdempotent runs `go mod tidy` against the stdlib-only hello
 // fixture and asserts the resulting go.mod is unchanged.
-func (r *GoTests) ModTidyHelloIsIdempotent(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:384:1)
+func (r *GoTests) ModTidyHelloIsIdempotent(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:467:1)
 	if r.modTidyHelloIsIdempotent != nil {
 		return nil
 	}
@@ -438,7 +438,7 @@ func (r *GoTests) ModTidyHelloIsIdempotent(ctx context.Context, goImageTag strin
 
 // ModVerifyHelloPasses runs ModVerify against the hello fixture and asserts
 // no error.
-func (r *GoTests) ModVerifyHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:410:1)
+func (r *GoTests) ModVerifyHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:493:1)
 	if r.modVerifyHelloPasses != nil {
 		return nil
 	}
@@ -450,7 +450,7 @@ func (r *GoTests) ModVerifyHelloPasses(ctx context.Context, goImageTag string) e
 
 // RunHelloPrintsHello runs the hello fixture's main and asserts stdout is
 // "hello\n".
-func (r *GoTests) RunHelloPrintsHello(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:434:1)
+func (r *GoTests) RunHelloPrintsHello(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:517:1)
 	if r.runHelloPrintsHello != nil {
 		return nil
 	}
@@ -462,7 +462,7 @@ func (r *GoTests) RunHelloPrintsHello(ctx context.Context, goImageTag string) er
 
 // TestHelloPasses runs `go test ./...` against the hello fixture and asserts
 // the canonical "PASS" marker appears in stdout.
-func (r *GoTests) TestHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:464:1)
+func (r *GoTests) TestHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:547:1)
 	if r.testHelloPasses != nil {
 		return nil
 	}
@@ -475,7 +475,7 @@ func (r *GoTests) TestHelloPasses(ctx context.Context, goImageTag string) error 
 // TestMultipkgPkgArgVariants runs `go test` against the multipkg fixture
 // twice — once with pkg=./... (covers the whole module) and once with
 // pkg=./pkg/foo (sub-package only) — to confirm the pkg arg shape.
-func (r *GoTests) TestMultipkgPkgArgVariants(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:343:1)
+func (r *GoTests) TestMultipkgPkgArgVariants(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:426:1)
 	if r.testMultipkgPkgArgVariants != nil {
 		return nil
 	}
@@ -487,7 +487,7 @@ func (r *GoTests) TestMultipkgPkgArgVariants(ctx context.Context, goImageTag str
 
 // ToolVersionContainsGoVersion calls dag.Go(dagger.GoOpts{Version: goImageTag}).ToolVersion and asserts the
 // output starts with the canonical "go version" prefix.
-func (r *GoTests) ToolVersionContainsGoVersion(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:512:1)
+func (r *GoTests) ToolVersionContainsGoVersion(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:595:1)
 	if r.toolVersionContainsGoVersion != nil {
 		return nil
 	}
@@ -499,7 +499,7 @@ func (r *GoTests) ToolVersionContainsGoVersion(ctx context.Context, goImageTag s
 
 // VetHelloPasses runs Vet against the hello fixture, which is vet-clean,
 // so the call must succeed.
-func (r *GoTests) VetHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:490:1)
+func (r *GoTests) VetHelloPasses(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:573:1)
 	if r.vetHelloPasses != nil {
 		return nil
 	}
@@ -512,7 +512,7 @@ func (r *GoTests) VetHelloPasses(ctx context.Context, goImageTag string) error {
 // WorkInitSucceeds runs `go work init .` against the hello fixture and
 // asserts no error. `go work init` is a side-effecting subcommand that
 // returns empty stdout on success — the assertion is the absence of error.
-func (r *GoTests) WorkInitSucceeds(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:373:1)
+func (r *GoTests) WorkInitSucceeds(ctx context.Context, goImageTag string) error { // go-tests (../../../daggerverse/go/tests/main.go:456:1)
 	if r.workInitSucceeds != nil {
 		return nil
 	}

@@ -245,9 +245,6 @@ type GitRepositoryID string
 type GoCiID string
 
 // A unique identifier for an object.
-type GoExamplesID string
-
-// A unique identifier for an object.
 type GoID string
 
 // A unique identifier for an object.
@@ -13104,16 +13101,6 @@ func (r *Query) LoadGoCiFromID(id GoCiID) *GoCi {
 	q = q.Arg("id", id)
 
 	return &GoCi{
-		query: q,
-	}
-}
-
-// Load a GoExamples from its ID.
-func (r *Query) LoadGoExamplesFromID(id GoExamplesID) *GoExamples {
-	q := r.query.Select("loadGoExamplesFromID")
-	q = q.Arg("id", id)
-
-	return &GoExamples{
 		query: q,
 	}
 }

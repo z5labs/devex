@@ -66,6 +66,27 @@ stdout, err := g.Test(ctx, src, dagger.GoTestOpts{Race: true})
 
 See `tests/main.go` for one example per function.
 
+## Examples
+
+`examples/go/` is a runnable cookbook module: four recipes that call go the way
+a downstream consumer would. Every recipe defaults to the sample module
+vendored at `examples/go/sample/` (a two-package, stdlib-only
+`example.com/greeter`), so each one runs with no arguments; pass `--source` to
+point it at your own tree.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/go/examples/go call test-package
+dagger -m github.com/z5labs/devex/daggerverse/go/examples/go call \
+    build-binary export --path ./greeter
+```
+
+`build-binary` compiles a tree down to the one executable you ship;
+`test-package` returns readable `go test` output; `module-hygiene` gates on
+gofmt and vet before handing back a tidied source tree; `install-tool` shows
+how a pinned Go CLI becomes a `*File` you can mount anywhere. The suite in
+`tests/` runs every recipe, so the cookbook cannot silently rot against the
+API.
+
 ## CI pipeline (`Ci` builder)
 
 `Ci(source)` returns a builder that composes Go static checks and build
