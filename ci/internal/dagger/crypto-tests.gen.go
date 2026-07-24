@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type CryptoTests
-func (r *Binding) AsCryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
+func (r *Binding) AsCryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:20:6)
 	q := r.query.Select("asCryptoTests")
 
 	return &CryptoTests{
@@ -18,7 +18,7 @@ func (r *Binding) AsCryptoTests() *CryptoTests { // crypto-tests (../../../dagge
 	}
 }
 
-type CryptoTests struct { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
+type CryptoTests struct { // crypto-tests (../../../daggerverse/crypto/tests/main.go:20:6)
 	query *querybuilder.Selection
 
 	all                           *Void
@@ -46,7 +46,7 @@ func (r *CryptoTests) WithGraphQLQuery(q *querybuilder.Selection) *CryptoTests {
 
 // CryptoTestsAllOpts contains options for CryptoTests.All
 type CryptoTestsAllOpts struct {
-	Parallel int // crypto-tests (../../../daggerverse/crypto/tests/main.go:28:2)
+	Parallel int // crypto-tests (../../../daggerverse/crypto/tests/main.go:34:2)
 }
 
 // All runs every crypto test inside this suite.
@@ -55,7 +55,7 @@ type CryptoTestsAllOpts struct {
 // fan-out) — each `dagger check` job runs on its own GH Actions runner, so
 // in-runner parallelism is bounded by the VM's CPU/memory, not by the
 // scheduler. Pass any positive integer to opt into a specific cap.
-func (r *CryptoTests) All(ctx context.Context, opts ...CryptoTestsAllOpts) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:25:1)
+func (r *CryptoTests) All(ctx context.Context, opts ...CryptoTestsAllOpts) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:31:1)
 	if r.all != nil {
 		return nil
 	}
@@ -70,7 +70,7 @@ func (r *CryptoTests) All(ctx context.Context, opts ...CryptoTestsAllOpts) error
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) EcdsaP256KeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:270:1)
+func (r *CryptoTests) EcdsaP256KeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:436:1)
 	if r.ecdsaP256KeyEmitsValidFormats != nil {
 		return nil
 	}
@@ -79,7 +79,7 @@ func (r *CryptoTests) EcdsaP256KeyEmitsValidFormats(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) EcdsaP256KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:143:1)
+func (r *CryptoTests) EcdsaP256KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:309:1)
 	if r.ecdsaP256KeyShouldNotBeCached != nil {
 		return nil
 	}
@@ -88,7 +88,7 @@ func (r *CryptoTests) EcdsaP256KeyShouldNotBeCached(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) EcdsaP384KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:158:1)
+func (r *CryptoTests) EcdsaP384KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:324:1)
 	if r.ecdsaP384KeyShouldNotBeCached != nil {
 		return nil
 	}
@@ -97,7 +97,7 @@ func (r *CryptoTests) EcdsaP384KeyShouldNotBeCached(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) EcdsaP521KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:173:1)
+func (r *CryptoTests) EcdsaP521KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:339:1)
 	if r.ecdsaP521KeyShouldNotBeCached != nil {
 		return nil
 	}
@@ -106,7 +106,7 @@ func (r *CryptoTests) EcdsaP521KeyShouldNotBeCached(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Ed25519KeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:275:1)
+func (r *CryptoTests) Ed25519KeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:441:1)
 	if r.ed25519KeyEmitsValidFormats != nil {
 		return nil
 	}
@@ -115,7 +115,7 @@ func (r *CryptoTests) Ed25519KeyEmitsValidFormats(ctx context.Context) error { /
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Ed25519KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:188:1)
+func (r *CryptoTests) Ed25519KeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:354:1)
 	if r.ed25519KeyShouldNotBeCached != nil {
 		return nil
 	}
@@ -173,7 +173,7 @@ func (r *CryptoTests) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *CryptoTests) RsaKeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:265:1)
+func (r *CryptoTests) RsaKeyEmitsValidFormats(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:431:1)
 	if r.rsaKeyEmitsValidFormats != nil {
 		return nil
 	}
@@ -182,7 +182,7 @@ func (r *CryptoTests) RsaKeyEmitsValidFormats(ctx context.Context) error { // cr
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) RsaKeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:128:1)
+func (r *CryptoTests) RsaKeyShouldNotBeCached(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:294:1)
 	if r.rsaKeyShouldNotBeCached != nil {
 		return nil
 	}
@@ -191,7 +191,7 @@ func (r *CryptoTests) RsaKeyShouldNotBeCached(ctx context.Context) error { // cr
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Sha256MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:70:1)
+func (r *CryptoTests) Sha256MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:236:1)
 	if r.sha256MatchesKnownDigest != nil {
 		return nil
 	}
@@ -200,7 +200,7 @@ func (r *CryptoTests) Sha256MatchesKnownDigest(ctx context.Context) error { // c
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Sha3256MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:103:1)
+func (r *CryptoTests) Sha3256MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:269:1)
 	if r.sha3256MatchesKnownDigest != nil {
 		return nil
 	}
@@ -209,7 +209,7 @@ func (r *CryptoTests) Sha3256MatchesKnownDigest(ctx context.Context) error { // 
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Sha3512MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:114:1)
+func (r *CryptoTests) Sha3512MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:280:1)
 	if r.sha3512MatchesKnownDigest != nil {
 		return nil
 	}
@@ -218,7 +218,7 @@ func (r *CryptoTests) Sha3512MatchesKnownDigest(ctx context.Context) error { // 
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Sha384MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:81:1)
+func (r *CryptoTests) Sha384MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:247:1)
 	if r.sha384MatchesKnownDigest != nil {
 		return nil
 	}
@@ -227,7 +227,7 @@ func (r *CryptoTests) Sha384MatchesKnownDigest(ctx context.Context) error { // c
 	return q.Execute(ctx)
 }
 
-func (r *CryptoTests) Sha512MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:92:1)
+func (r *CryptoTests) Sha512MatchesKnownDigest(ctx context.Context) error { // crypto-tests (../../../daggerverse/crypto/tests/main.go:258:1)
 	if r.sha512MatchesKnownDigest != nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (r *CryptoTests) AsNode() Node {
 }
 
 // Create or update a binding of type CryptoTests in the environment
-func (r *Env) WithCryptoTestsInput(name string, value *CryptoTests, description string) *Env { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
+func (r *Env) WithCryptoTestsInput(name string, value *CryptoTests, description string) *Env { // crypto-tests (../../../daggerverse/crypto/tests/main.go:20:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withCryptoTestsInput")
 	q = q.Arg("name", name)
@@ -258,7 +258,7 @@ func (r *Env) WithCryptoTestsInput(name string, value *CryptoTests, description 
 }
 
 // Declare a desired CryptoTests output to be assigned in the environment
-func (r *Env) WithCryptoTestsOutput(name string, description string) *Env { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
+func (r *Env) WithCryptoTestsOutput(name string, description string) *Env { // crypto-tests (../../../daggerverse/crypto/tests/main.go:20:6)
 	q := r.query.Select("withCryptoTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -269,7 +269,7 @@ func (r *Env) WithCryptoTestsOutput(name string, description string) *Env { // c
 }
 
 // Package main implements the test module for the crypto Dagger module.
-func (r *Query) CryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:14:6)
+func (r *Query) CryptoTests() *CryptoTests { // crypto-tests (../../../daggerverse/crypto/tests/main.go:20:6)
 	q := r.query.Select("cryptoTests")
 
 	return &CryptoTests{
