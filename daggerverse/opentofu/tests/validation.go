@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"dagger/tests/internal/dagger"
@@ -95,6 +96,92 @@ func (t *Tests) FmtAcceptsFormattedConfiguration(ctx context.Context) error {
 func (t *Tests) FmtReportsUnformattedConfiguration(ctx context.Context) error {
 	_, err := opentofu().Config(fixture("unformatted")).Fmt(ctx)
 	return expectErrorContains(err, "not formatted", "main.tf", "separator")
+}
+
+// ---------------------------------------------------------------- format
+
+// FormatRewritesUnformattedConfiguration asserts Format returns the corrected
+// tree: the rewritten file differs from the input, and the result passes the
+// check-only Fmt that the input fails.
+func (t *Tests) FormatRewritesUnformattedConfiguration(ctx context.Context) error {
+	src := fixture("unformatted")
+	before, err := src.File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the unformatted fixture: %w", err)
+	}
+
+	formatted := opentofu().Config(src).Format()
+	after, err := formatted.File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Format: %w", err)
+	}
+	if after == before {
+		return fmt.Errorf("expected Format to rewrite the configuration, got it back unchanged:\n%s", after)
+	}
+	if _, err := opentofu().Config(formatted).Fmt(ctx); err != nil {
+		return fmt.Errorf("expected the formatted tree to pass the fmt check: %w", err)
+	}
+	return nil
+}
+
+// FormatLeavesFormattedConfigurationUnchanged asserts Format is a no-op on a
+// canonically formatted root module — byte-identical in, byte-identical out.
+func (t *Tests) FormatLeavesFormattedConfigurationUnchanged(ctx context.Context) error {
+	src := fixture("basic")
+	before, err := src.File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the basic fixture: %w", err)
+	}
+	after, err := opentofu().Config(src).Format().File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Format: %w", err)
+	}
+	if after != before {
+		return fmt.Errorf("expected a formatted configuration to come back unchanged, got:\n%s", after)
+	}
+	return nil
+}
+
+// FormatLeavesInputDirectoryUntouched asserts the rewrite lands in the
+// returned copy and nowhere else: the directory handed to Config still reads
+// as it did before, so a caller decides for itself whether to export over its
+// working copy.
+func (t *Tests) FormatLeavesInputDirectoryUntouched(ctx context.Context) error {
+	src := fixture("unformatted")
+	before, err := src.File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the unformatted fixture: %w", err)
+	}
+	if _, err := opentofu().Config(src).Format().Sync(ctx); err != nil {
+		return fmt.Errorf("Format: %w", err)
+	}
+	after, err := src.File("main.tf").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("re-read the unformatted fixture: %w", err)
+	}
+	if after != before {
+		return fmt.Errorf("expected the input directory to survive Format untouched, got:\n%s", after)
+	}
+	return nil
+}
+
+// FormatDropsCarriedState asserts the returned tree is the configuration and
+// nothing else: file-carried state is written into the container's copy of the
+// root module, and formatting is no reason to hand it back for the caller to
+// export over their working copy.
+func (t *Tests) FormatDropsCarriedState(ctx context.Context) error {
+	entries, err := opentofu().
+		Config(fixture("basic")).
+		WithState(emptyState()).
+		Format().
+		Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Format with file-carried state: %w", err)
+	}
+	if slices.Contains(entries, stateFileName) {
+		return fmt.Errorf("expected %s to stay out of the formatted tree, got %v", stateFileName, entries)
+	}
+	return nil
 }
 
 // ------------------------------------------------------------- validate

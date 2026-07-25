@@ -60,12 +60,19 @@ func (t *Tests) All(
 
 	jobs = jobs.WithJob("FmtAcceptsFormattedConfiguration", t.FmtAcceptsFormattedConfiguration)
 	jobs = jobs.WithJob("FmtReportsUnformattedConfiguration", t.FmtReportsUnformattedConfiguration)
+	jobs = jobs.WithJob("FormatRewritesUnformattedConfiguration", t.FormatRewritesUnformattedConfiguration)
+	jobs = jobs.WithJob("FormatLeavesFormattedConfigurationUnchanged", t.FormatLeavesFormattedConfigurationUnchanged)
+	jobs = jobs.WithJob("FormatLeavesInputDirectoryUntouched", t.FormatLeavesInputDirectoryUntouched)
+	jobs = jobs.WithJob("FormatDropsCarriedState", t.FormatDropsCarriedState)
 
 	jobs = jobs.WithJob("ValidateAcceptsValidConfiguration", t.ValidateAcceptsValidConfiguration)
 	jobs = jobs.WithJob("ValidateRejectsInvalidConfiguration", t.ValidateRejectsInvalidConfiguration)
 	jobs = jobs.WithJob("ValidateWorksWithoutBackendCredentials", t.ValidateWorksWithoutBackendCredentials)
 
 	jobs = jobs.WithJob("InitProducesLockFile", t.InitProducesLockFile)
+	jobs = jobs.WithJob("LockCoversRequestedPlatforms", t.LockCoversRequestedPlatforms)
+	jobs = jobs.WithJob("LockRejectsUnavailablePlatform", t.LockRejectsUnavailablePlatform)
+	jobs = jobs.WithJob("LockWithoutPlatformsProducesUsableLockFile", t.LockWithoutPlatformsProducesUsableLockFile)
 	jobs = jobs.WithJob("PlanReportsChanges", t.PlanReportsChanges)
 	jobs = jobs.WithJob("PlanTargetsLimitScope", t.PlanTargetsLimitScope)
 	jobs = jobs.WithJob("PlanDestroyReportsDeletions", t.PlanDestroyReportsDeletions)
@@ -185,6 +192,7 @@ const (
 	// the artifact, not just the one that asserted on the name.
 	planFileName  = "plan.tfplan"
 	stateFileName = "terraform.tfstate"
+	lockFileName  = ".terraform.lock.hcl"
 	planJSONName  = "plan.json"
 	planTextName  = "plan.txt"
 	changesName   = "changes"

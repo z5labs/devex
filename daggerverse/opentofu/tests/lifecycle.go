@@ -21,13 +21,94 @@ func (t *Tests) InitProducesLockFile(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("Init: %w", err)
 	}
-	if !slices.Contains(entries, ".terraform.lock.hcl") {
-		return fmt.Errorf("expected .terraform.lock.hcl in the initialised module, got %v", entries)
+	if !slices.Contains(entries, lockFileName) {
+		return fmt.Errorf("expected %s in the initialised module, got %v", lockFileName, entries)
 	}
 	for _, e := range entries {
 		if strings.TrimSuffix(e, "/") == ".terraform" {
 			return fmt.Errorf("expected .terraform to be stripped from the result, got %v", entries)
 		}
+	}
+	return nil
+}
+
+// ------------------------------------------------------------------- lock
+
+// LockCoversRequestedPlatforms asserts a multi-platform lock produces a lock
+// file that records the provider with a full set of hashes, and that it covers
+// at least what a single-platform lock does.
+//
+// The assertion is structural rather than per-platform because the lock file
+// itself carries no platform labels: `hashes` is one flat list. What proves
+// each requested platform is genuinely resolved is
+// LockRejectsUnavailablePlatform, where naming a platform the provider does not
+// publish fails the run.
+func (t *Tests) LockCoversRequestedPlatforms(ctx context.Context) error {
+	multi, err := lockHashes(ctx, opentofu().
+		Config(fixture("basic")).
+		Lock(dagger.OpentofuConfigLockOpts{
+			Platforms: []string{"linux_amd64", "darwin_arm64", "windows_amd64"},
+		}))
+	if err != nil {
+		return fmt.Errorf("Lock for three platforms: %w", err)
+	}
+	if len(multi) == 0 {
+		return fmt.Errorf("expected the lock file to record hashes, got none")
+	}
+
+	single, err := lockHashes(ctx, opentofu().
+		Config(fixture("basic")).
+		Lock(dagger.OpentofuConfigLockOpts{Platforms: []string{"linux_amd64"}}))
+	if err != nil {
+		return fmt.Errorf("Lock for one platform: %w", err)
+	}
+	for _, hash := range single {
+		if !slices.Contains(multi, hash) {
+			return fmt.Errorf("expected the multi-platform lock to cover %s, got %v", hash, multi)
+		}
+	}
+	return nil
+}
+
+// LockRejectsUnavailablePlatform asserts every requested platform is actually
+// fetched: one the provider does not publish fails the lock, naming it. This
+// is what gives LockCoversRequestedPlatforms its teeth.
+//
+// openbsd_s390x is a safe stand-in for "will never exist" — Go has no OpenBSD
+// port for s390x, so no provider can publish a package for it.
+func (t *Tests) LockRejectsUnavailablePlatform(ctx context.Context) error {
+	_, err := opentofu().
+		Config(fixture("basic")).
+		Lock(dagger.OpentofuConfigLockOpts{
+			Platforms: []string{"linux_amd64", "openbsd_s390x"},
+		}).
+		Sync(ctx)
+	return expectErrorContains(err, "tofu providers lock", "openbsd_s390x")
+}
+
+// LockWithoutPlatformsProducesUsableLockFile asserts the default — no
+// platforms named — still writes a lock file for the platform tofu runs on,
+// and one tofu itself accepts: the returned tree initialises against it.
+func (t *Tests) LockWithoutPlatformsProducesUsableLockFile(ctx context.Context) error {
+	locked := opentofu().Config(fixture("basic")).Lock()
+
+	hashes, err := lockHashes(ctx, locked)
+	if err != nil {
+		return fmt.Errorf("Lock: %w", err)
+	}
+	if len(hashes) == 0 {
+		return fmt.Errorf("expected the lock file to record hashes, got none")
+	}
+
+	raw, err := locked.File(lockFileName).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", lockFileName, err)
+	}
+	if !strings.Contains(raw, "hashicorp/random") {
+		return fmt.Errorf("expected the lock file to record the fixture's provider, got:\n%s", raw)
+	}
+	if err := opentofu().Config(locked).Validate(ctx); err != nil {
+		return fmt.Errorf("initialise against the generated lock file: %w", err)
 	}
 	return nil
 }
@@ -348,6 +429,24 @@ func applyBasic(ctx context.Context) (*dagger.File, error) {
 		return nil, fmt.Errorf("Apply the basic fixture: %w", err)
 	}
 	return result.File(stateFileName), nil
+}
+
+// lockHashes returns the provider hashes recorded in a lock file — the `h1:`
+// and `zh:` entries, without the quoting and punctuation the HCL list wraps
+// them in. It is a scan, not a parse: the assertions only compare hash sets.
+func lockHashes(ctx context.Context, dir *dagger.Directory) ([]string, error) {
+	raw, err := dir.File(lockFileName).Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", lockFileName, err)
+	}
+	var hashes []string
+	for line := range strings.SplitSeq(raw, "\n") {
+		line = strings.Trim(strings.TrimSpace(line), `",`)
+		if strings.HasPrefix(line, "h1:") || strings.HasPrefix(line, "zh:") {
+			hashes = append(hashes, line)
+		}
+	}
+	return hashes, nil
 }
 
 // planDocument is the slice of `tofu show -json <plan>` the assertions read.
