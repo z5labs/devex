@@ -128,7 +128,90 @@ func (t *Tests) All(
 		return t.CiCheckRunsEnabledChecksAndSkipsBuild(ctx, goImageTag)
 	})
 
+	jobs = jobs.WithJob("ExamplesCookbook", t.exampleSmoke)
+
 	return jobs.Run(ctx)
+}
+
+// exampleSmoke runs every examples/go cookbook recipe end-to-end against its
+// built-in sample module, so the suite fails if the examples rot against the
+// go API. It is intentionally unexported so it stays out of this module's
+// Dagger schema (and the root ci/ bindings); it is driven only as a job in
+// All. goImageTag is deliberately not forwarded: the recipes exist to show
+// the toolchain being inferred from the sample's go.mod.
+func (t *Tests) exampleSmoke(ctx context.Context) error {
+	ex := dag.GoExamples()
+
+	binary := ex.BuildBinary()
+	name, err := binary.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe BuildBinary: %w", err)
+	}
+	if name != "app" {
+		return fmt.Errorf("example recipe BuildBinary: expected binary named %q, got %q", "app", name)
+	}
+	size, err := binary.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe BuildBinary: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("example recipe BuildBinary: expected non-empty binary, got size 0")
+	}
+
+	out, err := ex.TestPackage(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe TestPackage: %w", err)
+	}
+	if !strings.Contains(out, "ok") {
+		return fmt.Errorf("example recipe TestPackage: expected 'ok' marker in output, got: %q", out)
+	}
+
+	if err := exampleModuleHygiene(ctx, ex); err != nil {
+		return err
+	}
+
+	tool := ex.InstallTool()
+	name, err = tool.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe InstallTool: %w", err)
+	}
+	if name != "yamlfmt" {
+		return fmt.Errorf("example recipe InstallTool: expected binary named %q, got %q", "yamlfmt", name)
+	}
+	size, err = tool.Size(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe InstallTool: %w", err)
+	}
+	if size == 0 {
+		return fmt.Errorf("example recipe InstallTool: expected non-empty binary, got size 0")
+	}
+
+	return nil
+}
+
+// exampleModuleHygiene asserts ModuleHygiene returns the checked source tree
+// rather than an empty directory: the sample is gofmt-clean, vet-clean and
+// depends only on the standard library, so tidy must hand back a tree whose
+// go.mod still declares the sample module.
+func exampleModuleHygiene(ctx context.Context, ex *dagger.GoExamples) error {
+	tidied := ex.ModuleHygiene()
+
+	entries, err := tidied.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe ModuleHygiene: %w", err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("example recipe ModuleHygiene: returned an empty directory")
+	}
+
+	gomod, err := tidied.File("go.mod").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("example recipe ModuleHygiene: read tidied go.mod: %w", err)
+	}
+	if !strings.Contains(gomod, "module example.com/greeter") {
+		return fmt.Errorf("example recipe ModuleHygiene: tidied go.mod lost the sample module directive, got: %q", gomod)
+	}
+	return nil
 }
 
 // CiCheckRunsEnabledChecksAndSkipsBuild configures every With* stage
