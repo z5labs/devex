@@ -376,6 +376,9 @@ type ValkeyClientID string
 type ValkeyClientSecurityID string
 
 // A unique identifier for an object.
+type ValkeyClusterID string
+
+// A unique identifier for an object.
 type ValkeyID string
 
 // A unique identifier for an object.
@@ -13542,6 +13545,16 @@ func (r *Query) LoadValkeyClientSecurityFromID(id ValkeyClientSecurityID) *Valke
 	q = q.Arg("id", id)
 
 	return &ValkeyClientSecurity{
+		query: q,
+	}
+}
+
+// Load a ValkeyCluster from its ID.
+func (r *Query) LoadValkeyClusterFromID(id ValkeyClusterID) *ValkeyCluster {
+	q := r.query.Select("loadValkeyClusterFromID")
+	q = q.Arg("id", id)
+
+	return &ValkeyCluster{
 		query: q,
 	}
 }

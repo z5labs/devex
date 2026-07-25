@@ -1,10 +1,11 @@
 # valkey
 
 Daggerverse module that spins up [Valkey](https://valkey.io) topologies
-(from the upstream `valkey/valkey` image) — a single node, or a primary
-with N read replicas — and exposes a pure-Go client (built on
+(from the upstream `valkey/valkey` image) — a single node, a primary with
+N read replicas, or a slot-sharded Valkey Cluster — and exposes a pure-Go
+client (built on
 [`github.com/valkey-io/valkey-go`](https://github.com/valkey-io/valkey-go))
-that can target either a local node or a remote Valkey (e.g.
+that can target either a local topology or a remote Valkey (e.g.
 ElastiCache Serverless, MemoryDB, a self-hosted node).
 
 It is the daggerverse's first key-value store, and it targets Valkey
@@ -12,16 +13,16 @@ It is the daggerverse's first key-value store, and it targets Valkey
 
 It supports three client-facing listener modes — plaintext (`requirepass`
 auth over an unencrypted TCP listener), one-way TLS, and mutual TLS.
-Valkey Cluster, `valkey-server` config passthrough, the `valkey-bundle`
-image, TLS for the replication link, and keyspace export/import all land
-in follow-ups.
+`valkey-server` config passthrough, the `valkey-bundle` image, TLS for
+the replication link and the cluster bus, and keyspace export/import all
+land in follow-ups.
 
 ## Why `Server` and not `Cluster`
 
 Postgres calls its single node a `Cluster` because that is PostgreSQL's
 own word for an instance. In Valkey, "cluster" means slot-sharded Valkey
-Cluster, so the single-node type here is `Server` and `Cluster` stays
-reserved for the follow-up that adds sharding.
+Cluster, so the single-node type here is `Server` and `Cluster` is the
+sharded topology.
 
 ## Security profiles
 
@@ -135,7 +136,7 @@ Primary/replica topology: one primary plus `replicas` asynchronous read
 replicas, all from the same image. A replica is asymmetric — it dials a
 primary that is already up — so the whole topology is an ordinary service
 binding, with none of the symmetric-peer startup problems Valkey Cluster
-will bring.
+brings.
 
 ```go
 Valkey.Replication(
@@ -195,10 +196,103 @@ zero-replica topology is a single node with extra steps — use
 argument holding its zero value, so `Replicas: 0` from Go resolves to the
 `+default=1`; `--replicas=0` on the CLI reaches the guard.
 
+## Cluster
+
+Slot-sharded Valkey Cluster: `shards` primaries splitting the 16384 hash
+slots between them, each with `replicasPerShard` replicas, all from the
+same image.
+
+```go
+Valkey.Cluster(
+    ctx,
+    name="",
+    registry="docker.io", tag="9.1",
+    shards=3,
+    replicasPerShard=0,
+    password *dagger.Secret,
+    clientListenerSecurity *ServerSecurity,
+) (*Cluster, error)
+
+Cluster.Endpoints() []string                       // host:6379 per member, primaries first
+Cluster.BindNodes(*dagger.Container) *dagger.Container
+Cluster.Client(ctx, security *ClientSecurity) (*Client, error)
+Cluster.Stop(ctx) error                            // tears down every member
+```
+
+**Symmetric peers, so no bindings between them.** Cluster members gossip
+with each other over a bus port (client port + 10000) and none of them is
+"already up" when its neighbours boot. A node-to-node
+`WithServiceBinding` would therefore deadlock: binding A to B makes
+Dagger fully ready B before it even boots A, while B's readiness depends
+on the cluster that needs A. The nodes carry no bindings at all and are
+started *concurrently* instead (`startAll`), discovering each other by
+hostname over session-wide DNS — the same shape the Redpanda multi-broker
+topology uses.
+
+**Every node advertises its own pinned hostname.** Each member boots with
+`--cluster-announce-ip <its WithHostname alias>`,
+`--cluster-announce-port 6379`, and `--cluster-announce-bus-port 16379`.
+A node that cannot self-identify falls back to announcing localhost, at
+which point every peer dials itself and the cluster never forms. The
+announce address is the hostname rather than an IP on purpose: the
+container IP is unknown until the service starts and changes between
+sessions, whereas the alias is stable and resolvable from every peer,
+from the module runtime, and — via `BindNodes` — from a consumer
+container.
+
+**Bootstrap is a lazy container, not constructor work.** `Valkey.Cluster`
+validates, builds the nodes, and composes (but does not run) a
+`valkey-cli --cluster create --cluster-yes --cluster-replicas N` exec
+that waits for every node to answer, assigns the slots, and then waits
+for every node to report `cluster_state:ok` *and* the full
+`cluster_known_nodes`. Whoever forces that exec — `Cluster.Client` from
+the module runtime, or a consumer container's exec through `BindNodes` —
+brings the node services up as dependencies of their own request. The
+laziness is what makes `BindNodes` usable at all: a Dagger service is
+only reachable from the client that started it, so bootstrapping eagerly
+here would pin every node to the valkey module's DNS domain and a
+consumer module binding them could not resolve them. `BindNodes` grafts
+the bootstrap's completion marker into the consumer container, so the
+container's first command meets a cluster whose slots are assigned rather
+than one answering `CLUSTERDOWN`.
+
+The flip side: `Cluster.Client` *does* start the services explicitly
+(concurrently, from the module runtime) because valkey-go dials them from
+there and needs the hostnames in session DNS. A cluster this module has
+already dialled cannot then be bound by a consumer container — the
+binding fails with `lookup valkey-<host> for hosts file: … no such host`
+— so bind a fresh one. That cross-module resolution failure is a known
+Dagger limitation and has been reported upstream; if it is fixed, the
+lazy bootstrap can collapse back into the constructor.
+
+**`shards < 3` is rejected.** Valkey Cluster agrees slot ownership by a
+majority vote of the primaries, so two primaries can never form a quorum
+once one is unreachable, and one primary is a standalone node wearing a
+cluster hat. The other rejected inputs: `password == nil`,
+`clientListenerSecurity == nil`, a non-plaintext profile, and
+`replicasPerShard < 0`.
+
+**Plaintext only, for now.** A TLS node runs with `--port 0`, so the
+cluster bus would have to run over TLS too (`--tls-cluster yes`) and each
+peer would need trust material a client-listener `*ServerSecurity` does
+not carry — and the `valkey-cli` that bootstraps them would need its own
+`--tls` / `--cacert` material on top of that.
+
+**Hostnames.** Every member's hostname is `valkey-<sha12(...)>` derived
+from `name` plus the node's index, so each member gets its own pinned
+hostname, two clusters with different `name`s never collide, and a
+member never collides with a `Valkey.Server` or `Valkey.Replication` node
+booted under the same `name`.
+
+`Endpoints()` is `+cache="session"` rather than `"never"` for the same
+reason `Replication.Primary()` is: Dagger v0.21 detaches module objects
+returned from a `+cache="never"` function when a consumer module reads
+their fields lazily.
+
 ## Client
 
 Pure-Go valkey-go based client. No container image. Works against the
-local node or any reachable remote Valkey.
+local topology or any reachable remote Valkey.
 
 ```go
 Valkey.Client(
@@ -248,6 +342,18 @@ legitimate stored value and must stay distinguishable from absence.
 for the whole sweep) and walks the cursor to exhaustion, so the result is
 the complete match set and not just SCAN's first page.
 
+**Cluster-aware `Keys` and `Del`.** A client from `Cluster.Client` seeds
+from every member, lets valkey-go keep a slot map, and follows MOVED/ASK
+redirects — but two methods need more than that. `Keys` scans *every*
+node rather than the one it seeded from: SCAN names no key, so a cluster
+client has no slot to route it by and it is answered by whichever node it
+lands on, reporting that shard as if it were the whole keyspace.
+(Replicas answer SCAN locally too, so the union is de-duplicated.) `Del`
+groups its keys by hash slot and issues one pipelined DEL per group: a
+single DEL naming two slots is refused outright with `CROSSSLOT`, because
+the slots may live on different primaries. Against a standalone node both
+methods behave exactly as before.
+
 `ApplyFile` is the fixture-seeding path: one command per line in
 valkey-cli syntax, run in order on a single connection. Blank lines and
 `#` comments are skipped; arguments split on whitespace with single- and
@@ -257,8 +363,9 @@ failing command aborts the run and reports its line number.
 ## Follow-ups
 
 TLS/mTLS for the replication link (`--tls-replication yes` plus the trust
-material a replica needs to verify and authenticate to its primary);
-Valkey Cluster / slot sharding; `valkey-server` config passthrough
-(config file, ACL file, append-only, max-memory, extra args); the
+material a replica needs to verify and authenticate to its primary) and
+for the cluster bus (`--tls-cluster yes`, plus `--tls`/`--cacert` for the
+bootstrapping `valkey-cli`); `valkey-server` config passthrough (config
+file, ACL file, append-only, max-memory, extra args); the
 `valkey/valkey-bundle` image with module verification; keyspace
 export/import via SCAN + DUMP/RESTORE.
