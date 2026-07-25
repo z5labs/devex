@@ -353,6 +353,76 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlaintextDialAgainstTlsNodeFails(&parent, ctx)
+		case "Replication":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Replication(&parent, ctx, parallel)
+		case "ReplicationLinkAuthenticates":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationLinkAuthenticates(&parent, ctx)
+		case "ReplicationNodesHaveDistinctHostnames":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationNodesHaveDistinctHostnames(&parent, ctx)
+		case "ReplicationPropagatesWritesToReplica":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationPropagatesWritesToReplica(&parent, ctx)
+		case "ReplicationRejectsTlsSecurity":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationRejectsTlsSecurity(&parent, ctx)
+		case "ReplicationRejectsTooFewReplicas":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationRejectsTooFewReplicas(&parent, ctx)
+		case "ReplicationReplicaRejectsWrites":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationReplicaRejectsWrites(&parent, ctx)
+		case "ReplicationReportsRoles":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationReportsRoles(&parent, ctx)
+		case "ReplicationStopTerminatesEveryNode":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReplicationStopTerminatesEveryNode(&parent, ctx)
 		case "SameNameServerSharesState":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

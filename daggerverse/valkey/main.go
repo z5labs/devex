@@ -1,16 +1,16 @@
-// Valkey provides Dagger functions for spinning up a single-node Valkey
-// server (from the upstream `valkey/valkey` image) and a pure-Go
-// valkey-go based client that can target either the local node or any
-// reachable remote Valkey (e.g. ElastiCache Serverless, MemoryDB, a
-// self-hosted node).
+// Valkey provides Dagger functions for spinning up Valkey topologies
+// (from the upstream `valkey/valkey` image) — a single node, or a
+// primary with N read replicas — plus a pure-Go valkey-go based client
+// that can target either a local node or any reachable remote Valkey
+// (e.g. ElastiCache Serverless, MemoryDB, a self-hosted node).
 //
 // Three client-facing listener modes are supported: PLAINTEXT
 // (`requirepass` auth over an unencrypted TCP listener), TLS (one-way:
 // the node presents a server certificate on a `--tls-port` listener and
 // clients still authenticate with the password), and MTLS (mutual: the
 // client must additionally present a certificate signed by the node's
-// trusted CA). Primary/replica replication and Valkey Cluster land in
-// follow-ups.
+// trusted CA). Replication is plaintext-only for now — see
+// Valkey.Replication. Valkey Cluster lands in a follow-up.
 //
 // The single-node type is `Server`, not `Cluster`: in Valkey "cluster"
 // means slot-sharded Valkey Cluster, so that name is reserved for the
@@ -18,13 +18,16 @@
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
-//   - security.go — *ServerSecurity / *ClientSecurity, the Plaintext /
+//   - security.go    — *ServerSecurity / *ClientSecurity, the Plaintext /
 //     Tls / Mtls constructors, and the listener-mode rendering
 //     (validateServerSecurity / applyServerSecurity).
-//   - server.go   — *Server + Valkey.Server, input validation, the
-//     single-node topology builder, and the Endpoint / User / Password /
-//     BindServer / Client / Stop methods.
-//   - client.go   — *Client + Valkey.Client, valkey-go wiring, and the
+//   - server.go      — *Server + Valkey.Server, input validation, the
+//     shared node builder (buildServer), and the Endpoint / User /
+//     Password / BindServer / Client / Stop methods.
+//   - replication.go — *Replication + Valkey.Replication, the
+//     primary/replica topology builder, and the Primary / Replicas /
+//     Stop methods.
+//   - client.go      — *Client + Valkey.Client, valkey-go wiring, and the
 //     Ping / Do / Get / Set / Del / Keys / ApplyFile / Info / DbSize /
 //     FlushAll method set.
 package main

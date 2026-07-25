@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Valkey
-func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
+func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:39:6)
 	q := r.query.Select("asValkey")
 
 	return &Valkey{
@@ -32,6 +32,15 @@ func (r *Binding) AsValkeyClientSecurity() *ValkeyClientSecurity { // valkey (..
 	q := r.query.Select("asValkeyClientSecurity")
 
 	return &ValkeyClientSecurity{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type ValkeyReplication
+func (r *Binding) AsValkeyReplication() *ValkeyReplication { // valkey (../../../../../daggerverse/valkey/replication.go:19:6)
+	q := r.query.Select("asValkeyReplication")
+
+	return &ValkeyReplication{
 		query: q,
 	}
 }
@@ -103,7 +112,7 @@ func (r *Env) WithValkeyClientSecurityOutput(name string, description string) *E
 }
 
 // Create or update a binding of type Valkey in the environment
-func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
+func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:39:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyInput")
 	q = q.Arg("name", name)
@@ -116,8 +125,32 @@ func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *E
 }
 
 // Declare a desired Valkey output to be assigned in the environment
-func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
+func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:39:6)
 	q := r.query.Select("withValkeyOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type ValkeyReplication in the environment
+func (r *Env) WithValkeyReplicationInput(name string, value *ValkeyReplication, description string) *Env { // valkey (../../../../../daggerverse/valkey/replication.go:19:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withValkeyReplicationInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired ValkeyReplication output to be assigned in the environment
+func (r *Env) WithValkeyReplicationOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/replication.go:19:6)
+	q := r.query.Select("withValkeyReplicationOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -178,7 +211,7 @@ func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *E
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
+func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:39:6)
 	q := r.query.Select("valkey")
 
 	return &Valkey{
@@ -190,7 +223,7 @@ func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
+type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:39:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -349,6 +382,83 @@ func (r *Valkey) PlaintextServerSecurity() *ValkeyServerSecurity { // valkey (..
 	q := r.query.Select("plaintextServerSecurity")
 
 	return &ValkeyServerSecurity{
+		query: q,
+	}
+}
+
+// ValkeyReplicationOpts contains options for Valkey.Replication
+type ValkeyReplicationOpts struct {
+	Name string // valkey (../../../../../daggerverse/valkey/replication.go:62:2)
+
+	// Default: "docker.io"
+	Registry string // valkey (../../../../../daggerverse/valkey/replication.go:64:2)
+
+	// Default: "9.1"
+	Tag string // valkey (../../../../../daggerverse/valkey/replication.go:66:2)
+
+	// Default: 1
+	Replicas int // valkey (../../../../../daggerverse/valkey/replication.go:68:2)
+}
+
+// Replication boots a primary/replica topology: one primary node plus
+// `replicas` read replicas, each booted with `--replicaof <primary-host>
+// 6379`, the primary's password, and `--replica-read-only yes`.
+//
+// Image: `<registry>/valkey/valkey:<tag>` for every node — the topology
+// is deliberately homogeneous.
+//
+// Rejected inputs (each a descriptive error rather than a half-broken
+// topology):
+//
+//   - `password == nil` — the same secret is both the nodes'
+//     `requirepass` and the replicas' `masterauth`, so it is mandatory.
+//   - `clientListenerSecurity == nil` — plaintext must be a deliberate
+//     caller choice, exactly as for a single Server.
+//   - a TLS or MTLS profile — see the note below.
+//   - `replicas < 1` — a zero-replica "replication" topology is a
+//     single node with extra steps, and Valkey.Server already builds
+//     that.
+//
+// TLS/mTLS is not supported for this topology yet. A TLS node runs with
+// `--port 0`, so the replication link would have to run over TLS too
+// (`--tls-replication yes`), and that link needs trust material this
+// profile does not carry: the replica must verify the primary against a
+// CA, and under mTLS it must additionally present a client certificate
+// the primary's CA accepts. `*ServerSecurity` describes the
+// *client-facing* listener only, so a TLS/mTLS profile is rejected here
+// rather than silently booting replicas that spin on a failed handshake.
+//
+// Session-cached for the same reason Valkey.Server is: repeated chained
+// calls on the returned topology within one test must observe the SAME
+// backing services, and therefore the same keyspace. `name` folds into
+// that cache key and into every node's hostname, so parallel test suites
+// should pass a unique value per test.
+func (r *Valkey) Replication(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyReplicationOpts) *ValkeyReplication { // valkey (../../../../../daggerverse/valkey/replication.go:59:1)
+	assertNotNil("password", password)
+	assertNotNil("clientListenerSecurity", clientListenerSecurity)
+	q := r.query.Select("replication")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `name` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Name) {
+			q = q.Arg("name", opts[i].Name)
+		}
+		// `registry` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Registry) {
+			q = q.Arg("registry", opts[i].Registry)
+		}
+		// `tag` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tag) {
+			q = q.Arg("tag", opts[i].Tag)
+		}
+		// `replicas` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Replicas) {
+			q = q.Arg("replicas", opts[i].Replicas)
+		}
+	}
+	q = q.Arg("password", password)
+	q = q.Arg("clientListenerSecurity", clientListenerSecurity)
+
+	return &ValkeyReplication{
 		query: q,
 	}
 }
@@ -796,6 +906,146 @@ func (r *ValkeyClientSecurity) AsNode() Node {
 	}
 }
 
+// Replication is a primary/replica Valkey topology: one primary plus N
+// asynchronous read replicas. Nodes[0] is always the primary and the
+// remainder are its replicas, in the order they were created.
+//
+// A replica is asymmetric — it dials a primary that is already up — so
+// the whole topology is expressible with an ordinary service binding and
+// none of the symmetric-peer startup problems of Valkey Cluster apply.
+type ValkeyReplication struct { // valkey (../../../../../daggerverse/valkey/replication.go:19:6)
+	query *querybuilder.Selection
+
+	id   *ID
+	stop *Void
+}
+
+func (r *ValkeyReplication) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyReplication {
+	return &ValkeyReplication{
+		query: q,
+	}
+}
+
+// A unique identifier for this ValkeyReplication.
+func (r *ValkeyReplication) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *ValkeyReplication) XXX_GraphQLType() string {
+	return "ValkeyReplication"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *ValkeyReplication) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *ValkeyReplication) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *ValkeyReplication) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *ValkeyReplication) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = ValkeyReplication{query: selectNode(dag.query, id, "ValkeyReplication")}
+	return nil
+}
+
+// Primary returns the topology's primary node — the only node that
+// accepts writes.
+//
+// Session-cached rather than never-cached: Dagger v0.21 detaches module
+// objects returned from a `module reads their fields lazily, and `tests/` is such a consumer. The
+// methods on the returned *Server are individually never-cached, so no
+// data-returning call is served stale.
+func (r *ValkeyReplication) Primary() *ValkeyServer { // valkey (../../../../../daggerverse/valkey/replication.go:161:1)
+	q := r.query.Select("primary")
+
+	return &ValkeyServer{
+		query: q,
+	}
+}
+
+// Replicas returns the topology's read replicas, in creation order.
+// Session-cached for the same reason Primary is.
+func (r *ValkeyReplication) Replicas(ctx context.Context) ([]ValkeyServer, error) { // valkey (../../../../../daggerverse/valkey/replication.go:172:1)
+	q := r.query.Select("replicas")
+
+	q = q.Select("id")
+
+	type replicas struct {
+		Id ID
+	}
+
+	convert := func(fields []replicas) []ValkeyServer {
+		out := []ValkeyServer{}
+
+		for i := range fields {
+			val := ValkeyServer{id: &fields[i].Id}
+			val.query = selectNode(q.Root(), fields[i].Id, "ValkeyServer")
+			out = append(out, val)
+		}
+
+		return out
+	}
+	var response []replicas
+
+	q = q.Bind(&response)
+
+	err := q.Execute(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return convert(response), nil
+}
+
+// Stop tears down every node in the topology, replicas first so the
+// primary does not spend its last moments logging dropped links. Every
+// node is attempted even if an earlier one fails, and the failures are
+// joined — a partial teardown that reported only the first error would
+// leave services running with nothing naming them.
+func (r *ValkeyReplication) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/replication.go:186:1)
+	if r.stop != nil {
+		return nil
+	}
+	q := r.query.Select("stop")
+
+	return q.Execute(ctx)
+}
+
+// AsNode returns this ValkeyReplication as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *ValkeyReplication) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Server represents a running single-node Valkey server plus the
 // connection metadata callers need to reach it. Holds a reference to the
 // backing service so callers can bind it into their own containers or
@@ -818,7 +1068,7 @@ func (r *ValkeyServer) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyServer
 // BindServer attaches the Valkey service to the given container under
 // the same hostname Endpoint reports, so the container can dial the node
 // at `Endpoint()` (e.g. `valkey-cli -h <host> -a <pw> PING`).
-func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:195:1)
+func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:238:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindServer")
 	q = q.Arg("ctr", ctr)
@@ -836,7 +1086,7 @@ func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../
 // rather than failing opaquely at the wire. Readiness is then probed
 // with the client itself, so a TLS / mTLS listener would be polled over
 // TLS using the caller's own cert material.
-func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:209:1)
+func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:252:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -857,7 +1107,7 @@ func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { //
 // would register the service in the module's DNS domain, which the
 // binding's host-file lookup can't resolve from a session-domain
 // consumer — so the start must be driven by the binding, not here.
-func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:168:1)
+func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:211:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -921,7 +1171,7 @@ func (r *ValkeyServer) UnmarshalJSON(bs []byte) error {
 // Password returns the `requirepass` secret the node was provisioned
 // with, so callers can re-use it via Valkey.Client against the same
 // endpoint.
-func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:186:1)
+func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:229:1)
 	q := r.query.Select("password")
 
 	return &Secret{
@@ -933,7 +1183,7 @@ func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggervers
 // call this in a defer so the service span closes when the test returns.
 // SIGKILL skips graceful shutdown — Valkey's save-on-shutdown path is
 // wasted work for a torn-down test node.
-func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:245:1)
+func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:288:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -945,7 +1195,7 @@ func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../
 // User returns the ACL user clients authenticate as. `requirepass` sets
 // the password of the built-in `default` user, so this is always
 // "default" in this story; an ACL-file follow-up is what makes it vary.
-func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:177:1)
+func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:220:1)
 	if r.user != nil {
 		return *r.user, nil
 	}

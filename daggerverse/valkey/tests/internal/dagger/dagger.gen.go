@@ -379,6 +379,9 @@ type ValkeyClientSecurityID string
 type ValkeyID string
 
 // A unique identifier for an object.
+type ValkeyReplicationID string
+
+// A unique identifier for an object.
 type ValkeyServerID string
 
 // A unique identifier for an object.
@@ -13549,6 +13552,16 @@ func (r *Query) LoadValkeyFromID(id ValkeyID) *Valkey {
 	q = q.Arg("id", id)
 
 	return &Valkey{
+		query: q,
+	}
+}
+
+// Load a ValkeyReplication from its ID.
+func (r *Query) LoadValkeyReplicationFromID(id ValkeyReplicationID) *ValkeyReplication {
+	q := r.query.Select("loadValkeyReplicationFromID")
+	q = q.Arg("id", id)
+
+	return &ValkeyReplication{
 		query: q,
 	}
 }
