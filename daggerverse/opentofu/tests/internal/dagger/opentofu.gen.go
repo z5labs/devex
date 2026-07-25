@@ -413,11 +413,14 @@ func (r *OpentofuCi) AsNode() Node {
 type OpentofuConfig struct { // opentofu (../../../../../daggerverse/opentofu/config.go:95:6)
 	query *querybuilder.Selection
 
-	fmt      *string
-	id       *ID
-	outputs  *string
-	show     *string
-	validate *Void
+	fmt       *string
+	graph     *string
+	id        *ID
+	outputs   *string
+	show      *string
+	stateList *string
+	stateShow *string
+	validate  *Void
 }
 type WithOpentofuConfigFunc func(r *OpentofuConfig) *OpentofuConfig
 
@@ -549,6 +552,24 @@ func (r *OpentofuConfig) Format() *Directory { // opentofu (../../../../../dagge
 	}
 }
 
+// Graph returns the DOT rendering of the configuration's dependency graph
+// (`tofu graph`), for GraphViz or anything else that reads the format.
+//
+// It is the one member of this file that is read-only, and it is derived from
+// the configuration rather than from live state — so unlike the rest it caches
+// for the session.
+func (r *OpentofuConfig) Graph(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/state.go:109:1)
+	if r.graph != nil {
+		return *r.graph, nil
+	}
+	q := r.query.Select("graph")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // A unique identifier for this OpentofuConfig.
 func (r *OpentofuConfig) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
@@ -596,6 +617,22 @@ func (r *OpentofuConfig) UnmarshalJSON(bs []byte) error {
 	}
 	*r = OpentofuConfig{query: selectNode(dag.query, id, "OpentofuConfig")}
 	return nil
+}
+
+// Import brings an existing object under management
+// (`tofu import <address> <id>`) and returns the resulting state directory.
+//
+// The address has to already be declared in the configuration — import writes
+// state, it does not write HCL — and the id is whatever the resource's own
+// provider accepts, which varies per resource type.
+func (r *OpentofuConfig) Import(address string, id string) *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:188:1)
+	q := r.query.Select("import")
+	q = q.Arg("address", address)
+	q = q.Arg("id", id)
+
+	return &Directory{
+		query: q,
+	}
 }
 
 // Init runs a full `tofu init` — backend included — and returns the root
@@ -704,6 +741,20 @@ func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // op
 	}
 }
 
+// Refresh updates state to match what the providers report
+// (`tofu apply -refresh-only -auto-approve`) and returns the resulting state
+// directory.
+//
+// It is the refresh-only apply rather than the deprecated `tofu refresh`:
+// both write state, but only this one is still supported.
+func (r *OpentofuConfig) Refresh() *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:220:1)
+	q := r.query.Select("refresh")
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // Show returns the human-readable rendering of the current state
 // (`tofu show`).
 func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:621:1)
@@ -716,6 +767,102 @@ func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// StateList returns the resource addresses in state, one per line
+// (`tofu state list`).
+//
+// A configuration with no state yet lists nothing rather than failing: tofu
+// itself refuses a wholly absent state file, but "no state" and "an emptied
+// state" hold the same answer to what is under management, and a listing that
+// distinguishes them only makes the caller handle a case with no content.
+func (r *OpentofuConfig) StateList(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/state.go:45:1)
+	if r.stateList != nil {
+		return *r.stateList, nil
+	}
+	q := r.query.Select("stateList")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// StateMv renames a resource in state (`tofu state mv <from> <to>`) and
+// returns the resulting state directory.
+//
+// This is how a resource survives being renamed in the configuration: without
+// it, tofu reads the new name as a new resource and the old one as gone, and
+// plans to destroy and recreate.
+func (r *OpentofuConfig) StateMv(from string, to string) *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:125:1)
+	q := r.query.Select("stateMv")
+	q = q.Arg("from", from)
+	q = q.Arg("to", to)
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// StateRm drops resources from state (`tofu state rm <address>...`) and
+// returns the resulting state directory.
+//
+// The objects themselves are left alone: this is how a resource is handed over
+// to another configuration, or abandoned to be managed by hand. A plan run
+// afterwards sees them as absent and proposes creating them again, which is
+// the hazard — the objects are still out there.
+func (r *OpentofuConfig) StateRm(addresses []string) *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:157:1)
+	q := r.query.Select("stateRm")
+	q = q.Arg("addresses", addresses)
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// StateShow returns the state of one resource as JSON
+// (`tofu state show -json <address>`).
+//
+// An address that matches nothing in state is an error naming it, rather than
+// an empty document a caller could mistake for a resource with no attributes.
+//
+// Note what the JSON form does not do: `-json` prints sensitive values in
+// full, whether or not the variable behind one was declared
+// `sensitive = true`. Treat the result as sensitive whenever the resource is.
+func (r *OpentofuConfig) StateShow(ctx context.Context, address string) (string, error) { // opentofu (../../../../../daggerverse/opentofu/state.go:82:1)
+	if r.stateShow != nil {
+		return *r.stateShow, nil
+	}
+	q := r.query.Select("stateShow")
+	q = q.Arg("address", address)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// Taint marks a resource for replacement (`tofu taint <address>`) and returns
+// the resulting state directory. The next plan proposes destroying and
+// recreating it.
+func (r *OpentofuConfig) Taint(address string) *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:235:1)
+	q := r.query.Select("taint")
+	q = q.Arg("address", address)
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// Untaint clears the mark Taint set (`tofu untaint <address>`) and returns the
+// resulting state directory.
+func (r *OpentofuConfig) Untaint(address string) *Directory { // opentofu (../../../../../daggerverse/opentofu/state.go:247:1)
+	q := r.query.Select("untaint")
+	q = q.Arg("address", address)
+
+	return &Directory{
+		query: q,
+	}
 }
 
 // Validate checks the configuration for internal consistency with

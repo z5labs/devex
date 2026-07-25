@@ -74,7 +74,10 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	formatLeavesFormattedConfigurationUnchanged *Void
 	formatLeavesInputDirectoryUntouched         *Void
 	formatRewritesUnformattedConfiguration      *Void
+	graphRendersDependencyGraph                 *Void
 	id                                          *ID
+	importBringsResourceUnderManagement         *Void
+	importRejectsAddressAbsentFromConfiguration *Void
 	initProducesLockFile                        *Void
 	lockCoversRequestedPlatforms                *Void
 	lockRejectsUnavailablePlatform              *Void
@@ -85,6 +88,7 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	planReportsChanges                          *Void
 	planShouldNotBeCached                       *Void
 	planTargetsLimitScope                       *Void
+	refreshUpdatesStateWithoutChanges           *Void
 	remoteBackendRoundTripsState                *Void
 	remoteWorkspacesIsolateState                *Void
 	secretVarReachesTofuWithoutLeaking          *Void
@@ -92,6 +96,16 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	showRendersState                            *Void
 	stateAndBackendConfigAreRejected            *Void
 	stateAndBackendConfigFileAreRejected        *Void
+	stateListOnEmptyStateIsEmpty                *Void
+	stateListReportsAppliedAddresses            *Void
+	stateMvRejectsUnknownAddress                *Void
+	stateMvRenamesAddress                       *Void
+	stateRmDropsAddressFromState                *Void
+	stateRmRejectsUnknownAddress                *Void
+	stateShowRejectsUnknownAddress              *Void
+	stateShowReturnsResourceJson                *Void
+	taintProposesReplacement                    *Void
+	untaintClearsReplacement                    *Void
 	validateAcceptsValidConfiguration           *Void
 	validateRejectsInvalidConfiguration         *Void
 	validateWorksWithoutBackendCredentials      *Void
@@ -381,7 +395,7 @@ func (r *OpentofuTests) ConcurrentAppliesDoNotCorruptState(ctx context.Context) 
 // ContainerHasGitAndCaCertificates asserts the two things the -minimal image
 // omits and every non-trivial configuration needs: git, for module sources,
 // and a CA bundle, for the provider registry.
-func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:140:1)
+func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:155:1)
 	if r.containerHasGitAndCaCertificates != nil {
 		return nil
 	}
@@ -392,7 +406,7 @@ func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) er
 
 // ContainerHasTofu asserts the assembled container exposes the tofu binary on
 // PATH, so the escape hatch documented on Container() actually works.
-func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:124:1)
+func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:139:1)
 	if r.containerHasTofu != nil {
 		return nil
 	}
@@ -497,6 +511,18 @@ func (r *OpentofuTests) FormatRewritesUnformattedConfiguration(ctx context.Conte
 	return q.Execute(ctx)
 }
 
+// GraphRendersDependencyGraph asserts Graph returns DOT a reader could parse —
+// one balanced `digraph` — naming both resources the configuration declares
+// and the variable one of them depends on.
+func (r *OpentofuTests) GraphRendersDependencyGraph(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:395:1)
+	if r.graphRendersDependencyGraph != nil {
+		return nil
+	}
+	q := r.query.Select("graphRendersDependencyGraph")
+
+	return q.Execute(ctx)
+}
+
 // A unique identifier for this OpentofuTests.
 func (r *OpentofuTests) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
@@ -544,6 +570,30 @@ func (r *OpentofuTests) UnmarshalJSON(bs []byte) error {
 	}
 	*r = OpentofuTests{query: selectNode(dag.query, id, "OpentofuTests")}
 	return nil
+}
+
+// ImportBringsResourceUnderManagement asserts an object named by id lands in
+// state under the declared address, and that a plan afterwards is empty —
+// which it is only if the import recorded the object rather than something
+// approximating it.
+func (r *OpentofuTests) ImportBringsResourceUnderManagement(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:224:1)
+	if r.importBringsResourceUnderManagement != nil {
+		return nil
+	}
+	q := r.query.Select("importBringsResourceUnderManagement")
+
+	return q.Execute(ctx)
+}
+
+// ImportRejectsAddressAbsentFromConfiguration asserts import writes state and
+// not HCL: an address the configuration never declares fails, naming it.
+func (r *OpentofuTests) ImportRejectsAddressAbsentFromConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:260:1)
+	if r.importRejectsAddressAbsentFromConfiguration != nil {
+		return nil
+	}
+	q := r.query.Select("importRejectsAddressAbsentFromConfiguration")
+
+	return q.Execute(ctx)
 }
 
 // InitProducesLockFile asserts Init emits the dependency lock file — the
@@ -686,6 +736,19 @@ func (r *OpentofuTests) PlanTargetsLimitScope(ctx context.Context) error { // op
 	return q.Execute(ctx)
 }
 
+// RefreshUpdatesStateWithoutChanges asserts a refresh-only apply hands back
+// state that still tracks everything it was given and still matches the
+// configuration. With hermetic fixtures there is no reality to drift, so what
+// is proved is that the refresh round-trips state rather than rewriting it.
+func (r *OpentofuTests) RefreshUpdatesStateWithoutChanges(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:274:1)
+	if r.refreshUpdatesStateWithoutChanges != nil {
+		return nil
+	}
+	q := r.query.Select("refreshUpdatesStateWithoutChanges")
+
+	return q.Execute(ctx)
+}
+
 // RemoteBackendRoundTripsState asserts the backend path end to end: an apply
 // against a real S3 backend hands back no terraform.tfstate, the backend holds
 // the state instead, a second Config reads it back with nothing but the
@@ -783,6 +846,124 @@ func (r *OpentofuTests) StateAndBackendConfigFileAreRejected(ctx context.Context
 	return q.Execute(ctx)
 }
 
+// StateListOnEmptyStateIsEmpty asserts a configuration with no state yet lists
+// nothing rather than failing. tofu refuses a wholly absent state file; the
+// module answers the question that was actually asked, which has an empty
+// answer.
+func (r *OpentofuTests) StateListOnEmptyStateIsEmpty(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:44:1)
+	if r.stateListOnEmptyStateIsEmpty != nil {
+		return nil
+	}
+	q := r.query.Select("stateListOnEmptyStateIsEmpty")
+
+	return q.Execute(ctx)
+}
+
+// StateListReportsAppliedAddresses asserts StateList names what an Apply put
+// under management, one address per line.
+func (r *OpentofuTests) StateListReportsAppliedAddresses(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:24:1)
+	if r.stateListReportsAppliedAddresses != nil {
+		return nil
+	}
+	q := r.query.Select("stateListReportsAppliedAddresses")
+
+	return q.Execute(ctx)
+}
+
+// StateMvRejectsUnknownAddress asserts a source address absent from state
+// fails, naming it.
+func (r *OpentofuTests) StateMvRejectsUnknownAddress(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:205:1)
+	if r.stateMvRejectsUnknownAddress != nil {
+		return nil
+	}
+	q := r.query.Select("stateMvRejectsUnknownAddress")
+
+	return q.Execute(ctx)
+}
+
+// StateMvRenamesAddress asserts a resource renamed in state stays the same
+// resource: a plan against the configuration that renamed it to match reports
+// no changes, where without the move tofu would destroy and recreate.
+func (r *OpentofuTests) StateMvRenamesAddress(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:164:1)
+	if r.stateMvRenamesAddress != nil {
+		return nil
+	}
+	q := r.query.Select("stateMvRenamesAddress")
+
+	return q.Execute(ctx)
+}
+
+// StateRmDropsAddressFromState asserts StateRm removes the address from state
+// and nothing else: the resulting state omits it, still tracks its neighbour,
+// and a plan afterwards proposes creating it again — which is exactly the
+// hazard of dropping something whose object is still out there.
+func (r *OpentofuTests) StateRmDropsAddressFromState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:106:1)
+	if r.stateRmDropsAddressFromState != nil {
+		return nil
+	}
+	q := r.query.Select("stateRmDropsAddressFromState")
+
+	return q.Execute(ctx)
+}
+
+// StateRmRejectsUnknownAddress asserts an address absent from state fails,
+// naming it.
+func (r *OpentofuTests) StateRmRejectsUnknownAddress(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:146:1)
+	if r.stateRmRejectsUnknownAddress != nil {
+		return nil
+	}
+	q := r.query.Select("stateRmRejectsUnknownAddress")
+
+	return q.Execute(ctx)
+}
+
+// StateShowRejectsUnknownAddress asserts an address absent from state is an
+// error naming it, rather than an empty document a caller could mistake for a
+// resource with no attributes.
+func (r *OpentofuTests) StateShowRejectsUnknownAddress(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:91:1)
+	if r.stateShowRejectsUnknownAddress != nil {
+		return nil
+	}
+	q := r.query.Select("stateShowRejectsUnknownAddress")
+
+	return q.Execute(ctx)
+}
+
+// StateShowReturnsResourceJson asserts StateShow returns one parseable JSON
+// document describing the requested resource — not the JSON *stream* tofu
+// writes, whose first line is a UI message about the version it ran.
+func (r *OpentofuTests) StateShowReturnsResourceJSON(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:60:1)
+	if r.stateShowReturnsResourceJson != nil {
+		return nil
+	}
+	q := r.query.Select("stateShowReturnsResourceJson")
+
+	return q.Execute(ctx)
+}
+
+// TaintProposesReplacement asserts a tainted resource is planned for
+// replacement — destroyed and created again — while its neighbour is left
+// alone.
+func (r *OpentofuTests) TaintProposesReplacement(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:322:1)
+	if r.taintProposesReplacement != nil {
+		return nil
+	}
+	q := r.query.Select("taintProposesReplacement")
+
+	return q.Execute(ctx)
+}
+
+// UntaintClearsReplacement asserts Untaint reverses Taint: the same state,
+// taken through both, plans no changes at all.
+func (r *OpentofuTests) UntaintClearsReplacement(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/state.go:353:1)
+	if r.untaintClearsReplacement != nil {
+		return nil
+	}
+	q := r.query.Select("untaintClearsReplacement")
+
+	return q.Execute(ctx)
+}
+
 // ValidateAcceptsValidConfiguration asserts a well-formed root module
 // validates.
 func (r *OpentofuTests) ValidateAcceptsValidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:191:1)
@@ -820,7 +1001,7 @@ func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Conte
 // VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal
 // suffix lands on the same image as one who does not — the suffix is appended
 // only when absent.
-func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:166:1)
+func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:181:1)
 	if r.versionAcceptsMinimalSuffix != nil {
 		return nil
 	}
@@ -830,7 +1011,7 @@ func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error {
 }
 
 // VersionReportsRelease asserts Version reports the release New was asked for.
-func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:152:1)
+func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:167:1)
 	if r.versionReportsRelease != nil {
 		return nil
 	}

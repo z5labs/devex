@@ -91,6 +91,21 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("SecretVarReachesTofuWithoutLeaking", t.SecretVarReachesTofuWithoutLeaking)
 	jobs = jobs.WithJob("SecretVariableBindsEnvironmentSecret", t.SecretVariableBindsEnvironmentSecret)
 
+	jobs = jobs.WithJob("StateListReportsAppliedAddresses", t.StateListReportsAppliedAddresses)
+	jobs = jobs.WithJob("StateListOnEmptyStateIsEmpty", t.StateListOnEmptyStateIsEmpty)
+	jobs = jobs.WithJob("StateShowReturnsResourceJson", t.StateShowReturnsResourceJson)
+	jobs = jobs.WithJob("StateShowRejectsUnknownAddress", t.StateShowRejectsUnknownAddress)
+	jobs = jobs.WithJob("StateRmDropsAddressFromState", t.StateRmDropsAddressFromState)
+	jobs = jobs.WithJob("StateRmRejectsUnknownAddress", t.StateRmRejectsUnknownAddress)
+	jobs = jobs.WithJob("StateMvRenamesAddress", t.StateMvRenamesAddress)
+	jobs = jobs.WithJob("StateMvRejectsUnknownAddress", t.StateMvRejectsUnknownAddress)
+	jobs = jobs.WithJob("ImportBringsResourceUnderManagement", t.ImportBringsResourceUnderManagement)
+	jobs = jobs.WithJob("ImportRejectsAddressAbsentFromConfiguration", t.ImportRejectsAddressAbsentFromConfiguration)
+	jobs = jobs.WithJob("RefreshUpdatesStateWithoutChanges", t.RefreshUpdatesStateWithoutChanges)
+	jobs = jobs.WithJob("TaintProposesReplacement", t.TaintProposesReplacement)
+	jobs = jobs.WithJob("UntaintClearsReplacement", t.UntaintClearsReplacement)
+	jobs = jobs.WithJob("GraphRendersDependencyGraph", t.GraphRendersDependencyGraph)
+
 	jobs = jobs.WithJob("WithWorkspaceIsolatesState", t.WithWorkspaceIsolatesState)
 	jobs = jobs.WithJob("WithoutPluginCacheStillApplies", t.WithoutPluginCacheStillApplies)
 

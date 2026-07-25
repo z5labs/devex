@@ -402,6 +402,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).FormatRewritesUnformattedConfiguration(&parent, ctx)
+		case "GraphRendersDependencyGraph":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GraphRendersDependencyGraph(&parent, ctx)
+		case "ImportBringsResourceUnderManagement":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ImportBringsResourceUnderManagement(&parent, ctx)
+		case "ImportRejectsAddressAbsentFromConfiguration":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ImportRejectsAddressAbsentFromConfiguration(&parent, ctx)
 		case "InitProducesLockFile":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -472,6 +493,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanTargetsLimitScope(&parent, ctx)
+		case "RefreshUpdatesStateWithoutChanges":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RefreshUpdatesStateWithoutChanges(&parent, ctx)
 		case "RemoteBackendRoundTripsState":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -521,6 +549,76 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).StateAndBackendConfigFileAreRejected(&parent, ctx)
+		case "StateListOnEmptyStateIsEmpty":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateListOnEmptyStateIsEmpty(&parent, ctx)
+		case "StateListReportsAppliedAddresses":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateListReportsAppliedAddresses(&parent, ctx)
+		case "StateMvRejectsUnknownAddress":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateMvRejectsUnknownAddress(&parent, ctx)
+		case "StateMvRenamesAddress":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateMvRenamesAddress(&parent, ctx)
+		case "StateRmDropsAddressFromState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateRmDropsAddressFromState(&parent, ctx)
+		case "StateRmRejectsUnknownAddress":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateRmRejectsUnknownAddress(&parent, ctx)
+		case "StateShowRejectsUnknownAddress":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateShowRejectsUnknownAddress(&parent, ctx)
+		case "StateShowReturnsResourceJson":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StateShowReturnsResourceJson(&parent, ctx)
+		case "TaintProposesReplacement":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TaintProposesReplacement(&parent, ctx)
+		case "UntaintClearsReplacement":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).UntaintClearsReplacement(&parent, ctx)
 		case "ValidateAcceptsValidConfiguration":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
