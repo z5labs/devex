@@ -171,6 +171,42 @@ func (r *Config) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Ci) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Config            *Config
+		FmtEnabled        bool
+		ValidateEnabled   bool
+		PlanEnabled       bool
+		PlanFailOnChanges bool
+	}
+	concrete.Config = r.Config
+	concrete.FmtEnabled = r.FmtEnabled
+	concrete.ValidateEnabled = r.ValidateEnabled
+	concrete.PlanEnabled = r.PlanEnabled
+	concrete.PlanFailOnChanges = r.PlanFailOnChanges
+	return json.Marshal(&concrete)
+}
+
+func (r *Ci) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Config            *Config
+		FmtEnabled        bool
+		ValidateEnabled   bool
+		PlanEnabled       bool
+		PlanFailOnChanges bool
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Config = concrete.Config
+	r.FmtEnabled = concrete.FmtEnabled
+	r.ValidateEnabled = concrete.ValidateEnabled
+	r.PlanEnabled = concrete.PlanEnabled
+	r.PlanFailOnChanges = concrete.PlanFailOnChanges
+	return nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -288,6 +324,53 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
+	case "Ci":
+		switch fnName {
+		case "Check":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Ci).Check(&parent, ctx)
+		case "Run":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).Run(&parent, ctx)
+		case "WithFmt":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithFmt(&parent), nil
+		case "WithPlan":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var failOnChanges bool
+			if inputArgs["failOnChanges"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["failOnChanges"]), &failOnChanges)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg failOnChanges", err))
+				}
+			}
+			return (*Ci).WithPlan(&parent, failOnChanges), nil
+		case "WithValidate":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithValidate(&parent), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Config":
 		switch fnName {
 		case "Apply":
@@ -311,6 +394,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Config).Apply(&parent, ctx, plan, targets)
+		case "Ci":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).Ci(&parent), nil
 		case "Destroy":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)

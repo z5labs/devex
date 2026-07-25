@@ -241,6 +241,83 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ApplyShouldNotBeCached(&parent, ctx)
+		case "CiCheckAggregatesStageFailures":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckAggregatesStageFailures(&parent, ctx)
+		case "CiCheckPassesOnCleanConfiguration":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckPassesOnCleanConfiguration(&parent, ctx)
+		case "CiCheckReportsInvalidConfiguration":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckReportsInvalidConfiguration(&parent, ctx)
+		case "CiCheckReportsUnformattedConfiguration":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckReportsUnformattedConfiguration(&parent, ctx)
+		case "CiCheckWithPlanAllowsChangesByDefault":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithPlanAllowsChangesByDefault(&parent, ctx)
+		case "CiCheckWithPlanDetectsDrift":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithPlanDetectsDrift(&parent, ctx)
+		case "CiCheckWithPlanPassesOnAppliedState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithPlanPassesOnAppliedState(&parent, ctx)
+		case "CiCheckWithoutStagesIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithoutStagesIsRejected(&parent, ctx)
+		case "CiCheckWithoutValidateSkipsIt":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithoutValidateSkipsIt(&parent, ctx)
+		case "CiRunFailsOnFailedCheck":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunFailsOnFailedCheck(&parent, ctx)
+		case "CiRunProducesPlanArtifacts":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunProducesPlanArtifacts(&parent, ctx)
 		case "ContainerHasGitAndCaCertificates":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

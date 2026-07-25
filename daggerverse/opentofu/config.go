@@ -42,6 +42,13 @@ const (
 	// planFileName is the saved plan Plan emits and Apply consumes.
 	planFileName = "plan.tfplan"
 
+	// planJSONFileName, planTextFileName and changesFileName are the readings
+	// Plan derives from that saved plan: the machine-readable form, the
+	// human-readable one, and the one-word verdict Ci's drift gate reads.
+	planJSONFileName = "plan.json"
+	planTextFileName = "plan.txt"
+	changesFileName  = "changes"
+
 	// mountedPlanPath is where Apply mounts a caller-supplied saved plan. It
 	// lives inside the root module because tofu resolves the plan file
 	// relative to the working directory.
@@ -365,9 +372,9 @@ func (c *Config) Plan(
 
 	return dag.Directory().
 		WithFile(planFileName, exec.File(path.Join(workDir, planFileName))).
-		WithNewFile("plan.json", planJSON).
-		WithNewFile("plan.txt", planText).
-		WithNewFile("changes", changes), nil
+		WithNewFile(planJSONFileName, planJSON).
+		WithNewFile(planTextFileName, planText).
+		WithNewFile(changesFileName, changes), nil
 }
 
 // Apply realises the configuration and returns terraform.tfstate (in

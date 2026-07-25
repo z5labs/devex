@@ -18,8 +18,17 @@ func (r *Binding) AsOpentofu() *Opentofu { // opentofu (../../../../../daggerver
 	}
 }
 
+// Retrieve the binding value, as type OpentofuCi
+func (r *Binding) AsOpentofuCi() *OpentofuCi { // opentofu (../../../../../daggerverse/opentofu/ci.go:25:6)
+	q := r.query.Select("asOpentofuCi")
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
 // Retrieve the binding value, as type OpentofuConfig
-func (r *Binding) AsOpentofuConfig() *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:70:6)
+func (r *Binding) AsOpentofuConfig() *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:77:6)
 	q := r.query.Select("asOpentofuConfig")
 
 	return &OpentofuConfig{
@@ -27,8 +36,32 @@ func (r *Binding) AsOpentofuConfig() *OpentofuConfig { // opentofu (../../../../
 	}
 }
 
+// Create or update a binding of type OpentofuCi in the environment
+func (r *Env) WithOpentofuCiInput(name string, value *OpentofuCi, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/ci.go:25:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withOpentofuCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired OpentofuCi output to be assigned in the environment
+func (r *Env) WithOpentofuCiOutput(name string, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/ci.go:25:6)
+	q := r.query.Select("withOpentofuCiOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
 // Create or update a binding of type OpentofuConfig in the environment
-func (r *Env) WithOpentofuConfigInput(name string, value *OpentofuConfig, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/config.go:70:6)
+func (r *Env) WithOpentofuConfigInput(name string, value *OpentofuConfig, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/config.go:77:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOpentofuConfigInput")
 	q = q.Arg("name", name)
@@ -41,7 +74,7 @@ func (r *Env) WithOpentofuConfigInput(name string, value *OpentofuConfig, descri
 }
 
 // Declare a desired OpentofuConfig output to be assigned in the environment
-func (r *Env) WithOpentofuConfigOutput(name string, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/config.go:70:6)
+func (r *Env) WithOpentofuConfigOutput(name string, description string) *Env { // opentofu (../../../../../daggerverse/opentofu/config.go:77:6)
 	q := r.query.Select("withOpentofuConfigOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -188,13 +221,196 @@ func (r *Opentofu) AsNode() Node {
 	}
 }
 
+// Ci is a chained builder for a standardized OpenTofu CI pipeline. Construct
+// via Config.Ci(); enable stages via the With* methods; call Check to run the
+// enabled stages, or Run to run them and keep the plan artifacts.
+//
+// The enabled stages run in parallel and their errors are aggregated, so one
+// call reports everything that is wrong with a configuration rather than the
+// first thing tofu happened to trip over.
+//
+// It hangs off Config rather than off Opentofu — a divergence from
+// Zig.Ci(source) and Kicad.Ci(source). Every stage beyond fmt needs the
+// variables, credentials and backend settings bound to a Config, and
+// re-declaring them here would duplicate nine modifiers.
+type OpentofuCi struct { // opentofu (../../../../../daggerverse/opentofu/ci.go:25:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ID
+}
+type WithOpentofuCiFunc func(r *OpentofuCi) *OpentofuCi
+
+// With calls the provided function with current OpentofuCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *OpentofuCi) With(f WithOpentofuCiFunc) *OpentofuCi {
+	return f(r)
+}
+
+func (r *OpentofuCi) WithGraphQLQuery(q *querybuilder.Selection) *OpentofuCi {
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
+// Check runs the enabled stages in parallel via
+// github.com/dagger/dagger/util/parallel and returns the aggregated error.
+//
+// Every enabled stage runs even when an earlier one has already failed, and
+// every failure reaches the caller: an unformatted *and* invalid configuration
+// reports both, rather than hiding the validation error behind the formatting
+// one until the next round trip.
+//
+// A pipeline with no stages enabled is an error rather than a pass. Checking
+// nothing and reporting success is the purest false green there is — see issue
+// #161, where a Check that skipped the one stage that could fail reported a
+// configuration as sound when it was not.
+func (r *OpentofuCi) Check(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/ci.go:95:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this OpentofuCi.
+func (r *OpentofuCi) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *OpentofuCi) XXX_GraphQLType() string {
+	return "OpentofuCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *OpentofuCi) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *OpentofuCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *OpentofuCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *OpentofuCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = OpentofuCi{query: selectNode(dag.query, id, "OpentofuCi")}
+	return nil
+}
+
+// Run performs the same stages as Check and returns the plan artifacts —
+// plan.tfplan, plan.json, plan.txt and changes, exactly what Config.Plan
+// emits — for downstream consumption: a review gate that renders the plan, an
+// Apply that consumes the saved plan, an artifact attached to a pull request.
+//
+// It plans whether or not WithPlan was called, because it must produce the
+// directory it returns; WithPlan(failOnChanges: true) additionally makes a
+// non-empty plan fail the run. The plan is run once, not once per role: when
+// WithPlan enabled it as a check stage too, that single run is both.
+//
+// Everything runs in one parallel round, so the returned artifacts come from a
+// pipeline where every stage passed. A failing stage yields the aggregated
+// error and a nil directory.
+func (r *OpentofuCi) Run() *Directory { // opentofu (../../../../../daggerverse/opentofu/ci.go:127:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// WithFmt enables the `tofu fmt -check -diff -recursive` stage.
+func (r *OpentofuCi) WithFmt() *OpentofuCi { // opentofu (../../../../../daggerverse/opentofu/ci.go:48:1)
+	q := r.query.Select("withFmt")
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
+// OpentofuCiWithPlanOpts contains options for OpentofuCi.WithPlan
+type OpentofuCiWithPlanOpts struct {
+	//
+	// Fail the check when the plan is non-empty.
+	//
+	FailOnChanges bool // opentofu (../../../../../daggerverse/opentofu/ci.go:73:2)
+}
+
+// WithPlan enables the plan stage, making Check run `tofu plan` against the
+// configured state or backend. Unlike fmt and validate, this one reaches the
+// providers: it needs whatever credentials the configuration's providers
+// require, supplied through the Config's WithSecretVariable.
+//
+// Pass failOnChanges to turn the pipeline into a drift detector — a non-empty
+// plan against live infrastructure fails the check. Left false, the stage only
+// gates on the plan *succeeding*, which is the right shape for a pull-request
+// gate where pending changes are the whole point of the change.
+func (r *OpentofuCi) WithPlan(opts ...OpentofuCiWithPlanOpts) *OpentofuCi { // opentofu (../../../../../daggerverse/opentofu/ci.go:70:1)
+	q := r.query.Select("withPlan")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `failOnChanges` optional argument
+		if !querybuilder.IsZeroValue(opts[i].FailOnChanges) {
+			q = q.Arg("failOnChanges", opts[i].FailOnChanges)
+		}
+	}
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
+// WithValidate enables the `tofu validate` stage. It initialises with
+// -backend=false, so a configuration declaring a remote backend is checked
+// without any credentials.
+func (r *OpentofuCi) WithValidate() *OpentofuCi { // opentofu (../../../../../daggerverse/opentofu/ci.go:56:1)
+	q := r.query.Select("withValidate")
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
+// AsNode returns this OpentofuCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *OpentofuCi) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Config is a bound root module plus the settings that apply to nearly every
 // tofu subcommand. It is immutable: every With* returns a copy.
 //
 // Variables, credentials and backend settings are hoisted here as chained
 // modifiers rather than repeated as optional parameters across eight
 // lifecycle signatures.
-type OpentofuConfig struct { // opentofu (../../../../../daggerverse/opentofu/config.go:70:6)
+type OpentofuConfig struct { // opentofu (../../../../../daggerverse/opentofu/config.go:77:6)
 	query *querybuilder.Selection
 
 	fmt      *string
@@ -223,12 +439,12 @@ type OpentofuConfigApplyOpts struct {
 	//
 	// A saved plan from Plan. Without it, Apply plans and applies in one run.
 	//
-	Plan *File // opentofu (../../../../../daggerverse/opentofu/config.go:391:2)
+	Plan *File // opentofu (../../../../../daggerverse/opentofu/config.go:398:2)
 	//
 	// Limit the apply to these resource addresses (`-target`). Rejected
 	// alongside a saved plan, which already fixes what it changes.
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:395:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:402:2)
 }
 
 // Apply realises the configuration and returns terraform.tfstate (in
@@ -243,7 +459,7 @@ type OpentofuConfigApplyOpts struct {
 // produced in file-carried mode. That is deliberate: the alternative, always
 // returning the directory with an exit code inside it, turns a failed apply
 // into a silent green whenever a caller forgets to look.
-func (r *OpentofuConfig) Apply(opts ...OpentofuConfigApplyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:387:1)
+func (r *OpentofuConfig) Apply(opts ...OpentofuConfigApplyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:394:1)
 	q := r.query.Select("apply")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `plan` optional argument
@@ -261,12 +477,23 @@ func (r *OpentofuConfig) Apply(opts ...OpentofuConfigApplyOpts) *Directory { // 
 	}
 }
 
+// Ci returns a new pipeline builder bound to this configuration. Everything
+// already set on the Config — variables, credentials, backend settings,
+// workspace, state — applies to every stage the pipeline runs.
+func (r *OpentofuConfig) Ci() *OpentofuCi { // opentofu (../../../../../daggerverse/opentofu/ci.go:43:1)
+	q := r.query.Select("ci")
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
 // OpentofuConfigDestroyOpts contains options for OpentofuConfig.Destroy
 type OpentofuConfigDestroyOpts struct {
 	//
 	// Limit the destroy to these resource addresses (`-target`).
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:430:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:437:2)
 }
 
 // Destroy tears down everything the state tracks and returns the post-destroy
@@ -276,7 +503,7 @@ type OpentofuConfigDestroyOpts struct {
 // backend to read it from: tofu would happily report "0 destroyed" against an
 // empty state, which reads as success while leaving the real infrastructure
 // untouched.
-func (r *OpentofuConfig) Destroy(opts ...OpentofuConfigDestroyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:426:1)
+func (r *OpentofuConfig) Destroy(opts ...OpentofuConfigDestroyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:433:1)
 	q := r.query.Select("destroy")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `targets` optional argument
@@ -296,7 +523,7 @@ func (r *OpentofuConfig) Destroy(opts ...OpentofuConfigDestroyOpts) *Directory {
 //
 // A failing run carries the diff in the error rather than the return value:
 // Dagger drops a function's value whenever its error is non-nil.
-func (r *OpentofuConfig) Fmt(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:235:1)
+func (r *OpentofuConfig) Fmt(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:242:1)
 	if r.fmt != nil {
 		return *r.fmt, nil
 	}
@@ -365,7 +592,7 @@ func (r *OpentofuConfig) UnmarshalJSON(bs []byte) error {
 // exist outside this container, so carrying them out would hand the caller
 // dangling links. The lock file is the portable artifact of an init, and it
 // is what a repo commits.
-func (r *OpentofuConfig) Init() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:293:1)
+func (r *OpentofuConfig) Init() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:300:1)
 	q := r.query.Select("init")
 
 	return &Directory{
@@ -375,7 +602,7 @@ func (r *OpentofuConfig) Init() *Directory { // opentofu (../../../../../daggerv
 
 // Outputs returns the root module's output values as JSON
 // (`tofu output -json`).
-func (r *OpentofuConfig) Outputs(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:464:1)
+func (r *OpentofuConfig) Outputs(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:471:1)
 	if r.outputs != nil {
 		return *r.outputs, nil
 	}
@@ -392,11 +619,11 @@ type OpentofuConfigPlanOpts struct {
 	//
 	// Plan the destruction of all remote objects (`-destroy`).
 	//
-	Destroy bool // opentofu (../../../../../daggerverse/opentofu/config.go:316:2)
+	Destroy bool // opentofu (../../../../../daggerverse/opentofu/config.go:323:2)
 	//
 	// Limit the plan to these resource addresses (`-target`).
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:319:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:326:2)
 }
 
 // Plan produces a saved plan and everything needed to read it, in a single
@@ -407,7 +634,7 @@ type OpentofuConfigPlanOpts struct {
 // One run, not two: underobtain the JSON form could legitimately disagree with the first. The JSON
 // and text renderings are derived from the saved plan file, so they describe
 // exactly the plan that was made.
-func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:312:1)
+func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:319:1)
 	q := r.query.Select("plan")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `destroy` optional argument
@@ -427,7 +654,7 @@ func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // op
 
 // Show returns the human-readable rendering of the current state
 // (`tofu show`).
-func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:472:1)
+func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:479:1)
 	if r.show != nil {
 		return *r.show, nil
 	}
@@ -446,7 +673,7 @@ func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu
 // remote backend validates without any credentials and without touching the
 // backend at all. Providers are still installed, because validation needs
 // their schemas.
-func (r *OpentofuConfig) Validate(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/config.go:263:1)
+func (r *OpentofuConfig) Validate(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/config.go:270:1)
 	if r.validate != nil {
 		return nil
 	}
@@ -461,7 +688,7 @@ func (r *OpentofuConfig) Validate(ctx context.Context) error { // opentofu (../.
 // Selecting a remote backend is mutually exclusive with WithState: they are
 // two different answers to where state lives, and combining them is rejected
 // rather than silently resolved.
-func (r *OpentofuConfig) WithBackendConfig(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:174:1)
+func (r *OpentofuConfig) WithBackendConfig(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:181:1)
 	q := r.query.Select("withBackendConfig")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -474,7 +701,7 @@ func (r *OpentofuConfig) WithBackendConfig(name string, value string) *OpentofuC
 // WithBackendConfigFile adds a backend settings file
 // (`-backend-config=<file>`). Like WithBackendConfig, it is mutually
 // exclusive with WithState.
-func (r *OpentofuConfig) WithBackendConfigFile(file *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:184:1)
+func (r *OpentofuConfig) WithBackendConfigFile(file *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:191:1)
 	assertNotNil("file", file)
 	q := r.query.Select("withBackendConfigFile")
 	q = q.Arg("file", file)
@@ -488,7 +715,7 @@ func (r *OpentofuConfig) WithBackendConfigFile(file *File) *OpentofuConfig { // 
 // escape hatch for the non-sensitive knobs tofu reads from the environment
 // (TF_LOG, TF_CLI_ARGS_*, provider region settings, ...). Credentials belong
 // in WithSecretVariable.
-func (r *OpentofuConfig) WithEnvVariable(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:150:1)
+func (r *OpentofuConfig) WithEnvVariable(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:157:1)
 	q := r.query.Select("withEnvVariable")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -505,7 +732,7 @@ func (r *OpentofuConfig) WithEnvVariable(name string, value string) *OpentofuCon
 // argv, the CLI log, or a saved plan's command line. tofu still marks the
 // variable's own value in the plan unless the variable is declared
 // `sensitive = true`, which a configuration handling secrets should do.
-func (r *OpentofuConfig) WithSecretVar(name string, value *Secret) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:130:1)
+func (r *OpentofuConfig) WithSecretVar(name string, value *Secret) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:137:1)
 	assertNotNil("value", value)
 	q := r.query.Select("withSecretVar")
 	q = q.Arg("name", name)
@@ -520,7 +747,7 @@ func (r *OpentofuConfig) WithSecretVar(name string, value *Secret) *OpentofuConf
 // exec. This is how provider credentials reach tofu — AWS_ACCESS_KEY_ID,
 // AWS_SECRET_ACCESS_KEY, TF_TOKEN_app_terraform_io and friends — as
 // *dagger.Secret, never as a string.
-func (r *OpentofuConfig) WithSecretVariable(name string, value *Secret) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:161:1)
+func (r *OpentofuConfig) WithSecretVariable(name string, value *Secret) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:168:1)
 	assertNotNil("value", value)
 	q := r.query.Select("withSecretVariable")
 	q = q.Arg("name", name)
@@ -537,7 +764,7 @@ func (r *OpentofuConfig) WithSecretVariable(name string, value *Secret) *Opentof
 // backend required, and the caller owns persistence.
 //
 // Omit it entirely for a first apply against an empty state.
-func (r *OpentofuConfig) WithState(state *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:219:1)
+func (r *OpentofuConfig) WithState(state *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:226:1)
 	assertNotNil("state", state)
 	q := r.query.Select("withState")
 	q = q.Arg("state", state)
@@ -552,7 +779,7 @@ func (r *OpentofuConfig) WithState(state *File) *OpentofuConfig { // opentofu (.
 // It takes a name and a value rather than a map because Dagger functions
 // cannot accept map parameters. Use WithSecretVar for anything sensitive:
 // a value passed here lands in argv and in the plan.
-func (r *OpentofuConfig) WithVar(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:116:1)
+func (r *OpentofuConfig) WithVar(name string, value string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:123:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -565,7 +792,7 @@ func (r *OpentofuConfig) WithVar(name string, value string) *OpentofuConfig { //
 // WithVarFile adds a variable definitions file (`-var-file`). The file is
 // staged outside the root module so it cannot collide with a file the
 // configuration owns; tofu is pointed at the staged path.
-func (r *OpentofuConfig) WithVarFile(file *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:140:1)
+func (r *OpentofuConfig) WithVarFile(file *File) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:147:1)
 	assertNotNil("file", file)
 	q := r.query.Select("withVarFile")
 	q = q.Arg("file", file)
@@ -579,7 +806,7 @@ func (r *OpentofuConfig) WithVarFile(file *File) *OpentofuConfig { // opentofu (
 // (`tofu workspace select -or-create`). With the local backend this moves the
 // state to terraform.tfstate.d/<name>/terraform.tfstate, which is where
 // WithState writes and where Apply reads the emitted state from.
-func (r *OpentofuConfig) WithWorkspace(name string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:194:1)
+func (r *OpentofuConfig) WithWorkspace(name string) *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:201:1)
 	q := r.query.Select("withWorkspace")
 	q = q.Arg("name", name)
 
@@ -594,7 +821,7 @@ func (r *OpentofuConfig) WithWorkspace(name string) *OpentofuConfig { // opentof
 // This is a Without* modifier rather than a `pluginCache bool` parameter
 // defaulting to true, because a `false from the Go SDK: the zero value is dropped before it reaches the
 // engine.
-func (r *OpentofuConfig) WithoutPluginCache() *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:207:1)
+func (r *OpentofuConfig) WithoutPluginCache() *OpentofuConfig { // opentofu (../../../../../daggerverse/opentofu/config.go:214:1)
 	q := r.query.Select("withoutPluginCache")
 
 	return &OpentofuConfig{

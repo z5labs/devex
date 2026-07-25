@@ -51,6 +51,17 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	applyProducesStateAndOutputs            *Void
 	applyRejectsTargetsWithSavedPlan        *Void
 	applyShouldNotBeCached                  *Void
+	ciCheckAggregatesStageFailures          *Void
+	ciCheckPassesOnCleanConfiguration       *Void
+	ciCheckReportsInvalidConfiguration      *Void
+	ciCheckReportsUnformattedConfiguration  *Void
+	ciCheckWithPlanAllowsChangesByDefault   *Void
+	ciCheckWithPlanDetectsDrift             *Void
+	ciCheckWithPlanPassesOnAppliedState     *Void
+	ciCheckWithoutStagesIsRejected          *Void
+	ciCheckWithoutValidateSkipsIt           *Void
+	ciRunFailsOnFailedCheck                 *Void
+	ciRunProducesPlanArtifacts              *Void
 	containerHasGitAndCaCertificates        *Void
 	containerHasTofu                        *Void
 	destroyEmptiesState                     *Void
@@ -174,10 +185,152 @@ func (r *OpentofuTests) ApplyShouldNotBeCached(ctx context.Context) error { // o
 	return q.Execute(ctx)
 }
 
+// CiCheckAggregatesStageFailures asserts the stages run in parallel and their
+// errors are aggregated rather than short-circuiting on the first. The ci-bad
+// fixture is unformatted *and* invalid, so both stages fail; requiring both
+// diagnostics in one message proves neither was skipped once the other had
+// already gone red.
+func (r *OpentofuTests) CiCheckAggregatesStageFailures(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:75:1)
+	if r.ciCheckAggregatesStageFailures != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckAggregatesStageFailures")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckPassesOnCleanConfiguration asserts a pipeline whose every stage
+// succeeds reports success. It is the positive half of the false-green pair:
+// without it, a Check that failed unconditionally would satisfy every
+// assertion below.
+func (r *OpentofuTests) CiCheckPassesOnCleanConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:18:1)
+	if r.ciCheckPassesOnCleanConfiguration != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckPassesOnCleanConfiguration")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckReportsInvalidConfiguration is the false-green regression from #161
+// in this module's terms: the invalid fixture is canonically formatted, so the
+// fmt stage passes on it. A Check that reported success on the strength of
+// that one green stage would call an unusable configuration sound. Enabling
+// the validate stage must surface tofu's own diagnostic instead.
+func (r *OpentofuTests) CiCheckReportsInvalidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:48:1)
+	if r.ciCheckReportsInvalidConfiguration != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckReportsInvalidConfiguration")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckReportsUnformattedConfiguration asserts the fmt stage gates the
+// pipeline: a configuration that validates but is not formatted still fails.
+func (r *OpentofuTests) CiCheckReportsUnformattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:33:1)
+	if r.ciCheckReportsUnformattedConfiguration != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckReportsUnformattedConfiguration")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithPlanAllowsChangesByDefault asserts the plan stage without
+// failOnChanges gates on the plan *succeeding*, not on it being empty — the
+// shape a pull-request gate needs, where pending changes are the whole point
+// of the change under review.
+func (r *OpentofuTests) CiCheckWithPlanAllowsChangesByDefault(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:136:1)
+	if r.ciCheckWithPlanAllowsChangesByDefault != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithPlanAllowsChangesByDefault")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithPlanDetectsDrift asserts WithPlan(failOnChanges: true) turns the
+// pipeline into a drift detector: planning the basic fixture against an empty
+// state has two resources to create, and a non-empty plan fails the check.
+func (r *OpentofuTests) CiCheckWithPlanDetectsDrift(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:98:1)
+	if r.ciCheckWithPlanDetectsDrift != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithPlanDetectsDrift")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithPlanPassesOnAppliedState is the other half of the drift gate:
+// the same pipeline against the state a previous apply produced has nothing
+// left to do, so the check is green.
+//
+// The two together are what makes the gate meaningful — a drift detector that
+// only ever fails is indistinguishable from a broken one.
+func (r *OpentofuTests) CiCheckWithPlanPassesOnAppliedState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:113:1)
+	if r.ciCheckWithPlanPassesOnAppliedState != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithPlanPassesOnAppliedState")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithoutStagesIsRejected asserts an empty pipeline is an error rather
+// than a pass. A Check that inspects nothing and returns nil is a green that
+// means nothing at all.
+func (r *OpentofuTests) CiCheckWithoutStagesIsRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:88:1)
+	if r.ciCheckWithoutStagesIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithoutStagesIsRejected")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithoutValidateSkipsIt is the counterpart to
+// CiCheckReportsInvalidConfiguration and pins the opt-in semantics: a stage
+// that was never enabled never runs. The invalid fixture is fmt-clean, so an
+// fmt-only Check passes on it — the pipeline reports on exactly what the
+// caller asked it to check, and nothing else.
+func (r *OpentofuTests) CiCheckWithoutValidateSkipsIt(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:63:1)
+	if r.ciCheckWithoutValidateSkipsIt != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithoutValidateSkipsIt")
+
+	return q.Execute(ctx)
+}
+
+// CiRunFailsOnFailedCheck asserts a failing stage costs the caller the
+// artifacts: Run returns the aggregated error and no directory, so a broken
+// configuration cannot hand a plan to whatever consumes one downstream.
+func (r *OpentofuTests) CiRunFailsOnFailedCheck(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:196:1)
+	if r.ciRunFailsOnFailedCheck != nil {
+		return nil
+	}
+	q := r.query.Select("ciRunFailsOnFailedCheck")
+
+	return q.Execute(ctx)
+}
+
+// CiRunProducesPlanArtifacts asserts Run hands back the plan artifacts for
+// downstream consumption — the same four files Config.Plan emits — after the
+// enabled checks have passed.
+func (r *OpentofuTests) CiRunProducesPlanArtifacts(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/ci.go:154:1)
+	if r.ciRunProducesPlanArtifacts != nil {
+		return nil
+	}
+	q := r.query.Select("ciRunProducesPlanArtifacts")
+
+	return q.Execute(ctx)
+}
+
 // ContainerHasGitAndCaCertificates asserts the two things the -minimal image
 // omits and every non-trivial configuration needs: git, for module sources,
 // and a CA bundle, for the provider registry.
-func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:112:1)
+func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:124:1)
 	if r.containerHasGitAndCaCertificates != nil {
 		return nil
 	}
@@ -188,7 +341,7 @@ func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) er
 
 // ContainerHasTofu asserts the assembled container exposes the tofu binary on
 // PATH, so the escape hatch documented on Container() actually works.
-func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:96:1)
+func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:108:1)
 	if r.containerHasTofu != nil {
 		return nil
 	}
@@ -489,7 +642,7 @@ func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Conte
 // VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal
 // suffix lands on the same image as one who does not — the suffix is appended
 // only when absent.
-func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:138:1)
+func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:150:1)
 	if r.versionAcceptsMinimalSuffix != nil {
 		return nil
 	}
@@ -499,7 +652,7 @@ func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error {
 }
 
 // VersionReportsRelease asserts Version reports the release New was asked for.
-func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:124:1)
+func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:136:1)
 	if r.versionReportsRelease != nil {
 		return nil
 	}
