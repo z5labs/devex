@@ -132,9 +132,11 @@ func (c *Client) dial(ctx context.Context) (valkey.Client, func(), error) {
 }
 
 // buildTLSConfig materialises the client-side *tls.Config from the
-// client's PEM material. Returns (nil, nil) for PLAINTEXT mode, which is
-// the only constructible mode in this story; the TLS / MTLS branches are
-// carried so the follow-up only has to add the profile constructors.
+// client's PEM material. Returns (nil, nil) for PLAINTEXT mode. For TLS
+// it pins RootCAs to the supplied server CA and sets ServerName to the
+// dialed host (the SAN valkey-go verifies against); MTLS additionally
+// loads the client leaf + key so the node's `tls-auth-clients yes` is
+// satisfied.
 func (c *Client) buildTLSConfig(ctx context.Context) (*tls.Config, error) {
 	if c.SecurityMode == "PLAINTEXT" {
 		return nil, nil

@@ -35,8 +35,10 @@ type Server struct {
 }
 
 // Server spins up a single-node Valkey server listening on 6379 with
-// `requirepass` auth over a plaintext TCP listener (the only security
-// mode in this story).
+// `requirepass` auth. The listener mode (plaintext / TLS / mTLS) is
+// chosen by clientListenerSecurity: PLAINTEXT keeps the plaintext TCP
+// listener; TLS / MTLS swap it for an encrypted `--tls-port` listener
+// with the plaintext port turned off (`--port 0`).
 //
 // Image: `<registry>/valkey/valkey:<tag>` — the `valkey/valkey` portion
 // is fixed; only `registry` and `tag` are caller-overridable. The default
@@ -47,9 +49,13 @@ type Server struct {
 //
 //   - `password == nil` — an unauthenticated Valkey node is reachable by
 //     anything that can route to it, so a password is mandatory.
-//   - `clientListenerSecurity == nil` or a non-PLAINTEXT mode —
-//     plaintext must be a deliberate caller choice so the TLS follow-up
-//     stays an explicit upgrade.
+//   - `clientListenerSecurity == nil` — plaintext must be a deliberate
+//     caller choice, so a nil profile is rejected rather than defaulted.
+//   - an incomplete TLS / MTLS profile (missing cert, key, or client CA)
+//     — validateServerSecurity rejects it before boot.
+//   - `name == ""` for a TLS / MTLS node — the hostname (and therefore
+//     the SAN the server cert must carry) derives from `name`, so each
+//     encrypted node needs a unique discriminator.
 //
 // Session-cached so that repeated chained method calls on the returned
 // server (e.g. Client.Set → Client.Get across two Server.Client() calls
@@ -87,6 +93,19 @@ func (v *Valkey) Server(
 	}
 	if err := validateServerSecurity(clientListenerSecurity); err != nil {
 		return nil, err
+	}
+	// For TLS / mTLS the hostname is derived from `name` alone (so the
+	// caller can mint a server cert whose SAN matches the dialed host).
+	// An empty `name` collapses every such node onto the same sha256("")
+	// hostname, colliding within one engine session and inviting the wrong
+	// cert/SAN to be reused — so require a discriminator. valkey-go pins
+	// ServerName to the dialed host and verifies it against the cert SAN,
+	// exactly as postgres' sslmode=verify-full does.
+	if name == "" && clientListenerSecurity.Mode != "PLAINTEXT" {
+		return nil, fmt.Errorf(
+			"name must not be empty for %s servers: the hostname derives from name and the server certificate's SAN must match it, so each TLS/mTLS server needs a unique name",
+			securityModeLabel(clientListenerSecurity.Mode),
+		)
 	}
 
 	image := fmt.Sprintf("%s/valkey/valkey:%s", registry, tag)

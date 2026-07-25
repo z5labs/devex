@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Valkey
-func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:33:6)
+func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
 	q := r.query.Select("asValkey")
 
 	return &Valkey{
@@ -46,7 +46,7 @@ func (r *Binding) AsValkeyServer() *ValkeyServer { // valkey (../../../../../dag
 }
 
 // Retrieve the binding value, as type ValkeyServerSecurity
-func (r *Binding) AsValkeyServerSecurity() *ValkeyServerSecurity { // valkey (../../../../../daggerverse/valkey/security.go:29:6)
+func (r *Binding) AsValkeyServerSecurity() *ValkeyServerSecurity { // valkey (../../../../../daggerverse/valkey/security.go:28:6)
 	q := r.query.Select("asValkeyServerSecurity")
 
 	return &ValkeyServerSecurity{
@@ -103,7 +103,7 @@ func (r *Env) WithValkeyClientSecurityOutput(name string, description string) *E
 }
 
 // Create or update a binding of type Valkey in the environment
-func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:33:6)
+func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyInput")
 	q = q.Arg("name", name)
@@ -116,7 +116,7 @@ func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *E
 }
 
 // Declare a desired Valkey output to be assigned in the environment
-func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:33:6)
+func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
 	q := r.query.Select("withValkeyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -151,7 +151,7 @@ func (r *Env) WithValkeyServerOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type ValkeyServerSecurity in the environment
-func (r *Env) WithValkeyServerSecurityInput(name string, value *ValkeyServerSecurity, description string) *Env { // valkey (../../../../../daggerverse/valkey/security.go:29:6)
+func (r *Env) WithValkeyServerSecurityInput(name string, value *ValkeyServerSecurity, description string) *Env { // valkey (../../../../../daggerverse/valkey/security.go:28:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyServerSecurityInput")
 	q = q.Arg("name", name)
@@ -164,7 +164,7 @@ func (r *Env) WithValkeyServerSecurityInput(name string, value *ValkeyServerSecu
 }
 
 // Declare a desired ValkeyServerSecurity output to be assigned in the environment
-func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/security.go:29:6)
+func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/security.go:28:6)
 	q := r.query.Select("withValkeyServerSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -178,7 +178,7 @@ func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *E
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:33:6)
+func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
 	q := r.query.Select("valkey")
 
 	return &Valkey{
@@ -190,7 +190,7 @@ func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:33:6)
+type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:36:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -296,9 +296,46 @@ func (r *Valkey) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MtlsClientSecurity returns a ClientSecurity profile that opens a
+// mutual-TLS connection: the server is verified against serverCa and the
+// client presents clientCert + clientKey to satisfy the node's
+// `tls-auth-clients yes` requirement.
+func (r *Valkey) MtlsClientSecurity(serverCa *File, clientCert *File, clientKey *Secret) *ValkeyClientSecurity { // valkey (../../../../../daggerverse/valkey/security.go:111:1)
+	assertNotNil("serverCa", serverCa)
+	assertNotNil("clientCert", clientCert)
+	assertNotNil("clientKey", clientKey)
+	q := r.query.Select("mtlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+	q = q.Arg("clientCert", clientCert)
+	q = q.Arg("clientKey", clientKey)
+
+	return &ValkeyClientSecurity{
+		query: q,
+	}
+}
+
+// MtlsServerSecurity returns a ServerSecurity profile that terminates
+// mutual TLS. In addition to the server leaf (serverCert and serverKey),
+// clientCa is mounted as `--tls-ca-cert-file` and `tls-auth-clients` is
+// left at its default (`yes`), so connecting clients must present a cert
+// signed by clientCa AND the correct password.
+func (r *Valkey) MtlsServerSecurity(serverCert *File, serverKey *Secret, clientCa *File) *ValkeyServerSecurity { // valkey (../../../../../daggerverse/valkey/security.go:82:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	assertNotNil("clientCa", clientCa)
+	q := r.query.Select("mtlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
+	q = q.Arg("clientCa", clientCa)
+
+	return &ValkeyServerSecurity{
+		query: q,
+	}
+}
+
 // PlaintextClientSecurity returns a ClientSecurity profile configured
 // for `requirepass` auth over an unencrypted TCP connection.
-func (r *Valkey) PlaintextClientSecurity() *ValkeyClientSecurity { // valkey (../../../../../daggerverse/valkey/security.go:64:1)
+func (r *Valkey) PlaintextClientSecurity() *ValkeyClientSecurity { // valkey (../../../../../daggerverse/valkey/security.go:93:1)
 	q := r.query.Select("plaintextClientSecurity")
 
 	return &ValkeyClientSecurity{
@@ -318,18 +355,20 @@ func (r *Valkey) PlaintextServerSecurity() *ValkeyServerSecurity { // valkey (..
 
 // ValkeyServerOpts contains options for Valkey.Server
 type ValkeyServerOpts struct {
-	Name string // valkey (../../../../../daggerverse/valkey/server.go:74:2)
+	Name string // valkey (../../../../../daggerverse/valkey/server.go:80:2)
 
 	// Default: "docker.io"
-	Registry string // valkey (../../../../../daggerverse/valkey/server.go:76:2)
+	Registry string // valkey (../../../../../daggerverse/valkey/server.go:82:2)
 
 	// Default: "9.1"
-	Tag string // valkey (../../../../../daggerverse/valkey/server.go:78:2)
+	Tag string // valkey (../../../../../daggerverse/valkey/server.go:84:2)
 }
 
 // Server spins up a single-node Valkey server listening on 6379 with
-// `requirepass` auth over a plaintext TCP listener (the only security
-// mode in this story).
+// `requirepass` auth. The listener mode (plaintext / TLS / mTLS) is
+// chosen by clientListenerSecurity: PLAINTEXT keeps the plaintext TCP
+// listener; TLS / MTLS swap it for an encrypted `--tls-port` listener
+// with the plaintext port turned off (`--port 0`).
 //
 // Image: `<registry>/valkey/valkey:<tag>` — the `valkey/valkey` portion
 // is fixed; only `registry` and `tag` are caller-overridable. The default
@@ -340,9 +379,13 @@ type ValkeyServerOpts struct {
 //
 //   - `password == nil` — an unauthenticated Valkey node is reachable by
 //     anything that can route to it, so a password is mandatory.
-//   - `clientListenerSecurity == nil` or a non-PLAINTEXT mode —
-//     plaintext must be a deliberate caller choice so the TLS follow-up
-//     stays an explicit upgrade.
+//   - `clientListenerSecurity == nil` — plaintext must be a deliberate
+//     caller choice, so a nil profile is rejected rather than defaulted.
+//   - an incomplete TLS / MTLS profile (missing cert, key, or client CA)
+//     — validateServerSecurity rejects it before boot.
+//   - `name == ""` for a TLS / MTLS node — the hostname (and therefore
+//     the SAN the server cert must carry) derives from `name`, so each
+//     encrypted node needs a unique discriminator.
 //
 // Session-cached so that repeated chained method calls on the returned
 // server (e.g. Client.Set → Client.Get across two Server.Client() calls
@@ -359,7 +402,7 @@ type ValkeyServerOpts struct {
 // what a single test's chained Client calls need. Leaving the default
 // empty is fine for ad-hoc `dagger call` use where only one node is in
 // play.
-func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyServerOpts) *ValkeyServer { // valkey (../../../../../daggerverse/valkey/server.go:71:1)
+func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyServerOpts) *ValkeyServer { // valkey (../../../../../daggerverse/valkey/server.go:77:1)
 	assertNotNil("password", password)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("server")
@@ -381,6 +424,38 @@ func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSe
 	q = q.Arg("clientListenerSecurity", clientListenerSecurity)
 
 	return &ValkeyServer{
+		query: q,
+	}
+}
+
+// TlsClientSecurity returns a ClientSecurity profile that opens a
+// one-way TLS connection and verifies the server against serverCa, with
+// ServerName pinned to the dialed host.
+func (r *Valkey) TLSClientSecurity(serverCa *File) *ValkeyClientSecurity { // valkey (../../../../../daggerverse/valkey/security.go:100:1)
+	assertNotNil("serverCa", serverCa)
+	q := r.query.Select("tlsClientSecurity")
+	q = q.Arg("serverCa", serverCa)
+
+	return &ValkeyClientSecurity{
+		query: q,
+	}
+}
+
+// TlsServerSecurity returns a ServerSecurity profile that terminates
+// one-way TLS on the node's :6379 listener. serverCert is the PEM leaf
+// certificate (its SAN must cover the hostname the client dials) and
+// serverKey is the matching PEM PKCS#8 private key. The node starts with
+// `--tls-port 6379 --port 0` (encrypted listener only, plaintext off)
+// and `--tls-auth-clients no`, so a client authenticates with the
+// password and the server certificate but presents no client cert.
+func (r *Valkey) TLSServerSecurity(serverCert *File, serverKey *Secret) *ValkeyServerSecurity { // valkey (../../../../../daggerverse/valkey/security.go:69:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	q := r.query.Select("tlsServerSecurity")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
+
+	return &ValkeyServerSecurity{
 		query: q,
 	}
 }
@@ -426,7 +501,7 @@ func (r *ValkeyClient) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyClient
 // whitespace, with single- and double-quoted runs kept intact so values
 // containing spaces survive; `\` escapes inside double quotes. A command
 // that fails aborts the run and reports the offending line number.
-func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // valkey (../../../../../daggerverse/valkey/client.go:380:1)
+func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // valkey (../../../../../daggerverse/valkey/client.go:382:1)
 	assertNotNil("file", file)
 	if r.applyFile != nil {
 		return nil
@@ -438,7 +513,7 @@ func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // val
 }
 
 // DbSize returns the number of keys in the client's logical database.
-func (r *ValkeyClient) DbSize(ctx context.Context) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:505:1)
+func (r *ValkeyClient) DbSize(ctx context.Context) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:507:1)
 	if r.dbSize != nil {
 		return *r.dbSize, nil
 	}
@@ -451,7 +526,7 @@ func (r *ValkeyClient) DbSize(ctx context.Context) (int, error) { // valkey (../
 }
 
 // Del removes the given keys and returns how many actually existed.
-func (r *ValkeyClient) Del(ctx context.Context, keys []string) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:321:1)
+func (r *ValkeyClient) Del(ctx context.Context, keys []string) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:323:1)
 	if r.del != nil {
 		return *r.del, nil
 	}
@@ -474,7 +549,7 @@ func (r *ValkeyClient) Del(ctx context.Context, keys []string) (int, error) { //
 // through it. The reply comes back as a string rather than a
 // *dagger.File because a single command reply is small and a core scalar
 // keeps `dagger call do --args=GET,foo` readable.
-func (r *ValkeyClient) Do(ctx context.Context, args []string) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:205:1)
+func (r *ValkeyClient) Do(ctx context.Context, args []string) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:207:1)
 	if r.do != nil {
 		return *r.do, nil
 	}
@@ -488,7 +563,7 @@ func (r *ValkeyClient) Do(ctx context.Context, args []string) (string, error) { 
 }
 
 // FlushAll removes every key from every logical database on the node.
-func (r *ValkeyClient) FlushAll(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:522:1)
+func (r *ValkeyClient) FlushAll(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:524:1)
 	if r.flushAll != nil {
 		return nil
 	}
@@ -500,7 +575,7 @@ func (r *ValkeyClient) FlushAll(ctx context.Context) error { // valkey (../../..
 // Get returns the string value stored at key. A missing key is an error,
 // not an empty string — an empty string is itself a legitimate stored
 // value and must stay distinguishable from absence.
-func (r *ValkeyClient) Get(ctx context.Context, key string) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:263:1)
+func (r *ValkeyClient) Get(ctx context.Context, key string) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:265:1)
 	if r.get != nil {
 		return *r.get, nil
 	}
@@ -564,13 +639,13 @@ func (r *ValkeyClient) UnmarshalJSON(bs []byte) error {
 
 // ValkeyClientInfoOpts contains options for ValkeyClient.Info
 type ValkeyClientInfoOpts struct {
-	Section string // valkey (../../../../../daggerverse/valkey/client.go:487:2)
+	Section string // valkey (../../../../../daggerverse/valkey/client.go:489:2)
 }
 
 // Info returns the server's INFO output. An empty section returns the
 // default set; pass a section name (`"server"`, `"replication"`,
 // `"keyspace"`, …) to narrow it.
-func (r *ValkeyClient) Info(ctx context.Context, opts ...ValkeyClientInfoOpts) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:484:1)
+func (r *ValkeyClient) Info(ctx context.Context, opts ...ValkeyClientInfoOpts) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:486:1)
 	if r.info != nil {
 		return *r.info, nil
 	}
@@ -593,7 +668,7 @@ func (r *ValkeyClient) Info(ctx context.Context, opts ...ValkeyClientInfoOpts) (
 // It is SCAN-backed rather than KEYS-backed — KEYS blocks the server for
 // the whole sweep — and walks the cursor to exhaustion, so the result is
 // the complete match set and not just SCAN's first page.
-func (r *ValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) { // valkey (../../../../../daggerverse/valkey/client.go:346:1)
+func (r *ValkeyClient) Keys(ctx context.Context, pattern string) ([]string, error) { // valkey (../../../../../daggerverse/valkey/client.go:348:1)
 	q := r.query.Select("keys")
 	q = q.Arg("pattern", pattern)
 
@@ -605,7 +680,7 @@ func (r *ValkeyClient) Keys(ctx context.Context, pattern string) ([]string, erro
 
 // Ping opens a connection and verifies the node is reachable and
 // accepting authenticated commands.
-func (r *ValkeyClient) Ping(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:184:1)
+func (r *ValkeyClient) Ping(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:186:1)
 	if r.ping != nil {
 		return nil
 	}
@@ -616,12 +691,12 @@ func (r *ValkeyClient) Ping(ctx context.Context) error { // valkey (../../../../
 
 // ValkeyClientSetOpts contains options for ValkeyClient.Set
 type ValkeyClientSetOpts struct {
-	TTL string // valkey (../../../../../daggerverse/valkey/client.go:289:2)
+	TTL string // valkey (../../../../../daggerverse/valkey/client.go:291:2)
 }
 
 // Set stores value at key. ttl is a Go duration string (`"250ms"`,
 // `"30s"`, `"5m"`); empty means no expiry.
-func (r *ValkeyClient) Set(ctx context.Context, key string, value string, opts ...ValkeyClientSetOpts) error { // valkey (../../../../../daggerverse/valkey/client.go:284:1)
+func (r *ValkeyClient) Set(ctx context.Context, key string, value string, opts ...ValkeyClientSetOpts) error { // valkey (../../../../../daggerverse/valkey/client.go:286:1)
 	if r.set != nil {
 		return nil
 	}
@@ -648,8 +723,10 @@ func (r *ValkeyClient) AsNode() Node {
 
 // ClientSecurity describes how a valkey-go client connects to a Valkey
 // server. PLAINTEXT connects over an unencrypted TCP listener; TLS pins
-// the server CA; MTLS additionally presents a client certificate
-// Only PLAINTEXT is constructible in this story.
+// the server CA and sets ServerName to the dialed host; MTLS
+// additionally presents a client certificate + key. The client builds a
+// *tls.Config from this PEM material and hands it to valkey-go via
+// ClientOption.TLSConfig.
 type ValkeyClientSecurity struct { // valkey (../../../../../daggerverse/valkey/security.go:45:6)
 	query *querybuilder.Selection
 
@@ -741,7 +818,7 @@ func (r *ValkeyServer) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyServer
 // BindServer attaches the Valkey service to the given container under
 // the same hostname Endpoint reports, so the container can dial the node
 // at `Endpoint()` (e.g. `valkey-cli -h <host> -a <pw> PING`).
-func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:176:1)
+func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:195:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindServer")
 	q = q.Arg("ctr", ctr)
@@ -759,7 +836,7 @@ func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../
 // rather than failing opaquely at the wire. Readiness is then probed
 // with the client itself, so a TLS / mTLS listener would be polled over
 // TLS using the caller's own cert material.
-func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:190:1)
+func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:209:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -780,7 +857,7 @@ func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { //
 // would register the service in the module's DNS domain, which the
 // binding's host-file lookup can't resolve from a session-domain
 // consumer — so the start must be driven by the binding, not here.
-func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:149:1)
+func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:168:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -844,7 +921,7 @@ func (r *ValkeyServer) UnmarshalJSON(bs []byte) error {
 // Password returns the `requirepass` secret the node was provisioned
 // with, so callers can re-use it via Valkey.Client against the same
 // endpoint.
-func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:167:1)
+func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:186:1)
 	q := r.query.Select("password")
 
 	return &Secret{
@@ -856,7 +933,7 @@ func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggervers
 // call this in a defer so the service span closes when the test returns.
 // SIGKILL skips graceful shutdown — Valkey's save-on-shutdown path is
 // wasted work for a torn-down test node.
-func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:226:1)
+func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:245:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -868,7 +945,7 @@ func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../
 // User returns the ACL user clients authenticate as. `requirepass` sets
 // the password of the built-in `default` user, so this is always
 // "default" in this story; an ACL-file follow-up is what makes it vary.
-func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:158:1)
+func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:177:1)
 	if r.user != nil {
 		return *r.user, nil
 	}
@@ -889,7 +966,7 @@ func (r *ValkeyServer) AsNode() Node {
 }
 
 // ServerSecurity describes how a Valkey server's client-facing listener
-// authenticates and encrypts traffic. Three modes are planned:
+// authenticates and encrypts traffic. Three modes are supported:
 //
 //   - PLAINTEXT — `requirepass` auth over an unencrypted TCP listener.
 //   - TLS — one-way TLS: the node presents a server certificate on a
@@ -898,16 +975,15 @@ func (r *ValkeyServer) AsNode() Node {
 //   - MTLS — mutual TLS: connecting clients must additionally present a
 //     certificate signed by ClientCa.
 //
-// Only PLAINTEXT is constructible in this story. The TLS / MTLS fields
-// are carried now so the follow-up that adds them slots in without
-// changing the Server signature.
+// The cert material is caller-supplied PEM: valkey-server reads it
+// natively via `--tls-cert-file` / `--tls-key-file` / `--tls-ca-cert-file`.
 //
-// Note for that follow-up: Valkey's `tls-auth-clients` defaults to
-// `yes`, so a TLS-enabled node demands client certificates unless
-// `--tls-auth-clients no` is passed. One-way TLS is therefore the
+// The trap this module has to get right: Valkey's `tls-auth-clients`
+// defaults to `yes`, so a TLS-enabled node demands client certificates
+// unless `--tls-auth-clients no` is passed. One-way TLS is therefore the
 // opt-*out* here, inverting the postgres posture where mTLS is the
-// opt-in.
-type ValkeyServerSecurity struct { // valkey (../../../../../daggerverse/valkey/security.go:29:6)
+// opt-in — see applyServerSecurity.
+type ValkeyServerSecurity struct { // valkey (../../../../../daggerverse/valkey/security.go:28:6)
 	query *querybuilder.Selection
 
 	id *ID
