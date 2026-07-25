@@ -56,6 +56,49 @@ type Server struct {
 //   - `name == ""` for a TLS / MTLS node — the hostname (and therefore
 //     the SAN the server cert must carry) derives from `name`, so each
 //     encrypted node needs a unique discriminator.
+//   - a malformed `maxMemory` or an unknown `maxMemoryPolicy` — either
+//     makes valkey-server refuse to start, which would otherwise reach
+//     the caller as an opaque readiness timeout.
+//   - an `aclFile` that never mentions the `default` user — Valkey would
+//     recreate that user `nopass` and the node would boot without the
+//     password this function insists on. See validateAclFile.
+//
+// # Configuration passthrough
+//
+// `configFile`, `aclFile`, `appendOnly`, `maxMemory`, `maxMemoryPolicy`,
+// and `extraArgs` are all optional, and omitting every one of them
+// produces exactly the node this function produced before they existed.
+// They are constructor parameters rather than post-boot modifiers
+// because valkey-server reads each of them only while starting up.
+//
+// Precedence runs left to right along the command line, which Valkey
+// resolves last-one-wins:
+//
+//	<configFile>  <listener flags>  <passthrough flags>  <extraArgs>
+//
+// So a flag argument always beats the same directive in `configFile`,
+// and `extraArgs` beats everything — including this module's own
+// choices. A passthrough parameter left at its default emits no flag at
+// all, which is what lets `configFile` govern the settings the caller
+// did not name.
+//
+// `aclFile` is a `*dagger.Secret`, not a `*dagger.File`: an ACL file
+// carries per-user password material, so it is mounted as a secret and
+// never lands in an image layer or the Dagger graph. Valkey loads it
+// AFTER `requirepass` and recreates any user the file omits in its
+// factory `on nopass` state, so the file must say something about
+// `default` — that is the one thing about it this function validates.
+//
+// A `configFile` carrying its own `user ...` directives cannot be
+// combined with an `aclFile`: valkey-server refuses to start when both
+// are present. This module does not read the config file, so that one
+// surfaces as a node that never becomes ready.
+//
+// `extraArgs` is the deliberate escape hatch. It is appended verbatim,
+// last, and completely unvalidated; it is UNSUPPORTED surface, and
+// anything reachable through it may break without notice. Each element
+// becomes one shell word in the node's boot command, so a caller passing
+// a value containing whitespace must quote it themselves.
 //
 // Session-cached so that repeated chained method calls on the returned
 // server (e.g. Client.Set → Client.Get across two Server.Client() calls
@@ -84,6 +127,31 @@ func (v *Valkey) Server(
 	tag string,
 	password *dagger.Secret,
 	clientListenerSecurity *ServerSecurity,
+	// A valkey.conf loaded before every flag argument; conflicting flags win.
+	//
+	// +optional
+	configFile *dagger.File,
+	// An ACL file loaded via --aclfile. A secret, not a file: it carries
+	// per-user password material.
+	//
+	// +optional
+	aclFile *dagger.Secret,
+	// Turn the append-only file on. Defaults to false, matching Valkey.
+	//
+	// +default=false
+	appendOnly bool,
+	// Memory ceiling in Valkey's notation ("512mb", "1gb", "104857600").
+	//
+	// +optional
+	maxMemory string,
+	// Eviction policy applied once maxMemory is reached.
+	//
+	// +default="noeviction"
+	maxMemoryPolicy string,
+	// Unvalidated, unsupported valkey-server arguments, appended last.
+	//
+	// +optional
+	extraArgs []string,
 ) (*Server, error) {
 	if password == nil {
 		return nil, fmt.Errorf("password must not be nil; pass a *dagger.Secret with the requirepass value")
@@ -108,7 +176,24 @@ func (v *Valkey) Server(
 		)
 	}
 
-	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, nil, nil, nil), nil
+	cfg := &serverConfig{
+		File:            configFile,
+		AclFile:         aclFile,
+		AppendOnly:      appendOnly,
+		MaxMemory:       maxMemory,
+		MaxMemoryPolicy: maxMemoryPolicy,
+		ExtraArgs:       extraArgs,
+	}
+	if err := validateServerConfig(cfg); err != nil {
+		return nil, err
+	}
+	if aclFile != nil {
+		if err := validateAclFile(ctx, aclFile); err != nil {
+			return nil, err
+		}
+	}
+
+	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, cfg, nil, nil, nil), nil
 }
 
 // valkeyImage renders the image reference a node boots from. The
@@ -139,21 +224,27 @@ type serviceBinding struct {
 }
 
 // buildServer assembles a single valkey-server node: the container, the
-// security-derived listener flags, any extra `valkey-server` arguments
-// (replication or cluster flags, say), the service bindings the node
-// needs in order to dial its peers, and any ports beyond the client
-// listener the node must expose (the cluster bus, say). Inputs are
-// assumed already validated — Valkey.Server, Valkey.Replication, and
-// Valkey.Cluster each validate before calling.
+// security-derived listener flags, the caller's configuration
+// passthrough, any topology `valkey-server` arguments (replication or
+// cluster flags, say), the service bindings the node needs in order to
+// dial its peers, and any ports beyond the client listener the node must
+// expose (the cluster bus, say). Inputs are assumed already validated —
+// Valkey.Server, Valkey.Replication, and Valkey.Cluster each validate
+// before calling. A nil cfg means no passthrough, which is what the
+// topology constructors pass.
 func buildServer(
 	name string,
 	image string,
 	password *dagger.Secret,
 	security *ServerSecurity,
-	extraArgs []string,
+	cfg *serverConfig,
+	topologyArgs []string,
 	bindings []serviceBinding,
 	extraPorts []int,
 ) *Server {
+	if cfg == nil {
+		cfg = &serverConfig{}
+	}
 	host := serverHostname(name)
 
 	// The password reaches valkey-server through a secret environment
@@ -176,8 +267,31 @@ func buildServer(
 		ctr = ctr.WithServiceBinding(b.host, b.svc)
 	}
 
-	ctr, args := applyServerSecurity(ctr, security)
-	args = append(args, extraArgs...)
+	ctr, configPath, configFlags := applyServerConfig(ctr, cfg)
+	ctr, securityArgs := applyServerSecurity(ctr, security)
+
+	// The command line IS the precedence contract, so the order here is
+	// load-bearing rather than incidental:
+	//
+	//  1. the config file path — valkey-server reads it only as the first
+	//     positional argument, and every flag after it is an override;
+	//  2. the listener flags (port + requirepass), which the module owns
+	//     outright and so always win over the file;
+	//  3. the caller's passthrough flags, which win over the file for the
+	//     settings the caller actually named;
+	//  4. the topology flags (--replicaof, --cluster-enabled), which the
+	//     module owns for the same reason as (2);
+	//  5. extraArgs — deliberately last, so the escape hatch can override
+	//     anything above it, including this module's own choices.
+	//
+	// Valkey resolves duplicate settings last-one-wins, so "later" and
+	// "higher precedence" are the same statement.
+	args := make([]string, 0, len(configPath)+len(securityArgs)+len(configFlags)+len(topologyArgs)+len(cfg.ExtraArgs))
+	args = append(args, configPath...)
+	args = append(args, securityArgs...)
+	args = append(args, configFlags...)
+	args = append(args, topologyArgs...)
+	args = append(args, cfg.ExtraArgs...)
 
 	// A shell wrapper is what makes "$VALKEY_PASSWORD" expand at boot;
 	// AsService args are exec'd directly, with no shell to expand them.

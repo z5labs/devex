@@ -4,8 +4,10 @@
 // `dagger call all`.
 //
 // Every password, server name, and key prefix is minted at runtime via
-// dag.Random().Sha256. The ACL user deliberately uses the valkey
-// module's default ("default"), which a few tests assert against.
+// dag.Random().Sha256. Clients authenticate as the valkey module's
+// default ACL user ("default"), which a few tests assert against; the
+// configuration-passthrough tests are the exception, since an ACL file is
+// how a caller gets any other user at all.
 package main
 
 import (
@@ -55,6 +57,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Security", func(ctx context.Context) error {
 		return t.Security(ctx, parallel)
 	})
+	jobs = jobs.WithJob("Config", func(ctx context.Context) error {
+		return t.Config(ctx, parallel)
+	})
 	jobs = jobs.WithJob("Replication", func(ctx context.Context) error {
 		return t.Replication(ctx, parallel)
 	})
@@ -82,6 +87,9 @@ func (t *Tests) Validation(
 	}
 	jobs = jobs.WithJob("server-rejects-nil-password", t.ServerRejectsNilPassword)
 	jobs = jobs.WithJob("server-rejects-nil-security", t.ServerRejectsNilSecurity)
+	jobs = jobs.WithJob("server-rejects-invalid-max-memory", t.ServerRejectsInvalidMaxMemory)
+	jobs = jobs.WithJob("server-rejects-invalid-max-memory-policy", t.ServerRejectsInvalidMaxMemoryPolicy)
+	jobs = jobs.WithJob("server-rejects-acl-file-without-default-user", t.ServerRejectsAclFileWithoutDefaultUser)
 	jobs = jobs.WithJob("replication-rejects-too-few-replicas", t.ReplicationRejectsTooFewReplicas)
 	jobs = jobs.WithJob("replication-rejects-tls-security", t.ReplicationRejectsTlsSecurity)
 	jobs = jobs.WithJob("cluster-rejects-too-few-shards", t.ClusterRejectsTooFewShards)
@@ -238,6 +246,34 @@ func (t *Tests) Security(
 	return jobs.Run(ctx)
 }
 
+// Config runs the `valkey-server` configuration passthrough tests: the
+// config file, the ACL file, the append-only log, the memory ceiling, and
+// the extraArgs escape hatch. Each test boots its own node under a
+// runtime-random name, so the group fans out safely.
+//
+// +check
+// +cache="session"
+func (t *Tests) Config(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("omitted-config-leaves-valkey-defaults", t.OmittedConfigLeavesValkeyDefaults)
+	jobs = jobs.WithJob("append-only-enables-aof", t.AppendOnlyEnablesAof)
+	jobs = jobs.WithJob("max-memory-evicts-over-limit", t.MaxMemoryEvictsOverLimit)
+	jobs = jobs.WithJob("acl-file-provisions-user", t.AclFileProvisionsUser)
+	jobs = jobs.WithJob("config-file-directives-apply", t.ConfigFileDirectivesApply)
+	jobs = jobs.WithJob("flag-argument-beats-config-file", t.FlagArgumentBeatsConfigFile)
+	jobs = jobs.WithJob("extra-args-reach-server-last", t.ExtraArgsReachServerLast)
+	return jobs.Run(ctx)
+}
+
 // -----------------------------------------------------------------------------
 // Helpers — all identifiers minted at runtime, no literals.
 // -----------------------------------------------------------------------------
@@ -260,6 +296,18 @@ func randSecret(ctx context.Context) (*dagger.Secret, error) {
 		return nil, err
 	}
 	return dag.SetSecret("valkey-pw-"+full[:12], full), nil
+}
+
+// randSecretPair mints a random password and returns both the wrapped
+// *dagger.Secret and its plaintext. The plaintext is what a test needs
+// when it has to write the same credential into a fixture the server will
+// read back — an ACL file, say.
+func randSecretPair(ctx context.Context) (*dagger.Secret, string, error) {
+	full, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 32})
+	if err != nil {
+		return nil, "", err
+	}
+	return dag.SetSecret("valkey-pw-"+full[:12], full), full, nil
 }
 
 // bootServer mints a fresh single-node Valkey server and returns it
@@ -343,6 +391,90 @@ func (t *Tests) ServerRejectsNilSecurity(ctx context.Context) (returnErr error) 
 	}
 	server := dag.Valkey().Server(pass, nil)
 	_, _ = server.Endpoint(ctx)
+	return nil
+}
+
+// ServerRejectsInvalidMaxMemory verifies a malformed memory ceiling is
+// caught in-process rather than at boot. valkey-server parses `maxmemory`
+// with memtoll, which accepts an integer plus an optional unit suffix and
+// nothing else — a fractional value or an invented unit makes it refuse
+// to start, and the caller would meet that as a readiness timeout with
+// the parse error stranded in a service log nobody reads.
+//
+// The accepted cases run too, so the guard can't pass by rejecting
+// everything: `k`/`m`/`g` (powers of 1000) and `kb`/`mb`/`gb` (powers of
+// 1024) are both legal, as is a bare byte count.
+//
+// +cache="never"
+func (t *Tests) ServerRejectsInvalidMaxMemory(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	build := func(maxMemory string) *dagger.ValkeyServer {
+		return dag.Valkey().Server(
+			pass,
+			dag.Valkey().PlaintextServerSecurity(),
+			dagger.ValkeyServerOpts{MaxMemory: maxMemory},
+		)
+	}
+	for _, bad := range []string{"1.5gb", "512 mb", "lots", "512tb", "-1", "mb"} {
+		_, err := build(bad).Endpoint(ctx)
+		if err == nil {
+			return fmt.Errorf("expected maxMemory=%q to be rejected, but it built a server", bad)
+		}
+		if !strings.Contains(err.Error(), "maxMemory") {
+			return fmt.Errorf("expected the maxMemory=%q rejection to name the argument, got: %v", bad, err)
+		}
+	}
+	for _, good := range []string{"104857600", "512b", "64k", "64kb", "512m", "512mb", "1g", "1GB"} {
+		if _, err := build(good).Endpoint(ctx); err != nil {
+			return fmt.Errorf("expected maxMemory=%q to be accepted: %w", good, err)
+		}
+	}
+	return nil
+}
+
+// ServerRejectsInvalidMaxMemoryPolicy verifies an unknown eviction policy
+// is caught in-process, for the same reason as the memory ceiling: a
+// mistyped policy is a config-parse error at boot, which surfaces as a
+// node that simply never becomes ready.
+//
+// Every policy Valkey accepts is exercised on the accept side, so a guard
+// that only knew the common ones would fail here rather than in a
+// caller's pipeline.
+//
+// +cache="never"
+func (t *Tests) ServerRejectsInvalidMaxMemoryPolicy(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	build := func(policy string) *dagger.ValkeyServer {
+		return dag.Valkey().Server(
+			pass,
+			dag.Valkey().PlaintextServerSecurity(),
+			dagger.ValkeyServerOpts{MaxMemoryPolicy: policy},
+		)
+	}
+	for _, bad := range []string{"allkeys-flu", "lru", "evict-everything", "ALLKEYS-LRU"} {
+		_, err := build(bad).Endpoint(ctx)
+		if err == nil {
+			return fmt.Errorf("expected maxMemoryPolicy=%q to be rejected, but it built a server", bad)
+		}
+		if !strings.Contains(err.Error(), "maxMemoryPolicy") {
+			return fmt.Errorf("expected the maxMemoryPolicy=%q rejection to name the argument, got: %v", bad, err)
+		}
+	}
+	for _, good := range []string{
+		"noeviction",
+		"allkeys-lru", "allkeys-lfu", "allkeys-random",
+		"volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl",
+	} {
+		if _, err := build(good).Endpoint(ctx); err != nil {
+			return fmt.Errorf("expected maxMemoryPolicy=%q to be accepted: %w", good, err)
+		}
+	}
 	return nil
 }
 
@@ -2616,6 +2748,625 @@ func (t *Tests) ClusterStopTerminatesEveryNode(ctx context.Context) error {
 		if err := node.Ping(ctx); err == nil {
 			return fmt.Errorf("expected node %d to be down after Stop, but it still answered", i)
 		}
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Config tests — `valkey-server` configuration passthrough.
+//
+// Every setting here is applied at boot, so each test boots its own node
+// and reads the result back through CONFIG GET / INFO rather than
+// asserting on rendered arguments: what matters is what valkey-server
+// ended up believing, not what this module thinks it asked for.
+// -----------------------------------------------------------------------------
+
+// configGet reads one configuration parameter back off a running node.
+//
+// CONFIG GET answers with a map under RESP3 and a flat array under RESP2,
+// so both shapes are decoded — the module pins neither, and a protocol
+// change should not read as a config failure.
+func configGet(ctx context.Context, client *dagger.ValkeyClient, param string) (string, error) {
+	reply, err := client.Do(ctx, []string{"CONFIG", "GET", param})
+	if err != nil {
+		return "", fmt.Errorf("config get %s: %w", param, err)
+	}
+	var asMap map[string]string
+	if err := json.Unmarshal([]byte(reply), &asMap); err == nil {
+		value, ok := asMap[param]
+		if !ok {
+			return "", fmt.Errorf("expected CONFIG GET %s to report the parameter, got %s", param, reply)
+		}
+		return value, nil
+	}
+	var asPairs []string
+	if err := json.Unmarshal([]byte(reply), &asPairs); err != nil {
+		return "", fmt.Errorf("expected CONFIG GET %s to decode as a map or an array, got %s", param, reply)
+	}
+	for i := 0; i+1 < len(asPairs); i += 2 {
+		if asPairs[i] == param {
+			return asPairs[i+1], nil
+		}
+	}
+	return "", fmt.Errorf("expected CONFIG GET %s to report the parameter, got %s", param, reply)
+}
+
+// bootConfiguredServer mints a node with a configuration passthrough
+// applied, under a runtime-random name so it does not share a session
+// cache key — or a keyspace — with any other test. The password is
+// returned so a caller can build a standalone client against the same
+// node.
+func bootConfiguredServer(ctx context.Context, opts dagger.ValkeyServerOpts) (*dagger.ValkeyServer, *dagger.Secret, error) {
+	name, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts.Name = name
+	return dag.Valkey().Server(pass, dag.Valkey().PlaintextServerSecurity(), opts), pass, nil
+}
+
+// OmittedConfigLeavesValkeyDefaults verifies the passthrough is genuinely
+// opt-in: a node built without any of the new parameters reports Valkey's
+// own defaults for every one of them.
+//
+// This is the test that pins the "a parameter left at its default emits
+// no flag" rule, and it is not merely a restatement of the defaults. An
+// implementation that rendered `--appendonly no` or `--maxmemory-policy
+// noeviction` unconditionally would pass every assertion below and still
+// be wrong — because those flags sit after the config file on the command
+// line and would silently override a `configFile` that set them. The
+// configFile tests further down are what catch that, and this one is what
+// makes their failure legible.
+//
+// +cache="never"
+func (t *Tests) OmittedConfigLeavesValkeyDefaults(ctx context.Context) error {
+	server, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	for param, want := range map[string]string{
+		"appendonly":       "no",
+		"maxmemory":        "0",
+		"maxmemory-policy": "noeviction",
+		"aclfile":          "",
+	} {
+		got, err := configGet(ctx, client, param)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("expected %s to stay at Valkey's default %q with no passthrough, got %q", param, want, got)
+		}
+	}
+	return nil
+}
+
+// AppendOnlyEnablesAof verifies `appendOnly: true` reaches the node as a
+// real persistence change: INFO persistence reports aof_enabled:1 and
+// CONFIG GET agrees.
+//
+// A control node with the parameter omitted is asserted to report
+// aof_enabled:0 in the same test. Without it, an image that shipped with
+// the AOF already on would make the positive assertion pass while the
+// parameter did nothing at all — the classic vacuous config test.
+//
+// +cache="never"
+func (t *Tests) AppendOnlyEnablesAof(ctx context.Context) error {
+	on, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{AppendOnly: true})
+	if err != nil {
+		return err
+	}
+	onClient := plaintextClient(on)
+	info, err := onClient.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "persistence"})
+	if err != nil {
+		return fmt.Errorf("info persistence with appendOnly: %w", err)
+	}
+	if !strings.Contains(info, "aof_enabled:1") {
+		return fmt.Errorf("expected aof_enabled:1 with appendOnly=true, got:\n%s", info)
+	}
+	if got, err := configGet(ctx, onClient, "appendonly"); err != nil {
+		return err
+	} else if got != "yes" {
+		return fmt.Errorf("expected CONFIG GET appendonly to report yes, got %q", got)
+	}
+
+	off, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	offInfo, err := plaintextClient(off).Info(ctx, dagger.ValkeyClientInfoOpts{Section: "persistence"})
+	if err != nil {
+		return fmt.Errorf("info persistence without appendOnly: %w", err)
+	}
+	if !strings.Contains(offInfo, "aof_enabled:0") {
+		return fmt.Errorf("expected aof_enabled:0 without appendOnly (the positive case would pass vacuously), got:\n%s", offInfo)
+	}
+	return nil
+}
+
+// infoValue pulls one `field:value` entry out of an INFO reply.
+func infoValue(info, field string) (string, error) {
+	for _, line := range strings.Split(info, "\n") {
+		name, value, ok := strings.Cut(strings.TrimSpace(line), ":")
+		if ok && name == field {
+			return value, nil
+		}
+	}
+	return "", fmt.Errorf("expected INFO to report %s, got:\n%s", field, info)
+}
+
+// infoInt pulls one numeric `field:value` entry out of an INFO reply.
+func infoInt(info, field string) (int, error) {
+	raw, err := infoValue(info, field)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("expected INFO %s to be numeric, got %q: %w", field, raw, err)
+	}
+	return n, nil
+}
+
+// bigKeySeed renders a command file that grows `count` keys to ~4KiB
+// each. SETRANGE is what keeps the file small: a ~30-byte line produces
+// 4KiB of server-side value, so filling a multi-megabyte keyspace costs
+// kilobytes of fixture rather than megabytes.
+func bigKeySeed(prefix string, count int) string {
+	var seed strings.Builder
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&seed, "SETRANGE %s:%05d 4095 x\n", prefix, i)
+	}
+	return seed.String()
+}
+
+// MaxMemoryEvictsOverLimit verifies the memory ceiling is a real limit
+// and that the eviction policy alongside it decides what happens when a
+// write crosses it.
+//
+// Two nodes, same ceiling, opposite policies, because either half alone
+// proves little. Under `allkeys-lru` the over-limit writes must all be
+// ACCEPTED and paid for by evicting older keys — so the keyspace ends up
+// smaller than what was written and evicted_keys is non-zero. Under the
+// default `noeviction` the same writes must be REFUSED with OOM. A
+// maxMemory that never reached valkey-server would leave both nodes
+// happily holding the whole keyspace, and a maxMemoryPolicy that never
+// reached it would make the two nodes behave identically.
+//
+// +cache="never"
+func (t *Tests) MaxMemoryEvictsOverLimit(ctx context.Context) error {
+	// ~4KiB per key, so the seed is several times the ceiling. The ceiling
+	// itself sits well clear of an empty node's own ~1MiB overhead, so the
+	// evictions below are the seeded keys being reclaimed and not Valkey
+	// failing to fit its own bookkeeping.
+	const (
+		maxMemory      = "16mb"
+		maxMemoryBytes = 16 * 1024 * 1024
+		keys           = 8000
+	)
+
+	evicting, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{
+		MaxMemory:       maxMemory,
+		MaxMemoryPolicy: "allkeys-lru",
+	})
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(evicting)
+
+	if got, err := configGet(ctx, client, "maxmemory"); err != nil {
+		return err
+	} else if got != strconv.Itoa(maxMemoryBytes) {
+		return fmt.Errorf("expected CONFIG GET maxmemory to report %d bytes for %q, got %q", maxMemoryBytes, maxMemory, got)
+	}
+	if got, err := configGet(ctx, client, "maxmemory-policy"); err != nil {
+		return err
+	} else if got != "allkeys-lru" {
+		return fmt.Errorf("expected CONFIG GET maxmemory-policy to report allkeys-lru, got %q", got)
+	}
+
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.ApplyFile(ctx, commandFile(bigKeySeed(prefix, keys))); err != nil {
+		return fmt.Errorf("expected an evicting node to accept every over-limit write: %w", err)
+	}
+
+	stats, err := client.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "stats"})
+	if err != nil {
+		return fmt.Errorf("info stats: %w", err)
+	}
+	evicted, err := infoInt(stats, "evicted_keys")
+	if err != nil {
+		return err
+	}
+	if evicted == 0 {
+		return fmt.Errorf("expected the over-limit writes to evict keys, evicted_keys is 0 (maxmemory likely never reached valkey-server)")
+	}
+	size, err := client.DbSize(ctx)
+	if err != nil {
+		return fmt.Errorf("dbsize: %w", err)
+	}
+	if size >= keys {
+		return fmt.Errorf("expected the keyspace to be capped below the %d keys written, DbSize reports %d", keys, size)
+	}
+	memory, err := client.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "memory"})
+	if err != nil {
+		return fmt.Errorf("info memory: %w", err)
+	}
+	used, err := infoInt(memory, "used_memory")
+	if err != nil {
+		return err
+	}
+	if used > maxMemoryBytes {
+		return fmt.Errorf("expected used_memory to stay within the %d byte ceiling, got %d", maxMemoryBytes, used)
+	}
+
+	// Same ceiling, default policy: the writes must be refused instead.
+	refusing, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{MaxMemory: maxMemory})
+	if err != nil {
+		return err
+	}
+	err = plaintextClient(refusing).ApplyFile(ctx, commandFile(bigKeySeed(prefix, keys)))
+	if err == nil {
+		return fmt.Errorf("expected a noeviction node to refuse the over-limit writes, but it accepted all %d", keys)
+	}
+	if !strings.Contains(err.Error(), "OOM") {
+		return fmt.Errorf("expected an OOM rejection under the default noeviction policy, got: %v", err)
+	}
+	return nil
+}
+
+// AclFileProvisionsUser verifies an ACL file rides in as a secret and
+// provisions a user the module never knew about.
+//
+// The file is the only place that user's password exists in plaintext,
+// and it reaches the node as a mounted secret rather than an argument —
+// so the test also pins the leak paths shut: Valkey stores the password
+// as a SHA-256 digest, and neither ACL LIST nor ACL GETUSER may echo the
+// plaintext back. CONFIG GET aclfile reporting the mount path is the
+// other half of that: it proves the users arrived through the mounted
+// file rather than through `user ...` directives on the command line,
+// where they would be visible in the Dagger graph.
+//
+// +cache="never"
+func (t *Tests) AclFileProvisionsUser(ctx context.Context) error {
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	userPlaintext, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, passPlaintext, err := randSecretPair(ctx)
+	if err != nil {
+		return err
+	}
+	user := "app-" + suffix
+	// `>password` is the realistic form — a plaintext the file carries and
+	// Valkey hashes on load — and is exactly why aclFile is a *dagger.Secret.
+	//
+	// The `default` rule restates the module's own requirepass credential.
+	// It is not optional: Valkey recreates any user the ACL file omits in
+	// its factory `on nopass` state, so a file listing only `app-…` would
+	// leave the node open — which is what the rejection test next door
+	// pins.
+	aclFile := dag.SetSecret(
+		"valkey-acl-"+suffix,
+		fmt.Sprintf("user default on >%s ~* &* +@all\nuser %s on >%s ~* &* +@all\n",
+			passPlaintext, user, userPlaintext),
+	)
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().PlaintextServerSecurity(),
+		dagger.ValkeyServerOpts{Name: name, ACLFile: aclFile},
+	)
+	if err := plaintextClient(server).Ping(ctx); err != nil {
+		return fmt.Errorf("ping as the module's own user: %w", err)
+	}
+	if got, err := configGet(ctx, plaintextClient(server), "aclfile"); err != nil {
+		return err
+	} else if got == "" {
+		return fmt.Errorf("expected CONFIG GET aclfile to report the mounted path, got an empty value")
+	}
+
+	endpoint, err := server.Endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoint: %w", err)
+	}
+	host, _, _ := strings.Cut(endpoint, ":")
+	asUser := dag.Valkey().Client(
+		host,
+		dag.SetSecret("valkey-acl-pw-"+suffix, userPlaintext),
+		dag.Valkey().PlaintextClientSecurity(),
+		dagger.ValkeyClientOpts{User: user},
+	)
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	if err := asUser.Set(ctx, key, want); err != nil {
+		return fmt.Errorf("set as the ACL-provisioned user %s: %w", user, err)
+	}
+	got, err := asUser.Get(ctx, key)
+	if err != nil {
+		return fmt.Errorf("get as the ACL-provisioned user %s: %w", user, err)
+	}
+	if got != want {
+		return fmt.Errorf("expected %q back as %s, got %q", want, user, got)
+	}
+
+	// A wrong password for the same user must still be refused — otherwise
+	// the round trip above would prove only that the node is open.
+	wrong, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	err = dag.Valkey().Client(
+		host,
+		wrong,
+		dag.Valkey().PlaintextClientSecurity(),
+		dagger.ValkeyClientOpts{User: user},
+	).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a wrong password for %s to be refused, but the node accepted it", user)
+	}
+	if !strings.Contains(err.Error(), "WRONGPASS") {
+		return fmt.Errorf("expected a WRONGPASS rejection for %s, got: %v", user, err)
+	}
+
+	// Valkey keeps a SHA-256 digest, never the plaintext, so nothing the
+	// server will hand back may contain it. ACL GETUSER names the user only
+	// in the request, so the listing is what proves the rules were read from
+	// the file at all.
+	listing, err := asUser.Do(ctx, []string{"ACL", "LIST"})
+	if err != nil {
+		return fmt.Errorf("acl list: %w", err)
+	}
+	if !strings.Contains(listing, user) {
+		return fmt.Errorf("expected ACL LIST to know about %s, got: %s", user, listing)
+	}
+	rules, err := asUser.Do(ctx, []string{"ACL", "GETUSER", user})
+	if err != nil {
+		return fmt.Errorf("acl getuser: %w", err)
+	}
+	if !strings.Contains(rules, "passwords") {
+		return fmt.Errorf("expected ACL GETUSER %s to describe the user, got: %s", user, rules)
+	}
+	for what, reply := range map[string]string{"ACL LIST": listing, "ACL GETUSER": rules} {
+		if strings.Contains(reply, userPlaintext) {
+			return fmt.Errorf("expected %s to expose only a password digest, but it echoed the plaintext", what)
+		}
+	}
+
+	// The ACL file is loaded after `requirepass`, so it is entitled to
+	// redefine `default` — this asserts it did NOT silently do so by
+	// omission, which would leave the node reachable without a password.
+	err = dag.Valkey().Client(host, wrong, dag.Valkey().PlaintextClientSecurity()).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected requirepass to still guard the default user, but a wrong password was accepted")
+	}
+	if !strings.Contains(err.Error(), "WRONGPASS") {
+		return fmt.Errorf("expected a WRONGPASS rejection for the default user, got: %v", err)
+	}
+	return nil
+}
+
+// ServerRejectsAclFileWithoutDefaultUser verifies the module refuses an
+// ACL file that never mentions the `default` user.
+//
+// This is the module's password guarantee holding under the new
+// parameter. Valkey loads the ACL file after `requirepass` and recreates
+// any user the file omits in its factory `on nopass` state — so an ACL
+// file listing only the caller's own users silently drops the password
+// from `default` and leaves the node reachable by anything that can route
+// to it. Valkey.Server rejects a nil password for exactly that reason,
+// and an ACL file must not be a back door around it.
+//
+// The accepting cases prove the guard is a mention and not an
+// interpretation: naming `default` at all — even to turn it off — is a
+// decision the caller is entitled to make.
+//
+// +cache="never"
+func (t *Tests) ServerRejectsAclFileWithoutDefaultUser(ctx context.Context) error {
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, passPlaintext, err := randSecretPair(ctx)
+	if err != nil {
+		return err
+	}
+	build := func(label, contents string) *dagger.ValkeyServer {
+		return dag.Valkey().Server(
+			pass,
+			dag.Valkey().PlaintextServerSecurity(),
+			dagger.ValkeyServerOpts{
+				Name:    suffix + label,
+				ACLFile: dag.SetSecret("valkey-acl-"+suffix+label, contents),
+			},
+		)
+	}
+	rejected := map[string]string{
+		"only-own-user": fmt.Sprintf("user app-%s on >%s ~* &* +@all\n", suffix, passPlaintext),
+		"empty":         "",
+		// `default` appears, but only as prose — a comment is not a rule.
+		"commented-out": fmt.Sprintf("# user default on >%s ~* +@all\nuser app-%s on >%s ~* +@all\n",
+			passPlaintext, suffix, passPlaintext),
+	}
+	for label, contents := range rejected {
+		_, err := build(label, contents).Endpoint(ctx)
+		if err == nil {
+			return fmt.Errorf("expected the %s ACL file to be rejected, but it built a server", label)
+		}
+		if !strings.Contains(err.Error(), "aclFile") || !strings.Contains(err.Error(), "default") {
+			return fmt.Errorf("expected the %s rejection to name aclFile and the default user, got: %v", label, err)
+		}
+	}
+	accepted := map[string]string{
+		"default-with-password": fmt.Sprintf("user default on >%s ~* &* +@all\n", passPlaintext),
+		"default-disabled":      "user default off\n",
+	}
+	for label, contents := range accepted {
+		if _, err := build(label, contents).Endpoint(ctx); err != nil {
+			return fmt.Errorf("expected the %s ACL file to be accepted: %w", label, err)
+		}
+	}
+	return nil
+}
+
+// ConfigFileDirectivesApply verifies a mounted valkey.conf is genuinely
+// loaded, and — the harder half — that it still governs settings this
+// module has parameters of its own for.
+//
+// The file deliberately sets `appendonly` and `maxmemory-policy`, the two
+// settings whose module parameters carry defaults that match Valkey's.
+// An implementation that rendered those parameters unconditionally would
+// emit `--appendonly no --maxmemory-policy noeviction` after the config
+// file and quietly win, so this is the test that pins the "a parameter
+// left at its default emits no flag" rule. `hash-max-listpack-entries` is
+// along for the ride as a directive the module has no opinion about at
+// all.
+//
+// +cache="never"
+func (t *Tests) ConfigFileDirectivesApply(ctx context.Context) error {
+	directives := map[string]string{
+		"appendonly":                "yes",
+		"maxmemory-policy":          "allkeys-lfu",
+		"hash-max-listpack-entries": "42",
+	}
+	var conf strings.Builder
+	for param, value := range directives {
+		fmt.Fprintf(&conf, "%s %s\n", param, value)
+	}
+
+	server, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{
+		ConfigFile: commandFile(conf.String()),
+	})
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("ping a node booted from a config file: %w", err)
+	}
+	for param, want := range directives {
+		got, err := configGet(ctx, client, param)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("expected the config file's %s %s to survive, CONFIG GET reports %q", param, want, got)
+		}
+	}
+
+	// The listener flags are the module's own and DO override the file —
+	// the node still answers on 6379 with the password it was given, which
+	// the ping above already proved.
+	return nil
+}
+
+// FlagArgumentBeatsConfigFile verifies the precedence contract in the
+// direction that matters: when the same setting appears in `configFile`
+// and as a parameter, the parameter wins.
+//
+// Both settings are given deliberately conflicting values in the file, so
+// a passing result cannot be an accident of agreement. This is the
+// mirror of ConfigFileDirectivesApply — together they say the file is
+// loaded first and the flags are applied on top, which is the whole
+// ordering guarantee.
+//
+// +cache="never"
+func (t *Tests) FlagArgumentBeatsConfigFile(ctx context.Context) error {
+	conf := "maxmemory 100mb\nmaxmemory-policy allkeys-lfu\n"
+	server, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{
+		ConfigFile:      commandFile(conf),
+		MaxMemory:       "50mb",
+		MaxMemoryPolicy: "allkeys-random",
+	})
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	for param, want := range map[string]string{
+		"maxmemory":        strconv.Itoa(50 * 1024 * 1024),
+		"maxmemory-policy": "allkeys-random",
+	} {
+		got, err := configGet(ctx, client, param)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("expected the %s flag argument to beat the config file's value, CONFIG GET reports %q (wanted %q)", param, got, want)
+		}
+	}
+	return nil
+}
+
+// ExtraArgsReachServerLast verifies the escape hatch does both of the
+// things it promises: the arguments reach valkey-server verbatim, and
+// they land last on the command line.
+//
+// `databases` is a setting with no module parameter at all, so it can
+// only have arrived through extraArgs. `maxmemory-policy` is passed
+// BOTH ways, with different values, so the reply says which one Valkey
+// saw last — and therefore whether extraArgs really is appended after
+// the module's own flags rather than merely somewhere among them.
+//
+// +cache="never"
+func (t *Tests) ExtraArgsReachServerLast(ctx context.Context) error {
+	server, _, err := bootConfiguredServer(ctx, dagger.ValkeyServerOpts{
+		MaxMemory:       "64mb",
+		MaxMemoryPolicy: "allkeys-lru",
+		ExtraArgs: []string{
+			"--databases", "24",
+			"--maxmemory-policy", "volatile-ttl",
+		},
+	})
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("ping a node booted with extraArgs: %w", err)
+	}
+	if got, err := configGet(ctx, client, "databases"); err != nil {
+		return err
+	} else if got != "24" {
+		return fmt.Errorf("expected --databases 24 to reach valkey-server verbatim, CONFIG GET reports %q", got)
+	}
+	if got, err := configGet(ctx, client, "maxmemory-policy"); err != nil {
+		return err
+	} else if got != "volatile-ttl" {
+		return fmt.Errorf("expected extraArgs to be appended after the maxMemoryPolicy parameter, CONFIG GET reports %q (wanted volatile-ttl)", got)
+	}
+	// The parameter it did not shadow is untouched, so "last wins" is a
+	// property of the ordering and not of extraArgs clobbering everything.
+	if got, err := configGet(ctx, client, "maxmemory"); err != nil {
+		return err
+	} else if want := strconv.Itoa(64 * 1024 * 1024); got != want {
+		return fmt.Errorf("expected maxMemory to survive alongside extraArgs, CONFIG GET reports %q (wanted %q)", got, want)
 	}
 	return nil
 }
