@@ -108,15 +108,50 @@ func (v *Valkey) Server(
 		)
 	}
 
-	image := fmt.Sprintf("%s/valkey/valkey:%s", registry, tag)
+	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, nil, nil), nil
+}
 
-	// Stable hostname is scoped per-server so parallel invocations don't
-	// collide on a single `valkey` alias. It is derived from `name` alone
-	// so a caller minting a TLS server certificate in the follow-up can
-	// predict the hostname and embed it as the cert's SAN — the same
-	// derivation postgres and kafka use.
+// valkeyImage renders the image reference a node boots from. The
+// `valkey/valkey` portion is fixed; only the registry and tag are
+// caller-overridable.
+func valkeyImage(registry, tag string) string {
+	return fmt.Sprintf("%s/valkey/valkey:%s", registry, tag)
+}
+
+// serverHostname derives a node's stable hostname from its name. The
+// hostname is scoped per-node so parallel invocations don't collide on a
+// single `valkey` alias, and it is derived from `name` alone so a caller
+// minting a TLS server certificate can predict the hostname and embed it
+// as the cert's SAN — the same derivation postgres and kafka use.
+func serverHostname(name string) string {
 	keyBytes := sha256.Sum256([]byte(name))
-	host := "valkey-" + hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
+	return "valkey-" + hex.EncodeToString(keyBytes[:6]) // 12 hex chars = 48 bits
+}
+
+// serviceBinding is a service a node must be able to dial by hostname
+// before it starts — a replica's primary, for instance. It is a slice
+// element rather than a map entry so the resulting container's args and
+// mounts stay in a deterministic order and the LLB digest is stable
+// across invocations.
+type serviceBinding struct {
+	host string
+	svc  *dagger.Service
+}
+
+// buildServer assembles a single valkey-server node: the container, the
+// security-derived listener flags, any extra `valkey-server` arguments
+// (replication flags, say), and the service bindings the node needs in
+// order to dial its peers. Inputs are assumed already validated —
+// Valkey.Server and Valkey.Replication each validate before calling.
+func buildServer(
+	name string,
+	image string,
+	password *dagger.Secret,
+	security *ServerSecurity,
+	extraArgs []string,
+	bindings []serviceBinding,
+) *Server {
+	host := serverHostname(name)
 
 	// The password reaches valkey-server through a secret environment
 	// variable rather than a literal argv entry: a plaintext
@@ -127,7 +162,15 @@ func (v *Valkey) Server(
 		WithSecretVariable("VALKEY_PASSWORD", password).
 		WithExposedPort(valkeyPort)
 
-	ctr, args := applyServerSecurity(ctr, clientListenerSecurity)
+	// Bindings go on before AsService so the node resolves its peers from
+	// /etc/hosts at boot, and so Dagger starts those peers as dependencies
+	// of this node rather than leaving it to retry against a dead name.
+	for _, b := range bindings {
+		ctr = ctr.WithServiceBinding(b.host, b.svc)
+	}
+
+	ctr, args := applyServerSecurity(ctr, security)
+	args = append(args, extraArgs...)
 
 	// A shell wrapper is what makes "$VALKEY_PASSWORD" expand at boot;
 	// AsService args are exec'd directly, with no shell to expand them.
@@ -148,8 +191,8 @@ func (v *Valkey) Server(
 		Host:               host,
 		UserName:           defaultUser,
 		Pass:               password,
-		ClientListenerMode: clientListenerSecurity.Mode,
-	}, nil
+		ClientListenerMode: security.Mode,
+	}
 }
 
 // Endpoint returns the node's `host:6379` address. It does NOT start the

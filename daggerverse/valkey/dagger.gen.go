@@ -189,6 +189,26 @@ func (r *ServerSecurity) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Replication) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Nodes []*Server
+	}
+	concrete.Nodes = r.Nodes
+	return json.Marshal(&concrete)
+}
+
+func (r *Replication) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Nodes []*Server
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Nodes = concrete.Nodes
+	return nil
+}
+
 func (r Server) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Svc                *dagger.Service
@@ -480,6 +500,32 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "Replication":
+		switch fnName {
+		case "Primary":
+			var parent Replication
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Replication).Primary(&parent), nil
+		case "Replicas":
+			var parent Replication
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Replication).Replicas(&parent), nil
+		case "Stop":
+			var parent Replication
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Replication).Stop(&parent, ctx)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Server":
 		switch fnName {
 		case "BindServer":
@@ -662,6 +708,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Valkey).PlaintextServerSecurity(&parent), nil
+		case "Replication":
+			var parent Valkey
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var registry string
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			var replicas int
+			if inputArgs["replicas"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["replicas"]), &replicas)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg replicas", err))
+				}
+			}
+			var password *dagger.Secret
+			if inputArgs["password"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["password"]), &password)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
+				}
+			}
+			var clientListenerSecurity *ServerSecurity
+			if inputArgs["clientListenerSecurity"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientListenerSecurity"]), &clientListenerSecurity)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientListenerSecurity", err))
+				}
+			}
+			return (*Valkey).Replication(&parent, ctx, name, registry, tag, replicas, password, clientListenerSecurity)
 		case "Server":
 			var parent Valkey
 			err = json.Unmarshal(parentJSON, &parent)

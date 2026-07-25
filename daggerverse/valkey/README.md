@@ -1,10 +1,10 @@
 # valkey
 
-Daggerverse module that spins up a single-node [Valkey](https://valkey.io)
-server (from the upstream `valkey/valkey` image) and exposes a pure-Go
-client (built on
+Daggerverse module that spins up [Valkey](https://valkey.io) topologies
+(from the upstream `valkey/valkey` image) — a single node, or a primary
+with N read replicas — and exposes a pure-Go client (built on
 [`github.com/valkey-io/valkey-go`](https://github.com/valkey-io/valkey-go))
-that can target either the local node or a remote Valkey (e.g.
+that can target either a local node or a remote Valkey (e.g.
 ElastiCache Serverless, MemoryDB, a self-hosted node).
 
 It is the daggerverse's first key-value store, and it targets Valkey
@@ -12,9 +12,9 @@ It is the daggerverse's first key-value store, and it targets Valkey
 
 It supports three client-facing listener modes — plaintext (`requirepass`
 auth over an unencrypted TCP listener), one-way TLS, and mutual TLS.
-Primary/replica replication, Valkey Cluster, `valkey-server` config
-passthrough, the `valkey-bundle` image, and keyspace export/import all
-land in follow-ups.
+Valkey Cluster, `valkey-server` config passthrough, the `valkey-bundle`
+image, TLS for the replication link, and keyspace export/import all land
+in follow-ups.
 
 ## Why `Server` and not `Cluster`
 
@@ -129,6 +129,72 @@ register the service in the module's DNS domain, which a session-domain
 consumer's host-file lookup can't resolve.) For module-runtime access,
 use `Server.Client`, which starts the service itself.
 
+## Replication
+
+Primary/replica topology: one primary plus `replicas` asynchronous read
+replicas, all from the same image. A replica is asymmetric — it dials a
+primary that is already up — so the whole topology is an ordinary service
+binding, with none of the symmetric-peer startup problems Valkey Cluster
+will bring.
+
+```go
+Valkey.Replication(
+    ctx,
+    name="",
+    registry="docker.io", tag="9.1",
+    replicas=1,
+    password *dagger.Secret,
+    clientListenerSecurity *ServerSecurity,
+) (*Replication, error)
+
+Replication.Primary() *Server    // the only node that accepts writes
+Replication.Replicas() []*Server // read replicas, in creation order
+Replication.Stop(ctx) error      // tears down every node
+```
+
+Each replica boots with `--replicaof <primary-host> 6379`, the primary's
+password, and `--replica-read-only yes`. The password is a single secret
+shared by the whole topology: it is each node's own `requirepass` *and*
+the replicas' `masterauth`, and it reaches every node through the same
+secret environment variable, so it never enters any node's `argv` in the
+Dagger graph.
+
+**`masterauth`, not `primaryauth`.** Valkey 9.1 accepts both spellings
+(verified against the pinned image), but `primaryauth` only exists from
+Valkey 8.0 onwards and `tag` is caller-overridable, so the older spelling
+is the one that works across every tag a caller could plausibly pass.
+
+**Plaintext only, for now.** A TLS node runs with `--port 0`, so the
+replication link would have to run over TLS too (`--tls-replication
+yes`), and that link needs trust material a client-listener
+`*ServerSecurity` does not carry: the replica must verify the primary
+against a CA, and under mTLS present a client certificate the primary's
+CA accepts. A TLS or mTLS profile is therefore rejected in the
+constructor rather than booting replicas that spin on a failed handshake.
+
+**Hostnames.** Every node's hostname is `valkey-<sha12(...)>` derived from
+`name` plus the node's role and index, so each node in a topology gets its
+own pinned hostname, two topologies with different `name`s never collide,
+and a topology's nodes never collide with a `Valkey.Server` booted under
+the same `name`.
+
+**Replication is asynchronous.** A read-your-write assertion against a
+replica must poll to a deadline rather than reading once — the write is
+acknowledged by the primary before it reaches any replica.
+
+`Primary()` and `Replicas()` are `+cache="session"` rather than
+`"never"`: Dagger v0.21 detaches module objects returned from a
+`+cache="never"` function when a consumer module reads their fields
+lazily, and `tests/` is such a consumer. The `*Server` methods themselves
+stay `"never"`, so no data-returning call is served stale.
+
+Rejected inputs: `password == nil`, `clientListenerSecurity == nil`, an
+incomplete or non-plaintext security profile, and `replicas < 1` (a
+zero-replica topology is a single node with extra steps — use
+`Valkey.Server`). Note that the generated Go binding drops an optional
+argument holding its zero value, so `Replicas: 0` from Go resolves to the
+`+default=1`; `--replicas=0` on the CLI reaches the guard.
+
 ## Client
 
 Pure-Go valkey-go based client. No container image. Works against the
@@ -190,7 +256,9 @@ failing command aborts the run and reports its line number.
 
 ## Follow-ups
 
-Primary/replica replication; Valkey Cluster / slot sharding;
-`valkey-server` config passthrough (config file, ACL file, append-only,
-max-memory, extra args); the `valkey/valkey-bundle` image with module
-verification; keyspace export/import via SCAN + DUMP/RESTORE.
+TLS/mTLS for the replication link (`--tls-replication yes` plus the trust
+material a replica needs to verify and authenticate to its primary);
+Valkey Cluster / slot sharding; `valkey-server` config passthrough
+(config file, ACL file, append-only, max-memory, extra args); the
+`valkey/valkey-bundle` image with module verification; keyspace
+export/import via SCAN + DUMP/RESTORE.

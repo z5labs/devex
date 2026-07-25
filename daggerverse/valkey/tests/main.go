@@ -55,6 +55,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Security", func(ctx context.Context) error {
 		return t.Security(ctx, parallel)
 	})
+	jobs = jobs.WithJob("Replication", func(ctx context.Context) error {
+		return t.Replication(ctx, parallel)
+	})
 	return jobs.Run(ctx)
 }
 
@@ -76,6 +79,35 @@ func (t *Tests) Validation(
 	}
 	jobs = jobs.WithJob("server-rejects-nil-password", t.ServerRejectsNilPassword)
 	jobs = jobs.WithJob("server-rejects-nil-security", t.ServerRejectsNilSecurity)
+	jobs = jobs.WithJob("replication-rejects-too-few-replicas", t.ReplicationRejectsTooFewReplicas)
+	jobs = jobs.WithJob("replication-rejects-tls-security", t.ReplicationRejectsTlsSecurity)
+	return jobs.Run(ctx)
+}
+
+// Replication runs the primary/replica topology tests. Each test boots
+// its own topology via bootReplication, whose runtime-random name folds
+// into Valkey.Replication's session-cache key and into every node's
+// hostname, so concurrent tests get independent topologies.
+//
+// +check
+// +cache="session"
+func (t *Tests) Replication(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("replication-propagates-writes-to-replica", t.ReplicationPropagatesWritesToReplica)
+	jobs = jobs.WithJob("replication-reports-roles", t.ReplicationReportsRoles)
+	jobs = jobs.WithJob("replication-replica-rejects-writes", t.ReplicationReplicaRejectsWrites)
+	jobs = jobs.WithJob("replication-link-authenticates", t.ReplicationLinkAuthenticates)
+	jobs = jobs.WithJob("replication-nodes-have-distinct-hostnames", t.ReplicationNodesHaveDistinctHostnames)
+	jobs = jobs.WithJob("replication-stop-terminates-every-node", t.ReplicationStopTerminatesEveryNode)
 	return jobs.Run(ctx)
 }
 
@@ -273,6 +305,85 @@ func (t *Tests) ServerRejectsNilSecurity(ctx context.Context) (returnErr error) 
 	}
 	server := dag.Valkey().Server(pass, nil)
 	_, _ = server.Endpoint(ctx)
+	return nil
+}
+
+// ReplicationRejectsTooFewReplicas verifies a replica-less "replication"
+// topology is refused rather than silently degrading to a single node —
+// Valkey.Server is what builds that, and a caller who asked for
+// replication and got none would find out only when their read-replica
+// assertions started passing against the primary.
+//
+// The cases are negative rather than 0: the generated Go binding drops
+// any optional argument holding its zero value, so `Replicas: 0` never
+// reaches the module and resolves to the `+default=1`. `--replicas=0` on
+// the CLI does reach the guard, which is why the guard is `< 1` and not
+// `< 0`.
+//
+// +cache="never"
+func (t *Tests) ReplicationRejectsTooFewReplicas(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	for _, replicas := range []int{-1, -2} {
+		rep := dag.Valkey().Replication(
+			pass,
+			dag.Valkey().PlaintextServerSecurity(),
+			dagger.ValkeyReplicationOpts{Name: name, Replicas: replicas},
+		)
+		_, err := rep.Primary().Endpoint(ctx)
+		if err == nil {
+			return fmt.Errorf("expected Replication(replicas=%d) to be rejected, but it built a topology", replicas)
+		}
+		if !strings.Contains(err.Error(), "replicas") {
+			return fmt.Errorf("expected the replicas=%d rejection to name the replicas argument, got: %v", replicas, err)
+		}
+	}
+	return nil
+}
+
+// ReplicationRejectsTlsSecurity verifies a TLS listener profile is
+// refused with an explanation rather than booting replicas that spin
+// forever on a failed handshake: a TLS node runs with `--port 0`, so the
+// replication link would also have to run over TLS, and a client-listener
+// ServerSecurity carries none of the trust material that link needs.
+//
+// +cache="never"
+func (t *Tests) ReplicationRejectsTlsSecurity(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-rep-tls")
+	if err != nil {
+		return err
+	}
+	// SAN value is irrelevant: the guard rejects before any node boots.
+	cert, key, err := issueServerCert(ctx, ca, "valkey-placeholder", "vk-rep-tls-server")
+	if err != nil {
+		return err
+	}
+	rep := dag.Valkey().Replication(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyReplicationOpts{Name: name},
+	)
+	_, err = rep.Primary().Endpoint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a TLS Replication topology to be rejected")
+	}
+	if !strings.Contains(err.Error(), "TLS") {
+		return fmt.Errorf("expected the rejection to name TLS, got: %v", err)
+	}
 	return nil
 }
 
@@ -926,8 +1037,8 @@ func (t *Tests) ApplyFileReportsFailingCommand(ctx context.Context) error {
 }
 
 // InfoReportsRole verifies INFO replication reports a standalone node as
-// the primary. This is the assertion the replication follow-up builds
-// on: a replica reports role:slave.
+// the primary. ReplicationReportsRoles is the multi-node counterpart,
+// where a replica reports role:slave instead.
 //
 // +cache="never"
 func (t *Tests) InfoReportsRole(ctx context.Context) error {
@@ -1069,6 +1180,377 @@ func (t *Tests) DbSelectsLogicalDatabase(ctx context.Context) error {
 	}
 	if got != value {
 		return fmt.Errorf("expected %q back on db 0, got %q", value, got)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Replication tests — primary/replica topology.
+//
+// Replication is asynchronous, so every assertion about state that has to
+// travel the link (a propagated write, the primary's replica count, the
+// link status itself) polls to a deadline rather than reading once. A
+// single read would be a stopwatch race against the initial full sync
+// under a loaded parallel suite.
+// -----------------------------------------------------------------------------
+
+// replicationTimeout bounds every poll below. A full sync of an
+// essentially empty keyspace takes well under a second once both nodes
+// are up; the headroom is for image pulls and a contended engine.
+const replicationTimeout = 90 * time.Second
+
+// eventually polls check until it succeeds or the deadline passes,
+// reporting the last failure so a timeout says what was still wrong
+// rather than merely that time ran out.
+func eventually(ctx context.Context, what string, check func(context.Context) error) error {
+	deadline := time.Now().Add(replicationTimeout)
+	for {
+		err := check(ctx)
+		if err == nil {
+			return nil
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%s within %s: %w", what, replicationTimeout, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+}
+
+// bootReplication mints a fresh primary/replica topology and returns it
+// with the password secret every node shares. The topology name is a
+// runtime-random value that folds into Valkey.Replication's
+// +cache="session" key and into each node's hostname, so concurrent tests
+// get independent topologies.
+func bootReplication(ctx context.Context, replicas int) (*dagger.ValkeyReplication, *dagger.Secret, error) {
+	name, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	rep := dag.Valkey().Replication(
+		pass,
+		dag.Valkey().PlaintextServerSecurity(),
+		dagger.ValkeyReplicationOpts{Name: name, Replicas: replicas},
+	)
+	return rep, pass, nil
+}
+
+// replicaClients readies every replica and returns a plaintext client per
+// replica. Pinging each one is what starts its backing service (and, as
+// its dependency, the primary), so the caller's later assertions run
+// against a topology that is actually up.
+func replicaClients(ctx context.Context, rep *dagger.ValkeyReplication) ([]*dagger.ValkeyClient, error) {
+	replicas, err := rep.Replicas(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("replicas: %w", err)
+	}
+	clients := make([]*dagger.ValkeyClient, 0, len(replicas))
+	for i := range replicas {
+		client := plaintextClient(&replicas[i])
+		if err := client.Ping(ctx); err != nil {
+			return nil, fmt.Errorf("ping replica %d: %w", i, err)
+		}
+		clients = append(clients, client)
+	}
+	return clients, nil
+}
+
+// ReplicationPropagatesWritesToReplica is the core replication smoke
+// path: a key written to the primary becomes readable from the replica.
+// The read polls, because the link is asynchronous and a single read
+// would race the initial sync.
+//
+// +cache="never"
+func (t *Tests) ReplicationPropagatesWritesToReplica(ctx context.Context) error {
+	rep, _, err := bootReplication(ctx, 1)
+	if err != nil {
+		return err
+	}
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	replicas, err := replicaClients(ctx, rep)
+	if err != nil {
+		return err
+	}
+	if len(replicas) != 1 {
+		return fmt.Errorf("expected 1 replica, got %d", len(replicas))
+	}
+	if err := plaintextClient(rep.Primary()).Set(ctx, key, want); err != nil {
+		return fmt.Errorf("set on primary: %w", err)
+	}
+	return eventually(ctx, "the primary's write to reach the replica", func(ctx context.Context) error {
+		got, err := replicas[0].Get(ctx, key)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("expected %q on the replica, got %q", want, got)
+		}
+		return nil
+	})
+}
+
+// ReplicationReportsRoles verifies INFO replication describes the
+// topology from both ends: the primary is role:master with as many
+// connected_slaves as there are replicas, and every replica reports the
+// replica role. Two replicas rather than one, so a count that reported
+// "some replica connected" instead of all of them fails here.
+//
+// +cache="never"
+func (t *Tests) ReplicationReportsRoles(ctx context.Context) error {
+	const wantReplicas = 2
+	rep, _, err := bootReplication(ctx, wantReplicas)
+	if err != nil {
+		return err
+	}
+	replicas, err := replicaClients(ctx, rep)
+	if err != nil {
+		return err
+	}
+	if len(replicas) != wantReplicas {
+		return fmt.Errorf("expected %d replicas, got %d", wantReplicas, len(replicas))
+	}
+
+	primary := plaintextClient(rep.Primary())
+	err = eventually(ctx, "the primary to report both replicas", func(ctx context.Context) error {
+		info, err := primary.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "replication"})
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(info, "role:master") {
+			return fmt.Errorf("expected role:master on the primary, got:\n%s", info)
+		}
+		if want := fmt.Sprintf("connected_slaves:%d", wantReplicas); !strings.Contains(info, want) {
+			return fmt.Errorf("expected %s on the primary, got:\n%s", want, info)
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	for i, replica := range replicas {
+		info, err := replica.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "replication"})
+		if err != nil {
+			return fmt.Errorf("info replication on replica %d: %w", i, err)
+		}
+		// Valkey 9.1 still spells the replica role `slave` in INFO for
+		// wire compatibility, so that — not `role:replica` — is what a
+		// replica reports.
+		if !strings.Contains(info, "role:slave") {
+			return fmt.Errorf("expected the replica role on replica %d, got:\n%s", i, info)
+		}
+	}
+	return nil
+}
+
+// ReplicationReplicaRejectsWrites verifies `--replica-read-only yes`
+// holds: a write against a replica is refused with READONLY, so a test
+// that writes to the wrong node fails loudly instead of silently losing
+// the write on the next sync.
+//
+// +cache="never"
+func (t *Tests) ReplicationReplicaRejectsWrites(ctx context.Context) error {
+	rep, _, err := bootReplication(ctx, 1)
+	if err != nil {
+		return err
+	}
+	replicas, err := replicaClients(ctx, rep)
+	if err != nil {
+		return err
+	}
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	value, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	err = replicas[0].Set(ctx, key, value)
+	if err == nil {
+		return fmt.Errorf("expected a write against a read-only replica to be refused, but it succeeded")
+	}
+	if !strings.Contains(err.Error(), "READONLY") {
+		return fmt.Errorf("expected a READONLY rejection, got: %v", err)
+	}
+	// The primary still takes the same write — proving the rejection is
+	// the replica's read-only stance and not a broken topology.
+	if err := plaintextClient(rep.Primary()).Set(ctx, key, value); err != nil {
+		return fmt.Errorf("expected the primary to accept the same write: %w", err)
+	}
+	return nil
+}
+
+// ReplicationLinkAuthenticates verifies the replica actually authenticates
+// to the password-protected primary: it polls for
+// `master_link_status:up`, which a replica whose masterauth was missing or
+// wrong never reaches — it stays `down`, retrying on NOAUTH, while every
+// other assertion in this file would still pass against its (empty but
+// readable) local keyspace.
+//
+// +cache="never"
+func (t *Tests) ReplicationLinkAuthenticates(ctx context.Context) error {
+	rep, _, err := bootReplication(ctx, 1)
+	if err != nil {
+		return err
+	}
+	replicas, err := replicaClients(ctx, rep)
+	if err != nil {
+		return err
+	}
+	primaryEndpoint, err := rep.Primary().Endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("primary endpoint: %w", err)
+	}
+	primaryHost, _, _ := strings.Cut(primaryEndpoint, ":")
+
+	return eventually(ctx, "the replication link to come up", func(ctx context.Context) error {
+		info, err := replicas[0].Info(ctx, dagger.ValkeyClientInfoOpts{Section: "replication"})
+		if err != nil {
+			return err
+		}
+		if want := "master_host:" + primaryHost; !strings.Contains(info, want) {
+			return fmt.Errorf("expected the replica to follow %s, got:\n%s", want, info)
+		}
+		if !strings.Contains(info, "master_link_status:up") {
+			return fmt.Errorf("expected master_link_status:up (a wrong or missing masterauth leaves it down), got:\n%s", info)
+		}
+		return nil
+	})
+}
+
+// ReplicationNodesHaveDistinctHostnames verifies every node gets its own
+// pinned hostname and that two topologies built under different names do
+// not collide. A shared hostname would silently fold two nodes onto one
+// service: the replicas of one topology would answer for the other's, and
+// a parallel suite would trade reads across tests.
+//
+// Endpoint is a pure accessor, so this asserts the addressing scheme
+// without booting anything.
+//
+// +cache="never"
+func (t *Tests) ReplicationNodesHaveDistinctHostnames(ctx context.Context) error {
+	const replicas = 2
+	first, _, err := bootReplication(ctx, replicas)
+	if err != nil {
+		return err
+	}
+	second, _, err := bootReplication(ctx, replicas)
+	if err != nil {
+		return err
+	}
+
+	seen := make(map[string]string)
+	for _, topology := range []struct {
+		label string
+		rep   *dagger.ValkeyReplication
+	}{{"first", first}, {"second", second}} {
+		nodes, err := topology.rep.Replicas(ctx)
+		if err != nil {
+			return fmt.Errorf("%s replicas: %w", topology.label, err)
+		}
+		if len(nodes) != replicas {
+			return fmt.Errorf("expected %d replicas in the %s topology, got %d", replicas, topology.label, len(nodes))
+		}
+		endpoints := make([]string, 0, replicas+1)
+		primary, err := topology.rep.Primary().Endpoint(ctx)
+		if err != nil {
+			return fmt.Errorf("%s primary endpoint: %w", topology.label, err)
+		}
+		endpoints = append(endpoints, primary)
+		for i := range nodes {
+			endpoint, err := nodes[i].Endpoint(ctx)
+			if err != nil {
+				return fmt.Errorf("%s replica %d endpoint: %w", topology.label, i, err)
+			}
+			endpoints = append(endpoints, endpoint)
+		}
+		for i, endpoint := range endpoints {
+			where := fmt.Sprintf("%s topology node %d", topology.label, i)
+			if prior, ok := seen[endpoint]; ok {
+				return fmt.Errorf("expected every node to get its own hostname, but %s and %s both answer at %s", prior, where, endpoint)
+			}
+			seen[endpoint] = where
+		}
+	}
+	return nil
+}
+
+// ReplicationStopTerminatesEveryNode verifies no node in the topology
+// answers once Stop returns. The post-Stop probes go through the
+// standalone constructor on purpose: Server.Client would re-Start the
+// service it is asked to dial and the test would pass no matter what Stop
+// did.
+//
+// What this pins and what it cannot: a Stop that did nothing, that
+// errored, or that stopped only the replicas is caught here. A Stop that
+// stopped only the primary is NOT — measured against this engine, tearing
+// down the primary also takes down the replicas bound to it, so
+// reachability cannot separate "stopped every node" from "stopped the one
+// every other node depends on". Replication.Stop still walks every node
+// explicitly rather than leaning on that dependency teardown, which is
+// not a documented guarantee.
+//
+// +cache="never"
+func (t *Tests) ReplicationStopTerminatesEveryNode(ctx context.Context) error {
+	rep, pass, err := bootReplication(ctx, 2)
+	if err != nil {
+		return err
+	}
+	// Ready every node, so a failed probe after Stop means Stop killed it
+	// and not that it had never come up.
+	if _, err := replicaClients(ctx, rep); err != nil {
+		return err
+	}
+	if err := plaintextClient(rep.Primary()).Ping(ctx); err != nil {
+		return fmt.Errorf("ping primary: %w", err)
+	}
+
+	replicas, err := rep.Replicas(ctx)
+	if err != nil {
+		return fmt.Errorf("replicas: %w", err)
+	}
+	nodes := make([]*dagger.ValkeyServer, 0, len(replicas)+1)
+	nodes = append(nodes, rep.Primary())
+	for i := range replicas {
+		nodes = append(nodes, &replicas[i])
+	}
+
+	standalone := make([]*dagger.ValkeyClient, 0, len(nodes))
+	for i, node := range nodes {
+		endpoint, err := node.Endpoint(ctx)
+		if err != nil {
+			return fmt.Errorf("node %d endpoint: %w", i, err)
+		}
+		host, _, _ := strings.Cut(endpoint, ":")
+		client := dag.Valkey().Client(host, pass, dag.Valkey().PlaintextClientSecurity())
+		if err := client.Ping(ctx); err != nil {
+			return fmt.Errorf("standalone ping of node %d before stop: %w", i, err)
+		}
+		standalone = append(standalone, client)
+	}
+
+	if err := rep.Stop(ctx); err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+	for i, client := range standalone {
+		if err := client.Ping(ctx); err == nil {
+			return fmt.Errorf("expected node %d to be down after Stop, but it still answered", i)
+		}
 	}
 	return nil
 }
