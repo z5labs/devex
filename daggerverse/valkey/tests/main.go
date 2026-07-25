@@ -70,6 +70,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Bundle", func(ctx context.Context) error {
 		return t.Bundle(ctx, parallel)
 	})
+	jobs = jobs.WithJob("Keyspace", func(ctx context.Context) error {
+		return t.Keyspace(ctx, parallel)
+	})
 	return jobs.Run(ctx)
 }
 
@@ -303,6 +306,32 @@ func (t *Tests) Bundle(
 	jobs = jobs.WithJob("bundle-bloom-round-trip", t.BundleBloomRoundTrip)
 	jobs = jobs.WithJob("bundle-server-methods-match-stock", t.BundleServerMethodsMatchStock)
 	jobs = jobs.WithJob("bundle-bind-server-reachable-from-consumer", t.BundleBindServerReachableFromConsumer)
+	return jobs.Run(ctx)
+}
+
+// Keyspace runs the SCAN + DUMP/RESTORE export/import tests. Most boot
+// two nodes — a source to capture and a fresh target to restore into —
+// each under its own runtime-random name, so the group fans out safely.
+//
+// +check
+// +cache="session"
+func (t *Tests) Keyspace(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("export-import-round-trips-every-type", t.ExportImportRoundTripsEveryType)
+	jobs = jobs.WithJob("export-import-preserves-ttls", t.ExportImportPreservesTtls)
+	jobs = jobs.WithJob("export-honours-pattern-across-scan-pages", t.ExportHonoursPatternAcrossScanPages)
+	jobs = jobs.WithJob("import-rejects-collision-without-replace", t.ImportRejectsCollisionWithoutReplace)
+	jobs = jobs.WithJob("exported-file-is-readable-by-consumer", t.ExportedFileIsReadableByConsumer)
+	jobs = jobs.WithJob("export-should-not-be-cached", t.ExportShouldNotBeCached)
 	return jobs.Run(ctx)
 }
 
@@ -3752,6 +3781,515 @@ func (t *Tests) BundleBindServerReachableFromConsumer(ctx context.Context) error
 	}
 	if !strings.Contains(out, "OK") {
 		return fmt.Errorf("expected OK from %s, got %q", endpoint, out)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Keyspace tests — SCAN + DUMP/RESTORE export and import.
+//
+// The export file's schema is mirrored here rather than imported from the
+// valkey module: the tests are a *consumer* of that file, and a consumer
+// that re-used the producer's struct could not catch a field rename that
+// silently broke every other reader.
+// -----------------------------------------------------------------------------
+
+// exportFile is the JSON layout Client.Export writes.
+type exportFile struct {
+	Version int               `json:"version"`
+	Pattern string            `json:"pattern"`
+	Keys    []exportFileEntry `json:"keys"`
+}
+
+type exportFileEntry struct {
+	Key     string `json:"key"`
+	TtlMs   int64  `json:"ttlMs"`
+	Payload string `json:"payload"`
+}
+
+// readExport decodes an export *dagger.File from the consumer side —
+// which is also what proves the file the module returned through
+// WorkdirFile is readable outside the module that wrote it.
+func readExport(ctx context.Context, file *dagger.File) (exportFile, error) {
+	contents, err := file.Contents(ctx)
+	if err != nil {
+		return exportFile{}, fmt.Errorf("read export file: %w", err)
+	}
+	var decoded exportFile
+	if err := json.Unmarshal([]byte(contents), &decoded); err != nil {
+		return exportFile{}, fmt.Errorf("decode export file (%d bytes): %w", len(contents), err)
+	}
+	return decoded, nil
+}
+
+// ExportImportRoundTripsEveryType is the core keyspace round trip: seed
+// one node with a value of every core type, export it, import into a
+// second fresh node, and check both nodes answer the same read command
+// identically.
+//
+// The assertion compares *replies* rather than hand-written expectations
+// so it stays honest about encoding: a DUMP payload carries the value's
+// internal encoding, and a comparison against a literal would pass even
+// if RESTORE had quietly reshaped a listpack-backed hash into something
+// else that stringifies the same way. TYPE is checked separately, since
+// two different types can share a read command's reply shape.
+//
+// +cache="never"
+func (t *Tests) ExportImportRoundTripsEveryType(ctx context.Context) error {
+	source, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	target, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Read commands chosen so every reply is order-deterministic: SORT
+	// ALPHA rather than SMEMBERS (set iteration order is an encoding
+	// detail), ZRANGE by rank rather than by score, and HGETALL — a map
+	// reply, which the JSON encoder emits key-sorted.
+	cases := []struct {
+		key      string
+		wantType string
+		read     []string
+	}{
+		{prefix + ":str", "string", []string{"GET", prefix + ":str"}},
+		{prefix + ":hash", "hash", []string{"HGETALL", prefix + ":hash"}},
+		{prefix + ":list", "list", []string{"LRANGE", prefix + ":list", "0", "-1"}},
+		{prefix + ":set", "set", []string{"SORT", prefix + ":set", "ALPHA"}},
+		{prefix + ":zset", "zset", []string{"ZRANGE", prefix + ":zset", "0", "-1", "WITHSCORES"}},
+	}
+
+	seed := fmt.Sprintf(`SET %[1]s:str a-string-value
+HSET %[1]s:hash f1 v1 f2 v2 f3 v3
+RPUSH %[1]s:list first second third
+SADD %[1]s:set alpha beta gamma
+ZADD %[1]s:zset 1 one 2 two 3 three
+`, prefix)
+
+	sourceClient := plaintextClient(source)
+	if err := sourceClient.ApplyFile(ctx, commandFile(seed)); err != nil {
+		return fmt.Errorf("seed source: %w", err)
+	}
+
+	file := sourceClient.Export(dagger.ValkeyClientExportOpts{Pattern: prefix + ":*"})
+	decoded, err := readExport(ctx, file)
+	if err != nil {
+		return err
+	}
+	if len(decoded.Keys) != len(cases) {
+		return fmt.Errorf("expected the export to hold %d keys, got %d", len(cases), len(decoded.Keys))
+	}
+
+	targetClient := plaintextClient(target)
+	restored, err := targetClient.ImportFile(ctx, file)
+	if err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+	if restored != len(cases) {
+		return fmt.Errorf("expected Import to report %d restored keys, got %d", len(cases), restored)
+	}
+	size, err := targetClient.DbSize(ctx)
+	if err != nil {
+		return fmt.Errorf("dbsize: %w", err)
+	}
+	if size != len(cases) {
+		return fmt.Errorf("expected the target keyspace to hold %d keys, DbSize reports %d", len(cases), size)
+	}
+
+	for _, tc := range cases {
+		gotType, err := targetClient.Do(ctx, []string{"TYPE", tc.key})
+		if err != nil {
+			return fmt.Errorf("type %s: %w", tc.key, err)
+		}
+		if want := strconv.Quote(tc.wantType); gotType != want {
+			return fmt.Errorf("expected %s to restore as %s, got %s", tc.key, want, gotType)
+		}
+		want, err := sourceClient.Do(ctx, tc.read)
+		if err != nil {
+			return fmt.Errorf("read %s from the source: %w", tc.key, err)
+		}
+		got, err := targetClient.Do(ctx, tc.read)
+		if err != nil {
+			return fmt.Errorf("read %s from the target: %w", tc.key, err)
+		}
+		if got != want {
+			return fmt.Errorf("expected %s to round trip: source answered %s, target answered %s", tc.key, want, got)
+		}
+	}
+	return nil
+}
+
+// ExportImportPreservesTtls verifies expiry survives the round trip in
+// both directions: a key with a TTL arrives with one still ticking, and
+// a persistent key arrives persistent rather than inheriting an expiry
+// from its neighbour.
+//
+// The persistent half matters as much as the other: RESTORE spells "no
+// expiry" as a 0 TTL and "expire in 0ms" is not expressible, so an
+// implementation that recorded PTTL's -1 verbatim would send `RESTORE k
+// -1 …` (rejected outright), and one that clamped every non-positive
+// PTTL to some small positive number would hand back a key that quietly
+// evaporates.
+//
+// +cache="never"
+func (t *Tests) ExportImportPreservesTtls(ctx context.Context) error {
+	source, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	target, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	value, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+
+	volatile := prefix + ":volatile"
+	persistent := prefix + ":persistent"
+
+	sourceClient := plaintextClient(source)
+	if err := sourceClient.Set(ctx, volatile, value, dagger.ValkeyClientSetOpts{TTL: "1h"}); err != nil {
+		return fmt.Errorf("set the volatile key: %w", err)
+	}
+	if err := sourceClient.Set(ctx, persistent, value); err != nil {
+		return fmt.Errorf("set the persistent key: %w", err)
+	}
+
+	file := sourceClient.Export(dagger.ValkeyClientExportOpts{Pattern: prefix + ":*"})
+	decoded, err := readExport(ctx, file)
+	if err != nil {
+		return err
+	}
+	ttls := make(map[string]int64, len(decoded.Keys))
+	for _, entry := range decoded.Keys {
+		ttls[entry.Key] = entry.TtlMs
+	}
+	if got := ttls[volatile]; got <= 0 || got > int64(time.Hour/time.Millisecond) {
+		return fmt.Errorf("expected the export to record a ttl within (0, 3600000]ms for %s, got %d", volatile, got)
+	}
+	if got := ttls[persistent]; got != 0 {
+		return fmt.Errorf("expected the export to record ttl 0 (no expiry) for %s, got %d", persistent, got)
+	}
+
+	targetClient := plaintextClient(target)
+	if _, err := targetClient.ImportFile(ctx, file); err != nil {
+		return fmt.Errorf("import: %w", err)
+	}
+
+	volatilePttl, err := pttlOf(ctx, targetClient, volatile)
+	if err != nil {
+		return err
+	}
+	if volatilePttl <= 0 || volatilePttl > int(time.Hour/time.Millisecond) {
+		return fmt.Errorf("expected PTTL within (0, 3600000]ms for the restored %s, got %d (-1 means the expiry was dropped, -2 means the key never arrived)", volatile, volatilePttl)
+	}
+	persistentPttl, err := pttlOf(ctx, targetClient, persistent)
+	if err != nil {
+		return err
+	}
+	if persistentPttl != -1 {
+		return fmt.Errorf("expected the restored %s to stay persistent (PTTL -1), got %d", persistent, persistentPttl)
+	}
+	return nil
+}
+
+// ExportHonoursPatternAcrossScanPages seeds far more matching keys than
+// one SCAN page holds, plus a decoy prefix, and checks the export is
+// exactly the match set. An implementation that captured only SCAN's
+// first page — or that stopped before the cursor wrapped back to 0 —
+// comes up short, and one that ignored pattern picks up the decoys.
+//
+// The unfiltered export runs too, so a pattern that was over-applied
+// (matching nothing, or being handed to DUMP as well) cannot pass by
+// exporting an empty file both times.
+//
+// +cache="never"
+func (t *Tests) ExportHonoursPatternAcrossScanPages(ctx context.Context) error {
+	server, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	wanted, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	decoy, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+
+	const (
+		matching = 1000
+		decoys   = 10
+	)
+	var seed strings.Builder
+	for i := 0; i < matching; i++ {
+		fmt.Fprintf(&seed, "SET %s:%04d %d\n", wanted, i, i)
+	}
+	for i := 0; i < decoys; i++ {
+		fmt.Fprintf(&seed, "SET %s:%04d %d\n", decoy, i, i)
+	}
+
+	client := plaintextClient(server)
+	if err := client.ApplyFile(ctx, commandFile(seed.String())); err != nil {
+		return fmt.Errorf("seed keys: %w", err)
+	}
+
+	matched, err := readExport(ctx, client.Export(dagger.ValkeyClientExportOpts{Pattern: wanted + ":*"}))
+	if err != nil {
+		return err
+	}
+	if len(matched.Keys) != matching {
+		return fmt.Errorf("expected %d keys across every SCAN page, the export holds %d", matching, len(matched.Keys))
+	}
+	seen := make(map[string]struct{}, len(matched.Keys))
+	for _, entry := range matched.Keys {
+		if !strings.HasPrefix(entry.Key, wanted+":") {
+			return fmt.Errorf("expected only %s:* keys, the export holds %q", wanted, entry.Key)
+		}
+		if entry.Payload == "" {
+			return fmt.Errorf("expected a DUMP payload for %s, got an empty one", entry.Key)
+		}
+		seen[entry.Key] = struct{}{}
+	}
+	if len(seen) != matching {
+		return fmt.Errorf("expected %d distinct keys, the export holds %d (cursor pages likely overlap)", matching, len(seen))
+	}
+
+	everything, err := readExport(ctx, client.Export())
+	if err != nil {
+		return err
+	}
+	if len(everything.Keys) != matching+decoys {
+		return fmt.Errorf("expected the default pattern to export all %d keys, it holds %d", matching+decoys, len(everything.Keys))
+	}
+	return nil
+}
+
+// ImportRejectsCollisionWithoutReplace verifies the default refuses to
+// clobber. A fixture load that silently overwrote whatever the target
+// already held would be discovered only as someone else's missing data,
+// so RESTORE's BUSYKEY is allowed through as a failure and `replace` is
+// the opt-in.
+//
+// +cache="never"
+func (t *Tests) ImportRejectsCollisionWithoutReplace(ctx context.Context) error {
+	source, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	target, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	exported, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	squatter, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+
+	collides := prefix + ":collides"
+	fresh := prefix + ":fresh"
+
+	sourceClient := plaintextClient(source)
+	for _, key := range []string{collides, fresh} {
+		if err := sourceClient.Set(ctx, key, exported); err != nil {
+			return fmt.Errorf("seed source %s: %w", key, err)
+		}
+	}
+	file := sourceClient.Export(dagger.ValkeyClientExportOpts{Pattern: prefix + ":*"})
+
+	targetClient := plaintextClient(target)
+	if err := targetClient.Set(ctx, collides, squatter); err != nil {
+		return fmt.Errorf("seed target %s: %w", collides, err)
+	}
+
+	if _, err := targetClient.ImportFile(ctx, file); err == nil {
+		return fmt.Errorf("expected the import to fail on the colliding key %s, but it reported success", collides)
+	} else if !strings.Contains(err.Error(), collides) {
+		return fmt.Errorf("expected the failure to name the colliding key %s, got: %v", collides, err)
+	}
+	held, err := targetClient.Get(ctx, collides)
+	if err != nil {
+		return fmt.Errorf("get %s after the refused import: %w", collides, err)
+	}
+	if held != squatter {
+		return fmt.Errorf("expected the refused import to leave %s untouched, it now holds %q", collides, held)
+	}
+
+	restored, err := targetClient.ImportFile(ctx, file, dagger.ValkeyClientImportFileOpts{Replace: true})
+	if err != nil {
+		return fmt.Errorf("import with replace: %w", err)
+	}
+	if restored != 2 {
+		return fmt.Errorf("expected the replacing import to report 2 restored keys, got %d", restored)
+	}
+	for _, key := range []string{collides, fresh} {
+		got, err := targetClient.Get(ctx, key)
+		if err != nil {
+			return fmt.Errorf("get %s after the replacing import: %w", key, err)
+		}
+		if got != exported {
+			return fmt.Errorf("expected %s to hold the exported value %q, got %q", key, exported, got)
+		}
+	}
+	return nil
+}
+
+// ExportedFileIsReadableByConsumer verifies the *dagger.File handed back
+// through WorkdirFile is a real, portable file rather than something
+// only the producing module can dereference: this test module decodes it
+// directly, and a plain container reads the very same handle off its own
+// filesystem.
+//
+// The container leg is the stronger claim of the two. A workdir file that
+// was never materialized, or that the module runtime tore down with its
+// scratch dir, still satisfies an in-process read on the module's own
+// side but cannot be mounted anywhere.
+//
+// +cache="never"
+func (t *Tests) ExportedFileIsReadableByConsumer(ctx context.Context) error {
+	server, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	value, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	key := prefix + ":only"
+
+	client := plaintextClient(server)
+	if err := client.Set(ctx, key, value); err != nil {
+		return fmt.Errorf("seed: %w", err)
+	}
+
+	file := client.Export(dagger.ValkeyClientExportOpts{Pattern: prefix + ":*"})
+	decoded, err := readExport(ctx, file)
+	if err != nil {
+		return err
+	}
+	if decoded.Version != 1 {
+		return fmt.Errorf("expected the export to declare version 1, got %d", decoded.Version)
+	}
+	if want := prefix + ":*"; decoded.Pattern != want {
+		return fmt.Errorf("expected the export to record the pattern %q, got %q", want, decoded.Pattern)
+	}
+	if len(decoded.Keys) != 1 || decoded.Keys[0].Key != key {
+		return fmt.Errorf("expected the export to hold exactly %s, got %+v", key, decoded.Keys)
+	}
+
+	name, err := file.Name(ctx)
+	if err != nil {
+		return fmt.Errorf("file name: %w", err)
+	}
+	if name != "keyspace.json" {
+		return fmt.Errorf("expected the export to be named keyspace.json, got %q", name)
+	}
+
+	// The container reads the mounted file rather than being handed the
+	// contents, so this fails if the workdir file cannot be materialized
+	// into a filesystem.
+	out, err := dag.Container().
+		From("docker.io/library/alpine:3.22").
+		WithFile("/fixture/keyspace.json", file).
+		WithExec([]string{"cat", "/fixture/keyspace.json"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("read the export from a consumer container: %w", err)
+	}
+	var fromContainer exportFile
+	if err := json.Unmarshal([]byte(out), &fromContainer); err != nil {
+		return fmt.Errorf("decode the export the container read back: %w", err)
+	}
+	if len(fromContainer.Keys) != 1 || fromContainer.Keys[0].Key != key {
+		return fmt.Errorf("expected the mounted export to hold exactly %s, got %+v", key, fromContainer.Keys)
+	}
+	return nil
+}
+
+// ExportShouldNotBeCached verifies Export re-executes on every call
+// rather than freezing on its first result: export, write a key that did
+// not exist yet, export again. A cached Export would hand back the
+// earlier file and the new key would never appear — the same stale-read
+// bug a missing +cache="never" produces on Get, except here it would
+// quietly ship an incomplete fixture.
+//
+// Both calls use the same pattern and the same receiver on purpose:
+// anything that varied between them would give a cached Export a fresh
+// cache key and let the bug through.
+//
+// +cache="never"
+func (t *Tests) ExportShouldNotBeCached(ctx context.Context) error {
+	server, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	value, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	first := prefix + ":first"
+	second := prefix + ":second"
+	pattern := dagger.ValkeyClientExportOpts{Pattern: prefix + ":*"}
+
+	client := plaintextClient(server)
+	if err := client.Set(ctx, first, value); err != nil {
+		return fmt.Errorf("set 1: %w", err)
+	}
+	before, err := readExport(ctx, client.Export(pattern))
+	if err != nil {
+		return err
+	}
+	if len(before.Keys) != 1 || before.Keys[0].Key != first {
+		return fmt.Errorf("expected the first export to hold exactly %s, got %+v", first, before.Keys)
+	}
+
+	if err := client.Set(ctx, second, value); err != nil {
+		return fmt.Errorf("set 2: %w", err)
+	}
+	after, err := readExport(ctx, client.Export(pattern))
+	if err != nil {
+		return err
+	}
+	if len(after.Keys) != 2 {
+		return fmt.Errorf("expected the second export to hold 2 keys after the intervening write (Export likely cached), got %d", len(after.Keys))
+	}
+	names := make(map[string]struct{}, len(after.Keys))
+	for _, entry := range after.Keys {
+		names[entry.Key] = struct{}{}
+	}
+	for _, key := range []string{first, second} {
+		if _, ok := names[key]; !ok {
+			return fmt.Errorf("expected the second export to hold %s, it holds %v", key, names)
+		}
 	}
 	return nil
 }

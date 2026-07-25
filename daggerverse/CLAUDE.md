@@ -110,6 +110,31 @@ applies to other Go/GraphQL keywords on exported fields: avoid
 a *consumer* module after adding a new exported field to surface
 this early.
 
+### Scalar-returning methods named after Go keywords break the same way
+
+The generator also caches every *scalar*-returning method on a private
+struct field of the consumer's generated type, named after the GraphQL
+field. A method named `Import` returning `(int, error)` therefore emits
+
+```go
+type <Dep><Type> struct {
+    query *querybuilder.Selection
+
+    import *int   // ← not valid Go
+}
+```
+
+and the consumer's `dagger develop` fails with the same
+`error formatting generated code: NNN:9: expected '}', found 'import'`.
+
+This bites only methods whose return type is a scalar (`int`, `string`,
+`bool`, `Void`); one returning `*dagger.File` or a module object gets no
+cache field and is unaffected — which is why `Client.Export` (returns a
+`*dagger.File`) is fine while `Client.Import` was not, and became
+`ImportFile`. Avoid `Import`, `Range`, `Select`, `Go`, `Func`, `Map`,
+`Chan`, `Default`, `Package`, and the rest of the Go keyword list as
+scalar-returning method names.
+
 ### Method parameters named `r` collide with the generated receiver
 
 The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,

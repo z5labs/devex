@@ -451,6 +451,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).EndpointShouldNotBeCached(&parent, ctx)
+		case "ExportHonoursPatternAcrossScanPages":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExportHonoursPatternAcrossScanPages(&parent, ctx)
+		case "ExportImportPreservesTtls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExportImportPreservesTtls(&parent, ctx)
+		case "ExportImportRoundTripsEveryType":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExportImportRoundTripsEveryType(&parent, ctx)
+		case "ExportShouldNotBeCached":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExportShouldNotBeCached(&parent, ctx)
+		case "ExportedFileIsReadableByConsumer":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExportedFileIsReadableByConsumer(&parent, ctx)
 		case "ExtraArgsReachServerLast":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -486,6 +521,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GetShouldNotBeCached(&parent, ctx)
+		case "ImportRejectsCollisionWithoutReplace":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ImportRejectsCollisionWithoutReplace(&parent, ctx)
 		case "InfoReportsRole":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -500,6 +542,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).KeysScansPattern(&parent, ctx)
+		case "Keyspace":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Keyspace(&parent, ctx, parallel)
 		case "MaxMemoryEvictsOverLimit":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

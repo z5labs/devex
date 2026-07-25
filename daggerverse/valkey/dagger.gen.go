@@ -449,6 +449,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Client).Do(&parent, ctx, args)
+		case "Export":
+			var parent Client
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var pattern string
+			if inputArgs["pattern"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["pattern"]), &pattern)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pattern", err))
+				}
+			}
+			return (*Client).Export(&parent, ctx, pattern)
 		case "FlushAll":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)
@@ -470,6 +484,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Client).Get(&parent, ctx, key)
+		case "ImportFile":
+			var parent Client
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var file *dagger.File
+			if inputArgs["file"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["file"]), &file)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg file", err))
+				}
+			}
+			var replace bool
+			if inputArgs["replace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["replace"]), &replace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg replace", err))
+				}
+			}
+			return (*Client).ImportFile(&parent, ctx, file, replace)
 		case "Info":
 			var parent Client
 			err = json.Unmarshal(parentJSON, &parent)
