@@ -315,18 +315,18 @@ func (r *Valkey) Client(host string, password *Secret, security *ValkeyClientSec
 
 // ValkeyClusterOpts contains options for Valkey.Cluster
 type ValkeyClusterOpts struct {
-	Name string // valkey (../../../../../daggerverse/valkey/cluster.go:112:2)
+	Name string // valkey (../../../../../daggerverse/valkey/cluster.go:116:2)
 
 	// Default: "docker.io"
-	Registry string // valkey (../../../../../daggerverse/valkey/cluster.go:114:2)
+	Registry string // valkey (../../../../../daggerverse/valkey/cluster.go:118:2)
 
 	// Default: "9.1"
-	Tag string // valkey (../../../../../daggerverse/valkey/cluster.go:116:2)
+	Tag string // valkey (../../../../../daggerverse/valkey/cluster.go:120:2)
 
 	// Default: 3
-	Shards int // valkey (../../../../../daggerverse/valkey/cluster.go:118:2)
+	Shards int // valkey (../../../../../daggerverse/valkey/cluster.go:122:2)
 
-	ReplicasPerShard int // valkey (../../../../../daggerverse/valkey/cluster.go:120:2)
+	ReplicasPerShard int // valkey (../../../../../daggerverse/valkey/cluster.go:124:2)
 }
 
 // Cluster describes a Valkey Cluster: `shards` primaries sharing the
@@ -356,16 +356,20 @@ type ValkeyClusterOpts struct {
 // TLS/mTLS profile is therefore rejected here rather than booting a
 // cluster whose members spin on a failed handshake.
 //
-// Like Valkey.Server and unlike its own doc-level description, this
-// constructor starts nothing: it validates, builds every node, and
-// composes the bootstrap exec, all lazily. Both entry points into a
-// running cluster — Cluster.Client and Cluster.BindNodes — drive that
-// bootstrap themselves, because a Dagger service is only reachable from
-// whichever client started it. Starting the nodes here (from the valkey
-// module's runtime) would register them in the valkey module's DNS
-// domain, and a consumer container binding them from ANOTHER module then
-// cannot resolve them at all — the same trap Server.Endpoint documents,
-// which is why BindNodes has to be able to bring the cluster up itself.
+// Like Valkey.Server, this constructor starts nothing: it validates,
+// builds every node, and composes the bootstrap exec, all lazily. Both
+// entry points into a running cluster — Cluster.Client and
+// Cluster.BindNodes — drive that bootstrap themselves, because a Dagger
+// service is only reachable from whichever client started it. Starting
+// the nodes here (from the valkey module's runtime) would register them
+// in the valkey module's DNS domain, and a consumer container binding
+// them from ANOTHER module then cannot resolve them at all:
+//
+//	lookup valkey-<host> for hosts file: ... no such host
+//
+// — the same trap Server.Endpoint documents, and a known Dagger
+// limitation reported upstream. Until it is addressed, BindNodes has to
+// be able to bring the cluster up itself.
 //
 // Session-cached for the same reason Valkey.Server and
 // Valkey.Replication are: repeated chained calls on the returned cluster
@@ -373,7 +377,7 @@ type ValkeyClusterOpts struct {
 // bootstrap exec — and therefore the same keyspace. `name` folds into
 // that cache key and into every node's hostname, so parallel test suites
 // should pass a unique value per test.
-func (r *Valkey) Cluster(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyClusterOpts) *ValkeyCluster { // valkey (../../../../../daggerverse/valkey/cluster.go:109:1)
+func (r *Valkey) Cluster(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyClusterOpts) *ValkeyCluster { // valkey (../../../../../daggerverse/valkey/cluster.go:113:1)
 	assertNotNil("password", password)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("cluster")
@@ -1083,7 +1087,7 @@ func (r *ValkeyCluster) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyClust
 // bootstrap a build-time dependency of whatever the consumer runs next,
 // so the container's first command meets a cluster whose slots are
 // already assigned rather than one answering CLUSTERDOWN.
-func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/cluster.go:402:1)
+func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/cluster.go:406:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindNodes")
 	q = q.Arg("ctr", ctr)
@@ -1111,7 +1115,7 @@ func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../
 // makes BindNodes unusable on the same cluster afterwards — see
 // Valkey.Cluster — so a consumer container should bind a cluster this
 // module has not already dialled.
-func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/cluster.go:430:1)
+func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/cluster.go:434:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1128,7 +1132,7 @@ func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { /
 //
 // Session-cached rather than never-cached: Dagger v0.21 detaches module
 // objects returned from a `module reads their fields lazily, and `tests/` is such a consumer.
-func (r *ValkeyCluster) Endpoints(ctx context.Context) ([]string, error) { // valkey (../../../../../daggerverse/valkey/cluster.go:380:1)
+func (r *ValkeyCluster) Endpoints(ctx context.Context) ([]string, error) { // valkey (../../../../../daggerverse/valkey/cluster.go:384:1)
 	q := r.query.Select("endpoints")
 
 	var response []string
@@ -1190,7 +1194,7 @@ func (r *ValkeyCluster) UnmarshalJSON(bs []byte) error {
 // earlier one fails, and the failures are joined — a partial teardown
 // that reported only the first error would leave services running with
 // nothing naming them.
-func (r *ValkeyCluster) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/cluster.go:457:1)
+func (r *ValkeyCluster) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/cluster.go:461:1)
 	if r.stop != nil {
 		return nil
 	}
