@@ -70,6 +70,10 @@
       "source": "daggerverse/skill-gen/tests"
     },
     {
+      "name": "valkey-tests",
+      "source": "daggerverse/valkey/tests"
+    },
+    {
       "name": "z5labs-tests",
       "source": "daggerverse/z5labs/tests"
     },
