@@ -83,6 +83,18 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("WithWorkspaceIsolatesState", t.WithWorkspaceIsolatesState)
 	jobs = jobs.WithJob("WithoutPluginCacheStillApplies", t.WithoutPluginCacheStillApplies)
 
+	jobs = jobs.WithJob("CiCheckPassesOnCleanConfiguration", t.CiCheckPassesOnCleanConfiguration)
+	jobs = jobs.WithJob("CiCheckReportsUnformattedConfiguration", t.CiCheckReportsUnformattedConfiguration)
+	jobs = jobs.WithJob("CiCheckReportsInvalidConfiguration", t.CiCheckReportsInvalidConfiguration)
+	jobs = jobs.WithJob("CiCheckWithoutValidateSkipsIt", t.CiCheckWithoutValidateSkipsIt)
+	jobs = jobs.WithJob("CiCheckAggregatesStageFailures", t.CiCheckAggregatesStageFailures)
+	jobs = jobs.WithJob("CiCheckWithoutStagesIsRejected", t.CiCheckWithoutStagesIsRejected)
+	jobs = jobs.WithJob("CiCheckWithPlanDetectsDrift", t.CiCheckWithPlanDetectsDrift)
+	jobs = jobs.WithJob("CiCheckWithPlanPassesOnAppliedState", t.CiCheckWithPlanPassesOnAppliedState)
+	jobs = jobs.WithJob("CiCheckWithPlanAllowsChangesByDefault", t.CiCheckWithPlanAllowsChangesByDefault)
+	jobs = jobs.WithJob("CiRunProducesPlanArtifacts", t.CiRunProducesPlanArtifacts)
+	jobs = jobs.WithJob("CiRunFailsOnFailedCheck", t.CiRunFailsOnFailedCheck)
+
 	jobs = jobs.WithJob("PlanShouldNotBeCached", t.PlanShouldNotBeCached)
 	jobs = jobs.WithJob("ApplyShouldNotBeCached", t.ApplyShouldNotBeCached)
 

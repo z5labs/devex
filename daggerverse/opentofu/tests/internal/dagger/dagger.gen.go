@@ -287,6 +287,9 @@ type ModuleSourceID string
 type ObjectTypeDefID string
 
 // A unique identifier for an object.
+type OpentofuCiID string
+
+// A unique identifier for an object.
 type OpentofuConfigID string
 
 // A unique identifier for an object.
@@ -13224,6 +13227,16 @@ func (r *Query) LoadObjectTypeDefFromID(id ObjectTypeDefID) *ObjectTypeDef {
 	q = q.Arg("id", id)
 
 	return &ObjectTypeDef{
+		query: q,
+	}
+}
+
+// Load a OpentofuCi from its ID.
+func (r *Query) LoadOpentofuCiFromID(id OpentofuCiID) *OpentofuCi {
+	q := r.query.Select("loadOpentofuCiFromID")
+	q = q.Arg("id", id)
+
+	return &OpentofuCi{
 		query: q,
 	}
 }

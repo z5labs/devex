@@ -133,6 +133,12 @@ lock file refreshed with `tofu providers lock`.
 | `Config.Destroy(targets)` | A directory of `terraform.tfstate`, `outputs.json`, `destroy.log`. |
 | `Config.Outputs()` | `tofu output -json`. |
 | `Config.Show()` | `tofu show`. |
+| `Config.Ci()` | A chained CI pipeline builder over this configuration. |
+| `Ci.WithFmt()` | Enable the `fmt` stage. |
+| `Ci.WithValidate()` | Enable the `validate` stage. |
+| `Ci.WithPlan(failOnChanges)` | Enable the `plan` stage; `failOnChanges` makes it a drift gate. |
+| `Ci.Check()` | Run the enabled stages in parallel; aggregated error. |
+| `Ci.Run()` | The same stages, returning the plan artifacts. |
 
 ### What each stage emits
 
@@ -158,6 +164,45 @@ Everything stateful returns a `*Directory` rather than a module object: Dagger
 v0.21 detaches module objects returned from `+cache="never"` functions when a
 consumer reads their fields lazily, and a `*Directory` is a core type that
 crosses the boundary intact.
+
+## The Ci pipeline
+
+`Ci` bundles the check stages a repo runs on every change into one call, so CI
+is `dagger call config --source=. ci with-fmt with-validate check` rather than
+a hand-wired sequence of `dagger call`s.
+
+```go
+// A pull-request gate: format, validity, and a plan that has to succeed.
+dag.Opentofu().Config(source).Ci().WithFmt().WithValidate().WithPlan().Check(ctx)
+
+// A drift detector: a non-empty plan against live infrastructure fails.
+dag.Opentofu().
+    Config(source).
+    WithSecretVariable("AWS_ACCESS_KEY_ID", key).
+    Ci().
+    WithValidate().
+    WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true}).
+    Check(ctx)
+```
+
+The builder hangs off `Config` rather than off the root type — a divergence
+from `Zig.Ci(source)` and `Kicad.Ci(source)`. Every stage beyond `fmt` needs
+the variables, credentials and backend settings already bound to a `Config`,
+and re-declaring them on `Ci` would duplicate nine modifiers.
+
+The enabled stages run in parallel and their errors are *aggregated*: a
+configuration that is unformatted and invalid reports both in one round trip,
+rather than hiding the validation error behind the formatting one. Stages are
+opt-in, so a `Check` reports on exactly what was asked for — and a pipeline
+with no stages enabled is an error rather than a pass, because a check that
+inspects nothing and returns green is the purest false green there is.
+
+`Run` performs the same stages and returns the plan artifacts — `plan.tfplan`,
+`plan.json`, `plan.txt`, `changes` — for whatever consumes them downstream: a
+review gate that renders the plan, an `Apply` that takes the saved plan, an
+artifact attached to a pull request. It plans whether or not `WithPlan` was
+called, since it has to produce the directory it returns; when `WithPlan` did
+enable the stage, that single plan run is both the check and the artifact.
 
 ## Failure is an error, not a file
 
