@@ -24,6 +24,10 @@
 //   - server.go      — *Server + Valkey.Server, input validation, the
 //     shared node builder (buildServer), and the Endpoint / User /
 //     Password / BindServer / Client / Stop methods.
+//   - config.go      — the `valkey-server` configuration passthrough a
+//     caller hands Valkey.Server (config file, ACL file, append-only,
+//     max-memory, extra args), its validation, and its rendering into
+//     mounts and boot arguments.
 //   - replication.go — *Replication + Valkey.Replication, the
 //     primary/replica topology builder, and the Primary / Replicas /
 //     Stop methods.

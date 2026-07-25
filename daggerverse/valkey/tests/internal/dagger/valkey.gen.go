@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Valkey
-func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:43:6)
+func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:47:6)
 	q := r.query.Select("asValkey")
 
 	return &Valkey{
@@ -145,7 +145,7 @@ func (r *Env) WithValkeyClusterOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Valkey in the environment
-func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:43:6)
+func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:47:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyInput")
 	q = q.Arg("name", name)
@@ -158,7 +158,7 @@ func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *E
 }
 
 // Declare a desired Valkey output to be assigned in the environment
-func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:43:6)
+func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:47:6)
 	q := r.query.Select("withValkeyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -244,7 +244,7 @@ func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *E
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:43:6)
+func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:47:6)
 	q := r.query.Select("valkey")
 
 	return &Valkey{
@@ -256,7 +256,7 @@ func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:43:6)
+type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:47:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -596,13 +596,40 @@ func (r *Valkey) Replication(password *Secret, clientListenerSecurity *ValkeySer
 
 // ValkeyServerOpts contains options for Valkey.Server
 type ValkeyServerOpts struct {
-	Name string // valkey (../../../../../daggerverse/valkey/server.go:80:2)
+	Name string // valkey (../../../../../daggerverse/valkey/server.go:123:2)
 
 	// Default: "docker.io"
-	Registry string // valkey (../../../../../daggerverse/valkey/server.go:82:2)
+	Registry string // valkey (../../../../../daggerverse/valkey/server.go:125:2)
 
 	// Default: "9.1"
-	Tag string // valkey (../../../../../daggerverse/valkey/server.go:84:2)
+	Tag string // valkey (../../../../../daggerverse/valkey/server.go:127:2)
+	//
+	// A valkey.conf loaded before every flag argument; conflicting flags win.
+	//
+	ConfigFile *File // valkey (../../../../../daggerverse/valkey/server.go:133:2)
+	//
+	// An ACL file loaded via --aclfile. A secret, not a file: it carries
+	// per-user password material.
+	//
+	ACLFile *Secret // valkey (../../../../../daggerverse/valkey/server.go:138:2)
+	//
+	// Turn the append-only file on. Defaults to false, matching Valkey.
+	//
+	AppendOnly bool // valkey (../../../../../daggerverse/valkey/server.go:142:2)
+	//
+	// Memory ceiling in Valkey's notation ("512mb", "1gb", "104857600").
+	//
+	MaxMemory string // valkey (../../../../../daggerverse/valkey/server.go:146:2)
+	//
+	// Eviction policy applied once maxMemory is reached.
+	//
+	//
+	// Default: "noeviction"
+	MaxMemoryPolicy string // valkey (../../../../../daggerverse/valkey/server.go:150:2)
+	//
+	// Unvalidated, unsupported valkey-server arguments, appended last.
+	//
+	ExtraArgs []string // valkey (../../../../../daggerverse/valkey/server.go:154:2)
 }
 
 // Server spins up a single-node Valkey server listening on 6379 with
@@ -627,6 +654,49 @@ type ValkeyServerOpts struct {
 //   - `name == ""` for a TLS / MTLS node — the hostname (and therefore
 //     the SAN the server cert must carry) derives from `name`, so each
 //     encrypted node needs a unique discriminator.
+//   - a malformed `maxMemory` or an unknown `maxMemoryPolicy` — either
+//     makes valkey-server refuse to start, which would otherwise reach
+//     the caller as an opaque readiness timeout.
+//   - an `aclFile` that never mentions the `default` user — Valkey would
+//     recreate that user `nopass` and the node would boot without the
+//     password this function insists on. See validateAclFile.
+//
+// # Configuration passthrough
+//
+// `configFile`, `aclFile`, `appendOnly`, `maxMemory`, `maxMemoryPolicy`,
+// and `extraArgs` are all optional, and omitting every one of them
+// produces exactly the node this function produced before they existed.
+// They are constructor parameters rather than post-boot modifiers
+// because valkey-server reads each of them only while starting up.
+//
+// Precedence runs left to right along the command line, which Valkey
+// resolves last-one-wins:
+//
+//	<configFile>  <listener flags>  <passthrough flags>  <extraArgs>
+//
+// So a flag argument always beats the same directive in `configFile`,
+// and `extraArgs` beats everything — including this module's own
+// choices. A passthrough parameter left at its default emits no flag at
+// all, which is what lets `configFile` govern the settings the caller
+// did not name.
+//
+// `aclFile` is a `*dagger.Secret`, not a `*dagger.File`: an ACL file
+// carries per-user password material, so it is mounted as a secret and
+// never lands in an image layer or the Dagger graph. Valkey loads it
+// AFTER `requirepass` and recreates any user the file omits in its
+// factory `on nopass` state, so the file must say something about
+// `default` — that is the one thing about it this function validates.
+//
+// A `configFile` carrying its own `user ...` directives cannot be
+// combined with an `aclFile`: valkey-server refuses to start when both
+// are present. This module does not read the config file, so that one
+// surfaces as a node that never becomes ready.
+//
+// `extraArgs` is the deliberate escape hatch. It is appended verbatim,
+// last, and completely unvalidated; it is UNSUPPORTED surface, and
+// anything reachable through it may break without notice. Each element
+// becomes one shell word in the node's boot command, so a caller passing
+// a value containing whitespace must quote it themselves.
 //
 // Session-cached so that repeated chained method calls on the returned
 // server (e.g. Client.Set → Client.Get across two Server.Client() calls
@@ -643,7 +713,7 @@ type ValkeyServerOpts struct {
 // what a single test's chained Client calls need. Leaving the default
 // empty is fine for ad-hoc `dagger call` use where only one node is in
 // play.
-func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyServerOpts) *ValkeyServer { // valkey (../../../../../daggerverse/valkey/server.go:77:1)
+func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSecurity, opts ...ValkeyServerOpts) *ValkeyServer { // valkey (../../../../../daggerverse/valkey/server.go:120:1)
 	assertNotNil("password", password)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("server")
@@ -659,6 +729,30 @@ func (r *Valkey) Server(password *Secret, clientListenerSecurity *ValkeyServerSe
 		// `tag` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Tag) {
 			q = q.Arg("tag", opts[i].Tag)
+		}
+		// `configFile` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ConfigFile) {
+			q = q.Arg("configFile", opts[i].ConfigFile)
+		}
+		// `aclFile` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ACLFile) {
+			q = q.Arg("aclFile", opts[i].ACLFile)
+		}
+		// `appendOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].AppendOnly) {
+			q = q.Arg("appendOnly", opts[i].AppendOnly)
+		}
+		// `maxMemory` optional argument
+		if !querybuilder.IsZeroValue(opts[i].MaxMemory) {
+			q = q.Arg("maxMemory", opts[i].MaxMemory)
+		}
+		// `maxMemoryPolicy` optional argument
+		if !querybuilder.IsZeroValue(opts[i].MaxMemoryPolicy) {
+			q = q.Arg("maxMemoryPolicy", opts[i].MaxMemoryPolicy)
+		}
+		// `extraArgs` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ExtraArgs) {
+			q = q.Arg("extraArgs", opts[i].ExtraArgs)
 		}
 	}
 	q = q.Arg("password", password)
@@ -1087,7 +1181,7 @@ func (r *ValkeyCluster) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyClust
 // bootstrap a build-time dependency of whatever the consumer runs next,
 // so the container's first command meets a cluster whose slots are
 // already assigned rather than one answering CLUSTERDOWN.
-func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/cluster.go:406:1)
+func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/cluster.go:409:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindNodes")
 	q = q.Arg("ctr", ctr)
@@ -1115,7 +1209,7 @@ func (r *ValkeyCluster) BindNodes(ctr *Container) *Container { // valkey (../../
 // makes BindNodes unusable on the same cluster afterwards — see
 // Valkey.Cluster — so a consumer container should bind a cluster this
 // module has not already dialled.
-func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/cluster.go:434:1)
+func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/cluster.go:437:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1132,7 +1226,7 @@ func (r *ValkeyCluster) Client(security *ValkeyClientSecurity) *ValkeyClient { /
 //
 // Session-cached rather than never-cached: Dagger v0.21 detaches module
 // objects returned from a `module reads their fields lazily, and `tests/` is such a consumer.
-func (r *ValkeyCluster) Endpoints(ctx context.Context) ([]string, error) { // valkey (../../../../../daggerverse/valkey/cluster.go:384:1)
+func (r *ValkeyCluster) Endpoints(ctx context.Context) ([]string, error) { // valkey (../../../../../daggerverse/valkey/cluster.go:387:1)
 	q := r.query.Select("endpoints")
 
 	var response []string
@@ -1194,7 +1288,7 @@ func (r *ValkeyCluster) UnmarshalJSON(bs []byte) error {
 // earlier one fails, and the failures are joined — a partial teardown
 // that reported only the first error would leave services running with
 // nothing naming them.
-func (r *ValkeyCluster) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/cluster.go:461:1)
+func (r *ValkeyCluster) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/cluster.go:464:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1287,7 +1381,7 @@ func (r *ValkeyReplication) UnmarshalJSON(bs []byte) error {
 // objects returned from a `module reads their fields lazily, and `tests/` is such a consumer. The
 // methods on the returned *Server are individually never-cached, so no
 // data-returning call is served stale.
-func (r *ValkeyReplication) Primary() *ValkeyServer { // valkey (../../../../../daggerverse/valkey/replication.go:162:1)
+func (r *ValkeyReplication) Primary() *ValkeyServer { // valkey (../../../../../daggerverse/valkey/replication.go:165:1)
 	q := r.query.Select("primary")
 
 	return &ValkeyServer{
@@ -1297,7 +1391,7 @@ func (r *ValkeyReplication) Primary() *ValkeyServer { // valkey (../../../../../
 
 // Replicas returns the topology's read replicas, in creation order.
 // Session-cached for the same reason Primary is.
-func (r *ValkeyReplication) Replicas(ctx context.Context) ([]ValkeyServer, error) { // valkey (../../../../../daggerverse/valkey/replication.go:173:1)
+func (r *ValkeyReplication) Replicas(ctx context.Context) ([]ValkeyServer, error) { // valkey (../../../../../daggerverse/valkey/replication.go:176:1)
 	q := r.query.Select("replicas")
 
 	q = q.Select("id")
@@ -1334,7 +1428,7 @@ func (r *ValkeyReplication) Replicas(ctx context.Context) ([]ValkeyServer, error
 // node is attempted even if an earlier one fails, and the failures are
 // joined — a partial teardown that reported only the first error would
 // leave services running with nothing naming them.
-func (r *ValkeyReplication) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/replication.go:187:1)
+func (r *ValkeyReplication) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/replication.go:190:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1373,7 +1467,7 @@ func (r *ValkeyServer) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyServer
 // BindServer attaches the Valkey service to the given container under
 // the same hostname Endpoint reports, so the container can dial the node
 // at `Endpoint()` (e.g. `valkey-cli -h <host> -a <pw> PING`).
-func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:245:1)
+func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../../../../daggerverse/valkey/server.go:359:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindServer")
 	q = q.Arg("ctr", ctr)
@@ -1391,7 +1485,7 @@ func (r *ValkeyServer) BindServer(ctr *Container) *Container { // valkey (../../
 // rather than failing opaquely at the wire. Readiness is then probed
 // with the client itself, so a TLS / mTLS listener would be polled over
 // TLS using the caller's own cert material.
-func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:259:1)
+func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { // valkey (../../../../../daggerverse/valkey/server.go:373:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1412,7 +1506,7 @@ func (r *ValkeyServer) Client(security *ValkeyClientSecurity) *ValkeyClient { //
 // would register the service in the module's DNS domain, which the
 // binding's host-file lookup can't resolve from a session-domain
 // consumer — so the start must be driven by the binding, not here.
-func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:218:1)
+func (r *ValkeyServer) Endpoint(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:332:1)
 	if r.endpoint != nil {
 		return *r.endpoint, nil
 	}
@@ -1476,7 +1570,7 @@ func (r *ValkeyServer) UnmarshalJSON(bs []byte) error {
 // Password returns the `requirepass` secret the node was provisioned
 // with, so callers can re-use it via Valkey.Client against the same
 // endpoint.
-func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:236:1)
+func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggerverse/valkey/server.go:350:1)
 	q := r.query.Select("password")
 
 	return &Secret{
@@ -1488,7 +1582,7 @@ func (r *ValkeyServer) Password() *Secret { // valkey (../../../../../daggervers
 // call this in a defer so the service span closes when the test returns.
 // SIGKILL skips graceful shutdown — Valkey's save-on-shutdown path is
 // wasted work for a torn-down test node.
-func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:295:1)
+func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/server.go:409:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1500,7 +1594,7 @@ func (r *ValkeyServer) Stop(ctx context.Context) error { // valkey (../../../../
 // User returns the ACL user clients authenticate as. `requirepass` sets
 // the password of the built-in `default` user, so this is always
 // "default" in this story; an ACL-file follow-up is what makes it vary.
-func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:227:1)
+func (r *ValkeyServer) User(ctx context.Context) (string, error) { // valkey (../../../../../daggerverse/valkey/server.go:341:1)
 	if r.user != nil {
 		return *r.user, nil
 	}

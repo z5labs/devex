@@ -165,6 +165,9 @@ func (v *Valkey) Cluster(
 			image,
 			password,
 			clientListenerSecurity,
+			// The configuration passthrough is Valkey.Server's alone: a
+			// cluster member's boot flags are this module's to own.
+			nil,
 			clusterArgs(serverHostname(nodeName)),
 			// Deliberately no bindings between peers — see startAll.
 			nil,

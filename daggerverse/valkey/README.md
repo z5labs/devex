@@ -92,6 +92,12 @@ Valkey.Server(
     registry="docker.io", tag="9.1",
     password *dagger.Secret,
     clientListenerSecurity *ServerSecurity,
+    configFile *dagger.File = nil,          // a valkey.conf, loaded before every flag
+    aclFile *dagger.Secret = nil,           // an ACL file, mounted as a secret
+    appendOnly bool = false,                // --appendonly yes
+    maxMemory string = "",                  // --maxmemory 512mb
+    maxMemoryPolicy string = "noeviction",  // --maxmemory-policy allkeys-lru
+    extraArgs []string = nil,               // unsupported escape hatch, appended last
 ) (*Server, error)
 
 Server.Endpoint() string              // host:6379 (pure accessor; BindServer makes it reachable)
@@ -104,8 +110,10 @@ Server.Stop(ctx) error
 
 Rejected inputs (each a descriptive error rather than a half-broken or
 wide-open boot): `password == nil`, `clientListenerSecurity == nil`, an
-incomplete TLS/mTLS profile (missing cert, key, or client CA), and an
-empty `name` for a TLS/mTLS node.
+incomplete TLS/mTLS profile (missing cert, key, or client CA), an empty
+`name` for a TLS/mTLS node, a malformed `maxMemory` or unknown
+`maxMemoryPolicy`, and an `aclFile` that never mentions the `default`
+user.
 
 The password reaches `valkey-server` through a secret environment
 variable expanded by a shell wrapper, not through a literal `argv` entry
@@ -121,6 +129,50 @@ it when minting a server certificate whose SAN must match the dialed
 host. Every method
 on `*Server` / `*Client` is `+cache="never"` so any data-returning call
 re-executes per invocation.
+
+### Configuration passthrough
+
+`configFile`, `aclFile`, `appendOnly`, `maxMemory`, `maxMemoryPolicy`,
+and `extraArgs` are all optional, and a call that omits every one of them
+produces exactly the node it produced before they existed. They are
+constructor parameters rather than post-boot modifiers because
+`valkey-server` reads each of them only while starting up. They are
+`Server`-only: `Replication` and `Cluster` own their members' boot flags.
+
+Precedence runs left to right along the command line, which Valkey
+resolves last-one-wins:
+
+```
+<configFile>  <listener flags>  <passthrough flags>  <extraArgs>
+```
+
+So a flag argument always beats the same directive in `configFile`, and
+`extraArgs` beats everything — including this module's own choices. A
+passthrough parameter left at its default emits **no flag at all**, which
+is what lets `configFile` govern the settings you did not name: were
+`--appendonly no` rendered unconditionally, a config file that turned the
+AOF on would be silently overridden and you would have no way to express
+"leave it to the file".
+
+`aclFile` is a `*dagger.Secret`, not a `*dagger.File` — an ACL file
+carries per-user password material, so it is mounted as a secret and
+never lands in an image layer or the Dagger graph. It must contain a
+`user default ...` rule. Valkey loads the ACL file *after* `requirepass`
+and recreates any user the file omits in its factory `on nopass` state,
+so a file listing only your own users would silently drop the password
+from `default` and leave the node open — `Server` rejects that outright,
+the same way it rejects a nil password. Restate the credential (`user
+default on >$password ~* &* +@all`) or disable the user deliberately
+(`user default off`). A `configFile` carrying its own `user ...`
+directives cannot be combined with an `aclFile` at all: `valkey-server`
+refuses to start when both are present, and this module does not read the
+config file, so that one surfaces as a node that never becomes ready.
+
+`extraArgs` is the deliberate escape hatch: appended verbatim, last, and
+completely unvalidated. It is **unsupported surface** — anything
+reachable only through it may break without notice. Each element becomes
+one shell word in the node's boot command, so quote values containing
+whitespace yourself.
 
 `Endpoint()` is a pure accessor and does **not** start the service.
 Reachability from a consumer container comes from `BindServer`, which
@@ -365,7 +417,6 @@ failing command aborts the run and reports its line number.
 TLS/mTLS for the replication link (`--tls-replication yes` plus the trust
 material a replica needs to verify and authenticate to its primary) and
 for the cluster bus (`--tls-cluster yes`, plus `--tls`/`--cacert` for the
-bootstrapping `valkey-cli`); `valkey-server` config passthrough (config
-file, ACL file, append-only, max-memory, extra args); the
-`valkey/valkey-bundle` image with module verification; keyspace
-export/import via SCAN + DUMP/RESTORE.
+bootstrapping `valkey-cli`); configuration passthrough for `Replication`
+and `Cluster` members; the `valkey/valkey-bundle` image with module
+verification; keyspace export/import via SCAN + DUMP/RESTORE.

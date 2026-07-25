@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type ValkeyTests
-func (r *Binding) AsValkeyTests() *ValkeyTests { // valkey-tests (../../../daggerverse/valkey/tests/main.go:26:6)
+func (r *Binding) AsValkeyTests() *ValkeyTests { // valkey-tests (../../../daggerverse/valkey/tests/main.go:28:6)
 	q := r.query.Select("asValkeyTests")
 
 	return &ValkeyTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsValkeyTests() *ValkeyTests { // valkey-tests (../../../dagge
 }
 
 // Create or update a binding of type ValkeyTests in the environment
-func (r *Env) WithValkeyTestsInput(name string, value *ValkeyTests, description string) *Env { // valkey-tests (../../../daggerverse/valkey/tests/main.go:26:6)
+func (r *Env) WithValkeyTestsInput(name string, value *ValkeyTests, description string) *Env { // valkey-tests (../../../daggerverse/valkey/tests/main.go:28:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithValkeyTestsInput(name string, value *ValkeyTests, description 
 }
 
 // Declare a desired ValkeyTests output to be assigned in the environment
-func (r *Env) WithValkeyTestsOutput(name string, description string) *Env { // valkey-tests (../../../daggerverse/valkey/tests/main.go:26:6)
+func (r *Env) WithValkeyTestsOutput(name string, description string) *Env { // valkey-tests (../../../daggerverse/valkey/tests/main.go:28:6)
 	q := r.query.Select("withValkeyTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -48,9 +48,11 @@ func (r *Env) WithValkeyTestsOutput(name string, description string) *Env { // v
 // `dagger call all`.
 //
 // Every password, server name, and key prefix is minted at runtime via
-// dag.Random().Sha256. The ACL user deliberately uses the valkey
-// module's default ("default"), which a few tests assert against.
-func (r *Query) ValkeyTests() *ValkeyTests { // valkey-tests (../../../daggerverse/valkey/tests/main.go:26:6)
+// dag.Random().Sha256. Clients authenticate as the valkey module's
+// default ACL user ("default"), which a few tests assert against; the
+// configuration-passthrough tests are the exception, since an ACL file is
+// how a caller gets any other user at all.
+func (r *Query) ValkeyTests() *ValkeyTests { // valkey-tests (../../../daggerverse/valkey/tests/main.go:28:6)
 	q := r.query.Select("valkeyTests")
 
 	return &ValkeyTests{
@@ -58,63 +60,74 @@ func (r *Query) ValkeyTests() *ValkeyTests { // valkey-tests (../../../daggerver
 	}
 }
 
-type ValkeyTests struct { // valkey-tests (../../../daggerverse/valkey/tests/main.go:26:6)
+type ValkeyTests struct { // valkey-tests (../../../daggerverse/valkey/tests/main.go:28:6)
 	query *querybuilder.Selection
 
-	all                                   *Void
-	applyFileReportsFailingCommand        *Void
-	applyFileSeedsData                    *Void
-	bindServerReachableFromAlpine         *Void
-	bindServerReachableUnderTls           *Void
-	client                                *Void
-	clientPingWrongPasswordFails          *Void
-	cluster                               *Void
-	clusterAdvertisesPinnedHostnames      *Void
-	clusterBindNodesReachableFromConsumer *Void
-	clusterDelSpansMultipleSlots          *Void
-	clusterKeysScansEveryShard            *Void
-	clusterRejectsTlsSecurity             *Void
-	clusterRejectsTooFewShards            *Void
-	clusterReportsFormedState             *Void
-	clusterRoundTripsKeysAcrossSlots      *Void
-	clusterStopTerminatesEveryNode        *Void
-	dbSelectsLogicalDatabase              *Void
-	defaultsProduceHealthyServer          *Void
-	delRemovesKeys                        *Void
-	doReturnsJsonReplies                  *Void
-	endpointShouldNotBeCached             *Void
-	flushAllClearsKeys                    *Void
-	getMissingKeyFails                    *Void
-	getShouldNotBeCached                  *Void
-	id                                    *ID
-	infoReportsRole                       *Void
-	keysScansPattern                      *Void
-	mtlsNodeDemandsClientCertAtWire       *Void
-	mtlsServerRejectsTlsOnlyClient        *Void
-	passwordReusableViaClient             *Void
-	plaintextDialAgainstTlsNodeFails      *Void
-	replication                           *Void
-	replicationLinkAuthenticates          *Void
-	replicationNodesHaveDistinctHostnames *Void
-	replicationPropagatesWritesToReplica  *Void
-	replicationRejectsTlsSecurity         *Void
-	replicationRejectsTooFewReplicas      *Void
-	replicationReplicaRejectsWrites       *Void
-	replicationReportsRoles               *Void
-	replicationStopTerminatesEveryNode    *Void
-	sameNameServerSharesState             *Void
-	security                              *Void
-	server                                *Void
-	serverMtlsRoundTripFromClient         *Void
-	serverRejectsNilPassword              *Void
-	serverRejectsNilSecurity              *Void
-	serverTlsRoundTripFromClient          *Void
-	setGetRoundTrip                       *Void
-	setWithTtlExpires                     *Void
-	stopTerminatesServer                  *Void
-	tlsServerRejectsEmptyName             *Void
-	tlsServerRejectsPlaintextClient       *Void
-	validation                            *Void
+	aclFileProvisionsUser                  *Void
+	all                                    *Void
+	appendOnlyEnablesAof                   *Void
+	applyFileReportsFailingCommand         *Void
+	applyFileSeedsData                     *Void
+	bindServerReachableFromAlpine          *Void
+	bindServerReachableUnderTls            *Void
+	client                                 *Void
+	clientPingWrongPasswordFails           *Void
+	cluster                                *Void
+	clusterAdvertisesPinnedHostnames       *Void
+	clusterBindNodesReachableFromConsumer  *Void
+	clusterDelSpansMultipleSlots           *Void
+	clusterKeysScansEveryShard             *Void
+	clusterRejectsTlsSecurity              *Void
+	clusterRejectsTooFewShards             *Void
+	clusterReportsFormedState              *Void
+	clusterRoundTripsKeysAcrossSlots       *Void
+	clusterStopTerminatesEveryNode         *Void
+	config                                 *Void
+	configFileDirectivesApply              *Void
+	dbSelectsLogicalDatabase               *Void
+	defaultsProduceHealthyServer           *Void
+	delRemovesKeys                         *Void
+	doReturnsJsonReplies                   *Void
+	endpointShouldNotBeCached              *Void
+	extraArgsReachServerLast               *Void
+	flagArgumentBeatsConfigFile            *Void
+	flushAllClearsKeys                     *Void
+	getMissingKeyFails                     *Void
+	getShouldNotBeCached                   *Void
+	id                                     *ID
+	infoReportsRole                        *Void
+	keysScansPattern                       *Void
+	maxMemoryEvictsOverLimit               *Void
+	mtlsNodeDemandsClientCertAtWire        *Void
+	mtlsServerRejectsTlsOnlyClient         *Void
+	omittedConfigLeavesValkeyDefaults      *Void
+	passwordReusableViaClient              *Void
+	plaintextDialAgainstTlsNodeFails       *Void
+	replication                            *Void
+	replicationLinkAuthenticates           *Void
+	replicationNodesHaveDistinctHostnames  *Void
+	replicationPropagatesWritesToReplica   *Void
+	replicationRejectsTlsSecurity          *Void
+	replicationRejectsTooFewReplicas       *Void
+	replicationReplicaRejectsWrites        *Void
+	replicationReportsRoles                *Void
+	replicationStopTerminatesEveryNode     *Void
+	sameNameServerSharesState              *Void
+	security                               *Void
+	server                                 *Void
+	serverMtlsRoundTripFromClient          *Void
+	serverRejectsAclFileWithoutDefaultUser *Void
+	serverRejectsInvalidMaxMemory          *Void
+	serverRejectsInvalidMaxMemoryPolicy    *Void
+	serverRejectsNilPassword               *Void
+	serverRejectsNilSecurity               *Void
+	serverTlsRoundTripFromClient           *Void
+	setGetRoundTrip                        *Void
+	setWithTtlExpires                      *Void
+	stopTerminatesServer                   *Void
+	tlsServerRejectsEmptyName              *Void
+	tlsServerRejectsPlaintextClient        *Void
+	validation                             *Void
 }
 
 func (r *ValkeyTests) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyTests {
@@ -123,9 +136,29 @@ func (r *ValkeyTests) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyTests {
 	}
 }
 
+// AclFileProvisionsUser verifies an ACL file rides in as a secret and
+// provisions a user the module never knew about.
+//
+// The file is the only place that user's password exists in plaintext,
+// and it reaches the node as a mounted secret rather than an argument —
+// so the test also pins the leak paths shut: Valkey stores the password
+// as a SHA-256 digest, and neither ACL LIST nor ACL GETUSER may echo the
+// plaintext back. CONFIG GET aclfile reporting the mount path is the
+// other half of that: it proves the users arrived through the mounted
+// file rather than through `user ...` directives on the command line,
+// where they would be visible in the Dagger graph.
+func (r *ValkeyTests) ACLFileProvisionsUser(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:3042:1)
+	if r.aclFileProvisionsUser != nil {
+		return nil
+	}
+	q := r.query.Select("aclFileProvisionsUser")
+
+	return q.Execute(ctx)
+}
+
 // ValkeyTestsAllOpts contains options for ValkeyTests.All
 type ValkeyTestsAllOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:38:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:40:2)
 }
 
 // All runs every valkey test as a convenience for local `dagger call
@@ -133,7 +166,7 @@ type ValkeyTestsAllOpts struct {
 // below is registered as its own check, so GH Actions schedules each
 // onto its own runner in parallel — running All on top would
 // double-bill the same work.
-func (r *ValkeyTests) All(ctx context.Context, opts ...ValkeyTestsAllOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:35:1)
+func (r *ValkeyTests) All(ctx context.Context, opts ...ValkeyTestsAllOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:37:1)
 	if r.all != nil {
 		return nil
 	}
@@ -148,9 +181,26 @@ func (r *ValkeyTests) All(ctx context.Context, opts ...ValkeyTestsAllOpts) error
 	return q.Execute(ctx)
 }
 
+// AppendOnlyEnablesAof verifies `appendOnly: true` reaches the node as a
+// real persistence change: INFO persistence reports aof_enabled:1 and
+// CONFIG GET agrees.
+//
+// A control node with the parameter omitted is asserted to report
+// aof_enabled:0 in the same test. Without it, an image that shipped with
+// the AOF already on would make the positive assertion pass while the
+// parameter did nothing at all — the classic vacuous config test.
+func (r *ValkeyTests) AppendOnlyEnablesAof(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2862:1)
+	if r.appendOnlyEnablesAof != nil {
+		return nil
+	}
+	q := r.query.Select("appendOnlyEnablesAof")
+
+	return q.Execute(ctx)
+}
+
 // ApplyFileReportsFailingCommand verifies a mid-file failure is not
 // swallowed and that the error names the offending line.
-func (r *ValkeyTests) ApplyFileReportsFailingCommand(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1130:1)
+func (r *ValkeyTests) ApplyFileReportsFailingCommand(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1262:1)
 	if r.applyFileReportsFailingCommand != nil {
 		return nil
 	}
@@ -162,7 +212,7 @@ func (r *ValkeyTests) ApplyFileReportsFailingCommand(ctx context.Context) error 
 // ApplyFileSeedsData verifies a command file lands as data on one
 // connection, and that its quoting and line splitting survive: values
 // with spaces, embedded quotes, blank lines, and `#` comments.
-func (r *ValkeyTests) ApplyFileSeedsData(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1075:1)
+func (r *ValkeyTests) ApplyFileSeedsData(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1207:1)
 	if r.applyFileSeedsData != nil {
 		return nil
 	}
@@ -175,7 +225,7 @@ func (r *ValkeyTests) ApplyFileSeedsData(ctx context.Context) error { // valkey-
 // a consumer container under the hostname Endpoint reports, and that the
 // consumer gets a real PONG back. A port probe would be a false
 // positive: it proves something is listening, not that Valkey answers.
-func (r *ValkeyTests) BindServerReachableFromAlpine(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:613:1)
+func (r *ValkeyTests) BindServerReachableFromAlpine(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:745:1)
 	if r.bindServerReachableFromAlpine != nil {
 		return nil
 	}
@@ -189,7 +239,7 @@ func (r *ValkeyTests) BindServerReachableFromAlpine(ctx context.Context) error {
 // the right CA gets a PONG, proving BindServer stays reachable under TLS
 // from a consumer container. The password rides in as a secret env var so
 // it never enters the exec's argv.
-func (r *ValkeyTests) BindServerReachableUnderTLS(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2153:1)
+func (r *ValkeyTests) BindServerReachableUnderTLS(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2285:1)
 	if r.bindServerReachableUnderTls != nil {
 		return nil
 	}
@@ -200,13 +250,13 @@ func (r *ValkeyTests) BindServerReachableUnderTLS(ctx context.Context) error { /
 
 // ValkeyTestsClientOpts contains options for ValkeyTests.Client
 type ValkeyTestsClientOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:188:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:196:2)
 }
 
 // Client runs the command round-trip tests. Each test boots its own node
 // via bootServer, so the keyspaces stay disjoint and the group fans out
 // safely.
-func (r *ValkeyTests) Client(ctx context.Context, opts ...ValkeyTestsClientOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:185:1)
+func (r *ValkeyTests) Client(ctx context.Context, opts ...ValkeyTestsClientOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:193:1)
 	if r.client != nil {
 		return nil
 	}
@@ -224,7 +274,7 @@ func (r *ValkeyTests) Client(ctx context.Context, opts ...ValkeyTestsClientOpts)
 // ClientPingWrongPasswordFails proves requirepass is genuinely applied
 // and the node is not wide open: a client holding a different password
 // cannot authenticate.
-func (r *ValkeyTests) ClientPingWrongPasswordFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1222:1)
+func (r *ValkeyTests) ClientPingWrongPasswordFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1354:1)
 	if r.clientPingWrongPasswordFails != nil {
 		return nil
 	}
@@ -235,7 +285,7 @@ func (r *ValkeyTests) ClientPingWrongPasswordFails(ctx context.Context) error { 
 
 // ValkeyTestsClusterOpts contains options for ValkeyTests.Cluster
 type ValkeyTestsClusterOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:134:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:142:2)
 }
 
 // Cluster runs the slot-sharded Valkey Cluster tests. Each test boots its
@@ -247,7 +297,7 @@ type ValkeyTestsClusterOpts struct {
 // cluster is three nodes, and every one of them has to boot before the
 // bootstrap can even start — so they get their own aggregator rather than
 // riding along with the single-node groups.
-func (r *ValkeyTests) Cluster(ctx context.Context, opts ...ValkeyTestsClusterOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:131:1)
+func (r *ValkeyTests) Cluster(ctx context.Context, opts ...ValkeyTestsClusterOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:139:1)
 	if r.cluster != nil {
 		return nil
 	}
@@ -271,7 +321,7 @@ func (r *ValkeyTests) Cluster(ctx context.Context, opts ...ValkeyTestsClusterOpt
 // "another" node, dials itself. The cluster never forms, or forms and
 // then answers for the wrong shard, and CLUSTER INFO alone would not say
 // why. Asserting the announced identity is what pins the fix.
-func (r *ValkeyTests) ClusterAdvertisesPinnedHostnames(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2275:1)
+func (r *ValkeyTests) ClusterAdvertisesPinnedHostnames(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2407:1)
 	if r.clusterAdvertisesPinnedHostnames != nil {
 		return nil
 	}
@@ -297,7 +347,7 @@ func (r *ValkeyTests) ClusterAdvertisesPinnedHostnames(ctx context.Context) erro
 //
 // The whole probe runs in one exec so a partial failure names the node it
 // failed on rather than surfacing as an opaque non-zero exit.
-func (r *ValkeyTests) ClusterBindNodesReachableFromConsumer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2525:1)
+func (r *ValkeyTests) ClusterBindNodesReachableFromConsumer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2657:1)
 	if r.clusterBindNodesReachableFromConsumer != nil {
 		return nil
 	}
@@ -315,7 +365,7 @@ func (r *ValkeyTests) ClusterBindNodesReachableFromConsumer(ctx context.Context)
 // One key in the list never existed, so a Del that reported the number of
 // keys it was asked about rather than the number it removed is caught
 // too.
-func (r *ValkeyTests) ClusterDelSpansMultipleSlots(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2467:1)
+func (r *ValkeyTests) ClusterDelSpansMultipleSlots(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2599:1)
 	if r.clusterDelSpansMultipleSlots != nil {
 		return nil
 	}
@@ -335,7 +385,7 @@ func (r *ValkeyTests) ClusterDelSpansMultipleSlots(ctx context.Context) error { 
 // really were split across more than one primary, so the first assertion
 // can't pass vacuously on a cluster that happened to pile everything into
 // one shard.
-func (r *ValkeyTests) ClusterKeysScansEveryShard(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2384:1)
+func (r *ValkeyTests) ClusterKeysScansEveryShard(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2516:1)
 	if r.clusterKeysScansEveryShard != nil {
 		return nil
 	}
@@ -350,7 +400,7 @@ func (r *ValkeyTests) ClusterKeysScansEveryShard(ctx context.Context) error { //
 // would also have to run over TLS, and neither the peers nor the
 // valkey-cli that bootstraps them get the trust material they'd need from
 // a client-listener ServerSecurity.
-func (r *ValkeyTests) ClusterRejectsTLSSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:477:1)
+func (r *ValkeyTests) ClusterRejectsTLSSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:609:1)
 	if r.clusterRejectsTlsSecurity != nil {
 		return nil
 	}
@@ -369,7 +419,7 @@ func (r *ValkeyTests) ClusterRejectsTLSSecurity(ctx context.Context) error { // 
 //
 // The guard is checked before anything starts, so this test costs no
 // containers.
-func (r *ValkeyTests) ClusterRejectsTooFewShards(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:440:1)
+func (r *ValkeyTests) ClusterRejectsTooFewShards(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:572:1)
 	if r.clusterRejectsTooFewShards != nil {
 		return nil
 	}
@@ -386,7 +436,7 @@ func (r *ValkeyTests) ClusterRejectsTooFewShards(ctx context.Context) error { //
 // didn't finish: a node whose gossip never reached the others still
 // reports state:ok for the slots it can see, and only cluster_known_nodes
 // gives it away.
-func (r *ValkeyTests) ClusterReportsFormedState(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2243:1)
+func (r *ValkeyTests) ClusterReportsFormedState(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2375:1)
 	if r.clusterReportsFormedState != nil {
 		return nil
 	}
@@ -406,7 +456,7 @@ func (r *ValkeyTests) ClusterReportsFormedState(ctx context.Context) error { // 
 // A client that silently talked to one node would fail the write, not the
 // read: a key that hashes elsewhere is refused with MOVED, never stored
 // locally.
-func (r *ValkeyTests) ClusterRoundTripsKeysAcrossSlots(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2316:1)
+func (r *ValkeyTests) ClusterRoundTripsKeysAcrossSlots(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2448:1)
 	if r.clusterRoundTripsKeysAcrossSlots != nil {
 		return nil
 	}
@@ -424,7 +474,7 @@ func (r *ValkeyTests) ClusterRoundTripsKeysAcrossSlots(ctx context.Context) erro
 // Cluster members have no service bindings between them, so unlike the
 // replication topology there is no dependency teardown to hide behind:
 // every node that is still up after Stop is a node Stop failed to kill.
-func (r *ValkeyTests) ClusterStopTerminatesEveryNode(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2590:1)
+func (r *ValkeyTests) ClusterStopTerminatesEveryNode(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2722:1)
 	if r.clusterStopTerminatesEveryNode != nil {
 		return nil
 	}
@@ -433,10 +483,55 @@ func (r *ValkeyTests) ClusterStopTerminatesEveryNode(ctx context.Context) error 
 	return q.Execute(ctx)
 }
 
+// ValkeyTestsConfigOpts contains options for ValkeyTests.Config
+type ValkeyTestsConfigOpts struct {
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:259:2)
+}
+
+// Config runs the `valkey-server` configuration passthrough tests: the
+// config file, the ACL file, the append-only log, the memory ceiling, and
+// the extraArgs escape hatch. Each test boots its own node under a
+// runtime-random name, so the group fans out safely.
+func (r *ValkeyTests) Config(ctx context.Context, opts ...ValkeyTestsConfigOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:256:1)
+	if r.config != nil {
+		return nil
+	}
+	q := r.query.Select("config")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `parallel` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Parallel) {
+			q = q.Arg("parallel", opts[i].Parallel)
+		}
+	}
+
+	return q.Execute(ctx)
+}
+
+// ConfigFileDirectivesApply verifies a mounted valkey.conf is genuinely
+// loaded, and — the harder half — that it still governs settings this
+// module has parameters of its own for.
+//
+// The file deliberately sets `appendonly` and `maxmemory-policy`, the two
+// settings whose module parameters carry defaults that match Valkey's.
+// An implementation that rendered those parameters unconditionally would
+// emit `--appendonly no --maxmemory-policy noeviction` after the config
+// file and quietly win, so this is the test that pins the "a parameter
+// left at its default emits no flag" rule. `hash-max-listpack-entries` is
+// along for the ride as a directive the module has no opinion about at
+// all.
+func (r *ValkeyTests) ConfigFileDirectivesApply(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:3250:1)
+	if r.configFileDirectivesApply != nil {
+		return nil
+	}
+	q := r.query.Select("configFileDirectivesApply")
+
+	return q.Execute(ctx)
+}
+
 // DbSelectsLogicalDatabase verifies db is honoured end to end: a write
 // on db 0 is invisible to a client on db 1, and each database keeps its
 // own DbSize.
-func (r *ValkeyTests) DbSelectsLogicalDatabase(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1257:1)
+func (r *ValkeyTests) DbSelectsLogicalDatabase(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1389:1)
 	if r.dbSelectsLogicalDatabase != nil {
 		return nil
 	}
@@ -448,7 +543,7 @@ func (r *ValkeyTests) DbSelectsLogicalDatabase(ctx context.Context) error { // v
 // DefaultsProduceHealthyServer boots a default node and proves it is a
 // healthy Valkey by answering PING and self-reporting 9.1 in INFO
 // server. Catches image-path drift and a silently moved default tag.
-func (r *ValkeyTests) DefaultsProduceHealthyServer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:519:1)
+func (r *ValkeyTests) DefaultsProduceHealthyServer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:651:1)
 	if r.defaultsProduceHealthyServer != nil {
 		return nil
 	}
@@ -459,7 +554,7 @@ func (r *ValkeyTests) DefaultsProduceHealthyServer(ctx context.Context) error { 
 
 // DelRemovesKeys verifies Del reports how many keys it actually removed
 // and that DbSize agrees with the survivors.
-func (r *ValkeyTests) DelRemovesKeys(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:924:1)
+func (r *ValkeyTests) DelRemovesKeys(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1056:1)
 	if r.delRemovesKeys != nil {
 		return nil
 	}
@@ -471,7 +566,7 @@ func (r *ValkeyTests) DelRemovesKeys(ctx context.Context) error { // valkey-test
 // DoReturnsJsonReplies verifies each RESP type survives the JSON
 // encoding distinctly. The dangerous pair is nil versus empty string: a
 // naive encoder collapses both to "".
-func (r *ValkeyTests) DoReturnsJSONReplies(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1015:1)
+func (r *ValkeyTests) DoReturnsJSONReplies(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1147:1)
 	if r.doReturnsJsonReplies != nil {
 		return nil
 	}
@@ -483,7 +578,7 @@ func (r *ValkeyTests) DoReturnsJSONReplies(ctx context.Context) error { // valke
 // EndpointShouldNotBeCached verifies Endpoint re-executes against the
 // receiver it was called on rather than freezing on the first result.
 // Valkey.Server isaddress.
-func (r *ValkeyTests) EndpointShouldNotBeCached(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:545:1)
+func (r *ValkeyTests) EndpointShouldNotBeCached(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:677:1)
 	if r.endpointShouldNotBeCached != nil {
 		return nil
 	}
@@ -492,9 +587,45 @@ func (r *ValkeyTests) EndpointShouldNotBeCached(ctx context.Context) error { // 
 	return q.Execute(ctx)
 }
 
+// ExtraArgsReachServerLast verifies the escape hatch does both of the
+// things it promises: the arguments reach valkey-server verbatim, and
+// they land last on the command line.
+//
+// `databases` is a setting with no module parameter at all, so it can
+// only have arrived through extraArgs. `maxmemory-policy` is passed
+// BOTH ways, with different values, so the reply says which one Valkey
+// saw last — and therefore whether extraArgs really is appended after
+// the module's own flags rather than merely somewhere among them.
+func (r *ValkeyTests) ExtraArgsReachServerLast(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:3338:1)
+	if r.extraArgsReachServerLast != nil {
+		return nil
+	}
+	q := r.query.Select("extraArgsReachServerLast")
+
+	return q.Execute(ctx)
+}
+
+// FlagArgumentBeatsConfigFile verifies the precedence contract in the
+// direction that matters: when the same setting appears in `configFile`
+// and as a parameter, the parameter wins.
+//
+// Both settings are given deliberately conflicting values in the file, so
+// a passing result cannot be an accident of agreement. This is the
+// mirror of ConfigFileDirectivesApply — together they say the file is
+// loaded first and the flags are applied on top, which is the whole
+// ordering guarantee.
+func (r *ValkeyTests) FlagArgumentBeatsConfigFile(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:3298:1)
+	if r.flagArgumentBeatsConfigFile != nil {
+		return nil
+	}
+	q := r.query.Select("flagArgumentBeatsConfigFile")
+
+	return q.Execute(ctx)
+}
+
 // FlushAllClearsKeys verifies FlushAll empties the keyspace and DbSize
 // returns to 0.
-func (r *ValkeyTests) FlushAllClearsKeys(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1183:1)
+func (r *ValkeyTests) FlushAllClearsKeys(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1315:1)
 	if r.flushAllClearsKeys != nil {
 		return nil
 	}
@@ -506,7 +637,7 @@ func (r *ValkeyTests) FlushAllClearsKeys(ctx context.Context) error { // valkey-
 // GetMissingKeyFails verifies absence stays distinguishable from an
 // empty value: an unset key errors, while a key holding "" reads back as
 // "".
-func (r *ValkeyTests) GetMissingKeyFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:811:1)
+func (r *ValkeyTests) GetMissingKeyFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:943:1)
 	if r.getMissingKeyFails != nil {
 		return nil
 	}
@@ -518,7 +649,7 @@ func (r *ValkeyTests) GetMissingKeyFails(ctx context.Context) error { // valkey-
 // GetShouldNotBeCached verifies Get re-executes on every call: write v1,
 // read it, overwrite with v2, read again. A cached Get would still
 // report v1 — the canonical stale-read bug a missingproduces.
-func (r *ValkeyTests) GetShouldNotBeCached(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:765:1)
+func (r *ValkeyTests) GetShouldNotBeCached(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:897:1)
 	if r.getShouldNotBeCached != nil {
 		return nil
 	}
@@ -579,7 +710,7 @@ func (r *ValkeyTests) UnmarshalJSON(bs []byte) error {
 // InfoReportsRole verifies INFO replication reports a standalone node as
 // the primary. ReplicationReportsRoles is the multi-node counterpart,
 // where a replica reports role:slave instead.
-func (r *ValkeyTests) InfoReportsRole(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1164:1)
+func (r *ValkeyTests) InfoReportsRole(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1296:1)
 	if r.infoReportsRole != nil {
 		return nil
 	}
@@ -592,11 +723,32 @@ func (r *ValkeyTests) InfoReportsRole(ctx context.Context) error { // valkey-tes
 // checks the full match set comes back. One SCAN page holds far fewer
 // than that, so an implementation that returned the first page — or that
 // stopped before the cursor wrapped to 0 — comes up short here.
-func (r *ValkeyTests) KeysScansPattern(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:964:1)
+func (r *ValkeyTests) KeysScansPattern(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1096:1)
 	if r.keysScansPattern != nil {
 		return nil
 	}
 	q := r.query.Select("keysScansPattern")
+
+	return q.Execute(ctx)
+}
+
+// MaxMemoryEvictsOverLimit verifies the memory ceiling is a real limit
+// and that the eviction policy alongside it decides what happens when a
+// write crosses it.
+//
+// Two nodes, same ceiling, opposite policies, because either half alone
+// proves little. Under `allkeys-lru` the over-limit writes must all be
+// ACCEPTED and paid for by evicting older keys — so the keyspace ends up
+// smaller than what was written and evicted_keys is non-zero. Under the
+// default `noeviction` the same writes must be REFUSED with OOM. A
+// maxMemory that never reached valkey-server would leave both nodes
+// happily holding the whole keyspace, and a maxMemoryPolicy that never
+// reached it would make the two nodes behave identically.
+func (r *ValkeyTests) MaxMemoryEvictsOverLimit(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2945:1)
+	if r.maxMemoryEvictsOverLimit != nil {
+		return nil
+	}
+	q := r.query.Select("maxMemoryEvictsOverLimit")
 
 	return q.Execute(ctx)
 }
@@ -610,7 +762,7 @@ func (r *ValkeyTests) KeysScansPattern(ctx context.Context) error { // valkey-te
 // default `yes`. A regression that passed `--tls-auth-clients no` for
 // MTLS too would let this certless client through and go undetected by
 // the round-trip tests.
-func (r *ValkeyTests) MtlsNodeDemandsClientCertAtWire(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2006:1)
+func (r *ValkeyTests) MtlsNodeDemandsClientCertAtWire(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2138:1)
 	if r.mtlsNodeDemandsClientCertAtWire != nil {
 		return nil
 	}
@@ -623,7 +775,7 @@ func (r *ValkeyTests) MtlsNodeDemandsClientCertAtWire(ctx context.Context) error
 // mTLS side: asking an mTLS node for a TLS-only client returns an error
 // naming both modes, before any wire activity. The SAN value on the cert
 // is irrelevant here — the guard fires in requireMode, ahead of any dial.
-func (r *ValkeyTests) MtlsServerRejectsTLSOnlyClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1961:1)
+func (r *ValkeyTests) MtlsServerRejectsTLSOnlyClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2093:1)
 	if r.mtlsServerRejectsTlsOnlyClient != nil {
 		return nil
 	}
@@ -632,10 +784,31 @@ func (r *ValkeyTests) MtlsServerRejectsTLSOnlyClient(ctx context.Context) error 
 	return q.Execute(ctx)
 }
 
+// OmittedConfigLeavesValkeyDefaults verifies the passthrough is genuinely
+// opt-in: a node built without any of the new parameters reports Valkey's
+// own defaults for every one of them.
+//
+// This is the test that pins the "a parameter left at its default emits
+// no flag" rule, and it is not merely a restatement of the defaults. An
+// implementation that rendered `--appendonly no` or `--maxmemory-policy
+// noeviction` unconditionally would pass every assertion below and still
+// be wrong — because those flags sit after the config file on the command
+// line and would silently override a `configFile` that set them. The
+// configFile tests further down are what catch that, and this one is what
+// makes their failure legible.
+func (r *ValkeyTests) OmittedConfigLeavesValkeyDefaults(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2826:1)
+	if r.omittedConfigLeavesValkeyDefaults != nil {
+		return nil
+	}
+	q := r.query.Select("omittedConfigLeavesValkeyDefaults")
+
+	return q.Execute(ctx)
+}
+
 // PasswordReusableViaClient verifies the credentials a Server hands back
 // authenticate through the standalone constructor: Endpointare enough to build a working client, which is what makes the same
 // Client usable against a remote Valkey.
-func (r *ValkeyTests) PasswordReusableViaClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:652:1)
+func (r *ValkeyTests) PasswordReusableViaClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:784:1)
 	if r.passwordReusableViaClient != nil {
 		return nil
 	}
@@ -650,7 +823,7 @@ func (r *ValkeyTests) PasswordReusableViaClient(ctx context.Context) error { // 
 // wire protocol to the encrypted listener and fails. If `--port 0` were
 // missing, a plaintext listener would still be up on 6379 and this dial
 // would succeed.
-func (r *ValkeyTests) PlaintextDialAgainstTLSNodeFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2074:1)
+func (r *ValkeyTests) PlaintextDialAgainstTLSNodeFails(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2206:1)
 	if r.plaintextDialAgainstTlsNodeFails != nil {
 		return nil
 	}
@@ -661,14 +834,14 @@ func (r *ValkeyTests) PlaintextDialAgainstTLSNodeFails(ctx context.Context) erro
 
 // ValkeyTestsReplicationOpts contains options for ValkeyTests.Replication
 type ValkeyTestsReplicationOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:102:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:110:2)
 }
 
 // Replication runs the primary/replica topology tests. Each test boots
 // its own topology via bootReplication, whose runtime-random name folds
 // into Valkey.Replication's session-cache key and into every node's
 // hostname, so concurrent tests get independent topologies.
-func (r *ValkeyTests) Replication(ctx context.Context, opts ...ValkeyTestsReplicationOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:99:1)
+func (r *ValkeyTests) Replication(ctx context.Context, opts ...ValkeyTestsReplicationOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:107:1)
 	if r.replication != nil {
 		return nil
 	}
@@ -689,7 +862,7 @@ func (r *ValkeyTests) Replication(ctx context.Context, opts ...ValkeyTestsReplic
 // wrong never reaches — it stays `down`, retrying on NOAUTH, while every
 // other assertion in this file would still pass against its (empty but
 // readable) local keyspace.
-func (r *ValkeyTests) ReplicationLinkAuthenticates(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1526:1)
+func (r *ValkeyTests) ReplicationLinkAuthenticates(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1658:1)
 	if r.replicationLinkAuthenticates != nil {
 		return nil
 	}
@@ -706,7 +879,7 @@ func (r *ValkeyTests) ReplicationLinkAuthenticates(ctx context.Context) error { 
 //
 // Endpoint is a pure accessor, so this asserts the addressing scheme
 // without booting anything.
-func (r *ValkeyTests) ReplicationNodesHaveDistinctHostnames(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1566:1)
+func (r *ValkeyTests) ReplicationNodesHaveDistinctHostnames(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1698:1)
 	if r.replicationNodesHaveDistinctHostnames != nil {
 		return nil
 	}
@@ -719,7 +892,7 @@ func (r *ValkeyTests) ReplicationNodesHaveDistinctHostnames(ctx context.Context)
 // path: a key written to the primary becomes readable from the replica.
 // The read polls, because the link is asynchronous and a single read
 // would race the initial sync.
-func (r *ValkeyTests) ReplicationPropagatesWritesToReplica(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1391:1)
+func (r *ValkeyTests) ReplicationPropagatesWritesToReplica(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1523:1)
 	if r.replicationPropagatesWritesToReplica != nil {
 		return nil
 	}
@@ -733,7 +906,7 @@ func (r *ValkeyTests) ReplicationPropagatesWritesToReplica(ctx context.Context) 
 // forever on a failed handshake: a TLS node runs with `--port 0`, so the
 // replication link would also have to run over TLS, and a client-listener
 // ServerSecurity carries none of the trust material that link needs.
-func (r *ValkeyTests) ReplicationRejectsTLSSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:395:1)
+func (r *ValkeyTests) ReplicationRejectsTLSSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:527:1)
 	if r.replicationRejectsTlsSecurity != nil {
 		return nil
 	}
@@ -752,7 +925,7 @@ func (r *ValkeyTests) ReplicationRejectsTLSSecurity(ctx context.Context) error {
 // any optional argument holding its zero value, so `Replicas: 0` never
 // reaches the module and resolves to the `the CLI does reach the guard, which is why the guard is `< 1` and not
 // `< 0`.
-func (r *ValkeyTests) ReplicationRejectsTooFewReplicas(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:362:1)
+func (r *ValkeyTests) ReplicationRejectsTooFewReplicas(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:494:1)
 	if r.replicationRejectsTooFewReplicas != nil {
 		return nil
 	}
@@ -765,7 +938,7 @@ func (r *ValkeyTests) ReplicationRejectsTooFewReplicas(ctx context.Context) erro
 // holds: a write against a replica is refused with READONLY, so a test
 // that writes to the wrong node fails loudly instead of silently losing
 // the write on the next sync.
-func (r *ValkeyTests) ReplicationReplicaRejectsWrites(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1486:1)
+func (r *ValkeyTests) ReplicationReplicaRejectsWrites(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1618:1)
 	if r.replicationReplicaRejectsWrites != nil {
 		return nil
 	}
@@ -779,7 +952,7 @@ func (r *ValkeyTests) ReplicationReplicaRejectsWrites(ctx context.Context) error
 // connected_slaves as there are replicas, and every replica reports the
 // replica role. Two replicas rather than one, so a count that reported
 // "some replica connected" instead of all of them fails here.
-func (r *ValkeyTests) ReplicationReportsRoles(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1433:1)
+func (r *ValkeyTests) ReplicationReportsRoles(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1565:1)
 	if r.replicationReportsRoles != nil {
 		return nil
 	}
@@ -802,7 +975,7 @@ func (r *ValkeyTests) ReplicationReportsRoles(ctx context.Context) error { // va
 // every other node depends on". Replication.Stop still walks every node
 // explicitly rather than leaning on that dependency teardown, which is
 // not a documented guarantee.
-func (r *ValkeyTests) ReplicationStopTerminatesEveryNode(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1629:1)
+func (r *ValkeyTests) ReplicationStopTerminatesEveryNode(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1761:1)
 	if r.replicationStopTerminatesEveryNode != nil {
 		return nil
 	}
@@ -815,7 +988,7 @@ func (r *ValkeyTests) ReplicationStopTerminatesEveryNode(ctx context.Context) er
 // resolve to one backing node: a key written through the first is
 // readable through the second. Catches session cache-key drift, which
 // would silently split a multi-step test across two empty keyspaces.
-func (r *ValkeyTests) SameNameServerSharesState(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:574:1)
+func (r *ValkeyTests) SameNameServerSharesState(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:706:1)
 	if r.sameNameServerSharesState != nil {
 		return nil
 	}
@@ -826,14 +999,14 @@ func (r *ValkeyTests) SameNameServerSharesState(ctx context.Context) error { // 
 
 // ValkeyTestsSecurityOpts contains options for ValkeyTests.Security
 type ValkeyTestsSecurityOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:222:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:230:2)
 }
 
 // Security runs the TLS / mTLS listener + client tests. Each test mints
 // its own CA, leaf certs, password, and server name at runtime (no
 // literal credentials or PEM blobs), and folds a unique name into the
 // node's session-cache key, so the tests fan out without sharing state.
-func (r *ValkeyTests) Security(ctx context.Context, opts ...ValkeyTestsSecurityOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:219:1)
+func (r *ValkeyTests) Security(ctx context.Context, opts ...ValkeyTestsSecurityOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:227:1)
 	if r.security != nil {
 		return nil
 	}
@@ -850,14 +1023,14 @@ func (r *ValkeyTests) Security(ctx context.Context, opts ...ValkeyTestsSecurityO
 
 // ValkeyTestsServerOpts contains options for ValkeyTests.Server
 type ValkeyTestsServerOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:162:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:170:2)
 }
 
 // Server runs the topology, default, and caching tests. Each test boots
 // its own node via bootServer, whose runtime-random name folds into
 // Valkey.Server's session-cache key so concurrent tests boot independent
 // backing services and never share a keyspace.
-func (r *ValkeyTests) Server(ctx context.Context, opts ...ValkeyTestsServerOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:159:1)
+func (r *ValkeyTests) Server(ctx context.Context, opts ...ValkeyTestsServerOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:167:1)
 	if r.server != nil {
 		return nil
 	}
@@ -875,7 +1048,7 @@ func (r *ValkeyTests) Server(ctx context.Context, opts ...ValkeyTestsServerOpts)
 // ServerMtlsRoundTripFromClient boots a mutual-TLS node and proves a
 // matching mTLS client (presenting a client cert signed by the trusted
 // CA) can round-trip Set
-func (r *ValkeyTests) ServerMtlsRoundTripFromClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1866:1)
+func (r *ValkeyTests) ServerMtlsRoundTripFromClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1998:1)
 	if r.serverMtlsRoundTripFromClient != nil {
 		return nil
 	}
@@ -884,8 +1057,67 @@ func (r *ValkeyTests) ServerMtlsRoundTripFromClient(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
+// ServerRejectsAclFileWithoutDefaultUser verifies the module refuses an
+// ACL file that never mentions the `default` user.
+//
+// This is the module's password guarantee holding under the new
+// parameter. Valkey loads the ACL file after `requirepass` and recreates
+// any user the file omits in its factory `on nopass` state — so an ACL
+// file listing only the caller's own users silently drops the password
+// from `default` and leaves the node reachable by anything that can route
+// to it. Valkey.Server rejects a nil password for exactly that reason,
+// and an ACL file must not be a back door around it.
+//
+// The accepting cases prove the guard is a mention and not an
+// interpretation: naming `default` at all — even to turn it off — is a
+// decision the caller is entitled to make.
+func (r *ValkeyTests) ServerRejectsACLFileWithoutDefaultUser(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:3189:1)
+	if r.serverRejectsAclFileWithoutDefaultUser != nil {
+		return nil
+	}
+	q := r.query.Select("serverRejectsAclFileWithoutDefaultUser")
+
+	return q.Execute(ctx)
+}
+
+// ServerRejectsInvalidMaxMemory verifies a malformed memory ceiling is
+// caught in-process rather than at boot. valkey-server parses `maxmemory`
+// with memtoll, which accepts an integer plus an optional unit suffix and
+// nothing else — a fractional value or an invented unit makes it refuse
+// to start, and the caller would meet that as a readiness timeout with
+// the parse error stranded in a service log nobody reads.
+//
+// The accepted cases run too, so the guard can't pass by rejecting
+// everything: `k`/`m`/`g` (powers of 1000) and `kb`/`mb`/`gb` (powers of
+// 1024) are both legal, as is a bare byte count.
+func (r *ValkeyTests) ServerRejectsInvalidMaxMemory(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:409:1)
+	if r.serverRejectsInvalidMaxMemory != nil {
+		return nil
+	}
+	q := r.query.Select("serverRejectsInvalidMaxMemory")
+
+	return q.Execute(ctx)
+}
+
+// ServerRejectsInvalidMaxMemoryPolicy verifies an unknown eviction policy
+// is caught in-process, for the same reason as the memory ceiling: a
+// mistyped policy is a config-parse error at boot, which surfaces as a
+// node that simply never becomes ready.
+//
+// Every policy Valkey accepts is exercised on the accept side, so a guard
+// that only knew the common ones would fail here rather than in a
+// caller's pipeline.
+func (r *ValkeyTests) ServerRejectsInvalidMaxMemoryPolicy(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:448:1)
+	if r.serverRejectsInvalidMaxMemoryPolicy != nil {
+		return nil
+	}
+	q := r.query.Select("serverRejectsInvalidMaxMemoryPolicy")
+
+	return q.Execute(ctx)
+}
+
 // ServerRejectsNilPassword verifies a passwordless node must not boot.
-func (r *ValkeyTests) ServerRejectsNilPassword(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:307:1)
+func (r *ValkeyTests) ServerRejectsNilPassword(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:355:1)
 	if r.serverRejectsNilPassword != nil {
 		return nil
 	}
@@ -897,7 +1129,7 @@ func (r *ValkeyTests) ServerRejectsNilPassword(ctx context.Context) error { // v
 // ServerRejectsNilSecurity verifies plaintext must be a deliberate
 // choice, so the TLS follow-up stays an explicit upgrade rather than a
 // silent default.
-func (r *ValkeyTests) ServerRejectsNilSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:328:1)
+func (r *ValkeyTests) ServerRejectsNilSecurity(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:376:1)
 	if r.serverRejectsNilSecurity != nil {
 		return nil
 	}
@@ -910,7 +1142,7 @@ func (r *ValkeyTests) ServerRejectsNilSecurity(ctx context.Context) error { // v
 // matching TLS client — presenting NO client certificate — can Setagainst it over the encrypted listener. That the certless client is
 // accepted is the `--tls-auth-clients no` acceptance criterion: without
 // that flag Valkey would demand a client cert and reject this dial.
-func (r *ValkeyTests) ServerTLSRoundTripFromClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1816:1)
+func (r *ValkeyTests) ServerTLSRoundTripFromClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1948:1)
 	if r.serverTlsRoundTripFromClient != nil {
 		return nil
 	}
@@ -921,7 +1153,7 @@ func (r *ValkeyTests) ServerTLSRoundTripFromClient(ctx context.Context) error { 
 
 // SetGetRoundTrip is the core smoke path: a value written through Set
 // comes back through Get unchanged.
-func (r *ValkeyTests) SetGetRoundTrip(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:732:1)
+func (r *ValkeyTests) SetGetRoundTrip(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:864:1)
 	if r.setGetRoundTrip != nil {
 		return nil
 	}
@@ -940,7 +1172,7 @@ func (r *ValkeyTests) SetGetRoundTrip(ctx context.Context) error { // valkey-tes
 // an expiry check, because every step here is a round trip through a
 // re-probed service — a lower bound on the *remaining* TTL would be a
 // stopwatch race under a loaded parallel suite.
-func (r *ValkeyTests) SetWithTTLExpires(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:855:1)
+func (r *ValkeyTests) SetWithTTLExpires(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:987:1)
 	if r.setWithTtlExpires != nil {
 		return nil
 	}
@@ -953,7 +1185,7 @@ func (r *ValkeyTests) SetWithTTLExpires(ctx context.Context) error { // valkey-t
 // The post-Stop probe goes through the standalone constructor on
 // purpose: Server.Client would re-Start the service it is asked to dial
 // and the test would pass no matter what Stop did.
-func (r *ValkeyTests) StopTerminatesServer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:692:1)
+func (r *ValkeyTests) StopTerminatesServer(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:824:1)
 	if r.stopTerminatesServer != nil {
 		return nil
 	}
@@ -968,7 +1200,7 @@ func (r *ValkeyTests) StopTerminatesServer(ctx context.Context) error { // valke
 // TLS/mTLS node onto the same sha256("") host and invite cert/SAN reuse.
 // The guard fires in the constructor, before any service starts, so a
 // placeholder SAN on the cert is fine here.
-func (r *ValkeyTests) TLSServerRejectsEmptyName(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2118:1)
+func (r *ValkeyTests) TLSServerRejectsEmptyName(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2250:1)
 	if r.tlsServerRejectsEmptyName != nil {
 		return nil
 	}
@@ -980,7 +1212,7 @@ func (r *ValkeyTests) TLSServerRejectsEmptyName(ctx context.Context) error { // 
 // TlsServerRejectsPlaintextClient verifies the mode-coupling check:
 // asking a TLS node for a plaintext client returns an error naming both
 // modes, before any wire activity.
-func (r *ValkeyTests) TLSServerRejectsPlaintextClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:1922:1)
+func (r *ValkeyTests) TLSServerRejectsPlaintextClient(ctx context.Context) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:2054:1)
 	if r.tlsServerRejectsPlaintextClient != nil {
 		return nil
 	}
@@ -991,12 +1223,12 @@ func (r *ValkeyTests) TLSServerRejectsPlaintextClient(ctx context.Context) error
 
 // ValkeyTestsValidationOpts contains options for ValkeyTests.Validation
 type ValkeyTestsValidationOpts struct {
-	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:75:2)
+	Parallel int // valkey-tests (../../../daggerverse/valkey/tests/main.go:80:2)
 }
 
 // Validation runs the input-rejection tests. These boot no service, so
 // they're safe to fan out unbounded.
-func (r *ValkeyTests) Validation(ctx context.Context, opts ...ValkeyTestsValidationOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:72:1)
+func (r *ValkeyTests) Validation(ctx context.Context, opts ...ValkeyTestsValidationOpts) error { // valkey-tests (../../../daggerverse/valkey/tests/main.go:77:1)
 	if r.validation != nil {
 		return nil
 	}

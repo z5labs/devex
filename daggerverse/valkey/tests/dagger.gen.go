@@ -192,6 +192,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Tests":
 		switch fnName {
+		case "AclFileProvisionsUser":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AclFileProvisionsUser(&parent, ctx)
 		case "All":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -206,6 +213,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "AppendOnlyEnablesAof":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppendOnlyEnablesAof(&parent, ctx)
 		case "ApplyFileReportsFailingCommand":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -332,6 +346,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ClusterStopTerminatesEveryNode(&parent, ctx)
+		case "Config":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Config(&parent, ctx, parallel)
+		case "ConfigFileDirectivesApply":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ConfigFileDirectivesApply(&parent, ctx)
 		case "DbSelectsLogicalDatabase":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -367,6 +402,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).EndpointShouldNotBeCached(&parent, ctx)
+		case "ExtraArgsReachServerLast":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExtraArgsReachServerLast(&parent, ctx)
+		case "FlagArgumentBeatsConfigFile":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FlagArgumentBeatsConfigFile(&parent, ctx)
 		case "FlushAllClearsKeys":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -402,6 +451,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).KeysScansPattern(&parent, ctx)
+		case "MaxMemoryEvictsOverLimit":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MaxMemoryEvictsOverLimit(&parent, ctx)
 		case "MtlsNodeDemandsClientCertAtWire":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -416,6 +472,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).MtlsServerRejectsTlsOnlyClient(&parent, ctx)
+		case "OmittedConfigLeavesValkeyDefaults":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).OmittedConfigLeavesValkeyDefaults(&parent, ctx)
 		case "PasswordReusableViaClient":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -542,6 +605,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ServerMtlsRoundTripFromClient(&parent, ctx)
+		case "ServerRejectsAclFileWithoutDefaultUser":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ServerRejectsAclFileWithoutDefaultUser(&parent, ctx)
+		case "ServerRejectsInvalidMaxMemory":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ServerRejectsInvalidMaxMemory(&parent, ctx)
+		case "ServerRejectsInvalidMaxMemoryPolicy":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ServerRejectsInvalidMaxMemoryPolicy(&parent, ctx)
 		case "ServerRejectsNilPassword":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

@@ -933,7 +933,49 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientListenerSecurity", err))
 				}
 			}
-			return (*Valkey).Server(&parent, ctx, name, registry, tag, password, clientListenerSecurity)
+			var configFile *dagger.File
+			if inputArgs["configFile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["configFile"]), &configFile)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg configFile", err))
+				}
+			}
+			var aclFile *dagger.Secret
+			if inputArgs["aclFile"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["aclFile"]), &aclFile)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg aclFile", err))
+				}
+			}
+			var appendOnly bool
+			if inputArgs["appendOnly"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["appendOnly"]), &appendOnly)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg appendOnly", err))
+				}
+			}
+			var maxMemory string
+			if inputArgs["maxMemory"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["maxMemory"]), &maxMemory)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg maxMemory", err))
+				}
+			}
+			var maxMemoryPolicy string
+			if inputArgs["maxMemoryPolicy"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["maxMemoryPolicy"]), &maxMemoryPolicy)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg maxMemoryPolicy", err))
+				}
+			}
+			var extraArgs []string
+			if inputArgs["extraArgs"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["extraArgs"]), &extraArgs)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg extraArgs", err))
+				}
+			}
+			return (*Valkey).Server(&parent, ctx, name, registry, tag, password, clientListenerSecurity, configFile, aclFile, appendOnly, maxMemory, maxMemoryPolicy, extraArgs)
 		case "TlsClientSecurity":
 			var parent Valkey
 			err = json.Unmarshal(parentJSON, &parent)
