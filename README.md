@@ -27,6 +27,7 @@ dagger install github.com/z5labs/devex/daggerverse/<module>
 | [`grafana-stack`](daggerverse/grafana-stack) | Spin up Loki, Tempo, and Mimir as Dagger services. |
 | [`java`](daggerverse/java) | Wrap the JVM toolchain — the JDK plus Maven and Gradle. |
 | [`kafka`](daggerverse/kafka) | Spin up a Kafka-wire-compatible cluster. |
+| [`opentofu`](daggerverse/opentofu) | Drive the OpenTofu (`tofu`) lifecycle — fmt, validate, plan, apply, destroy. |
 | [`otel`](daggerverse/otel) | Spin up the OpenTelemetry Collector as a service. |
 | [`postgres`](daggerverse/postgres) | Spin up a single-node PostgreSQL 17 primary. |
 | [`qemu`](daggerverse/qemu) | Boot guest systems under [QEMU](https://www.qemu.org/). |

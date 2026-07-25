@@ -46,6 +46,10 @@
       "source": "daggerverse/kicad/tests"
     },
     {
+      "name": "opentofu-tests",
+      "source": "daggerverse/opentofu/tests"
+    },
+    {
       "name": "otel-tests",
       "source": "daggerverse/otel/tests"
     },
