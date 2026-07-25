@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -65,6 +66,9 @@ func (t *Tests) All(
 	})
 	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
 		return t.Cluster(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Bundle", func(ctx context.Context) error {
+		return t.Bundle(ctx, parallel)
 	})
 	return jobs.Run(ctx)
 }
@@ -271,6 +275,34 @@ func (t *Tests) Config(
 	jobs = jobs.WithJob("config-file-directives-apply", t.ConfigFileDirectivesApply)
 	jobs = jobs.WithJob("flag-argument-beats-config-file", t.FlagArgumentBeatsConfigFile)
 	jobs = jobs.WithJob("extra-args-reach-server-last", t.ExtraArgsReachServerLast)
+	return jobs.Run(ctx)
+}
+
+// Bundle runs the `valkey/valkey-bundle` image tests: that the module
+// ecosystem it ships actually loads, that JSON and Bloom commands round
+// trip through Do, and that every *Server method behaves the same
+// against a bundle node as against a stock one. Each test boots its own
+// node under a runtime-random name, so the group fans out safely.
+//
+// +check
+// +cache="session"
+func (t *Tests) Bundle(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("bundle-server-loads-modules", t.BundleServerLoadsModules)
+	jobs = jobs.WithJob("stock-server-lacks-bundle-modules", t.StockServerLacksBundleModules)
+	jobs = jobs.WithJob("bundle-json-round-trip", t.BundleJsonRoundTrip)
+	jobs = jobs.WithJob("bundle-bloom-round-trip", t.BundleBloomRoundTrip)
+	jobs = jobs.WithJob("bundle-server-methods-match-stock", t.BundleServerMethodsMatchStock)
+	jobs = jobs.WithJob("bundle-bind-server-reachable-from-consumer", t.BundleBindServerReachableFromConsumer)
 	return jobs.Run(ctx)
 }
 
@@ -3367,6 +3399,359 @@ func (t *Tests) ExtraArgsReachServerLast(ctx context.Context) error {
 		return err
 	} else if want := strconv.Itoa(64 * 1024 * 1024); got != want {
 		return fmt.Errorf("expected maxMemory to survive alongside extraArgs, CONFIG GET reports %q (wanted %q)", got, want)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Bundle tests — the `valkey/valkey-bundle` image and the module ecosystem
+// it carries preinstalled (JSON, Bloom, Search).
+// -----------------------------------------------------------------------------
+
+// BundleServerLoadsModules verifies a bundle node boots with the JSON,
+// Bloom, and Search modules actually loaded. The bundle image only loads
+// them when its own `bundle-docker-entrypoint.sh` composes the
+// `--loadmodule` flags, so a node built through the stock
+// `docker-entrypoint.sh` comes up healthy with an empty module list —
+// which is exactly the silent failure this asserts against.
+//
+// +cache="never"
+func (t *Tests) BundleServerLoadsModules(ctx context.Context) error {
+	server, _, err := bootBundleServer(ctx)
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	loaded, err := moduleNames(ctx, client)
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"json", "bf", "search"} {
+		if _, ok := loaded[want]; !ok {
+			return fmt.Errorf("expected MODULE LIST to report the %q module, got %v", want, sortedKeys(loaded))
+		}
+	}
+	return nil
+}
+
+// moduleNames returns the set of module names a node reports through
+// MODULE LIST. The reply arrives through Do as JSON — an array of one
+// object per module — so `name` is read straight back off it.
+func moduleNames(ctx context.Context, client *dagger.ValkeyClient) (map[string]struct{}, error) {
+	reply, err := client.Do(ctx, []string{"MODULE", "LIST"})
+	if err != nil {
+		return nil, fmt.Errorf("module list: %w", err)
+	}
+	var modules []map[string]any
+	if err := json.Unmarshal([]byte(reply), &modules); err != nil {
+		return nil, fmt.Errorf("decode MODULE LIST reply %q: %w", reply, err)
+	}
+	names := make(map[string]struct{}, len(modules))
+	for _, module := range modules {
+		name, _ := module["name"].(string)
+		if name != "" {
+			names[name] = struct{}{}
+		}
+	}
+	return names, nil
+}
+
+// sortedKeys renders a name set in a stable order so a failure message
+// reads the same on every run.
+func sortedKeys(set map[string]struct{}) []string {
+	keys := make([]string, 0, len(set))
+	for key := range set {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// bootBundleServer mints a fresh single-node bundle server under a
+// runtime-random name, exactly as bootServer does for the stock image.
+func bootBundleServer(ctx context.Context) (*dagger.ValkeyServer, *dagger.Secret, error) {
+	name, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	server := dag.Valkey().BundleServer(
+		pass,
+		dag.Valkey().PlaintextServerSecurity(),
+		dagger.ValkeyBundleServerOpts{Name: name},
+	)
+	return server, pass, nil
+}
+
+// StockServerLacksBundleModules is the control that gives
+// BundleServerLoadsModules its teeth: the same MODULE LIST assertion run
+// against a node from the stock `valkey/valkey` image must NOT be
+// satisfied. Without it, a bundle node whose modules quietly stopped
+// loading would still pass every other test in this group by way of an
+// assertion that any Valkey node happens to satisfy.
+//
+// It is also what the boot-time readiness check would report: a node
+// missing these modules fails Server.Client with a message naming them,
+// rather than booting and failing later on the first JSON.SET.
+//
+// +cache="never"
+func (t *Tests) StockServerLacksBundleModules(ctx context.Context) error {
+	server, _, err := bootServer(ctx)
+	if err != nil {
+		return err
+	}
+	loaded, err := moduleNames(ctx, plaintextClient(server))
+	if err != nil {
+		return err
+	}
+	for _, unwanted := range []string{"json", "bf", "search"} {
+		if _, ok := loaded[unwanted]; ok {
+			return fmt.Errorf("expected the stock valkey image to carry no %q module, MODULE LIST reports %v", unwanted, sortedKeys(loaded))
+		}
+	}
+	return nil
+}
+
+// BundleJsonRoundTrip verifies the JSON module answers through Do: a
+// document written with JSON.SET reads back through a JSONPath JSON.GET.
+// The reply is a bulk string holding the JSONPath result array, so it
+// arrives double-encoded — a JSON string whose contents are themselves
+// JSON — and both layers are decoded here rather than string-matched.
+//
+// +cache="never"
+func (t *Tests) BundleJsonRoundTrip(ctx context.Context) error {
+	server, _, err := bootBundleServer(ctx)
+	if err != nil {
+		return err
+	}
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+
+	document, err := json.Marshal(map[string]string{"name": want})
+	if err != nil {
+		return err
+	}
+	set, err := client.Do(ctx, []string{"JSON.SET", key, "$", string(document)})
+	if err != nil {
+		return fmt.Errorf("json.set: %w", err)
+	}
+	if set != strconv.Quote("OK") {
+		return fmt.Errorf("expected JSON.SET to reply OK, got %s", set)
+	}
+
+	reply, err := client.Do(ctx, []string{"JSON.GET", key, "$.name"})
+	if err != nil {
+		return fmt.Errorf("json.get: %w", err)
+	}
+	var encoded string
+	if err := json.Unmarshal([]byte(reply), &encoded); err != nil {
+		return fmt.Errorf("expected JSON.GET to reply with a bulk string, got %s: %w", reply, err)
+	}
+	var got []string
+	if err := json.Unmarshal([]byte(encoded), &got); err != nil {
+		return fmt.Errorf("expected the JSON.GET payload to be a JSONPath result array, got %q: %w", encoded, err)
+	}
+	if len(got) != 1 || got[0] != want {
+		return fmt.Errorf("expected JSON.GET $.name to yield [%q], got %v", want, got)
+	}
+
+	// A path that was never written must stay distinguishable from one
+	// that was, exactly as a missing key does for GET.
+	missing, err := client.Do(ctx, []string{"JSON.GET", key, "$.absent"})
+	if err != nil {
+		return fmt.Errorf("json.get absent path: %w", err)
+	}
+	if missing != strconv.Quote("[]") {
+		return fmt.Errorf("expected JSON.GET on an unwritten path to yield an empty result array, got %s", missing)
+	}
+	return nil
+}
+
+// BundleBloomRoundTrip verifies the Bloom module answers through Do. A
+// Bloom filter admits false positives but never false negatives, so the
+// load-bearing assertions are that an added item is reported present and
+// that a second BF.ADD of it reports "already there"; the absent-item
+// check rides along on a filter holding exactly one item, where a false
+// positive is vanishingly unlikely.
+//
+// +cache="never"
+func (t *Tests) BundleBloomRoundTrip(ctx context.Context) error {
+	server, _, err := bootBundleServer(ctx)
+	if err != nil {
+		return err
+	}
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	item, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	absent, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+
+	cases := []struct {
+		what string
+		args []string
+		want string
+	}{
+		{"first add", []string{"BF.ADD", key, item}, "1"},
+		{"re-add of the same item", []string{"BF.ADD", key, item}, "0"},
+		{"added item exists", []string{"BF.EXISTS", key, item}, "1"},
+		{"never-added item", []string{"BF.EXISTS", key, absent}, "0"},
+	}
+	for _, tc := range cases {
+		got, err := client.Do(ctx, tc.args)
+		if err != nil {
+			return fmt.Errorf("%s (%v): %w", tc.what, tc.args, err)
+		}
+		if got != tc.want {
+			return fmt.Errorf("%s (%v): expected %s, got %s", tc.what, tc.args, tc.want, got)
+		}
+	}
+	return nil
+}
+
+// BundleServerMethodsMatchStock verifies the *Server contract is
+// unchanged by the image swap: the same endpoint shape, the same
+// requirepass user, credentials that still build a working standalone
+// client, a working Set/Get/DbSize round trip, an INFO that reports the
+// pinned Valkey version, and a Stop that really terminates the node.
+// BindServer is the one method missing here — it must run against a node
+// nothing has started yet, so it gets its own test below.
+//
+// +cache="never"
+func (t *Tests) BundleServerMethodsMatchStock(ctx context.Context) error {
+	server, pass, err := bootBundleServer(ctx)
+	if err != nil {
+		return err
+	}
+	client := plaintextClient(server)
+	if err := client.Ping(ctx); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+
+	user, err := server.User(ctx)
+	if err != nil {
+		return fmt.Errorf("user: %w", err)
+	}
+	if user != "default" {
+		return fmt.Errorf("expected the built-in requirepass user %q, got %q", "default", user)
+	}
+	endpoint, err := server.Endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoint: %w", err)
+	}
+	host, port, ok := strings.Cut(endpoint, ":")
+	if !ok || port != "6379" {
+		return fmt.Errorf("expected a host:6379 endpoint, got %q", endpoint)
+	}
+
+	key, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	if err := client.Set(ctx, key, want); err != nil {
+		return fmt.Errorf("set: %w", err)
+	}
+	got, err := client.Get(ctx, key)
+	if err != nil {
+		return fmt.Errorf("get: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("expected %q back from Get, got %q", want, got)
+	}
+	size, err := client.DbSize(ctx)
+	if err != nil {
+		return fmt.Errorf("dbsize: %w", err)
+	}
+	if size != 1 {
+		return fmt.Errorf("expected DbSize to report the single key just written, got %d", size)
+	}
+	info, err := client.Info(ctx, dagger.ValkeyClientInfoOpts{Section: "server"})
+	if err != nil {
+		return fmt.Errorf("info server: %w", err)
+	}
+	if !strings.Contains(info, "valkey_version:9.1") {
+		return fmt.Errorf("expected INFO server to report valkey_version:9.1.x, got:\n%s", info)
+	}
+
+	// Password() has to be good enough to build a client from scratch:
+	// Endpoint + Password is what makes the same *Client usable against
+	// a node this module did not construct.
+	standalone := dag.Valkey().Client(host, pass, dag.Valkey().PlaintextClientSecurity())
+	if err := standalone.Ping(ctx); err != nil {
+		return fmt.Errorf("standalone ping before stop: %w", err)
+	}
+	if err := server.Stop(ctx); err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+	if err := standalone.Ping(ctx); err == nil {
+		return fmt.Errorf("expected ping to fail after Stop, but the node still answered")
+	}
+	return nil
+}
+
+// BundleBindServerReachableFromConsumer verifies BindServer wires a
+// bundle node into a consumer container exactly as it does a stock one,
+// and that the consumer gets a real PONG back rather than merely finding
+// something listening.
+//
+// The node is deliberately untouched before the binding: starting a
+// service from the valkey module's runtime registers it in that module's
+// DNS domain, which a consumer in the session domain then cannot resolve
+// ("lookup valkey-<host> ... no such host"). That is the trap
+// Server.Endpoint documents, and it is why this cannot ride along inside
+// BundleServerMethodsMatchStock.
+//
+// +cache="never"
+func (t *Tests) BundleBindServerReachableFromConsumer(ctx context.Context) error {
+	server, pass, err := bootBundleServer(ctx)
+	if err != nil {
+		return err
+	}
+	endpoint, err := server.Endpoint(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoint: %w", err)
+	}
+	host, port, ok := strings.Cut(endpoint, ":")
+	if !ok {
+		return fmt.Errorf("expected a host:port endpoint, got %q", endpoint)
+	}
+	// The consumer is the small alpine-flavoured stock image — it only
+	// needs valkey-cli, not the modules — and the password rides in as a
+	// secret env var so it never enters the exec's argv.
+	ctr := dag.Container().
+		From("docker.io/valkey/valkey:9.1-alpine").
+		WithSecretVariable("VALKEY_PW", pass)
+	out, err := server.BindServer(ctr).
+		WithExec([]string{"sh", "-c", fmt.Sprintf(
+			`valkey-cli --no-auth-warning -h %s -p %s -a "$VALKEY_PW" JSON.SET doc $ '{"ok":true}'`, host, port,
+		)}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("valkey-cli JSON.SET from consumer container: %w", err)
+	}
+	if !strings.Contains(out, "OK") {
+		return fmt.Errorf("expected OK from %s, got %q", endpoint, out)
 	}
 	return nil
 }

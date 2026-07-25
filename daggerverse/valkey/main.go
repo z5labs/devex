@@ -1,6 +1,8 @@
 // Valkey provides Dagger functions for spinning up Valkey topologies
-// (from the upstream `valkey/valkey` image) — a single node, a primary
-// with N read replicas, or a slot-sharded Valkey Cluster — plus a pure-Go
+// (from the upstream `valkey/valkey` image, or `valkey/valkey-bundle` for
+// a node carrying the JSON / Bloom / Search modules) — a single node, a
+// primary with N read replicas, or a slot-sharded Valkey Cluster — plus
+// a pure-Go
 // valkey-go based client that can target either a local topology or any
 // reachable remote Valkey (e.g. ElastiCache Serverless, MemoryDB, a
 // self-hosted node).
@@ -24,6 +26,9 @@
 //   - server.go      — *Server + Valkey.Server, input validation, the
 //     shared node builder (buildServer), and the Endpoint / User /
 //     Password / BindServer / Client / Stop methods.
+//   - bundle.go      — Valkey.BundleServer, the `valkey-bundle` image and
+//     its own entrypoint script, and the MODULE LIST assertion readiness
+//     runs against a node that is supposed to carry modules.
 //   - config.go      — the `valkey-server` configuration passthrough a
 //     caller hands Valkey.Server (config file, ACL file, append-only,
 //     max-memory, extra args), its validation, and its rendering into

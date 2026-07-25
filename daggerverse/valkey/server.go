@@ -32,6 +32,8 @@ type Server struct {
 	Pass *dagger.Secret
 	// +private
 	ClientListenerMode string // PLAINTEXT | TLS | MTLS — drives Client coupling validation.
+	// +private
+	RequiredModules []string // Module names readiness must find in MODULE LIST; empty for a stock node.
 }
 
 // Server spins up a single-node Valkey server listening on 6379 with
@@ -153,27 +155,8 @@ func (v *Valkey) Server(
 	// +optional
 	extraArgs []string,
 ) (*Server, error) {
-	if password == nil {
-		return nil, fmt.Errorf("password must not be nil; pass a *dagger.Secret with the requirepass value")
-	}
-	if clientListenerSecurity == nil {
-		return nil, fmt.Errorf("clientListenerSecurity must not be nil; pass PlaintextServerSecurity() explicitly")
-	}
-	if err := validateServerSecurity(clientListenerSecurity); err != nil {
+	if err := validateServerInputs(name, password, clientListenerSecurity); err != nil {
 		return nil, err
-	}
-	// For TLS / mTLS the hostname is derived from `name` alone (so the
-	// caller can mint a server cert whose SAN matches the dialed host).
-	// An empty `name` collapses every such node onto the same sha256("")
-	// hostname, colliding within one engine session and inviting the wrong
-	// cert/SAN to be reused — so require a discriminator. valkey-go pins
-	// ServerName to the dialed host and verifies it against the cert SAN,
-	// exactly as postgres' sslmode=verify-full does.
-	if name == "" && clientListenerSecurity.Mode != "PLAINTEXT" {
-		return nil, fmt.Errorf(
-			"name must not be empty for %s servers: the hostname derives from name and the server certificate's SAN must match it, so each TLS/mTLS server needs a unique name",
-			securityModeLabel(clientListenerSecurity.Mode),
-		)
 	}
 
 	cfg := &serverConfig{
@@ -193,7 +176,37 @@ func (v *Valkey) Server(
 		}
 	}
 
-	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, cfg, nil, nil, nil), nil
+	return buildServer(name, valkeyImage(registry, tag), valkeyEntrypoint, password, clientListenerSecurity, cfg, nil, nil, nil), nil
+}
+
+// validateServerInputs applies the rejections every single-node
+// constructor shares — Valkey.Server and Valkey.BundleServer differ only
+// in the image they boot, so they must agree on what they refuse to boot
+// at all.
+func validateServerInputs(name string, password *dagger.Secret, security *ServerSecurity) error {
+	if password == nil {
+		return fmt.Errorf("password must not be nil; pass a *dagger.Secret with the requirepass value")
+	}
+	if security == nil {
+		return fmt.Errorf("clientListenerSecurity must not be nil; pass PlaintextServerSecurity() explicitly")
+	}
+	if err := validateServerSecurity(security); err != nil {
+		return err
+	}
+	// For TLS / mTLS the hostname is derived from `name` alone (so the
+	// caller can mint a server cert whose SAN matches the dialed host).
+	// An empty `name` collapses every such node onto the same sha256("")
+	// hostname, colliding within one engine session and inviting the wrong
+	// cert/SAN to be reused — so require a discriminator. valkey-go pins
+	// ServerName to the dialed host and verifies it against the cert SAN,
+	// exactly as postgres' sslmode=verify-full does.
+	if name == "" && security.Mode != "PLAINTEXT" {
+		return fmt.Errorf(
+			"name must not be empty for %s servers: the hostname derives from name and the server certificate's SAN must match it, so each TLS/mTLS server needs a unique name",
+			securityModeLabel(security.Mode),
+		)
+	}
+	return nil
 }
 
 // valkeyImage renders the image reference a node boots from. The
@@ -202,6 +215,13 @@ func (v *Valkey) Server(
 func valkeyImage(registry, tag string) string {
 	return fmt.Sprintf("%s/valkey/valkey:%s", registry, tag)
 }
+
+// valkeyEntrypoint is the wrapper script the stock `valkey/valkey` image
+// ships. It prepares /data and drops to the `valkey` user before exec'ing
+// the server, so the boot command runs through it rather than invoking
+// valkey-server directly. The bundle image ships a different one — see
+// bundleEntrypoint.
+const valkeyEntrypoint = "docker-entrypoint.sh"
 
 // serverHostname derives a node's stable hostname from its name. The
 // hostname is scoped per-node so parallel invocations don't collide on a
@@ -224,17 +244,19 @@ type serviceBinding struct {
 }
 
 // buildServer assembles a single valkey-server node: the container, the
-// security-derived listener flags, the caller's configuration
-// passthrough, any topology `valkey-server` arguments (replication or
-// cluster flags, say), the service bindings the node needs in order to
-// dial its peers, and any ports beyond the client listener the node must
-// expose (the cluster bus, say). Inputs are assumed already validated —
-// Valkey.Server, Valkey.Replication, and Valkey.Cluster each validate
-// before calling. A nil cfg means no passthrough, which is what the
-// topology constructors pass.
+// image's own entrypoint wrapper, the security-derived listener flags,
+// the caller's configuration passthrough, any topology `valkey-server`
+// arguments (replication or cluster flags, say), the service bindings the
+// node needs in order to dial its peers, and any ports beyond the client
+// listener the node must expose (the cluster bus, say). Inputs are
+// assumed already validated — Valkey.Server, Valkey.BundleServer,
+// Valkey.Replication, and Valkey.Cluster each validate before calling. A
+// nil cfg means no passthrough, which is what the topology constructors
+// pass.
 func buildServer(
 	name string,
 	image string,
+	entrypoint string,
 	password *dagger.Secret,
 	security *ServerSecurity,
 	cfg *serverConfig,
@@ -295,15 +317,16 @@ func buildServer(
 
 	// A shell wrapper is what makes "$VALKEY_PASSWORD" expand at boot;
 	// AsService args are exec'd directly, with no shell to expand them.
-	// docker-entrypoint.sh is retained (it prepares /data and drops to the
-	// valkey user) and `exec` keeps valkey-server as PID 1's successor so
-	// Service.Stop's signal reaches the server, not a shell.
+	// The image's entrypoint script is retained (it prepares /data and
+	// drops to the valkey user — and, for the bundle image, composes the
+	// --loadmodule flags) and `exec` keeps valkey-server as PID 1's
+	// successor so Service.Stop's signal reaches the server, not a shell.
 	//
 	// Long-running commands belong in AsService(Args), never WithExec —
 	// valkey-server never exits, so a WithExec would deadlock the chain.
 	svc := ctr.
 		AsService(dagger.ContainerAsServiceOpts{
-			Args: []string{"sh", "-c", "exec docker-entrypoint.sh valkey-server " + strings.Join(args, " ")},
+			Args: []string{"sh", "-c", "exec " + entrypoint + " valkey-server " + strings.Join(args, " ")},
 		}).
 		WithHostname(host)
 
@@ -418,9 +441,10 @@ func (s *Server) Stop(ctx context.Context) error {
 
 // start explicitly Starts the service so its WithHostname alias becomes
 // session-reachable from the valkey module runtime, then polls the
-// supplied probe Client until the node accepts authenticated commands.
-// Probing through the Client means the dial honours the listener's
-// security mode using the caller's own credentials.
+// supplied probe Client until the node accepts authenticated commands
+// and, for a node that declares RequiredModules, until it proves those
+// modules are loaded. Probing through the Client means the dial honours
+// the listener's security mode using the caller's own credentials.
 //
 // valkey-server binds 6379 only after it finishes loading, so an early
 // dial returns "connection refused" or LOADING; the retry loop absorbs
@@ -444,7 +468,7 @@ func (s *Server) start(ctx context.Context, probe *Client) error {
 		err := probe.Ping(attemptCtx)
 		cancel()
 		if err == nil {
-			return nil
+			return s.requireModules(ctx, probe)
 		}
 		lastErr = err
 		select {
