@@ -4,11 +4,13 @@
 // reachable remote Valkey (e.g. ElastiCache Serverless, MemoryDB, a
 // self-hosted node).
 //
-// This module is plaintext-only: `requirepass` auth over an unencrypted
-// TCP listener. TLS / mTLS, primary/replica replication, and Valkey
-// Cluster land in follow-ups; the empty-but-distinct security types are
-// kept so future constructors slot in without changing the Server /
-// Client signatures.
+// Three client-facing listener modes are supported: PLAINTEXT
+// (`requirepass` auth over an unencrypted TCP listener), TLS (one-way:
+// the node presents a server certificate on a `--tls-port` listener and
+// clients still authenticate with the password), and MTLS (mutual: the
+// client must additionally present a certificate signed by the node's
+// trusted CA). Primary/replica replication and Valkey Cluster land in
+// follow-ups.
 //
 // The single-node type is `Server`, not `Cluster`: in Valkey "cluster"
 // means slot-sharded Valkey Cluster, so that name is reserved for the
@@ -16,8 +18,9 @@
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
-//   - security.go — *ServerSecurity / *ClientSecurity + the two
-//     Plaintext constructors.
+//   - security.go — *ServerSecurity / *ClientSecurity, the Plaintext /
+//     Tls / Mtls constructors, and the listener-mode rendering
+//     (validateServerSecurity / applyServerSecurity).
 //   - server.go   — *Server + Valkey.Server, input validation, the
 //     single-node topology builder, and the Endpoint / User / Password /
 //     BindServer / Client / Stop methods.

@@ -227,6 +227,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BindServerReachableFromAlpine(&parent, ctx)
+		case "BindServerReachableUnderTls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BindServerReachableUnderTls(&parent, ctx)
 		case "Client":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +325,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).KeysScansPattern(&parent, ctx)
+		case "MtlsNodeDemandsClientCertAtWire":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MtlsNodeDemandsClientCertAtWire(&parent, ctx)
+		case "MtlsServerRejectsTlsOnlyClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MtlsServerRejectsTlsOnlyClient(&parent, ctx)
 		case "PasswordReusableViaClient":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -325,6 +346,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PasswordReusableViaClient(&parent, ctx)
+		case "PlaintextDialAgainstTlsNodeFails":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlaintextDialAgainstTlsNodeFails(&parent, ctx)
 		case "SameNameServerSharesState":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -332,6 +360,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SameNameServerSharesState(&parent, ctx)
+		case "Security":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Security(&parent, ctx, parallel)
 		case "Server":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -346,6 +388,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).Server(&parent, ctx, parallel)
+		case "ServerMtlsRoundTripFromClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ServerMtlsRoundTripFromClient(&parent, ctx)
 		case "ServerRejectsNilPassword":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -360,6 +409,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ServerRejectsNilSecurity(&parent, ctx)
+		case "ServerTlsRoundTripFromClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ServerTlsRoundTripFromClient(&parent, ctx)
 		case "SetGetRoundTrip":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -381,6 +437,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).StopTerminatesServer(&parent, ctx)
+		case "TlsServerRejectsEmptyName":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TlsServerRejectsEmptyName(&parent, ctx)
+		case "TlsServerRejectsPlaintextClient":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TlsServerRejectsPlaintextClient(&parent, ctx)
 		case "Validation":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

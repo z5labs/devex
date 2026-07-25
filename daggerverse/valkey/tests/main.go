@@ -10,6 +10,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -49,6 +51,9 @@ func (t *Tests) All(
 	})
 	jobs = jobs.WithJob("Client", func(ctx context.Context) error {
 		return t.Client(ctx, parallel)
+	})
+	jobs = jobs.WithJob("Security", func(ctx context.Context) error {
+		return t.Security(ctx, parallel)
 	})
 	return jobs.Run(ctx)
 }
@@ -131,6 +136,35 @@ func (t *Tests) Client(
 	jobs = jobs.WithJob("flush-all-clears-keys", t.FlushAllClearsKeys)
 	jobs = jobs.WithJob("client-ping-wrong-password-fails", t.ClientPingWrongPasswordFails)
 	jobs = jobs.WithJob("db-selects-logical-database", t.DbSelectsLogicalDatabase)
+	return jobs.Run(ctx)
+}
+
+// Security runs the TLS / mTLS listener + client tests. Each test mints
+// its own CA, leaf certs, password, and server name at runtime (no
+// literal credentials or PEM blobs), and folds a unique name into the
+// node's session-cache key, so the tests fan out without sharing state.
+//
+// +check
+// +cache="session"
+func (t *Tests) Security(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("server-tls-round-trip-from-client", t.ServerTlsRoundTripFromClient)
+	jobs = jobs.WithJob("server-mtls-round-trip-from-client", t.ServerMtlsRoundTripFromClient)
+	jobs = jobs.WithJob("tls-server-rejects-plaintext-client", t.TlsServerRejectsPlaintextClient)
+	jobs = jobs.WithJob("mtls-server-rejects-tls-only-client", t.MtlsServerRejectsTlsOnlyClient)
+	jobs = jobs.WithJob("mtls-node-demands-client-cert-at-wire", t.MtlsNodeDemandsClientCertAtWire)
+	jobs = jobs.WithJob("plaintext-dial-against-tls-node-fails", t.PlaintextDialAgainstTlsNodeFails)
+	jobs = jobs.WithJob("tls-server-rejects-empty-name", t.TlsServerRejectsEmptyName)
+	jobs = jobs.WithJob("bind-server-reachable-under-tls", t.BindServerReachableUnderTls)
 	return jobs.Run(ctx)
 }
 
@@ -1035,6 +1069,528 @@ func (t *Tests) DbSelectsLogicalDatabase(ctx context.Context) error {
 	}
 	if got != value {
 		return fmt.Errorf("expected %q back on db 0, got %q", value, got)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Security helpers — CA + leaf cert minting via certificate-management /
+// crypto. Every key, password, and serial is minted at runtime; no
+// literal credentials or PEM blobs appear in the suite.
+// -----------------------------------------------------------------------------
+
+// serverHost reproduces Valkey.Server's hostname derivation
+// (`valkey-` + the first 12 hex chars of sha256(name)). Tests need it to
+// mint a server certificate whose SAN matches the hostname the client
+// dials — valkey-go pins ServerName to the dialed host and verifies it
+// against the cert SAN, so a mismatch fails the handshake.
+func serverHost(name string) string {
+	sum := sha256.Sum256([]byte(name))
+	return "valkey-" + hex.EncodeToString(sum[:6])
+}
+
+// randNamedSecret mints a uniquely-named *dagger.Secret holding fresh
+// random bytes. Used for the throwaway PKCS#12 passwords the
+// certificate-management leaf issuers require (we consume the PEM cert /
+// key directly, never the PKCS#12 archive, so the value is irrelevant).
+func randNamedSecret(ctx context.Context, label string) (*dagger.Secret, error) {
+	h, err := dag.Random().Sha256(ctx, dagger.RandomSha256Opts{N: 32})
+	if err != nil {
+		return nil, err
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.SetSecret(label+"-"+suffix, h), nil
+}
+
+// freshCa mints a fresh per-test root CA via the certificate-management
+// module from a runtime-random RSA key, password, and serial.
+func freshCa(ctx context.Context, label string) (*dagger.CertificateManagementCertificateAuthority, error) {
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca key: %w", label, err)
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := dag.SetSecret(label+"-ca-key-"+suffix, keyPem)
+	pwd, err := randNamedSecret(ctx, label+"-ca-pwd")
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca password: %w", label, err)
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s ca serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	return dag.CertificateManagement().CreateCertificateAuthority(nb, serial, pwd, key,
+		dagger.CertificateManagementCreateCertificateAuthorityOpts{
+			CommonName:   "valkey test ca " + label,
+			ValidityDays: 30,
+		}), nil
+}
+
+// leafKey mints a fresh RSA private key for a leaf certificate, wrapped
+// in a uniquely-named *dagger.Secret (PEM PKCS#8, as the issuer expects).
+func leafKey(ctx context.Context, label string) (*dagger.Secret, error) {
+	keyPem, err := dag.Crypto().GenerateRsaKey(dagger.CryptoGenerateRsaKeyOpts{Bits: 2048}).Pem().Contents(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("generate %s leaf key: %w", label, err)
+	}
+	suffix, err := randHex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.SetSecret(label+"-leaf-key-"+suffix, keyPem), nil
+}
+
+// issueServerCert signs a server leaf certificate carrying host (and
+// localhost / 127.0.0.1) as SANs, returning the PEM cert file and PEM
+// key secret to hand to TlsServerSecurity / MtlsServerSecurity.
+func issueServerCert(ctx context.Context, ca *dagger.CertificateManagementCertificateAuthority, host, label string) (*dagger.File, *dagger.Secret, error) {
+	key, err := leafKey(ctx, label)
+	if err != nil {
+		return nil, nil, err
+	}
+	pwd, err := randNamedSecret(ctx, label+"-leaf-pwd")
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	issued := ca.IssueServerCertificate(host, nb, serial, pwd, key,
+		dagger.CertificateManagementCertificateAuthorityIssueServerCertificateOpts{
+			DNSSans:      []string{host, "localhost"},
+			IPSans:       []string{"127.0.0.1"},
+			ValidityDays: 30,
+		})
+	return issued.CertPemFile(), issued.PrivateKeyPem(), nil
+}
+
+// issueClientCert signs a client leaf certificate, returning the PEM
+// cert file and PEM key secret to hand to MtlsClientSecurity. Valkey's
+// mTLS only checks that the client cert chains to the trusted CA (unlike
+// postgres, it does not additionally match the CN to the auth user), so
+// the Common Name is a plain label.
+func issueClientCert(ctx context.Context, ca *dagger.CertificateManagementCertificateAuthority, label string) (*dagger.File, *dagger.Secret, error) {
+	key, err := leafKey(ctx, label)
+	if err != nil {
+		return nil, nil, err
+	}
+	pwd, err := randNamedSecret(ctx, label+"-leaf-pwd")
+	if err != nil {
+		return nil, nil, err
+	}
+	serial, err := dag.Random().Serial(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%s serial: %w", label, err)
+	}
+	nb := time.Now().UTC().Format(time.RFC3339)
+	issued := ca.IssueClientCertificate(label, nb, serial, pwd, key,
+		dagger.CertificateManagementCertificateAuthorityIssueClientCertificateOpts{
+			ValidityDays: 30,
+		})
+	return issued.CertPemFile(), issued.PrivateKeyPem(), nil
+}
+
+// -----------------------------------------------------------------------------
+// Security tests — TLS / mTLS listeners and clients. CA + leaf certs,
+// passwords, and server names are all minted at runtime.
+// -----------------------------------------------------------------------------
+
+// ServerTlsRoundTripFromClient boots a one-way-TLS node and proves a
+// matching TLS client — presenting NO client certificate — can Set + Get
+// against it over the encrypted listener. That the certless client is
+// accepted is the `--tls-auth-clients no` acceptance criterion: without
+// that flag Valkey would demand a client cert and reject this dial.
+//
+// +cache="never"
+func (t *Tests) ServerTlsRoundTripFromClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-tls")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, serverHost(name), "vk-tls-server")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	clientSec := dag.Valkey().TLSClientSecurity(ca.CertPemFile())
+
+	k, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	if err := server.Client(clientSec).Set(ctx, k, want); err != nil {
+		return fmt.Errorf("set over TLS: %w", err)
+	}
+	got, err := server.Client(clientSec).Get(ctx, k)
+	if err != nil {
+		return fmt.Errorf("get over TLS: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("expected %q over TLS round trip, got %q", want, got)
+	}
+	return nil
+}
+
+// ServerMtlsRoundTripFromClient boots a mutual-TLS node and proves a
+// matching mTLS client (presenting a client cert signed by the trusted
+// CA) can round-trip Set + Get.
+//
+// +cache="never"
+func (t *Tests) ServerMtlsRoundTripFromClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	// One CA both signs the server leaf and anchors the accepted client
+	// certs — the simplest symmetric mTLS trust setup.
+	ca, err := freshCa(ctx, "vk-mtls")
+	if err != nil {
+		return err
+	}
+	serverCert, serverKey, err := issueServerCert(ctx, ca, serverHost(name), "vk-mtls-server")
+	if err != nil {
+		return err
+	}
+	clientCert, clientKey, err := issueClientCert(ctx, ca, "vk-mtls-client")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	clientSec := dag.Valkey().MtlsClientSecurity(ca.CertPemFile(), clientCert, clientKey)
+
+	k, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	want, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	if err := server.Client(clientSec).Set(ctx, k, want); err != nil {
+		return fmt.Errorf("set over mTLS: %w", err)
+	}
+	got, err := server.Client(clientSec).Get(ctx, k)
+	if err != nil {
+		return fmt.Errorf("get over mTLS: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("expected %q over mTLS round trip, got %q", want, got)
+	}
+	return nil
+}
+
+// TlsServerRejectsPlaintextClient verifies the mode-coupling check:
+// asking a TLS node for a plaintext client returns an error naming both
+// modes, before any wire activity.
+//
+// +cache="never"
+func (t *Tests) TlsServerRejectsPlaintextClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-tls-reject")
+	if err != nil {
+		return err
+	}
+	cert, key, err := issueServerCert(ctx, ca, serverHost(name), "vk-tls-reject-server")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	err = server.Client(dag.Valkey().PlaintextClientSecurity()).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected plaintext client against TLS node to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "plaintext") || !strings.Contains(msg, "TLS") {
+		return fmt.Errorf("expected mode-mismatch error naming both modes, got: %v", err)
+	}
+	return nil
+}
+
+// MtlsServerRejectsTlsOnlyClient verifies the mode-coupling check on the
+// mTLS side: asking an mTLS node for a TLS-only client returns an error
+// naming both modes, before any wire activity. The SAN value on the cert
+// is irrelevant here — the guard fires in requireMode, ahead of any dial.
+//
+// +cache="never"
+func (t *Tests) MtlsServerRejectsTlsOnlyClient(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-mtls-couple")
+	if err != nil {
+		return err
+	}
+	serverCert, serverKey, err := issueServerCert(ctx, ca, serverHost(name), "vk-mtls-couple-server")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	// TLS-only client (mode "TLS") against an mTLS listener (mode "MTLS").
+	err = server.Client(dag.Valkey().TLSClientSecurity(ca.CertPemFile())).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected TLS-only client against mTLS node to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "TLS") || !strings.Contains(msg, "mTLS") {
+		return fmt.Errorf("expected mode-mismatch error naming both TLS and mTLS, got: %v", err)
+	}
+	return nil
+}
+
+// MtlsNodeDemandsClientCertAtWire is the test that pins the whole
+// tls-auth-clients inversion: it boots an mTLS node, readies it with a
+// valid mTLS client, then dials it with a TLS-only STANDALONE client
+// (which carries no server reference and so bypasses the coupling check
+// and reaches the wire). Presenting no client certificate, it must be
+// rejected by the handshake — proving MTLS left `tls-auth-clients` at its
+// default `yes`. A regression that passed `--tls-auth-clients no` for
+// MTLS too would let this certless client through and go undetected by
+// the round-trip tests.
+//
+// +cache="never"
+func (t *Tests) MtlsNodeDemandsClientCertAtWire(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-mtls-wire")
+	if err != nil {
+		return err
+	}
+	host := serverHost(name)
+	serverCert, serverKey, err := issueServerCert(ctx, ca, host, "vk-mtls-wire-server")
+	if err != nil {
+		return err
+	}
+	clientCert, clientKey, err := issueClientCert(ctx, ca, "vk-mtls-wire-client")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().MtlsServerSecurity(serverCert, serverKey, ca.CertPemFile()),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	// Start + ready the node using a valid mTLS client.
+	mtlsSec := dag.Valkey().MtlsClientSecurity(ca.CertPemFile(), clientCert, clientKey)
+	if err := server.Client(mtlsSec).Ping(ctx); err != nil {
+		return fmt.Errorf("expected valid mTLS client to connect: %w", err)
+	}
+	// TLS-only standalone client: trusts the server CA but presents no
+	// client cert. It bypasses the coupling check (no server reference) and
+	// reaches the wire, where the mTLS handshake demands a client cert.
+	tlsOnly := dag.Valkey().Client(host, pass, dag.Valkey().TLSClientSecurity(ca.CertPemFile()))
+	err = tlsOnly.Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected certless TLS-only client to be rejected by the mTLS listener")
+	}
+	// Valkey (via OpenSSL) aborts the handshake by dropping the connection
+	// rather than sending a clean TLS alert, so valkey-go surfaces the
+	// missing-client-cert rejection as a connection-level failure
+	// ("connection reset by peer" / "broken pipe" / EOF) rather than a
+	// parsed certificate error. Any of these confirms the wire-level mTLS
+	// enforcement; a clean auth error (WRONGPASS/NOAUTH) would NOT, and is
+	// deliberately excluded.
+	low := strings.ToLower(err.Error())
+	rejected := strings.Contains(low, "certificate") ||
+		strings.Contains(low, "tls") ||
+		strings.Contains(low, "handshake") ||
+		strings.Contains(low, "eof") ||
+		strings.Contains(low, "reset") ||
+		strings.Contains(low, "broken pipe")
+	if !rejected {
+		return fmt.Errorf("expected a TLS handshake / connection-reset rejection, got: %v", err)
+	}
+	return nil
+}
+
+// PlaintextDialAgainstTlsNodeFails proves the plaintext listener is
+// genuinely off (`--port 0`): a plaintext STANDALONE client (bypassing
+// the coupling check) dialing the TLS node cannot speak the unencrypted
+// wire protocol to the encrypted listener and fails. If `--port 0` were
+// missing, a plaintext listener would still be up on 6379 and this dial
+// would succeed.
+//
+// +cache="never"
+func (t *Tests) PlaintextDialAgainstTlsNodeFails(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-tls-plain")
+	if err != nil {
+		return err
+	}
+	host := serverHost(name)
+	cert, key, err := issueServerCert(ctx, ca, host, "vk-tls-plain-server")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	// Ready the node over TLS first, so the failure below is a genuine
+	// protocol/port rejection and not merely "nothing is listening yet".
+	if err := server.Client(dag.Valkey().TLSClientSecurity(ca.CertPemFile())).Ping(ctx); err != nil {
+		return fmt.Errorf("expected TLS client to ready the node: %w", err)
+	}
+	// Plaintext standalone dial against the TLS node.
+	err = dag.Valkey().Client(host, pass, dag.Valkey().PlaintextClientSecurity()).Ping(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a plaintext dial against a TLS node to fail (plaintext listener should be off), but it succeeded")
+	}
+	return nil
+}
+
+// TlsServerRejectsEmptyName verifies a TLS node rejects an empty `name`.
+// The node hostname — and therefore the SAN the server cert must carry —
+// derives from `name` alone, so an empty name would collapse every
+// TLS/mTLS node onto the same sha256("") host and invite cert/SAN reuse.
+// The guard fires in the constructor, before any service starts, so a
+// placeholder SAN on the cert is fine here.
+//
+// +cache="never"
+func (t *Tests) TlsServerRejectsEmptyName(ctx context.Context) error {
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-tls-emptyname")
+	if err != nil {
+		return err
+	}
+	// SAN value is irrelevant: the empty-name guard rejects before any dial
+	// or TLS handshake.
+	cert, key, err := issueServerCert(ctx, ca, "valkey-placeholder", "vk-tls-emptyname-server")
+	if err != nil {
+		return err
+	}
+	// No Name opt → defaults to "".
+	server := dag.Valkey().Server(pass, dag.Valkey().TLSServerSecurity(cert, key))
+	_, err = server.Endpoint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected TLS node with empty name to be rejected")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "name") || !strings.Contains(msg, "TLS") {
+		return fmt.Errorf("expected empty-name rejection naming TLS, got: %v", err)
+	}
+	return nil
+}
+
+// BindServerReachableUnderTls binds a TLS node into an alpine-flavoured
+// valkey container running valkey-cli: a `--tls --cacert` connection with
+// the right CA gets a PONG, proving BindServer stays reachable under TLS
+// from a consumer container. The password rides in as a secret env var so
+// it never enters the exec's argv.
+//
+// +cache="never"
+func (t *Tests) BindServerReachableUnderTls(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-tls-bind")
+	if err != nil {
+		return err
+	}
+	host := serverHost(name)
+	cert, key, err := issueServerCert(ctx, ca, host, "vk-tls-bind-server")
+	if err != nil {
+		return err
+	}
+	server := dag.Valkey().Server(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyServerOpts{Name: name},
+	)
+	ctr := server.BindServer(
+		dag.Container().
+			From("docker.io/valkey/valkey:9.1-alpine").
+			WithFile("/tmp/ca.crt", ca.CertPemFile()).
+			WithSecretVariable("VALKEY_PW", pass),
+	)
+	// valkey-cli flaps briefly while the node loads; retry the TLS PING.
+	probe := fmt.Sprintf(
+		`for i in $(seq 1 30); do `+
+			`out=$(valkey-cli --no-auth-warning --tls --cacert /tmp/ca.crt -h %s -p %d -a "$VALKEY_PW" PING 2>/dev/null); `+
+			`case "$out" in *PONG*) echo "$out"; exit 0;; esac; sleep 1; done; `+
+			`echo TIMEOUT; exit 1`,
+		host, 6379,
+	)
+	out, err := ctr.WithExec([]string{"sh", "-c", probe}).Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("valkey-cli TLS ping from consumer container: %w", err)
+	}
+	if !strings.Contains(out, "PONG") {
+		return fmt.Errorf("expected PONG over TLS from %s, got %q", host, out)
 	}
 	return nil
 }
