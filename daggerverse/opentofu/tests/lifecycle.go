@@ -413,11 +413,17 @@ func decodePlan(ctx context.Context, plan *dagger.Directory) (planDocument, erro
 }
 
 func decodeState(ctx context.Context, state *dagger.File) (stateDocument, error) {
-	var doc stateDocument
 	raw, err := state.Contents(ctx)
 	if err != nil {
-		return doc, fmt.Errorf("read %s: %w", stateFileName, err)
+		return stateDocument{}, fmt.Errorf("read %s: %w", stateFileName, err)
 	}
+	return parseState(raw)
+}
+
+// parseState decodes a state document that was read as text — from a file
+// here, from an object in a remote backend in the backend tests.
+func parseState(raw string) (stateDocument, error) {
+	var doc stateDocument
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return doc, fmt.Errorf("parse %s: %w", stateFileName, err)
 	}
