@@ -74,6 +74,13 @@ variables. State never leaves the backend, and no state file is emitted.
 Calling `WithState` alongside `WithBackendConfig*` is rejected with an error
 naming both modes rather than silently picking a winner.
 
+A backend standing up inside the same pipeline — a state server, an
+S3-compatible service — is unreachable until it is bound:
+`WithServiceBinding(alias, service)` puts it on the tofu container's network
+under `alias`. That is the seam the suite's own MinIO fixture uses, and it
+works for anything else tofu has to dial (a provider's API, a git server
+hosting module sources).
+
 `Destroy` with neither state nor a backend is rejected too: `tofu` would
 happily report "0 destroyed" and exit 0, which reads as a successful teardown
 while the real infrastructure — whose state was never supplied — stays up.
@@ -120,6 +127,7 @@ lock file refreshed with `tofu providers lock`.
 | `Config.WithVarFile(file)` | `-var-file`, staged outside the root module. |
 | `Config.WithEnvVariable(name, value)` | A plain environment variable on every exec. |
 | `Config.WithSecretVariable(name, secret)` | A secret environment variable — how provider credentials arrive. |
+| `Config.WithServiceBinding(alias, service)` | Make a Dagger service reachable from every tofu exec under `alias`. |
 | `Config.WithBackendConfig(name, value)` | `-backend-config=name=value`. |
 | `Config.WithBackendConfigFile(file)` | `-backend-config=<file>`. |
 | `Config.WithWorkspace(name)` | `tofu workspace select -or-create`. |
@@ -242,3 +250,19 @@ Fixtures under `tests/fixtures/` use `hashicorp/random` and `hashicorp/local`
 only, so nothing needs a cloud credential. The random provider's resources
 exist purely in state, which is what makes the state round-trip assertions
 meaningful — there is no out-of-band object to drift away underneath them.
+
+The remote-backend half of the suite is hermetic too. `tests/backend.go`
+stands up a MinIO service per test, mints its root credential with
+`dag.Random().Sha256()` and crosses it as a `*Secret`, and points the `s3`
+backend at it through `WithServiceBinding`. Against that it proves state lives
+in the bucket and not in the returned directory, that `WithBackendConfigFile`
+selects the same backend as the individual `WithBackendConfig` calls, that
+`WithWorkspace` keeps two workspaces' states apart, and that two applies racing
+for one state either serialise or fail on the lock — with the losing apply's
+work never silently overwritten.
+
+One endpoint detail that fixture has to work around: the `s3` backend's
+endpoint override lives under a nested `endpoints` attribute, which
+`-backend-config=name=value` cannot express. The fixture sets
+`AWS_ENDPOINT_URL_S3` instead, which is also what makes the flag form and the
+file form carry an identical list of settings.

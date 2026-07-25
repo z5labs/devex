@@ -100,6 +100,8 @@ func (r Config) MarshalJSON() ([]byte, error) {
 		EnvValues       []string
 		SecretEnvNames  []string
 		SecretEnvValues []*dagger.Secret
+		ServiceAliases  []string
+		Services        []*dagger.Service
 		BackendNames    []string
 		BackendValues   []string
 		BackendFiles    []*dagger.File
@@ -118,6 +120,8 @@ func (r Config) MarshalJSON() ([]byte, error) {
 	concrete.EnvValues = r.EnvValues
 	concrete.SecretEnvNames = r.SecretEnvNames
 	concrete.SecretEnvValues = r.SecretEnvValues
+	concrete.ServiceAliases = r.ServiceAliases
+	concrete.Services = r.Services
 	concrete.BackendNames = r.BackendNames
 	concrete.BackendValues = r.BackendValues
 	concrete.BackendFiles = r.BackendFiles
@@ -140,6 +144,8 @@ func (r *Config) UnmarshalJSON(bs []byte) error {
 		EnvValues       []string
 		SecretEnvNames  []string
 		SecretEnvValues []*dagger.Secret
+		ServiceAliases  []string
+		Services        []*dagger.Service
 		BackendNames    []string
 		BackendValues   []string
 		BackendFiles    []*dagger.File
@@ -162,6 +168,8 @@ func (r *Config) UnmarshalJSON(bs []byte) error {
 	r.EnvValues = concrete.EnvValues
 	r.SecretEnvNames = concrete.SecretEnvNames
 	r.SecretEnvValues = concrete.SecretEnvValues
+	r.ServiceAliases = concrete.ServiceAliases
+	r.Services = concrete.Services
 	r.BackendNames = concrete.BackendNames
 	r.BackendValues = concrete.BackendValues
 	r.BackendFiles = concrete.BackendFiles
@@ -569,6 +577,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Config).WithSecretVariable(&parent, name, value), nil
+		case "WithServiceBinding":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var alias string
+			if inputArgs["alias"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["alias"]), &alias)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg alias", err))
+				}
+			}
+			var service *dagger.Service
+			if inputArgs["service"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["service"]), &service)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg service", err))
+				}
+			}
+			return (*Config).WithServiceBinding(&parent, alias, service), nil
 		case "WithState":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)

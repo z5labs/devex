@@ -8,6 +8,10 @@
 // provider's resources exist purely in state, which is what makes the
 // state round-trip assertions meaningful — there is no out-of-band object to
 // drift away underneath them.
+//
+// The remote-state fixtures declare an s3 backend, and it too is hermetic: the
+// S3 they write to is a MinIO service the suite stands up per test, with a
+// root credential minted at runtime. See backend.go.
 package main
 
 import (
@@ -82,6 +86,11 @@ func (t *Tests) All(
 
 	jobs = jobs.WithJob("WithWorkspaceIsolatesState", t.WithWorkspaceIsolatesState)
 	jobs = jobs.WithJob("WithoutPluginCacheStillApplies", t.WithoutPluginCacheStillApplies)
+
+	jobs = jobs.WithJob("RemoteBackendRoundTripsState", t.RemoteBackendRoundTripsState)
+	jobs = jobs.WithJob("BackendConfigFileMatchesBackendConfig", t.BackendConfigFileMatchesBackendConfig)
+	jobs = jobs.WithJob("RemoteWorkspacesIsolateState", t.RemoteWorkspacesIsolateState)
+	jobs = jobs.WithJob("ConcurrentAppliesDoNotCorruptState", t.ConcurrentAppliesDoNotCorruptState)
 
 	jobs = jobs.WithJob("CiCheckPassesOnCleanConfiguration", t.CiCheckPassesOnCleanConfiguration)
 	jobs = jobs.WithJob("CiCheckReportsUnformattedConfiguration", t.CiCheckReportsUnformattedConfiguration)

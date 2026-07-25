@@ -101,6 +101,11 @@ type Config struct {
 	SecretEnvValues []*dagger.Secret
 
 	// +private
+	ServiceAliases []string
+	// +private
+	Services []*dagger.Service
+
+	// +private
 	BackendNames []string
 	// +private
 	BackendValues []string
@@ -169,6 +174,24 @@ func (c *Config) WithSecretVariable(name string, value *dagger.Secret) *Config {
 	out := c.clone()
 	out.SecretEnvNames = append(out.SecretEnvNames, name)
 	out.SecretEnvValues = append(out.SecretEnvValues, value)
+	return out
+}
+
+// WithServiceBinding makes a Dagger service reachable from every tofu exec
+// under the given hostname, the way `docker run --link` used to work.
+//
+// Without it a backend standing up inside the same pipeline is unreachable:
+// tofu runs in its own container, and nothing else in this module opens a
+// route out of it. That is the case for a state server, a LocalStack-style
+// API the providers talk to, or a git server hosting module sources.
+func (c *Config) WithServiceBinding(
+	// Hostname the service answers to from inside the tofu container.
+	alias string,
+	service *dagger.Service,
+) *Config {
+	out := c.clone()
+	out.ServiceAliases = append(out.ServiceAliases, alias)
+	out.Services = append(out.Services, service)
 	return out
 }
 
@@ -493,6 +516,8 @@ func (c *Config) clone() *Config {
 	out.EnvValues = append([]string(nil), c.EnvValues...)
 	out.SecretEnvNames = append([]string(nil), c.SecretEnvNames...)
 	out.SecretEnvValues = append([]*dagger.Secret(nil), c.SecretEnvValues...)
+	out.ServiceAliases = append([]string(nil), c.ServiceAliases...)
+	out.Services = append([]*dagger.Service(nil), c.Services...)
 	out.BackendNames = append([]string(nil), c.BackendNames...)
 	out.BackendValues = append([]string(nil), c.BackendValues...)
 	out.BackendFiles = append([]*dagger.File(nil), c.BackendFiles...)
@@ -534,6 +559,11 @@ func (c *Config) validate() error {
 			return fmt.Errorf("WithSecretVariable: variable name is required")
 		}
 	}
+	for _, alias := range c.ServiceAliases {
+		if strings.TrimSpace(alias) == "" {
+			return fmt.Errorf("WithServiceBinding: hostname alias is required")
+		}
+	}
 	return nil
 }
 
@@ -564,6 +594,9 @@ func (c *Config) container() *dagger.Container {
 	}
 	for i, f := range c.BackendFiles {
 		ctr = ctr.WithMountedFile(backendFilePath(i), f)
+	}
+	for i, alias := range c.ServiceAliases {
+		ctr = ctr.WithServiceBinding(alias, c.Services[i])
 	}
 	for i, name := range c.EnvNames {
 		ctr = ctr.WithEnvVariable(name, c.EnvValues[i])

@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type OpentofuTests
-func (r *Binding) AsOpentofuTests() *OpentofuTests { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:23:6)
+func (r *Binding) AsOpentofuTests() *OpentofuTests { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	q := r.query.Select("asOpentofuTests")
 
 	return &OpentofuTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsOpentofuTests() *OpentofuTests { // opentofu-tests (../../..
 }
 
 // Create or update a binding of type OpentofuTests in the environment
-func (r *Env) WithOpentofuTestsInput(name string, value *OpentofuTests, description string) *Env { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:23:6)
+func (r *Env) WithOpentofuTestsInput(name string, value *OpentofuTests, description string) *Env { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOpentofuTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithOpentofuTestsInput(name string, value *OpentofuTests, descript
 }
 
 // Declare a desired OpentofuTests output to be assigned in the environment
-func (r *Env) WithOpentofuTestsOutput(name string, description string) *Env { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:23:6)
+func (r *Env) WithOpentofuTestsOutput(name string, description string) *Env { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	q := r.query.Select("withOpentofuTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -42,7 +42,7 @@ func (r *Env) WithOpentofuTestsOutput(name string, description string) *Env { //
 	}
 }
 
-type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:23:6)
+type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	query *querybuilder.Selection
 
 	all                                     *Void
@@ -51,6 +51,7 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	applyProducesStateAndOutputs            *Void
 	applyRejectsTargetsWithSavedPlan        *Void
 	applyShouldNotBeCached                  *Void
+	backendConfigFileMatchesBackendConfig   *Void
 	ciCheckAggregatesStageFailures          *Void
 	ciCheckPassesOnCleanConfiguration       *Void
 	ciCheckReportsInvalidConfiguration      *Void
@@ -62,6 +63,7 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	ciCheckWithoutValidateSkipsIt           *Void
 	ciRunFailsOnFailedCheck                 *Void
 	ciRunProducesPlanArtifacts              *Void
+	concurrentAppliesDoNotCorruptState      *Void
 	containerHasGitAndCaCertificates        *Void
 	containerHasTofu                        *Void
 	destroyEmptiesState                     *Void
@@ -76,6 +78,8 @@ type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tes
 	planReportsChanges                      *Void
 	planShouldNotBeCached                   *Void
 	planTargetsLimitScope                   *Void
+	remoteBackendRoundTripsState            *Void
+	remoteWorkspacesIsolateState            *Void
 	secretVarReachesTofuWithoutLeaking      *Void
 	secretVariableBindsEnvironmentSecret    *Void
 	showRendersState                        *Void
@@ -102,7 +106,7 @@ func (r *OpentofuTests) WithGraphQLQuery(q *querybuilder.Selection) *OpentofuTes
 
 // OpentofuTestsAllOpts contains options for OpentofuTests.All
 type OpentofuTestsAllOpts struct {
-	Parallel int // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:37:2)
+	Parallel int // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:41:2)
 }
 
 // All runs every opentofu-module test in parallel.
@@ -111,7 +115,7 @@ type OpentofuTestsAllOpts struct {
 // 0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions
 // runner, so in-runner parallelism is bounded by the VM's CPU/memory, not by
 // the scheduler. Pass any positive integer to opt into a specific cap.
-func (r *OpentofuTests) All(ctx context.Context, opts ...OpentofuTestsAllOpts) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:34:1)
+func (r *OpentofuTests) All(ctx context.Context, opts ...OpentofuTestsAllOpts) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:38:1)
 	if r.all != nil {
 		return nil
 	}
@@ -181,6 +185,22 @@ func (r *OpentofuTests) ApplyShouldNotBeCached(ctx context.Context) error { // o
 		return nil
 	}
 	q := r.query.Select("applyShouldNotBeCached")
+
+	return q.Execute(ctx)
+}
+
+// BackendConfigFileMatchesBackendConfig asserts the file form of the backend
+// settings selects the same backend as the individual calls: state written
+// through one is found by the other.
+//
+// A Plan reporting no changes is the assertion, because the only way this
+// Config can know there is nothing to do is by having read the state the
+// flag-configured apply left behind.
+func (r *OpentofuTests) BackendConfigFileMatchesBackendConfig(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/backend.go:109:1)
+	if r.backendConfigFileMatchesBackendConfig != nil {
+		return nil
+	}
+	q := r.query.Select("backendConfigFileMatchesBackendConfig")
 
 	return q.Execute(ctx)
 }
@@ -327,10 +347,34 @@ func (r *OpentofuTests) CiRunProducesPlanArtifacts(ctx context.Context) error { 
 	return q.Execute(ctx)
 }
 
+// ConcurrentAppliesDoNotCorruptState asserts two applies racing for the same
+// remote state either serialise or fail on the lock — never both go through as
+// if the other had not happened.
+//
+// The two accepted outcomes are asserted separately because which one occurs
+// is a matter of timing, not of correctness:
+//
+//   - one apply fails with tofu's state-lock diagnostic, or
+//   - both succeed, and exactly one of them created the resources while the
+//     other found them already there.
+//
+// The second half is what makes this more than a smoke test. A backend without
+// working locking also lets both applies succeed — but then both start from an
+// empty state, both report resources added, and the loser's work is silently
+// dropped when the winner writes its state.
+func (r *OpentofuTests) ConcurrentAppliesDoNotCorruptState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/backend.go:220:1)
+	if r.concurrentAppliesDoNotCorruptState != nil {
+		return nil
+	}
+	q := r.query.Select("concurrentAppliesDoNotCorruptState")
+
+	return q.Execute(ctx)
+}
+
 // ContainerHasGitAndCaCertificates asserts the two things the -minimal image
 // omits and every non-trivial configuration needs: git, for module sources,
 // and a CA bundle, for the provider registry.
-func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:124:1)
+func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:133:1)
 	if r.containerHasGitAndCaCertificates != nil {
 		return nil
 	}
@@ -341,7 +385,7 @@ func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) er
 
 // ContainerHasTofu asserts the assembled container exposes the tofu binary on
 // PATH, so the escape hatch documented on Container() actually works.
-func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:108:1)
+func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:117:1)
 	if r.containerHasTofu != nil {
 		return nil
 	}
@@ -541,6 +585,39 @@ func (r *OpentofuTests) PlanTargetsLimitScope(ctx context.Context) error { // op
 	return q.Execute(ctx)
 }
 
+// RemoteBackendRoundTripsState asserts the backend path end to end: an apply
+// against a real S3 backend hands back no terraform.tfstate, the backend holds
+// the state instead, a second Config reads it back with nothing but the
+// backend settings to go on, and a destroy empties it.
+//
+// The file-carried tests can only prove that WithBackendConfig reaches
+// `tofu init`; this one proves the state actually goes somewhere else.
+func (r *OpentofuTests) RemoteBackendRoundTripsState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/backend.go:22:1)
+	if r.remoteBackendRoundTripsState != nil {
+		return nil
+	}
+	q := r.query.Select("remoteBackendRoundTripsState")
+
+	return q.Execute(ctx)
+}
+
+// RemoteWorkspacesIsolateState asserts WithWorkspace partitions a remote
+// backend: an apply in one workspace is invisible to a plan in another, and
+// the two states are distinct objects in the bucket.
+//
+// The local backend makes this awkward to see — each workspace's state comes
+// back as the same terraform.tfstate file in a different directory — which is
+// why the isolation is pinned here rather than alongside the file-carried
+// workspace test.
+func (r *OpentofuTests) RemoteWorkspacesIsolateState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/backend.go:145:1)
+	if r.remoteWorkspacesIsolateState != nil {
+		return nil
+	}
+	q := r.query.Select("remoteWorkspacesIsolateState")
+
+	return q.Execute(ctx)
+}
+
 // SecretVarReachesTofuWithoutLeaking asserts WithSecretVar delivers the value
 // to tofu and that the plaintext appears in none of the artifacts the module
 // hands back.
@@ -642,7 +719,7 @@ func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Conte
 // VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal
 // suffix lands on the same image as one who does not — the suffix is appended
 // only when absent.
-func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:150:1)
+func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:159:1)
 	if r.versionAcceptsMinimalSuffix != nil {
 		return nil
 	}
@@ -652,7 +729,7 @@ func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error {
 }
 
 // VersionReportsRelease asserts Version reports the release New was asked for.
-func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:136:1)
+func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:145:1)
 	if r.versionReportsRelease != nil {
 		return nil
 	}
@@ -750,7 +827,11 @@ func (r *OpentofuTests) AsNode() Node {
 // provider's resources exist purely in state, which is what makes the
 // state round-trip assertions meaningful — there is no out-of-band object to
 // drift away underneath them.
-func (r *Query) OpentofuTests() *OpentofuTests { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:23:6)
+//
+// The remote-state fixtures declare an s3 backend, and it too is hermetic: the
+// S3 they write to is a MinIO service the suite stands up per test, with a
+// root credential minted at runtime. See backend.go.
+func (r *Query) OpentofuTests() *OpentofuTests { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	q := r.query.Select("opentofuTests")
 
 	return &OpentofuTests{

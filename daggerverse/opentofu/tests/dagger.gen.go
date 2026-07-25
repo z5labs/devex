@@ -241,6 +241,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ApplyShouldNotBeCached(&parent, ctx)
+		case "BackendConfigFileMatchesBackendConfig":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BackendConfigFileMatchesBackendConfig(&parent, ctx)
 		case "CiCheckAggregatesStageFailures":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +325,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiRunProducesPlanArtifacts(&parent, ctx)
+		case "ConcurrentAppliesDoNotCorruptState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ConcurrentAppliesDoNotCorruptState(&parent, ctx)
 		case "ContainerHasGitAndCaCertificates":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -409,6 +423,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanTargetsLimitScope(&parent, ctx)
+		case "RemoteBackendRoundTripsState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RemoteBackendRoundTripsState(&parent, ctx)
+		case "RemoteWorkspacesIsolateState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RemoteWorkspacesIsolateState(&parent, ctx)
 		case "SecretVarReachesTofuWithoutLeaking":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
