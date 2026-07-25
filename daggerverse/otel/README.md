@@ -130,6 +130,26 @@ toRecv := o.OtlpHTTPExporter("recv", "https://recv:4318",
     })
 ```
 
+## Examples
+
+`examples/go/` is a sibling Dagger module holding a runnable cookbook.
+Each recipe walks the builder chain — components into a pipeline,
+pipelines into a collector — and returns either the endpoint a
+telemetry client would target or the YAML the chain rendered:
+
+| Recipe                    | What it demonstrates                                                                 |
+|---------------------------|--------------------------------------------------------------------------------------|
+| `DebugTracesPipeline`     | Shortest chain that runs: `DebugPipeline` to stdout; returns the OTLP/gRPC address.  |
+| `OtlpToTempo`             | Exporting to a real backend; the `WithServiceBinding` alias *is* the exporter host.  |
+| `BatchedMetricsPipeline`  | Processor composition and ordering (`memory_limiter` ahead of `batch`).              |
+| `ConfigDumpYaml`          | `ConfigFile()` as the debugging tool: read the rendered YAML without starting it.    |
+| `CustomReceiverYaml`      | The `Custom*` escape hatch for collector options the typed factories don't expose.   |
+
+```sh
+dagger -m daggerverse/otel/examples/go call otlp-to-tempo
+dagger -m daggerverse/otel/examples/go call config-dump-yaml contents
+```
+
 ## Tests
 
 End‑to‑end checks against the `grafana-stack` backends live in
