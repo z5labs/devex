@@ -437,6 +437,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Config).Format(&parent, ctx)
+		case "Graph":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).Graph(&parent, ctx)
+		case "Import":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var address string
+			if inputArgs["address"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
+				}
+			}
+			var id string
+			if inputArgs["id"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["id"]), &id)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg id", err))
+				}
+			}
+			return (*Config).Import(&parent, ctx, address, id)
 		case "Init":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)
@@ -486,6 +514,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Config).Plan(&parent, ctx, destroy, targets)
+		case "Refresh":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).Refresh(&parent, ctx)
 		case "Show":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)
@@ -493,6 +528,90 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Config).Show(&parent, ctx)
+		case "StateList":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).StateList(&parent, ctx)
+		case "StateMv":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var from string
+			if inputArgs["from"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["from"]), &from)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg from", err))
+				}
+			}
+			var to string
+			if inputArgs["to"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["to"]), &to)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg to", err))
+				}
+			}
+			return (*Config).StateMv(&parent, ctx, from, to)
+		case "StateRm":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var addresses []string
+			if inputArgs["addresses"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["addresses"]), &addresses)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg addresses", err))
+				}
+			}
+			return (*Config).StateRm(&parent, ctx, addresses)
+		case "StateShow":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var address string
+			if inputArgs["address"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
+				}
+			}
+			return (*Config).StateShow(&parent, ctx, address)
+		case "Taint":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var address string
+			if inputArgs["address"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
+				}
+			}
+			return (*Config).Taint(&parent, ctx, address)
+		case "Untaint":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var address string
+			if inputArgs["address"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
+				}
+			}
+			return (*Config).Untaint(&parent, ctx, address)
 		case "Validate":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)

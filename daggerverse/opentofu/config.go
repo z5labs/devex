@@ -560,7 +560,7 @@ func (c *Config) Apply(
 		args = append(args, c.varArgs()...)
 		args = append(args, targetArgs(targets)...)
 	}
-	return c.runMutation(ctx, ctr, args, "tofu apply")
+	return c.runMutation(ctx, ctr, args, "tofu apply", "apply.log")
 }
 
 // Destroy tears down everything the state tracks and returns the post-destroy
@@ -603,7 +603,7 @@ func (c *Config) Destroy(
 	args := []string{"tofu", "destroy", "-input=false", "-no-color", "-auto-approve"}
 	args = append(args, c.varArgs()...)
 	args = append(args, targetArgs(targets)...)
-	return c.runMutation(ctx, ctr, args, "tofu destroy")
+	return c.runMutation(ctx, ctr, args, "tofu destroy", "destroy.log")
 }
 
 // Outputs returns the root module's output values as JSON
@@ -611,7 +611,7 @@ func (c *Config) Destroy(
 //
 // +cache="never"
 func (c *Config) Outputs(ctx context.Context) (string, error) {
-	return c.read(ctx, []string{"tofu", "output", "-json", "-no-color"}, "tofu output -json")
+	return c.read(ctx, []string{"tofu", "output", "-json", "-no-color"}, "tofu output -json", true)
 }
 
 // Show returns the human-readable rendering of the current state
@@ -619,7 +619,7 @@ func (c *Config) Outputs(ctx context.Context) (string, error) {
 //
 // +cache="never"
 func (c *Config) Show(ctx context.Context) (string, error) {
-	return c.read(ctx, []string{"tofu", "show", "-no-color"}, "tofu show")
+	return c.read(ctx, []string{"tofu", "show", "-no-color"}, "tofu show", true)
 }
 
 // ------------------------------------------------------------------- internals
@@ -758,15 +758,19 @@ func (c *Config) initialized(ctx context.Context) (*dagger.Container, error) {
 	return ws, nil
 }
 
-// runMutation executes an apply or destroy and packages its results:
+// runMutation executes a command that writes state and packages its results:
 // terraform.tfstate when the state is file-carried, the output values, and
 // the run's own log.
-func (c *Config) runMutation(ctx context.Context, ctr *dagger.Container, args []string, label string) (*dagger.Directory, error) {
+//
+// label names the run in an error message and carries whatever identifies it
+// — the addresses a state move names, say — while logName is fixed per
+// function, so the returned directory's contents do not vary with the
+// arguments.
+func (c *Config) runMutation(ctx context.Context, ctr *dagger.Container, args []string, label string, logName string) (*dagger.Directory, error) {
 	nonce, err := randHex()
 	if err != nil {
 		return nil, err
 	}
-	logName := strings.TrimPrefix(label, "tofu ") + ".log"
 
 	exec := ctr.
 		WithEnvVariable("TOFU_RUN_NONCE", nonce).
@@ -803,18 +807,16 @@ func (c *Config) runMutation(ctx context.Context, ctr *dagger.Container, args []
 
 // read runs a read-only tofu subcommand against the initialised root module
 // and returns its stdout.
-func (c *Config) read(ctx context.Context, args []string, label string) (string, error) {
-	ctr, err := c.initialized(ctx)
+//
+// fresh stamps a per-call nonce onto the exec, which is what a +cache="never"
+// reading needs to genuinely re-run: the directive governs the function
+// result, while the WithExec layer underneath stays content-addressed. A
+// +cache="session" reading passes false and may be served from that layer.
+func (c *Config) read(ctx context.Context, args []string, label string, fresh bool) (string, error) {
+	exec, err := c.readExec(ctx, args, fresh)
 	if err != nil {
 		return "", err
 	}
-	nonce, err := randHex()
-	if err != nil {
-		return "", err
-	}
-	exec := ctr.
-		WithEnvVariable("TOFU_RUN_NONCE", nonce).
-		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	code, err := exec.ExitCode(ctx)
 	if err != nil {
 		return "", err
@@ -827,6 +829,23 @@ func (c *Config) read(ctx context.Context, args []string, label string) (string,
 		return "", fmt.Errorf("%s: %s", label, errText(err))
 	}
 	return out, nil
+}
+
+// readExec builds the exec read runs, for the callers that have to inspect a
+// non-zero exit themselves rather than take it as a failure.
+func (c *Config) readExec(ctx context.Context, args []string, fresh bool) (*dagger.Container, error) {
+	ctr, err := c.initialized(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if fresh {
+		nonce, err := randHex()
+		if err != nil {
+			return nil, err
+		}
+		ctr = ctr.WithEnvVariable("TOFU_RUN_NONCE", nonce)
+	}
+	return ctr.WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny}), nil
 }
 
 // initArgs renders `tofu init`. backend=false is how Validate reaches a
@@ -975,6 +994,20 @@ func checkPairName(fn string, what string, name string) error {
 	}
 	if strings.Contains(name, "=") {
 		return fmt.Errorf("%s: %s %q must not contain %q", fn, what, name, "=")
+	}
+	return nil
+}
+
+// checkPositional rejects a positional argument that would not survive the
+// trip through argv: an empty one, which tofu reads as a missing argument, or
+// one opening with a dash, which it reads as a flag. Both turn a call on a
+// specific resource into a call on something else entirely.
+func checkPositional(fn string, what string, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s: %s is required", fn, what)
+	}
+	if strings.HasPrefix(value, "-") {
+		return fmt.Errorf("%s: %s %q must not begin with %q — tofu would read it as a flag", fn, what, value, "-")
 	}
 	return nil
 }

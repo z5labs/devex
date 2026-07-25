@@ -464,6 +464,19 @@ type planDocument struct {
 	} `json:"resource_changes"`
 }
 
+// actions maps each address the plan covers to what it proposes doing to it.
+//
+// Every resource in the configuration appears, including the ones the plan
+// leaves alone — those carry `no-op` — so an assertion about one resource has
+// to name the rest rather than expect them to be absent.
+func (p planDocument) actions() map[string][]string {
+	out := make(map[string][]string, len(p.ResourceChanges))
+	for _, rc := range p.ResourceChanges {
+		out[rc.Address] = rc.Change.Actions
+	}
+	return out
+}
+
 // addresses returns the planned resource addresses, sorted so assertions do
 // not depend on tofu's ordering.
 func (p planDocument) addresses() []string {

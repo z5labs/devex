@@ -85,6 +85,51 @@ hosting module sources).
 happily report "0 destroyed" and exit 0, which reads as a successful teardown
 while the real infrastructure — whose state was never supplied — stays up.
 
+## State manipulation
+
+The lifecycle functions are what a pipeline runs unattended. Once state and
+reality have diverged, an operator reaches for a different set — and reaching
+for them through `Container()` means assembling argv, mounting the source and
+threading credentials by hand, which is the work this module exists to remove.
+So they are wrapped too.
+
+```sh
+# What is under management?
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. with-state --state=terraform.tfstate state-list
+
+# Rename a resource in state to match one renamed in the configuration.
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. with-state --state=terraform.tfstate \
+  state-mv --from=random_pet.old --to=random_pet.new \
+  file --path=terraform.tfstate export --path=terraform.tfstate
+```
+
+Every one of them writes state, so every one returns a `*Directory` carrying
+the resulting `terraform.tfstate` exactly the way `Apply` does: emitted in
+file-carried mode, absent under a remote backend, and forfeited entirely on a
+non-zero exit.
+
+That last part is the sharp edge. `StateMv`, `StateRm` and `Import` are
+destructive against state in ways a failed run cannot undo, and a run that
+fails hands back nothing — so hold your own copy of the input state before
+starting, the same discipline as `terraform state pull` before a manual edit.
+
+`StateList` answers with an empty listing when there is no state yet. `tofu`
+itself refuses a wholly absent state file, but "no state" and "an emptied
+state" hold the same answer to what is under management, and a listing that
+distinguished them would only make the caller handle a case with no content.
+
+`StateShow` returns one JSON document, not the JSON *stream* `tofu state show
+-json` writes — that stream opens with a UI message naming the version it ran,
+which no caller asked for. Note that `-json` prints sensitive values in full
+regardless of how the variable behind one was declared, so treat the result as
+sensitive whenever the resource is.
+
+`Graph` is the one read-only member, and the one derived from the
+configuration rather than from live state, so it is the one that caches per
+session rather than never.
+
 ## Secrets
 
 `WithSecretVar(name, secret)` binds `TF_VAR_<name>` as a container environment
@@ -144,6 +189,15 @@ reason.
 | `Config.Destroy(targets)` | A directory of `terraform.tfstate`, `outputs.json`, `destroy.log`. |
 | `Config.Outputs()` | `tofu output -json`. |
 | `Config.Show()` | `tofu show`. |
+| `Config.StateList()` | `tofu state list`; the addresses under management, one per line. |
+| `Config.StateShow(address)` | `tofu state show -json`; one resource's state as a JSON document. |
+| `Config.StateMv(from, to)` | `tofu state mv`; the resulting state directory. |
+| `Config.StateRm(addresses)` | `tofu state rm`; the resulting state directory. |
+| `Config.Import(address, id)` | `tofu import`; the resulting state directory. |
+| `Config.Refresh()` | `tofu apply -refresh-only -auto-approve`; the resulting state directory. |
+| `Config.Taint(address)` | `tofu taint`; the resulting state directory. |
+| `Config.Untaint(address)` | `tofu untaint`; the resulting state directory. |
+| `Config.Graph()` | `tofu graph`; the dependency graph in DOT. |
 | `Config.Ci()` | A chained CI pipeline builder over this configuration. |
 | `Ci.WithFmt()` | Enable the `fmt` stage. |
 | `Ci.WithValidate()` | Enable the `validate` stage. |
@@ -251,10 +305,11 @@ enable the stage, that single plan run is both the check and the artifact.
 
 ## Failure is an error, not a file
 
-`Apply` and `Destroy` fail hard on a non-zero `tofu` exit, and the error text
-carries `tofu`'s own diagnostics. Because Dagger drops a function's value when
-its error is non-nil, a partially failed apply forfeits the state it produced
-in file-carried mode; the remote-backend path is unaffected, since the backend
+Every function that writes state — `Apply`, `Destroy`, and the state-surgery
+set above — fails hard on a non-zero `tofu` exit, and the error text carries
+`tofu`'s own diagnostics. Because Dagger drops a function's value when its
+error is non-nil, a partially failed apply forfeits the state it produced in
+file-carried mode; the remote-backend path is unaffected, since the backend
 already holds the state.
 
 This is a deliberate trade. The alternative — always returning the directory
@@ -268,9 +323,11 @@ the directive repeats on each of them individually rather than being assumed to
 propagate from `Config`.
 
 That directive governs the *function* result; the `WithExec` layers underneath
-are still content-addressed, so `Plan`, `Apply`, `Destroy`, `Outputs` and
-`Show` each stamp a per-call random nonce onto the run that must genuinely
-re-execute.
+are still content-addressed, so each of those functions stamps a per-call
+random nonce onto the run that must genuinely re-execute. The two that read
+configuration rather than infrastructure — `Fmt`/`Format` and `Graph` — carry
+`+cache="session"` and no nonce, so they are free to come back from the layer
+cache.
 
 The same fact bites callers: two selections off one `+cache="never"` call are
 two invocations. Reading `plan.json` and `changes` off a single `Plan()` would
