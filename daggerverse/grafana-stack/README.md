@@ -275,6 +275,28 @@ each image's intended UID. This is fine for ephemeral dev / test
 services but means the module is not appropriate as-is for a
 multi-tenant production deployment.
 
+## Examples
+
+`examples/go/` is a sibling Dagger module holding a runnable cookbook.
+Each recipe wires one shape of the stack and returns the endpoint a
+client would point at, so it can be exercised with a single call:
+
+| Recipe                 | What it demonstrates                                                              |
+|------------------------|-----------------------------------------------------------------------------------|
+| `LokiOnly`             | Smallest useful stack: one Loki, returns its OTLP/HTTP logs endpoint.             |
+| `TempoOnly`            | One Tempo, returns its OTLP/gRPC address (bare `host:port`, no scheme).           |
+| `MimirOnly`            | One Mimir, returns its OTLP/HTTP metrics endpoint.                                |
+| `FullStackWithGrafana` | Loki + Tempo + Mimir provisioned as datasources; returns the Grafana UI endpoint. |
+| `GrafanaWithDashboard` | Same, plus an embedded sample dashboard registered via `WithDashboard`.           |
+
+```sh
+dagger -m daggerverse/grafana-stack/examples/go call full-stack-with-grafana
+```
+
+The two Grafana recipes provision `admin` / `admin` so the returned
+endpoint can be opened in a browser — a documented throwaway, since a
+per-call random password could not be read back.
+
 ## Tests
 
 `tests/` contains a sibling Dagger module that exercises each backend

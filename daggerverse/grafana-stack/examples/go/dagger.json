@@ -1,0 +1,16 @@
+{
+  "name": "grafana-stack-examples",
+  "engineVersion": "v0.21.7",
+  "sdk": {
+    "source": "go"
+  },
+  "dependencies": [
+    {
+      "name": "grafana-stack",
+      "source": "../.."
+    }
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
