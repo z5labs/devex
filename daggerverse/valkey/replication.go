@@ -90,7 +90,7 @@ func (v *Valkey) Replication(
 
 	image := valkeyImage(registry, tag)
 
-	primary := buildServer(replicationNodeName(name, 0), image, password, clientListenerSecurity, nil, nil, nil, nil)
+	primary := buildServer(replicationNodeName(name, 0), image, valkeyEntrypoint, password, clientListenerSecurity, nil, nil, nil, nil)
 
 	nodes := make([]*Server, 0, replicas+1)
 	nodes = append(nodes, primary)
@@ -98,6 +98,7 @@ func (v *Valkey) Replication(
 		nodes = append(nodes, buildServer(
 			replicationNodeName(name, i),
 			image,
+			valkeyEntrypoint,
 			password,
 			clientListenerSecurity,
 			// The configuration passthrough is Valkey.Server's alone: a

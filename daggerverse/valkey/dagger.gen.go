@@ -73,6 +73,78 @@ func (r *Valkey) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Server) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Svc                *dagger.Service
+		Host               string
+		UserName           string
+		Pass               *dagger.Secret
+		ClientListenerMode string
+		RequiredModules    []string
+	}
+	concrete.Svc = r.Svc
+	concrete.Host = r.Host
+	concrete.UserName = r.UserName
+	concrete.Pass = r.Pass
+	concrete.ClientListenerMode = r.ClientListenerMode
+	concrete.RequiredModules = r.RequiredModules
+	return json.Marshal(&concrete)
+}
+
+func (r *Server) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Svc                *dagger.Service
+		Host               string
+		UserName           string
+		Pass               *dagger.Secret
+		ClientListenerMode string
+		RequiredModules    []string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Svc = concrete.Svc
+	r.Host = concrete.Host
+	r.UserName = concrete.UserName
+	r.Pass = concrete.Pass
+	r.ClientListenerMode = concrete.ClientListenerMode
+	r.RequiredModules = concrete.RequiredModules
+	return nil
+}
+
+func (r ServerSecurity) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Mode       string
+		ServerCert *dagger.File
+		ServerKey  *dagger.Secret
+		ClientCa   *dagger.File
+	}
+	concrete.Mode = r.Mode
+	concrete.ServerCert = r.ServerCert
+	concrete.ServerKey = r.ServerKey
+	concrete.ClientCa = r.ClientCa
+	return json.Marshal(&concrete)
+}
+
+func (r *ServerSecurity) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Mode       string
+		ServerCert *dagger.File
+		ServerKey  *dagger.Secret
+		ClientCa   *dagger.File
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Mode = concrete.Mode
+	r.ServerCert = concrete.ServerCert
+	r.ServerKey = concrete.ServerKey
+	r.ClientCa = concrete.ClientCa
+	return nil
+}
+
 func (r Client) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Host         string
@@ -189,38 +261,6 @@ func (r *Cluster) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r ServerSecurity) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Mode       string
-		ServerCert *dagger.File
-		ServerKey  *dagger.Secret
-		ClientCa   *dagger.File
-	}
-	concrete.Mode = r.Mode
-	concrete.ServerCert = r.ServerCert
-	concrete.ServerKey = r.ServerKey
-	concrete.ClientCa = r.ClientCa
-	return json.Marshal(&concrete)
-}
-
-func (r *ServerSecurity) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Mode       string
-		ServerCert *dagger.File
-		ServerKey  *dagger.Secret
-		ClientCa   *dagger.File
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Mode = concrete.Mode
-	r.ServerCert = concrete.ServerCert
-	r.ServerKey = concrete.ServerKey
-	r.ClientCa = concrete.ClientCa
-	return nil
-}
-
 func (r Replication) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Nodes []*Server
@@ -238,42 +278,6 @@ func (r *Replication) UnmarshalJSON(bs []byte) error {
 		return err
 	}
 	r.Nodes = concrete.Nodes
-	return nil
-}
-
-func (r Server) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Svc                *dagger.Service
-		Host               string
-		UserName           string
-		Pass               *dagger.Secret
-		ClientListenerMode string
-	}
-	concrete.Svc = r.Svc
-	concrete.Host = r.Host
-	concrete.UserName = r.UserName
-	concrete.Pass = r.Pass
-	concrete.ClientListenerMode = r.ClientListenerMode
-	return json.Marshal(&concrete)
-}
-
-func (r *Server) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Svc                *dagger.Service
-		Host               string
-		UserName           string
-		Pass               *dagger.Secret
-		ClientListenerMode string
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Svc = concrete.Svc
-	r.Host = concrete.Host
-	r.UserName = concrete.UserName
-	r.Pass = concrete.Pass
-	r.ClientListenerMode = concrete.ClientListenerMode
 	return nil
 }
 
@@ -668,6 +672,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Valkey":
 		switch fnName {
+		case "BundleServer":
+			var parent Valkey
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var registry string
+			if inputArgs["registry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
+				}
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			var password *dagger.Secret
+			if inputArgs["password"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["password"]), &password)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
+				}
+			}
+			var clientListenerSecurity *ServerSecurity
+			if inputArgs["clientListenerSecurity"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientListenerSecurity"]), &clientListenerSecurity)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientListenerSecurity", err))
+				}
+			}
+			return (*Valkey).BundleServer(&parent, ctx, name, registry, tag, password, clientListenerSecurity)
 		case "Client":
 			var parent Valkey
 			err = json.Unmarshal(parentJSON, &parent)

@@ -12,10 +12,11 @@ It is the daggerverse's first key-value store, and it targets Valkey
 (BSD-3, Linux Foundation) rather than Redis (RSALv2/SSPLv1 since 7.4).
 
 It supports three client-facing listener modes — plaintext (`requirepass`
-auth over an unencrypted TCP listener), one-way TLS, and mutual TLS.
-`valkey-server` config passthrough, the `valkey-bundle` image, TLS for
-the replication link and the cluster bus, and keyspace export/import all
-land in follow-ups.
+auth over an unencrypted TCP listener), one-way TLS, and mutual TLS. A
+single node can also be booted from `valkey/valkey-bundle`, the upstream
+image carrying the JSON, Bloom, and Search modules — see
+[`BundleServer`](#bundleserver). TLS for the replication link and the
+cluster bus, and keyspace export/import, land in follow-ups.
 
 ## Why `Server` and not `Cluster`
 
@@ -181,6 +182,56 @@ and wire its IP into `/etc/hosts`. (Pre-starting from this module would
 register the service in the module's DNS domain, which a session-domain
 consumer's host-file lookup can't resolve.) For module-runtime access,
 use `Server.Client`, which starts the service itself.
+
+### BundleServer
+
+`valkey/valkey-bundle` is the upstream image carrying the module
+ecosystem preinstalled — JSON (`JSON.SET` / `JSON.GET`), Bloom (`BF.*`),
+and Search (`FT.*`). `BundleServer` boots a single node from it and
+returns the same `*Server` with the same method set; only the image and
+the readiness check differ.
+
+```go
+Valkey.BundleServer(
+    ctx,
+    name="",
+    registry="docker.io", tag="9.1",   // <registry>/valkey/valkey-bundle:<tag>
+    password *dagger.Secret,
+    clientListenerSecurity *ServerSecurity,
+) (*Server, error)
+```
+
+The module commands need no new API — `Client.Do(["JSON.SET", ...])`
+already reaches them and their replies come back JSON-encoded like any
+other. Typed sugar for JSON / Bloom / Search is deliberately out of
+scope.
+
+**Readiness asserts the modules loaded.** A bundle node is not ready
+merely because it answers `PING`: after the first successful ping,
+`Server.Client` runs `MODULE LIST` and fails the boot unless `json`,
+`bf`, and `search` are all present, naming what is missing and what the
+node did report. Those are Valkey's own module names, not the shared
+object file names (`libvalkey_bloom.so` registers as `bf`, matching its
+`BF.*` command prefix). The list is a floor, not an exact match: the
+image also ships `ldap` and every node reports the built-in `lua`, and a
+future bundle release adding a module must not fail the check.
+
+**Why a separate constructor** rather than a `bundle bool` on `Server`:
+the image choice stays legible at the call site, and readiness gets
+somewhere to hang the module assertion.
+
+**Why the modules would otherwise not load.** The bundle image ships its
+own `bundle-docker-entrypoint.sh` instead of the stock
+`docker-entrypoint.sh`; the modules are `.so` files under
+`/usr/lib/valkey` and nothing loads them unless something composes the
+`--loadmodule` flags, which is precisely what that script does. Boot the
+bundle image through the stock entrypoint and you get a perfectly healthy
+node with an empty module list, whose first `JSON.SET` fails as an
+unknown command. The readiness assertion is what turns that into a boot
+failure.
+
+The `valkey-server` configuration passthrough is not wired up here yet —
+it is a follow-up.
 
 ## Replication
 
@@ -418,5 +469,5 @@ TLS/mTLS for the replication link (`--tls-replication yes` plus the trust
 material a replica needs to verify and authenticate to its primary) and
 for the cluster bus (`--tls-cluster yes`, plus `--tls`/`--cacert` for the
 bootstrapping `valkey-cli`); configuration passthrough for `Replication`
-and `Cluster` members; the `valkey/valkey-bundle` image with module
-verification; keyspace export/import via SCAN + DUMP/RESTORE.
+and `Cluster` members and for `BundleServer`; keyspace export/import via
+SCAN + DUMP/RESTORE.

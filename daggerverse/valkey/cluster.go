@@ -163,6 +163,7 @@ func (v *Valkey) Cluster(
 		nodes = append(nodes, buildServer(
 			nodeName,
 			image,
+			valkeyEntrypoint,
 			password,
 			clientListenerSecurity,
 			// The configuration passthrough is Valkey.Server's alone: a

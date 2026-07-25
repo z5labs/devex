@@ -248,6 +248,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BindServerReachableUnderTls(&parent, ctx)
+		case "Bundle":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Bundle(&parent, ctx, parallel)
+		case "BundleBindServerReachableFromConsumer":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BundleBindServerReachableFromConsumer(&parent, ctx)
+		case "BundleBloomRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BundleBloomRoundTrip(&parent, ctx)
+		case "BundleJsonRoundTrip":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BundleJsonRoundTrip(&parent, ctx)
+		case "BundleServerLoadsModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BundleServerLoadsModules(&parent, ctx)
+		case "BundleServerMethodsMatchStock":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BundleServerMethodsMatchStock(&parent, ctx)
 		case "Client":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -661,6 +710,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SetWithTtlExpires(&parent, ctx)
+		case "StockServerLacksBundleModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).StockServerLacksBundleModules(&parent, ctx)
 		case "StopTerminatesServer":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
