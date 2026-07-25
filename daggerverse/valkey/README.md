@@ -413,6 +413,8 @@ Client.Set(ctx, key, value string, ttl="") error   // ttl is a Go duration strin
 Client.Del(ctx, keys []string) (int, error)        // number of keys actually removed
 Client.Keys(ctx, pattern string) ([]string, error) // SCAN-backed, cursor walked to exhaustion
 Client.ApplyFile(ctx, file *dagger.File) error     // one command per line, on one connection
+Client.Export(ctx, pattern="*") (*dagger.File, error)            // SCAN + DUMP, one JSON file
+Client.ImportFile(ctx, file *dagger.File, replace=false) (int, error) // RESTORE, returns keys written
 Client.Info(ctx, section="") (string, error)
 Client.DbSize(ctx) (int, error)
 Client.FlushAll(ctx) error
@@ -463,11 +465,53 @@ valkey-cli syntax, run in order on a single connection. Blank lines and
 double-quoted runs kept intact (`\` escapes inside double quotes). A
 failing command aborts the run and reports its line number.
 
+### Keyspace export / import
+
+`Export` and `ImportFile` are the *binary-faithful* fixture path, for
+when hand-written commands are the wrong shape — you already have a
+populated cache and want the same one somewhere else.
+
+`Export` walks the keyspace with SCAN (cursor to exhaustion, with the
+same cluster fan-out `Keys` performs) and captures each key with `DUMP`
+plus its `PTTL`, writing one JSON file of base64 payloads returned
+through `dag.CurrentModule().WorkdirFile`. `ImportFile` reverses it with
+`RESTORE`. Because `DUMP` is the same serialization the RDB uses, every
+type and encoding survives — strings, hashes, lists, sets, sorted sets,
+streams, and module types alike — and TTLs come across as remaining
+milliseconds, so a key with an expiry arrives with one still ticking and
+a persistent key arrives persistent.
+
+The export is a plain JSON file — `{"version", "pattern", "keys":
+[{"key", "ttlMs", "payload"}]}`, payloads base64-encoded — so it stays
+inspectable (`jq '.keys[].key'` lists the keyspace) and can be committed
+as a fixture, mounted into a container, or handed straight back to
+`ImportFile`. `ttlMs` is 0 for a persistent key.
+
+This deliberately avoids the obvious approach of extracting
+`/data/dump.rdb`: a running Dagger `Service`'s filesystem is not directly
+readable, so pulling the RDB out would mean restructuring the node as a
+`Container` with an exported mount. `DUMP`/`RESTORE` is pure client-side
+work in the module runtime with no helper container, and it works
+unchanged against a remote managed instance where there is no filesystem
+to reach at all.
+
+`ImportFile` refuses to clobber by default — a key already present makes
+`RESTORE` answer `BUSYKEY` and the import fails — because a fixture load
+that silently overwrote someone else's data is discovered only as their
+missing data. Pass `replace` to overwrite. The import is not
+transactional: a mid-file failure leaves the keys already written in
+place, and re-running with `replace` is the intended recovery.
+
+It is `ImportFile` rather than the symmetric `Import` because the Go SDK
+caches every scalar-returning function on a generated struct field named
+after the GraphQL field: an `Import` returning `Int` renders as
+`import *int` in every consumer module's bindings, which is not valid Go.
+See the keyword-collision pitfall in `daggerverse/CLAUDE.md`.
+
 ## Follow-ups
 
 TLS/mTLS for the replication link (`--tls-replication yes` plus the trust
 material a replica needs to verify and authenticate to its primary) and
 for the cluster bus (`--tls-cluster yes`, plus `--tls`/`--cacert` for the
 bootstrapping `valkey-cli`); configuration passthrough for `Replication`
-and `Cluster` members and for `BundleServer`; keyspace export/import via
-SCAN + DUMP/RESTORE.
+and `Cluster` members and for `BundleServer`.

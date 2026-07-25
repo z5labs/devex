@@ -421,6 +421,14 @@ func (c *Client) Keys(ctx context.Context, pattern string) ([]string, error) {
 	}
 	defer cleanup()
 
+	return c.scanKeys(ctx, client, pattern)
+}
+
+// scanKeys is the guts of Keys, factored out so Export can walk the same
+// keyspace on the connection it already holds rather than dialing a
+// second time. It applies the cluster fan-out and de-duplication
+// described on Keys.
+func (c *Client) scanKeys(ctx context.Context, client valkey.Client, pattern string) ([]string, error) {
 	targets := []valkey.Client{client}
 	if c.ClusterMode {
 		// Nodes() is a map, so its iteration order varies per call; walking

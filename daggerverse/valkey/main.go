@@ -43,6 +43,9 @@
 //   - client.go      — *Client + Valkey.Client, valkey-go wiring, and the
 //     Ping / Do / Get / Set / Del / Keys / ApplyFile / Info / DbSize /
 //     FlushAll method set — the last of which are cluster-aware.
+//   - keyspace.go    — Client.Export / Client.ImportFile, the SCAN +
+//     DUMP / RESTORE keyspace round trip, its on-disk JSON schema, and
+//     the workdir-file materialisation the export is returned through.
 package main
 
 // Valkey is the root namespace for every exported function in this

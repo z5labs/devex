@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Valkey
-func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:52:6)
+func (r *Binding) AsValkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:55:6)
 	q := r.query.Select("asValkey")
 
 	return &Valkey{
@@ -145,7 +145,7 @@ func (r *Env) WithValkeyClusterOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Valkey in the environment
-func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:52:6)
+func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:55:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withValkeyInput")
 	q = q.Arg("name", name)
@@ -158,7 +158,7 @@ func (r *Env) WithValkeyInput(name string, value *Valkey, description string) *E
 }
 
 // Declare a desired Valkey output to be assigned in the environment
-func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:52:6)
+func (r *Env) WithValkeyOutput(name string, description string) *Env { // valkey (../../../../../daggerverse/valkey/main.go:55:6)
 	q := r.query.Select("withValkeyOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -244,7 +244,7 @@ func (r *Env) WithValkeyServerSecurityOutput(name string, description string) *E
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:52:6)
+func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/main.go:55:6)
 	q := r.query.Select("valkey")
 
 	return &Valkey{
@@ -256,7 +256,7 @@ func (r *Query) Valkey() *Valkey { // valkey (../../../../../daggerverse/valkey/
 // module. The server constructor, security helpers, and the
 // remote-client factory all hang off *Valkey so the generated Dagger SDK
 // surfaces them under `dag.Valkey().<Func>(...)`.
-type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:52:6)
+type Valkey struct { // valkey (../../../../../daggerverse/valkey/main.go:55:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -882,16 +882,17 @@ func (r *Valkey) AsNode() Node {
 type ValkeyClient struct { // valkey (../../../../../daggerverse/valkey/client.go:35:6)
 	query *querybuilder.Selection
 
-	applyFile *Void
-	dbSize    *int
-	del       *int
-	do        *string
-	flushAll  *Void
-	get       *string
-	id        *ID
-	info      *string
-	ping      *Void
-	set       *Void
+	applyFile  *Void
+	dbSize     *int
+	del        *int
+	do         *string
+	flushAll   *Void
+	get        *string
+	id         *ID
+	importFile *int
+	info       *string
+	ping       *Void
+	set        *Void
 }
 
 func (r *ValkeyClient) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyClient {
@@ -908,7 +909,7 @@ func (r *ValkeyClient) WithGraphQLQuery(q *querybuilder.Selection) *ValkeyClient
 // whitespace, with single- and double-quoted runs kept intact so values
 // containing spaces survive; `\` escapes inside double quotes. A command
 // that fails aborts the run and reports the offending line number.
-func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // valkey (../../../../../daggerverse/valkey/client.go:490:1)
+func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // valkey (../../../../../daggerverse/valkey/client.go:498:1)
 	assertNotNil("file", file)
 	if r.applyFile != nil {
 		return nil
@@ -920,7 +921,7 @@ func (r *ValkeyClient) ApplyFile(ctx context.Context, file *File) error { // val
 }
 
 // DbSize returns the number of keys in the client's logical database.
-func (r *ValkeyClient) DbSize(ctx context.Context) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:615:1)
+func (r *ValkeyClient) DbSize(ctx context.Context) (int, error) { // valkey (../../../../../daggerverse/valkey/client.go:623:1)
 	if r.dbSize != nil {
 		return *r.dbSize, nil
 	}
@@ -976,8 +977,52 @@ func (r *ValkeyClient) Do(ctx context.Context, args []string) (string, error) { 
 	return response, q.Execute(ctx)
 }
 
+// ValkeyClientExportOpts contains options for ValkeyClient.Export
+type ValkeyClientExportOpts struct {
+
+	// Default: "*"
+	Pattern string // valkey (../../../../../daggerverse/valkey/keyspace.go:90:2)
+}
+
+// Export captures every key matching pattern and writes it to a single
+// JSON file, returned via `dag.CurrentModule().WorkdirFile`. ImportFile
+// reverses it, so the pair moves a pre-seeded cache between servers —
+// the fixture path for a test that needs a populated keyspace it did not
+// build command by command.
+//
+// Each key is captured with DUMP (the binary serialization RDB itself
+// uses, so every type and encoding survives — strings, hashes, lists,
+// sets, sorted sets, streams, and module types alike) plus its PTTL. The
+// keyspace is walked with SCAN, cursor to exhaustion, with the same
+// cluster fan-out Keys performs.
+//
+// This deliberately avoids the obvious approach of extracting
+// `/data/dump.rdb`: a running Dagger Service's filesystem is not
+// directly readable, so pulling the RDB out would mean restructuring the
+// node as a Container with an exported mount. DUMP/RESTORE is pure
+// client-side work and needs no filesystem access at all, which is also
+// what makes it work unchanged against a remote managed instance
+// (ElastiCache, MemoryDB) where there is no filesystem to reach.
+//
+// Only the client's logical database is exported. A key that expires
+// between the SCAN that named it and the DUMP that captures it is
+// skipped rather than failing the export.
+func (r *ValkeyClient) Export(opts ...ValkeyClientExportOpts) *File { // valkey (../../../../../daggerverse/valkey/keyspace.go:87:1)
+	q := r.query.Select("export")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pattern` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pattern) {
+			q = q.Arg("pattern", opts[i].Pattern)
+		}
+	}
+
+	return &File{
+		query: q,
+	}
+}
+
 // FlushAll removes every key from every logical database on the node.
-func (r *ValkeyClient) FlushAll(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:632:1)
+func (r *ValkeyClient) FlushAll(ctx context.Context) error { // valkey (../../../../../daggerverse/valkey/client.go:640:1)
 	if r.flushAll != nil {
 		return nil
 	}
@@ -1051,15 +1096,60 @@ func (r *ValkeyClient) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// ValkeyClientImportFileOpts contains options for ValkeyClient.ImportFile
+type ValkeyClientImportFileOpts struct {
+	Replace bool // valkey (../../../../../daggerverse/valkey/keyspace.go:190:2)
+}
+
+// ImportFile restores a file written by Export into the client's logical
+// database and returns how many keys it wrote, TTLs included.
+//
+// It is not called `Import`, which is what the symmetry with Export
+// wants, because it cannot be: the Go SDK caches every scalar-returning
+// function on a generated struct field named after the GraphQL field, so
+// an `Import` returning an Int renders as `import *int` in every
+// consumer module's bindings and refuses to compile. `ApplyFile` is the
+// naming this module already uses for the other file-taking method.
+//
+// Without replace a key already present in the target is a hard error:
+// RESTORE answers BUSYKEY, which is the desired default for a fixture
+// load — silently clobbering a keyspace someone else is using is worse
+// than refusing. Pass replace to overwrite instead.
+//
+// The import is not transactional. The restores are pipelined in
+// batches, so a mid-file failure (a collision, a corrupt payload, an RDB
+// version the server is too old to read) leaves the keys already written
+// in place. Re-running with replace after fixing the cause is the
+// intended recovery.
+func (r *ValkeyClient) ImportFile(ctx context.Context, file *File, opts ...ValkeyClientImportFileOpts) (int, error) { // valkey (../../../../../daggerverse/valkey/keyspace.go:186:1)
+	assertNotNil("file", file)
+	if r.importFile != nil {
+		return *r.importFile, nil
+	}
+	q := r.query.Select("importFile")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `replace` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Replace) {
+			q = q.Arg("replace", opts[i].Replace)
+		}
+	}
+	q = q.Arg("file", file)
+
+	var response int
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // ValkeyClientInfoOpts contains options for ValkeyClient.Info
 type ValkeyClientInfoOpts struct {
-	Section string // valkey (../../../../../daggerverse/valkey/client.go:597:2)
+	Section string // valkey (../../../../../daggerverse/valkey/client.go:605:2)
 }
 
 // Info returns the server's INFO output. An empty section returns the
 // default set; pass a section name (`"server"`, `"replication"`,
 // `"keyspace"`, …) to narrow it.
-func (r *ValkeyClient) Info(ctx context.Context, opts ...ValkeyClientInfoOpts) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:594:1)
+func (r *ValkeyClient) Info(ctx context.Context, opts ...ValkeyClientInfoOpts) (string, error) { // valkey (../../../../../daggerverse/valkey/client.go:602:1)
 	if r.info != nil {
 		return *r.info, nil
 	}
