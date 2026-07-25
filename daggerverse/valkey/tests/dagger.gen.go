@@ -255,6 +255,83 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ClientPingWrongPasswordFails(&parent, ctx)
+		case "Cluster":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var parallel int
+			if inputArgs["parallel"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["parallel"]), &parallel)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg parallel", err))
+				}
+			}
+			return nil, (*Tests).Cluster(&parent, ctx, parallel)
+		case "ClusterAdvertisesPinnedHostnames":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterAdvertisesPinnedHostnames(&parent, ctx)
+		case "ClusterBindNodesReachableFromConsumer":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterBindNodesReachableFromConsumer(&parent, ctx)
+		case "ClusterDelSpansMultipleSlots":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterDelSpansMultipleSlots(&parent, ctx)
+		case "ClusterKeysScansEveryShard":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterKeysScansEveryShard(&parent, ctx)
+		case "ClusterRejectsTlsSecurity":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterRejectsTlsSecurity(&parent, ctx)
+		case "ClusterRejectsTooFewShards":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterRejectsTooFewShards(&parent, ctx)
+		case "ClusterReportsFormedState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterReportsFormedState(&parent, ctx)
+		case "ClusterRoundTripsKeysAcrossSlots":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterRoundTripsKeysAcrossSlots(&parent, ctx)
+		case "ClusterStopTerminatesEveryNode":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClusterStopTerminatesEveryNode(&parent, ctx)
 		case "DbSelectsLogicalDatabase":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

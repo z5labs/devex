@@ -108,7 +108,7 @@ func (v *Valkey) Server(
 		)
 	}
 
-	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, nil, nil), nil
+	return buildServer(name, valkeyImage(registry, tag), password, clientListenerSecurity, nil, nil, nil), nil
 }
 
 // valkeyImage renders the image reference a node boots from. The
@@ -140,9 +140,11 @@ type serviceBinding struct {
 
 // buildServer assembles a single valkey-server node: the container, the
 // security-derived listener flags, any extra `valkey-server` arguments
-// (replication flags, say), and the service bindings the node needs in
-// order to dial its peers. Inputs are assumed already validated —
-// Valkey.Server and Valkey.Replication each validate before calling.
+// (replication or cluster flags, say), the service bindings the node
+// needs in order to dial its peers, and any ports beyond the client
+// listener the node must expose (the cluster bus, say). Inputs are
+// assumed already validated — Valkey.Server, Valkey.Replication, and
+// Valkey.Cluster each validate before calling.
 func buildServer(
 	name string,
 	image string,
@@ -150,6 +152,7 @@ func buildServer(
 	security *ServerSecurity,
 	extraArgs []string,
 	bindings []serviceBinding,
+	extraPorts []int,
 ) *Server {
 	host := serverHostname(name)
 
@@ -161,6 +164,10 @@ func buildServer(
 		From(image).
 		WithSecretVariable("VALKEY_PASSWORD", password).
 		WithExposedPort(valkeyPort)
+
+	for _, port := range extraPorts {
+		ctr = ctr.WithExposedPort(port)
+	}
 
 	// Bindings go on before AsService so the node resolves its peers from
 	// /etc/hosts at boot, and so Dagger starts those peers as dependencies

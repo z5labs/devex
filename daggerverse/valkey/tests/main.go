@@ -58,6 +58,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("Replication", func(ctx context.Context) error {
 		return t.Replication(ctx, parallel)
 	})
+	jobs = jobs.WithJob("Cluster", func(ctx context.Context) error {
+		return t.Cluster(ctx, parallel)
+	})
 	return jobs.Run(ctx)
 }
 
@@ -81,6 +84,8 @@ func (t *Tests) Validation(
 	jobs = jobs.WithJob("server-rejects-nil-security", t.ServerRejectsNilSecurity)
 	jobs = jobs.WithJob("replication-rejects-too-few-replicas", t.ReplicationRejectsTooFewReplicas)
 	jobs = jobs.WithJob("replication-rejects-tls-security", t.ReplicationRejectsTlsSecurity)
+	jobs = jobs.WithJob("cluster-rejects-too-few-shards", t.ClusterRejectsTooFewShards)
+	jobs = jobs.WithJob("cluster-rejects-tls-security", t.ClusterRejectsTlsSecurity)
 	return jobs.Run(ctx)
 }
 
@@ -108,6 +113,39 @@ func (t *Tests) Replication(
 	jobs = jobs.WithJob("replication-link-authenticates", t.ReplicationLinkAuthenticates)
 	jobs = jobs.WithJob("replication-nodes-have-distinct-hostnames", t.ReplicationNodesHaveDistinctHostnames)
 	jobs = jobs.WithJob("replication-stop-terminates-every-node", t.ReplicationStopTerminatesEveryNode)
+	return jobs.Run(ctx)
+}
+
+// Cluster runs the slot-sharded Valkey Cluster tests. Each test boots its
+// own cluster via bootCluster, whose runtime-random name folds into
+// Valkey.Cluster's session-cache key and into every node's hostname, so
+// concurrent tests get independent clusters.
+//
+// These are the most expensive tests in the suite — the smallest legal
+// cluster is three nodes, and every one of them has to boot before the
+// bootstrap can even start — so they get their own aggregator rather than
+// riding along with the single-node groups.
+//
+// +check
+// +cache="session"
+func (t *Tests) Cluster(
+	ctx context.Context,
+	// +default=0
+	parallel int,
+) error {
+	jobs := par.New().
+		WithRollupLogs(true).
+		WithRollupSpans(true)
+	if parallel > 0 {
+		jobs = jobs.WithLimit(parallel)
+	}
+	jobs = jobs.WithJob("cluster-reports-formed-state", t.ClusterReportsFormedState)
+	jobs = jobs.WithJob("cluster-advertises-pinned-hostnames", t.ClusterAdvertisesPinnedHostnames)
+	jobs = jobs.WithJob("cluster-round-trips-keys-across-slots", t.ClusterRoundTripsKeysAcrossSlots)
+	jobs = jobs.WithJob("cluster-keys-scans-every-shard", t.ClusterKeysScansEveryShard)
+	jobs = jobs.WithJob("cluster-del-spans-multiple-slots", t.ClusterDelSpansMultipleSlots)
+	jobs = jobs.WithJob("cluster-bind-nodes-reachable-from-consumer", t.ClusterBindNodesReachableFromConsumer)
+	jobs = jobs.WithJob("cluster-stop-terminates-every-node", t.ClusterStopTerminatesEveryNode)
 	return jobs.Run(ctx)
 }
 
@@ -380,6 +418,88 @@ func (t *Tests) ReplicationRejectsTlsSecurity(ctx context.Context) error {
 	_, err = rep.Primary().Endpoint(ctx)
 	if err == nil {
 		return fmt.Errorf("expected a TLS Replication topology to be rejected")
+	}
+	if !strings.Contains(err.Error(), "TLS") {
+		return fmt.Errorf("expected the rejection to name TLS, got: %v", err)
+	}
+	return nil
+}
+
+// ClusterRejectsTooFewShards verifies a sub-quorum cluster is refused
+// with an explanation rather than booting. Valkey Cluster agrees slot
+// ownership by a majority vote of the primaries, so two primaries can
+// never form a quorum once one is unreachable and one primary is a
+// standalone node wearing a cluster hat — either would boot into a
+// topology that looks healthy right up until it has to agree on
+// something.
+//
+// The guard is checked before anything starts, so this test costs no
+// containers.
+//
+// +cache="never"
+func (t *Tests) ClusterRejectsTooFewShards(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	for _, shards := range []int{1, 2} {
+		cluster := dag.Valkey().Cluster(
+			pass,
+			dag.Valkey().PlaintextServerSecurity(),
+			dagger.ValkeyClusterOpts{Name: name, Shards: shards},
+		)
+		_, err := cluster.Endpoints(ctx)
+		if err == nil {
+			return fmt.Errorf("expected Cluster(shards=%d) to be rejected, but it built a topology", shards)
+		}
+		if !strings.Contains(err.Error(), "shards") {
+			return fmt.Errorf("expected the shards=%d rejection to name the shards argument, got: %v", shards, err)
+		}
+		if !strings.Contains(err.Error(), "quorum") {
+			return fmt.Errorf("expected the shards=%d rejection to explain the quorum requirement, got: %v", shards, err)
+		}
+	}
+	return nil
+}
+
+// ClusterRejectsTlsSecurity verifies a TLS listener profile is refused
+// with an explanation rather than booting peers that spin forever on a
+// failed handshake: a TLS node runs with `--port 0`, so the cluster bus
+// would also have to run over TLS, and neither the peers nor the
+// valkey-cli that bootstraps them get the trust material they'd need from
+// a client-listener ServerSecurity.
+//
+// +cache="never"
+func (t *Tests) ClusterRejectsTlsSecurity(ctx context.Context) error {
+	name, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return err
+	}
+	ca, err := freshCa(ctx, "vk-cluster-tls")
+	if err != nil {
+		return err
+	}
+	// SAN value is irrelevant: the guard rejects before any node boots.
+	cert, key, err := issueServerCert(ctx, ca, "valkey-placeholder", "vk-cluster-tls-server")
+	if err != nil {
+		return err
+	}
+	cluster := dag.Valkey().Cluster(
+		pass,
+		dag.Valkey().TLSServerSecurity(cert, key),
+		dagger.ValkeyClusterOpts{Name: name},
+	)
+	_, err = cluster.Endpoints(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a TLS Cluster topology to be rejected")
 	}
 	if !strings.Contains(err.Error(), "TLS") {
 		return fmt.Errorf("expected the rejection to name TLS, got: %v", err)
@@ -2073,6 +2193,429 @@ func (t *Tests) BindServerReachableUnderTls(ctx context.Context) error {
 	}
 	if !strings.Contains(out, "PONG") {
 		return fmt.Errorf("expected PONG over TLS from %s, got %q", host, out)
+	}
+	return nil
+}
+
+// -----------------------------------------------------------------------------
+// Cluster tests — slot-sharded Valkey Cluster.
+//
+// Valkey.Cluster boots every node and bootstraps the slot assignment
+// before it returns, so unlike the other topologies there is nothing to
+// ready here: by the time a test can call a method on the cluster, the
+// cluster is formed. What these tests pin is that the formation is real
+// (every node agrees, every node advertises a routable identity of its
+// own) and that the client addresses the whole sharded keyspace rather
+// than the one shard it happened to seed from.
+// -----------------------------------------------------------------------------
+
+// bootCluster mints a fresh Valkey Cluster and returns it with the
+// password secret every node shares. The cluster name is a runtime-random
+// value that folds into Valkey.Cluster's +cache="session" key and into
+// each node's hostname, so concurrent tests get independent clusters.
+func bootCluster(ctx context.Context, shards, replicasPerShard int) (*dagger.ValkeyCluster, *dagger.Secret, error) {
+	name, err := randHex(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	pass, err := randSecret(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	cluster := dag.Valkey().Cluster(
+		pass,
+		dag.Valkey().PlaintextServerSecurity(),
+		dagger.ValkeyClusterOpts{Name: name, Shards: shards, ReplicasPerShard: replicasPerShard},
+	)
+	return cluster, pass, nil
+}
+
+// ClusterReportsFormedState verifies the bootstrap actually happened: the
+// cluster reports cluster_state:ok (every one of the 16384 slots is owned
+// by some primary) and knows exactly as many nodes as were booted.
+//
+// The node count is the half that catches a cluster which formed but
+// didn't finish: a node whose gossip never reached the others still
+// reports state:ok for the slots it can see, and only cluster_known_nodes
+// gives it away.
+//
+// +cache="never"
+func (t *Tests) ClusterReportsFormedState(ctx context.Context) error {
+	const shards, replicasPerShard = 3, 1
+	cluster, _, err := bootCluster(ctx, shards, replicasPerShard)
+	if err != nil {
+		return err
+	}
+	info, err := cluster.Client(dag.Valkey().PlaintextClientSecurity()).
+		Do(ctx, []string{"CLUSTER", "INFO"})
+	if err != nil {
+		return fmt.Errorf("cluster info: %w", err)
+	}
+	if !strings.Contains(info, "cluster_state:ok") {
+		return fmt.Errorf("expected cluster_state:ok, got:\n%s", info)
+	}
+	wantNodes := fmt.Sprintf("cluster_known_nodes:%d", shards*(1+replicasPerShard))
+	if !strings.Contains(info, wantNodes) {
+		return fmt.Errorf("expected %s, got:\n%s", wantNodes, info)
+	}
+	return nil
+}
+
+// ClusterAdvertisesPinnedHostnames verifies every node self-identifies
+// with its own pinned hostname rather than falling back to localhost.
+//
+// This is the failure that looks like success. A node that cannot work
+// out a routable identity announces the loopback address, and every peer
+// dutifully records it — so each peer, following a MOVED redirect to
+// "another" node, dials itself. The cluster never forms, or forms and
+// then answers for the wrong shard, and CLUSTER INFO alone would not say
+// why. Asserting the announced identity is what pins the fix.
+//
+// +cache="never"
+func (t *Tests) ClusterAdvertisesPinnedHostnames(ctx context.Context) error {
+	cluster, _, err := bootCluster(ctx, 3, 1)
+	if err != nil {
+		return err
+	}
+	endpoints, err := cluster.Endpoints(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoints: %w", err)
+	}
+	nodes, err := cluster.Client(dag.Valkey().PlaintextClientSecurity()).
+		Do(ctx, []string{"CLUSTER", "NODES"})
+	if err != nil {
+		return fmt.Errorf("cluster nodes: %w", err)
+	}
+	for _, endpoint := range endpoints {
+		host, _, _ := strings.Cut(endpoint, ":")
+		if !strings.Contains(nodes, host) {
+			return fmt.Errorf("expected %s to appear in CLUSTER NODES, got:\n%s", host, nodes)
+		}
+	}
+	for _, loopback := range []string{"localhost", "127.0.0.1"} {
+		if strings.Contains(nodes, loopback) {
+			return fmt.Errorf("expected no node to advertise %s, got:\n%s", loopback, nodes)
+		}
+	}
+	return nil
+}
+
+// ClusterRoundTripsKeysAcrossSlots verifies one Client addresses the
+// whole sharded keyspace. The keys are chosen to land on different slots
+// (distinct random names, no `{...}` hashtag to pin them together), so
+// writing and reading them all back through a single client means the
+// client followed MOVED redirects to whichever primary owns each slot —
+// and that every one of those primaries was reachable at the hostname it
+// advertised.
+//
+// A client that silently talked to one node would fail the write, not the
+// read: a key that hashes elsewhere is refused with MOVED, never stored
+// locally.
+//
+// +cache="never"
+func (t *Tests) ClusterRoundTripsKeysAcrossSlots(ctx context.Context) error {
+	cluster, _, err := bootCluster(ctx, 3, 0)
+	if err != nil {
+		return err
+	}
+	client := cluster.Client(dag.Valkey().PlaintextClientSecurity())
+
+	// Enough keys that the odds of all of them hashing into slots owned by
+	// a single primary are negligible; ClusterKeysScansEveryShard is what
+	// actually proves the spread happened.
+	const keyCount = 24
+	values := make(map[string]string, keyCount)
+	for i := 0; i < keyCount; i++ {
+		key, err := randHex(ctx)
+		if err != nil {
+			return err
+		}
+		value, err := randHex(ctx)
+		if err != nil {
+			return err
+		}
+		values[key] = value
+		if err := client.Set(ctx, key, value); err != nil {
+			return fmt.Errorf("set %s: %w", key, err)
+		}
+	}
+	for key, want := range values {
+		got, err := client.Get(ctx, key)
+		if err != nil {
+			return fmt.Errorf("get %s: %w", key, err)
+		}
+		if got != want {
+			return fmt.Errorf("expected %q at %s, got %q", want, key, got)
+		}
+	}
+	return nil
+}
+
+// clusterNodeClients returns a standalone (non-cluster) client per node,
+// each pinned to the one node it names. Cluster-wide assertions can't see
+// the shard split — a cluster client deliberately hides it — so anything
+// that needs to know which node actually holds what goes through these.
+func clusterNodeClients(ctx context.Context, cluster *dagger.ValkeyCluster, pass *dagger.Secret) ([]*dagger.ValkeyClient, error) {
+	endpoints, err := cluster.Endpoints(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("endpoints: %w", err)
+	}
+	clients := make([]*dagger.ValkeyClient, 0, len(endpoints))
+	for _, endpoint := range endpoints {
+		host, _, _ := strings.Cut(endpoint, ":")
+		clients = append(clients, dag.Valkey().Client(host, pass, dag.Valkey().PlaintextClientSecurity()))
+	}
+	return clients, nil
+}
+
+// ClusterKeysScansEveryShard verifies Keys reports the whole match set
+// across the sharded keyspace, not just the shard its seed node owns.
+//
+// SCAN names no key, so a cluster client has no slot to route it by and
+// the command is answered by whichever node it lands on — an
+// implementation that scanned one node would return roughly 1/shards of
+// the keys and look plausible. The test therefore asserts twice: that
+// every seeded key comes back, and (via per-node DbSize) that the keys
+// really were split across more than one primary, so the first assertion
+// can't pass vacuously on a cluster that happened to pile everything into
+// one shard.
+//
+// +cache="never"
+func (t *Tests) ClusterKeysScansEveryShard(ctx context.Context) error {
+	const shards = 3
+	cluster, pass, err := bootCluster(ctx, shards, 0)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	decoy, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+
+	// No `{...}` hashtag anywhere, so each key hashes on its own and the
+	// set spreads over the slot space — and therefore over the primaries.
+	const n = 300
+	var seed strings.Builder
+	for i := 0; i < n; i++ {
+		fmt.Fprintf(&seed, "SET %s:%04d %d\n", prefix, i, i)
+	}
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&seed, "SET %s:%04d %d\n", decoy, i, i)
+	}
+
+	client := cluster.Client(dag.Valkey().PlaintextClientSecurity())
+	if err := client.ApplyFile(ctx, commandFile(seed.String())); err != nil {
+		return fmt.Errorf("seed keys: %w", err)
+	}
+
+	nodes, err := clusterNodeClients(ctx, cluster, pass)
+	if err != nil {
+		return err
+	}
+	holding := 0
+	for i, node := range nodes {
+		size, err := node.DbSize(ctx)
+		if err != nil {
+			return fmt.Errorf("dbsize on node %d: %w", i, err)
+		}
+		if size > 0 {
+			holding++
+		}
+		if size == n+10 {
+			return fmt.Errorf("expected the keyspace to be sharded, but node %d holds all %d keys", i, size)
+		}
+	}
+	if holding < 2 {
+		return fmt.Errorf("expected the seeded keys to span more than one primary, only %d node(s) hold any", holding)
+	}
+
+	keys, err := client.Keys(ctx, prefix+":*")
+	if err != nil {
+		return fmt.Errorf("keys: %w", err)
+	}
+	if len(keys) != n {
+		return fmt.Errorf("expected %d keys across every shard, got %d", n, len(keys))
+	}
+	seen := make(map[string]struct{}, len(keys))
+	for _, k := range keys {
+		if !strings.HasPrefix(k, prefix+":") {
+			return fmt.Errorf("expected only %s:* keys, got %q", prefix, k)
+		}
+		seen[k] = struct{}{}
+	}
+	if len(seen) != n {
+		return fmt.Errorf("expected %d distinct keys, got %d (shard results likely overlap)", n, len(seen))
+	}
+	return nil
+}
+
+// ClusterDelSpansMultipleSlots verifies Del handles keys that hash to
+// different slots. A single DEL naming two slots is refused outright with
+// CROSSSLOT — the slots may live on different primaries and Valkey will
+// not split a command across them — so an implementation that passed the
+// whole list through fails here rather than deleting a partial set.
+//
+// One key in the list never existed, so a Del that reported the number of
+// keys it was asked about rather than the number it removed is caught
+// too.
+//
+// +cache="never"
+func (t *Tests) ClusterDelSpansMultipleSlots(ctx context.Context) error {
+	cluster, _, err := bootCluster(ctx, 3, 0)
+	if err != nil {
+		return err
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	client := cluster.Client(dag.Valkey().PlaintextClientSecurity())
+
+	const seeded = 12
+	keys := make([]string, 0, seeded+1)
+	for i := 0; i < seeded; i++ {
+		key := fmt.Sprintf("%s:%02d", prefix, i)
+		if err := client.Set(ctx, key, key); err != nil {
+			return fmt.Errorf("seed %s: %w", key, err)
+		}
+		keys = append(keys, key)
+	}
+	keys = append(keys, prefix+":never-existed")
+
+	deleted, err := client.Del(ctx, keys)
+	if err != nil {
+		return fmt.Errorf("del across slots: %w", err)
+	}
+	if deleted != seeded {
+		return fmt.Errorf("expected Del to report %d removed keys, got %d", seeded, deleted)
+	}
+	survivors, err := client.Keys(ctx, prefix+":*")
+	if err != nil {
+		return fmt.Errorf("keys: %w", err)
+	}
+	if len(survivors) != 0 {
+		return fmt.Errorf("expected no surviving keys, got %v", survivors)
+	}
+	return nil
+}
+
+// ClusterBindNodesReachableFromConsumer verifies BindNodes wires EVERY
+// member into a consumer container, not just a seed. A cluster client is
+// redirected to a node's advertised hostname, so a container that could
+// only resolve one of them would work right up until the first key that
+// hashes elsewhere. The probe therefore pings every endpoint in turn from
+// inside the container, using valkey-cli rather than the module's own
+// client so the reachability being tested is the container's.
+//
+// It then writes and reads a set of keys through `valkey-cli -c`, which
+// follows MOVED redirects the way any cluster client would. That covers
+// the second half of BindNodes' contract: the container meets a cluster
+// whose slots are already assigned. Against an unbootstrapped cluster
+// every one of those writes would come back CLUSTERDOWN, no matter how
+// reachable the nodes were.
+//
+// The whole probe runs in one exec so a partial failure names the node it
+// failed on rather than surfacing as an opaque non-zero exit.
+//
+// +cache="never"
+func (t *Tests) ClusterBindNodesReachableFromConsumer(ctx context.Context) error {
+	cluster, pass, err := bootCluster(ctx, 3, 0)
+	if err != nil {
+		return err
+	}
+	endpoints, err := cluster.Endpoints(ctx)
+	if err != nil {
+		return fmt.Errorf("endpoints: %w", err)
+	}
+	prefix, err := randHex(ctx)
+	if err != nil {
+		return err
+	}
+	ctr := cluster.BindNodes(
+		dag.Container().
+			From("docker.io/valkey/valkey:9.1-alpine").
+			WithSecretVariable("VALKEY_PW", pass),
+	)
+	probe := fmt.Sprintf(`set -u
+seed=""
+for ep in %s; do
+  host=${ep%%%%:*}; port=${ep#*:}
+  out=$(valkey-cli --no-auth-warning -h "$host" -p "$port" -a "$VALKEY_PW" PING 2>&1)
+  case "$out" in
+    *PONG*) echo "$host PONG";;
+    *) echo "$host UNREACHABLE: $out"; exit 1;;
+  esac
+  [ -n "$seed" ] || seed="$host $port"
+done
+set -- $seed
+for i in 0 1 2 3 4 5 6 7 8 9; do
+  key="%s:$i"
+  valkey-cli -c --no-auth-warning -h "$1" -p "$2" -a "$VALKEY_PW" SET "$key" "$i" >/dev/null
+  got=$(valkey-cli -c --no-auth-warning -h "$1" -p "$2" -a "$VALKEY_PW" GET "$key" 2>&1)
+  [ "$got" = "$i" ] || { echo "expected $i at $key, got: $got"; exit 1; }
+done
+echo "CLUSTER ROUND TRIP OK"
+`, strings.Join(endpoints, " "), prefix)
+	out, err := ctr.WithExec([]string{"sh", "-c", probe}).Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("valkey-cli probe of every bound node: %w", err)
+	}
+	for _, endpoint := range endpoints {
+		host, _, _ := strings.Cut(endpoint, ":")
+		if !strings.Contains(out, host+" PONG") {
+			return fmt.Errorf("expected PONG from %s, got:\n%s", host, out)
+		}
+	}
+	if !strings.Contains(out, "CLUSTER ROUND TRIP OK") {
+		return fmt.Errorf("expected a cluster-mode round trip from the bound container, got:\n%s", out)
+	}
+	return nil
+}
+
+// ClusterStopTerminatesEveryNode verifies no member answers once Stop
+// returns. The post-Stop probes go through the standalone constructor on
+// purpose: a cluster client would be free to route its command to
+// whichever node it liked, so a Stop that missed one node could still
+// look dead — or, worse, look alive.
+//
+// Cluster members have no service bindings between them, so unlike the
+// replication topology there is no dependency teardown to hide behind:
+// every node that is still up after Stop is a node Stop failed to kill.
+//
+// +cache="never"
+func (t *Tests) ClusterStopTerminatesEveryNode(ctx context.Context) error {
+	cluster, pass, err := bootCluster(ctx, 3, 0)
+	if err != nil {
+		return err
+	}
+	// Bring the cluster up first: Valkey.Cluster starts nothing, so until
+	// something drives the bootstrap there is no service for a standalone
+	// client to even resolve.
+	if err := cluster.Client(dag.Valkey().PlaintextClientSecurity()).Ping(ctx); err != nil {
+		return fmt.Errorf("ping cluster: %w", err)
+	}
+	nodes, err := clusterNodeClients(ctx, cluster, pass)
+	if err != nil {
+		return err
+	}
+	// Ready every node, so a failed probe after Stop means Stop killed it
+	// and not that it had never come up.
+	for i, node := range nodes {
+		if err := node.Ping(ctx); err != nil {
+			return fmt.Errorf("ping node %d before stop: %w", i, err)
+		}
+	}
+	if err := cluster.Stop(ctx); err != nil {
+		return fmt.Errorf("stop: %w", err)
+	}
+	for i, node := range nodes {
+		if err := node.Ping(ctx); err == nil {
+			return fmt.Errorf("expected node %d to be down after Stop, but it still answered", i)
+		}
 	}
 	return nil
 }

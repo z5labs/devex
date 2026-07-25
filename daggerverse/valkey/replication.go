@@ -90,7 +90,7 @@ func (v *Valkey) Replication(
 
 	image := valkeyImage(registry, tag)
 
-	primary := buildServer(replicationNodeName(name, 0), image, password, clientListenerSecurity, nil, nil)
+	primary := buildServer(replicationNodeName(name, 0), image, password, clientListenerSecurity, nil, nil, nil)
 
 	nodes := make([]*Server, 0, replicas+1)
 	nodes = append(nodes, primary)
@@ -102,6 +102,7 @@ func (v *Valkey) Replication(
 			clientListenerSecurity,
 			replicaArgs(primary.Host),
 			[]serviceBinding{{host: primary.Host, svc: primary.Svc}},
+			nil,
 		))
 	}
 

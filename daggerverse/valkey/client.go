@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,10 @@ type Client struct {
 	Db int
 	// +private
 	SecurityMode string
+	// +private
+	Addrs []string // Cluster only: every seed address; empty means dial Host:Port.
+	// +private
+	ClusterMode bool // Cluster only: let valkey-go keep a slot map and follow MOVED/ASK.
 	// +private
 	ServerCa *dagger.File // TLS + MTLS: PEM root used to verify the server.
 	// +private
@@ -98,11 +103,13 @@ func clientFrom(host string, port int, user string, password *dagger.Secret, db 
 // LOADING) surfaces here rather than on first command.
 //
 // ForceSingleClient skips the CLUSTER SLOTS probe valkey-go would
-// otherwise run to auto-detect a cluster; this story only ever targets a
-// standalone node. DisableCache turns off client-side caching, which
-// would otherwise let a second read of the same key answer from a local
-// tracking cache — exactly the stale read `+cache="never"` exists to
-// prevent.
+// otherwise run to auto-detect a cluster, so a standalone client stays
+// pinned to the one node it was pointed at. A cluster client (ClusterMode,
+// set by Cluster.Client) needs the opposite: it seeds from every member,
+// lets valkey-go build a slot map, and follows MOVED/ASK redirects.
+// DisableCache turns off client-side caching, which would otherwise let a
+// second read of the same key answer from a local tracking cache —
+// exactly the stale read `+cache="never"` exists to prevent.
 func (c *Client) dial(ctx context.Context) (valkey.Client, func(), error) {
 	if c.Pass == nil {
 		return nil, nil, fmt.Errorf("client has no password configured")
@@ -115,18 +122,21 @@ func (c *Client) dial(ctx context.Context) (valkey.Client, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	addr := net.JoinHostPort(c.Host, strconv.Itoa(c.Port))
+	addrs := c.Addrs
+	if len(addrs) == 0 {
+		addrs = []string{net.JoinHostPort(c.Host, strconv.Itoa(c.Port))}
+	}
 	client, err := valkey.NewClient(valkey.ClientOption{
-		InitAddress:       []string{addr},
+		InitAddress:       addrs,
 		Username:          c.UserName,
 		Password:          password,
 		SelectDB:          c.Db,
 		TLSConfig:         tlsCfg,
 		DisableCache:      true,
-		ForceSingleClient: true,
+		ForceSingleClient: !c.ClusterMode,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect %s: %w", addr, err)
+		return nil, nil, fmt.Errorf("connect %s: %w", strings.Join(addrs, ","), err)
 	}
 	return client, client.Close, nil
 }
@@ -319,6 +329,13 @@ func (c *Client) Set(
 
 // Del removes the given keys and returns how many actually existed.
 //
+// Against a cluster the keys are grouped by hash slot and one DEL is
+// issued per group: a single DEL naming keys from two slots is refused
+// outright with CROSSSLOT, because the slots may live on different
+// primaries and Valkey will not split a command across them. The groups
+// are pipelined with DoMulti, so a multi-slot delete still costs one
+// round trip per node rather than one per key.
+//
 // +cache="never"
 func (c *Client) Del(ctx context.Context, keys []string) (int, error) {
 	if len(keys) == 0 {
@@ -331,11 +348,55 @@ func (c *Client) Del(ctx context.Context, keys []string) (int, error) {
 	}
 	defer cleanup()
 
-	n, err := client.Do(ctx, client.B().Del().Key(keys...).Build()).ToInt64()
-	if err != nil {
-		return 0, err
+	if !c.ClusterMode {
+		n, err := client.Do(ctx, client.B().Del().Key(keys...).Build()).ToInt64()
+		if err != nil {
+			return 0, err
+		}
+		return int(n), nil
 	}
-	return int(n), nil
+
+	cmds := make([]valkey.Completed, 0, len(keys))
+	for _, group := range groupKeysBySlot(client, keys) {
+		cmds = append(cmds, client.B().Del().Key(group...).Build())
+	}
+	total := int64(0)
+	for _, res := range client.DoMulti(ctx, cmds...) {
+		n, err := res.ToInt64()
+		if err != nil {
+			return 0, err
+		}
+		total += n
+	}
+	return int(total), nil
+}
+
+// groupKeysBySlot buckets keys by the hash slot Valkey would route them
+// to, preserving the caller's key order within each bucket and returning
+// the buckets in first-appearance order so the resulting commands are
+// deterministic.
+//
+// valkey-go computes the slot (CRC16 of the key, or of its `{...}`
+// hashtag) while building a command but does not export the function, so
+// the slot is read back off a throwaway single-key command. The throwaway
+// is never sent; it only costs a pooled command slice that goes back to
+// the garbage collector instead of to valkey-go's pool.
+func groupKeysBySlot(client valkey.Client, keys []string) [][]string {
+	order := make([]uint16, 0, len(keys))
+	bySlot := make(map[uint16][]string, len(keys))
+	for _, key := range keys {
+		cmd := client.B().Del().Key(key).Build()
+		slot := cmd.Slot()
+		if _, ok := bySlot[slot]; !ok {
+			order = append(order, slot)
+		}
+		bySlot[slot] = append(bySlot[slot], key)
+	}
+	groups := make([][]string, 0, len(order))
+	for _, slot := range order {
+		groups = append(groups, bySlot[slot])
+	}
+	return groups
 }
 
 // Keys returns every key matching a glob pattern (`"*"` for all).
@@ -343,6 +404,14 @@ func (c *Client) Del(ctx context.Context, keys []string) (int, error) {
 // It is SCAN-backed rather than KEYS-backed — KEYS blocks the server for
 // the whole sweep — and walks the cursor to exhaustion, so the result is
 // the complete match set and not just SCAN's first page.
+//
+// Against a cluster it scans EVERY node rather than the one the client
+// happens to be seeded from. SCAN names no key, so a cluster client has
+// no slot to route it by and it is answered from whichever node it lands
+// on — reporting that node's shard of the keyspace as if it were the
+// whole thing. Replicas are scanned too (they answer SCAN locally rather
+// than redirecting) and the union is de-duplicated, so a replica lagging
+// its primary can only ever contribute keys the primary also reports.
 //
 // +cache="never"
 func (c *Client) Keys(ctx context.Context, pattern string) ([]string, error) {
@@ -352,19 +421,58 @@ func (c *Client) Keys(ctx context.Context, pattern string) ([]string, error) {
 	}
 	defer cleanup()
 
+	targets := []valkey.Client{client}
+	if c.ClusterMode {
+		// Nodes() is a map, so its iteration order varies per call; walking
+		// the addresses in sorted order keeps the returned key order stable
+		// between two Keys calls against the same cluster.
+		nodes := client.Nodes()
+		addrs := make([]string, 0, len(nodes))
+		for addr := range nodes {
+			addrs = append(addrs, addr)
+		}
+		sort.Strings(addrs)
+
+		targets = targets[:0]
+		for _, addr := range addrs {
+			targets = append(targets, nodes[addr])
+		}
+	}
+
 	out := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, target := range targets {
+		if err := scanNode(ctx, target, pattern, func(key string) {
+			if _, dup := seen[key]; dup {
+				return
+			}
+			seen[key] = struct{}{}
+			out = append(out, key)
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// scanNode walks one node's SCAN cursor to exhaustion, handing every
+// matched key to emit. SCAN may return the same key on more than one
+// page, so callers de-duplicate.
+func scanNode(ctx context.Context, client valkey.Client, pattern string, emit func(string)) error {
 	var cursor uint64
 	for {
 		entry, err := client.Do(ctx,
 			client.B().Scan().Cursor(cursor).Match(pattern).Count(scanCount).Build(),
 		).AsScanEntry()
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, entry.Elements...)
+		for _, key := range entry.Elements {
+			emit(key)
+		}
 		cursor = entry.Cursor
 		if cursor == 0 {
-			return out, nil
+			return nil
 		}
 	}
 }
