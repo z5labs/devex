@@ -182,6 +182,17 @@ their hashes in one file. It runs with the provider cache disabled — the cache
 holds packages for this platform only, and locking is about what the registry
 publishes for the rest.
 
+`tofu providers lock` also dies sporadically inside a container exec, with the
+Go runtime's `fatal error: found pointer to free object` from a corrupted heap
+rather than any diagnostic of its own — an upstream crash in tofu's provider
+installer, close kin to [moby/buildkit#6445][buildkit-6445]. It is not
+reproducible on demand, so `Lock` re-runs a crashed attempt up to three times
+(cache-busted, or the failed exec would be replayed from the layer cache) and
+reports the crash only if every attempt dies. Every other non-zero exit —
+including a platform the provider does not publish — fails on the first run.
+
+[buildkit-6445]: https://github.com/moby/buildkit/issues/6445
+
 ```sh
 dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
   config --source=. \

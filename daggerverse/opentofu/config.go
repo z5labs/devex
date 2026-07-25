@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 	"path"
 	"strings"
 
@@ -66,6 +67,23 @@ const (
 	// planExitChanges is what `tofu plan -detailed-exitcode` returns when the
 	// plan is non-empty. 0 means no changes and 1 means the plan failed.
 	planExitChanges = 2
+
+	// lockAttempts is how many times Lock runs `tofu providers lock` before
+	// giving up on the crash described at runtimeFatalMarker.
+	lockAttempts = 3
+
+	// runtimeFatalMarker is how the Go runtime announces that it has given up:
+	// `fatal error: found pointer to free object`, from the sweeper finding a
+	// corrupted heap. tofu's provider installer dies that way sporadically
+	// inside a container exec — seen both here and, under emulation, in
+	// moby/buildkit#6445 — and the run that dies is not reproducible, so Lock
+	// re-runs it rather than surfacing an upstream memory bug as a lock
+	// failure.
+	//
+	// It matches nothing tofu itself emits: a tofu-level panic prints `panic:`
+	// under the "OpenTofu crashed!" banner, and that class of failure repeats,
+	// so it is reported rather than retried.
+	runtimeFatalMarker = "fatal error: "
 )
 
 // Config is a bound root module plus the settings that apply to nearly every
@@ -363,6 +381,9 @@ func (c *Config) Init(ctx context.Context) (*dagger.Directory, error) {
 // With none given, tofu locks for the platform it is running on, which is what
 // a repo with a single-platform toolchain wants.
 //
+// A run the Go runtime kills outright is retried — see runtimeFatalMarker for
+// what that is and why it is the one failure worth re-running.
+//
 // +cache="session"
 func (c *Config) Lock(
 	ctx context.Context,
@@ -378,21 +399,52 @@ func (c *Config) Lock(
 	for _, p := range platforms {
 		args = append(args, "-platform="+p)
 	}
-	// The shared provider cache is deliberately bypassed. Locking is about
-	// what the registry publishes for every requested platform, and the cache
-	// holds unpacked packages for the one platform this container runs on;
-	// pointing tofu at it during a lock is at best irrelevant and at worst
-	// fatal — `tofu providers lock` with TF_PLUGIN_CACHE_DIR set and no
-	// -platform reliably crashes the CLI with a Go runtime memory error.
+	// The shared provider cache is deliberately bypassed. Locking is about what
+	// the registry publishes for every requested platform, and the cache holds
+	// unpacked packages for the one platform this container runs on, so
+	// consulting it during a lock is at best irrelevant.
 	noCache := c.clone()
 	noCache.NoPluginCache = true
-	exec := noCache.container().WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
-	if err := expectSuccess(ctx, exec, "tofu providers lock"); err != nil {
-		return nil, err
+	ctr := noCache.container()
+
+	var last string
+	for attempt := 1; attempt <= lockAttempts; attempt++ {
+		exec := ctr
+		if attempt > 1 {
+			// A failed exec is still a cached layer under Expect=ANY, so a
+			// retry has to differ from the run that crashed to re-execute at
+			// all. The first attempt is left un-nonced so an ordinary Lock
+			// stays cacheable.
+			nonce, err := randHex()
+			if err != nil {
+				return nil, err
+			}
+			exec = exec.WithEnvVariable("TOFU_LOCK_ATTEMPT", nonce)
+		}
+		exec = exec.WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+
+		code, err := exec.ExitCode(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if code == 0 {
+			// Unlike Init there is no .terraform/ to strip: `providers lock`
+			// writes the lock file and nothing else.
+			return c.withoutCarriedState(exec.Directory(workDir)), nil
+		}
+		last = combinedOutput(ctx, exec)
+		if !strings.Contains(last, runtimeFatalMarker) {
+			return nil, fmt.Errorf("tofu providers lock failed (exit %d):\n%s", code, last)
+		}
+		if attempt < lockAttempts {
+			fmt.Fprintf(os.Stderr,
+				"tofu providers lock died with a Go runtime fatal error (attempt %d of %d); retrying\n",
+				attempt, lockAttempts)
+		}
 	}
-	// Unlike Init there is no .terraform/ to strip: `providers lock` writes the
-	// lock file and nothing else — it never installs providers into the module.
-	return c.withoutCarriedState(exec.Directory(workDir)), nil
+	return nil, fmt.Errorf(
+		"tofu providers lock died with a Go runtime fatal error on all %d attempts — an upstream "+
+			"crash in tofu's provider installer, not a fault in the configuration:\n%s", lockAttempts, last)
 }
 
 // Plan produces a saved plan and everything needed to read it, in a single
