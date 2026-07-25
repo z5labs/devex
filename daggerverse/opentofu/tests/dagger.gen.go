@@ -374,6 +374,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).FmtReportsUnformattedConfiguration(&parent, ctx)
+		case "FormatDropsCarriedState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FormatDropsCarriedState(&parent, ctx)
+		case "FormatLeavesFormattedConfigurationUnchanged":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FormatLeavesFormattedConfigurationUnchanged(&parent, ctx)
+		case "FormatLeavesInputDirectoryUntouched":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FormatLeavesInputDirectoryUntouched(&parent, ctx)
+		case "FormatRewritesUnformattedConfiguration":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FormatRewritesUnformattedConfiguration(&parent, ctx)
 		case "InitProducesLockFile":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -381,6 +409,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).InitProducesLockFile(&parent, ctx)
+		case "LockCoversRequestedPlatforms":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LockCoversRequestedPlatforms(&parent, ctx)
+		case "LockRejectsUnavailablePlatform":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LockRejectsUnavailablePlatform(&parent, ctx)
+		case "LockWithoutPlatformsProducesUsableLockFile":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LockWithoutPlatformsProducesUsableLockFile(&parent, ctx)
 		case "OutputsReturnsJson":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

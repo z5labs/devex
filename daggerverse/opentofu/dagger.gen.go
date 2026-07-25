@@ -430,6 +430,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Config).Fmt(&parent, ctx)
+		case "Format":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).Format(&parent, ctx)
 		case "Init":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)
@@ -437,6 +444,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Config).Init(&parent, ctx)
+		case "Lock":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var platforms []string
+			if inputArgs["platforms"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platforms"]), &platforms)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platforms", err))
+				}
+			}
+			return (*Config).Lock(&parent, ctx, platforms)
 		case "Outputs":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)

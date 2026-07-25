@@ -45,57 +45,64 @@ func (r *Env) WithOpentofuTestsOutput(name string, description string) *Env { //
 type OpentofuTests struct { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:27:6)
 	query *querybuilder.Selection
 
-	all                                     *Void
-	applyConsumesSavedPlan                  *Void
-	applyFailsOnProviderError               *Void
-	applyProducesStateAndOutputs            *Void
-	applyRejectsTargetsWithSavedPlan        *Void
-	applyShouldNotBeCached                  *Void
-	backendConfigFileMatchesBackendConfig   *Void
-	ciCheckAggregatesStageFailures          *Void
-	ciCheckPassesOnCleanConfiguration       *Void
-	ciCheckReportsInvalidConfiguration      *Void
-	ciCheckReportsUnformattedConfiguration  *Void
-	ciCheckWithPlanAllowsChangesByDefault   *Void
-	ciCheckWithPlanDetectsDrift             *Void
-	ciCheckWithPlanPassesOnAppliedState     *Void
-	ciCheckWithoutStagesIsRejected          *Void
-	ciCheckWithoutValidateSkipsIt           *Void
-	ciRunFailsOnFailedCheck                 *Void
-	ciRunProducesPlanArtifacts              *Void
-	concurrentAppliesDoNotCorruptState      *Void
-	containerHasGitAndCaCertificates        *Void
-	containerHasTofu                        *Void
-	destroyEmptiesState                     *Void
-	destroyWithoutStateOrBackendIsRejected  *Void
-	fmtAcceptsFormattedConfiguration        *Void
-	fmtReportsUnformattedConfiguration      *Void
-	id                                      *ID
-	initProducesLockFile                    *Void
-	outputsReturnsJson                      *Void
-	planAgainstAppliedStateReportsNoChanges *Void
-	planDestroyReportsDeletions             *Void
-	planReportsChanges                      *Void
-	planShouldNotBeCached                   *Void
-	planTargetsLimitScope                   *Void
-	remoteBackendRoundTripsState            *Void
-	remoteWorkspacesIsolateState            *Void
-	secretVarReachesTofuWithoutLeaking      *Void
-	secretVariableBindsEnvironmentSecret    *Void
-	showRendersState                        *Void
-	stateAndBackendConfigAreRejected        *Void
-	stateAndBackendConfigFileAreRejected    *Void
-	validateAcceptsValidConfiguration       *Void
-	validateRejectsInvalidConfiguration     *Void
-	validateWorksWithoutBackendCredentials  *Void
-	versionAcceptsMinimalSuffix             *Void
-	versionReportsRelease                   *Void
-	withEnvVariableIsVisibleToTofu          *Void
-	withVarFileSuppliesVariables            *Void
-	withVarOverridesDefault                 *Void
-	withVarRejectsNameContainingEquals      *Void
-	withWorkspaceIsolatesState              *Void
-	withoutPluginCacheStillApplies          *Void
+	all                                         *Void
+	applyConsumesSavedPlan                      *Void
+	applyFailsOnProviderError                   *Void
+	applyProducesStateAndOutputs                *Void
+	applyRejectsTargetsWithSavedPlan            *Void
+	applyShouldNotBeCached                      *Void
+	backendConfigFileMatchesBackendConfig       *Void
+	ciCheckAggregatesStageFailures              *Void
+	ciCheckPassesOnCleanConfiguration           *Void
+	ciCheckReportsInvalidConfiguration          *Void
+	ciCheckReportsUnformattedConfiguration      *Void
+	ciCheckWithPlanAllowsChangesByDefault       *Void
+	ciCheckWithPlanDetectsDrift                 *Void
+	ciCheckWithPlanPassesOnAppliedState         *Void
+	ciCheckWithoutStagesIsRejected              *Void
+	ciCheckWithoutValidateSkipsIt               *Void
+	ciRunFailsOnFailedCheck                     *Void
+	ciRunProducesPlanArtifacts                  *Void
+	concurrentAppliesDoNotCorruptState          *Void
+	containerHasGitAndCaCertificates            *Void
+	containerHasTofu                            *Void
+	destroyEmptiesState                         *Void
+	destroyWithoutStateOrBackendIsRejected      *Void
+	fmtAcceptsFormattedConfiguration            *Void
+	fmtReportsUnformattedConfiguration          *Void
+	formatDropsCarriedState                     *Void
+	formatLeavesFormattedConfigurationUnchanged *Void
+	formatLeavesInputDirectoryUntouched         *Void
+	formatRewritesUnformattedConfiguration      *Void
+	id                                          *ID
+	initProducesLockFile                        *Void
+	lockCoversRequestedPlatforms                *Void
+	lockRejectsUnavailablePlatform              *Void
+	lockWithoutPlatformsProducesUsableLockFile  *Void
+	outputsReturnsJson                          *Void
+	planAgainstAppliedStateReportsNoChanges     *Void
+	planDestroyReportsDeletions                 *Void
+	planReportsChanges                          *Void
+	planShouldNotBeCached                       *Void
+	planTargetsLimitScope                       *Void
+	remoteBackendRoundTripsState                *Void
+	remoteWorkspacesIsolateState                *Void
+	secretVarReachesTofuWithoutLeaking          *Void
+	secretVariableBindsEnvironmentSecret        *Void
+	showRendersState                            *Void
+	stateAndBackendConfigAreRejected            *Void
+	stateAndBackendConfigFileAreRejected        *Void
+	validateAcceptsValidConfiguration           *Void
+	validateRejectsInvalidConfiguration         *Void
+	validateWorksWithoutBackendCredentials      *Void
+	versionAcceptsMinimalSuffix                 *Void
+	versionReportsRelease                       *Void
+	withEnvVariableIsVisibleToTofu              *Void
+	withVarFileSuppliesVariables                *Void
+	withVarOverridesDefault                     *Void
+	withVarRejectsNameContainingEquals          *Void
+	withWorkspaceIsolatesState                  *Void
+	withoutPluginCacheStillApplies              *Void
 }
 
 func (r *OpentofuTests) WithGraphQLQuery(q *querybuilder.Selection) *OpentofuTests {
@@ -132,7 +139,7 @@ func (r *OpentofuTests) All(ctx context.Context, opts ...OpentofuTestsAllOpts) e
 
 // ApplyConsumesSavedPlan asserts the plan.tfplan Plan emits is what Apply
 // takes, closing the two-step plan-then-apply loop a review gate needs.
-func (r *OpentofuTests) ApplyConsumesSavedPlan(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:233:1)
+func (r *OpentofuTests) ApplyConsumesSavedPlan(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:314:1)
 	if r.applyConsumesSavedPlan != nil {
 		return nil
 	}
@@ -144,7 +151,7 @@ func (r *OpentofuTests) ApplyConsumesSavedPlan(ctx context.Context) error { // o
 // ApplyFailsOnProviderError asserts a failed apply is an error carrying
 // tofu's own diagnostic, not a directory the caller has to remember to
 // inspect.
-func (r *OpentofuTests) ApplyFailsOnProviderError(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:258:1)
+func (r *OpentofuTests) ApplyFailsOnProviderError(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:339:1)
 	if r.applyFailsOnProviderError != nil {
 		return nil
 	}
@@ -156,7 +163,7 @@ func (r *OpentofuTests) ApplyFailsOnProviderError(ctx context.Context) error { /
 // ApplyProducesStateAndOutputs asserts an apply in file-carried mode returns
 // the three artifacts it documents, that the state tracks both resources, and
 // that the output values are the ones the configuration declares.
-func (r *OpentofuTests) ApplyProducesStateAndOutputs(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:181:1)
+func (r *OpentofuTests) ApplyProducesStateAndOutputs(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:262:1)
 	if r.applyProducesStateAndOutputs != nil {
 		return nil
 	}
@@ -168,7 +175,7 @@ func (r *OpentofuTests) ApplyProducesStateAndOutputs(ctx context.Context) error 
 // ApplyRejectsTargetsWithSavedPlan asserts the two ways of narrowing an apply
 // cannot be combined: a saved plan already fixes what it changes, and tofu
 // rejects -target alongside one.
-func (r *OpentofuTests) ApplyRejectsTargetsWithSavedPlan(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:66:1)
+func (r *OpentofuTests) ApplyRejectsTargetsWithSavedPlan(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:67:1)
 	if r.applyRejectsTargetsWithSavedPlan != nil {
 		return nil
 	}
@@ -374,7 +381,7 @@ func (r *OpentofuTests) ConcurrentAppliesDoNotCorruptState(ctx context.Context) 
 // ContainerHasGitAndCaCertificates asserts the two things the -minimal image
 // omits and every non-trivial configuration needs: git, for module sources,
 // and a CA bundle, for the provider registry.
-func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:133:1)
+func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:140:1)
 	if r.containerHasGitAndCaCertificates != nil {
 		return nil
 	}
@@ -385,7 +392,7 @@ func (r *OpentofuTests) ContainerHasGitAndCaCertificates(ctx context.Context) er
 
 // ContainerHasTofu asserts the assembled container exposes the tofu binary on
 // PATH, so the escape hatch documented on Container() actually works.
-func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:117:1)
+func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:124:1)
 	if r.containerHasTofu != nil {
 		return nil
 	}
@@ -396,7 +403,7 @@ func (r *OpentofuTests) ContainerHasTofu(ctx context.Context) error { // opentof
 
 // DestroyEmptiesState asserts a destroy against file-carried state tears down
 // everything the state tracked and hands back the emptied state.
-func (r *OpentofuTests) DestroyEmptiesState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:267:1)
+func (r *OpentofuTests) DestroyEmptiesState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:348:1)
 	if r.destroyEmptiesState != nil {
 		return nil
 	}
@@ -409,7 +416,7 @@ func (r *OpentofuTests) DestroyEmptiesState(ctx context.Context) error { // open
 // destroy is an error. tofu itself would report "0 destroyed" and exit 0,
 // which reads as a successful teardown while the real infrastructure — whose
 // state was never supplied — stays up.
-func (r *OpentofuTests) DestroyWithoutStateOrBackendIsRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:43:1)
+func (r *OpentofuTests) DestroyWithoutStateOrBackendIsRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:44:1)
 	if r.destroyWithoutStateOrBackendIsRejected != nil {
 		return nil
 	}
@@ -420,7 +427,7 @@ func (r *OpentofuTests) DestroyWithoutStateOrBackendIsRejected(ctx context.Conte
 
 // FmtAcceptsFormattedConfiguration asserts a canonically formatted root
 // module passes the check and reports no diff.
-func (r *OpentofuTests) FmtAcceptsFormattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:81:1)
+func (r *OpentofuTests) FmtAcceptsFormattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:82:1)
 	if r.fmtAcceptsFormattedConfiguration != nil {
 		return nil
 	}
@@ -432,11 +439,60 @@ func (r *OpentofuTests) FmtAcceptsFormattedConfiguration(ctx context.Context) er
 // FmtReportsUnformattedConfiguration asserts drift fails the check and that
 // the diff survives into the error — Dagger drops a function's value whenever
 // its error is non-nil, so the error text is the only place it can live.
-func (r *OpentofuTests) FmtReportsUnformattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:95:1)
+func (r *OpentofuTests) FmtReportsUnformattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:96:1)
 	if r.fmtReportsUnformattedConfiguration != nil {
 		return nil
 	}
 	q := r.query.Select("fmtReportsUnformattedConfiguration")
+
+	return q.Execute(ctx)
+}
+
+// FormatDropsCarriedState asserts the returned tree is the configuration and
+// nothing else: file-carried state is written into the container's copy of the
+// root module, and formatting is no reason to hand it back for the caller to
+// export over their working copy.
+func (r *OpentofuTests) FormatDropsCarriedState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:172:1)
+	if r.formatDropsCarriedState != nil {
+		return nil
+	}
+	q := r.query.Select("formatDropsCarriedState")
+
+	return q.Execute(ctx)
+}
+
+// FormatLeavesFormattedConfigurationUnchanged asserts Format is a no-op on a
+// canonically formatted root module — byte-identical in, byte-identical out.
+func (r *OpentofuTests) FormatLeavesFormattedConfigurationUnchanged(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:129:1)
+	if r.formatLeavesFormattedConfigurationUnchanged != nil {
+		return nil
+	}
+	q := r.query.Select("formatLeavesFormattedConfigurationUnchanged")
+
+	return q.Execute(ctx)
+}
+
+// FormatLeavesInputDirectoryUntouched asserts the rewrite lands in the
+// returned copy and nowhere else: the directory handed to Config still reads
+// as it did before, so a caller decides for itself whether to export over its
+// working copy.
+func (r *OpentofuTests) FormatLeavesInputDirectoryUntouched(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:149:1)
+	if r.formatLeavesInputDirectoryUntouched != nil {
+		return nil
+	}
+	q := r.query.Select("formatLeavesInputDirectoryUntouched")
+
+	return q.Execute(ctx)
+}
+
+// FormatRewritesUnformattedConfiguration asserts Format returns the corrected
+// tree: the rewritten file differs from the input, and the result passes the
+// check-only Fmt that the input fails.
+func (r *OpentofuTests) FormatRewritesUnformattedConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:106:1)
+	if r.formatRewritesUnformattedConfiguration != nil {
+		return nil
+	}
+	q := r.query.Select("formatRewritesUnformattedConfiguration")
 
 	return q.Execute(ctx)
 }
@@ -503,9 +559,54 @@ func (r *OpentofuTests) InitProducesLockFile(ctx context.Context) error { // ope
 	return q.Execute(ctx)
 }
 
+// LockCoversRequestedPlatforms asserts a multi-platform lock produces a lock
+// file that records the provider with a full set of hashes, and that it covers
+// at least what a single-platform lock does.
+//
+// The assertion is structural rather than per-platform because the lock file
+// itself carries no platform labels: `hashes` is one flat list. What proves
+// each requested platform is genuinely resolved is
+// LockRejectsUnavailablePlatform, where naming a platform the provider does not
+// publish fails the run.
+func (r *OpentofuTests) LockCoversRequestedPlatforms(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:46:1)
+	if r.lockCoversRequestedPlatforms != nil {
+		return nil
+	}
+	q := r.query.Select("lockCoversRequestedPlatforms")
+
+	return q.Execute(ctx)
+}
+
+// LockRejectsUnavailablePlatform asserts every requested platform is actually
+// fetched: one the provider does not publish fails the lock, naming it. This
+// is what gives LockCoversRequestedPlatforms its teeth.
+//
+// openbsd_s390x is a safe stand-in for "will never exist" — Go has no OpenBSD
+// port for s390x, so no provider can publish a package for it.
+func (r *OpentofuTests) LockRejectsUnavailablePlatform(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:79:1)
+	if r.lockRejectsUnavailablePlatform != nil {
+		return nil
+	}
+	q := r.query.Select("lockRejectsUnavailablePlatform")
+
+	return q.Execute(ctx)
+}
+
+// LockWithoutPlatformsProducesUsableLockFile asserts the default — no
+// platforms named — still writes a lock file for the platform tofu runs on,
+// and one tofu itself accepts: the returned tree initialises against it.
+func (r *OpentofuTests) LockWithoutPlatformsProducesUsableLockFile(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:92:1)
+	if r.lockWithoutPlatformsProducesUsableLockFile != nil {
+		return nil
+	}
+	q := r.query.Select("lockWithoutPlatformsProducesUsableLockFile")
+
+	return q.Execute(ctx)
+}
+
 // OutputsReturnsJson asserts Outputs reads the output values out of the
 // supplied state.
-func (r *OpentofuTests) OutputsReturnsJSON(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:300:1)
+func (r *OpentofuTests) OutputsReturnsJSON(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:381:1)
 	if r.outputsReturnsJson != nil {
 		return nil
 	}
@@ -520,7 +621,7 @@ func (r *OpentofuTests) OutputsReturnsJSON(ctx context.Context) error { // opent
 // This is the round trip that makes file-carried state usable at all — the
 // caller persists terraform.tfstate between runs, and tofu has to recognise
 // its own work in it.
-func (r *OpentofuTests) PlanAgainstAppliedStateReportsNoChanges(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:153:1)
+func (r *OpentofuTests) PlanAgainstAppliedStateReportsNoChanges(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:234:1)
 	if r.planAgainstAppliedStateReportsNoChanges != nil {
 		return nil
 	}
@@ -532,7 +633,7 @@ func (r *OpentofuTests) PlanAgainstAppliedStateReportsNoChanges(ctx context.Cont
 // PlanDestroyReportsDeletions asserts -destroy plans the teardown of what the
 // supplied state tracks, rather than the creation of what the configuration
 // declares.
-func (r *OpentofuTests) PlanDestroyReportsDeletions(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:120:1)
+func (r *OpentofuTests) PlanDestroyReportsDeletions(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:201:1)
 	if r.planDestroyReportsDeletions != nil {
 		return nil
 	}
@@ -544,7 +645,7 @@ func (r *OpentofuTests) PlanDestroyReportsDeletions(ctx context.Context) error {
 // PlanReportsChanges asserts a plan against an empty state emits all four
 // artifacts, flags the run as having changes, and describes both resources
 // the fixture declares.
-func (r *OpentofuTests) PlanReportsChanges(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:40:1)
+func (r *OpentofuTests) PlanReportsChanges(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:121:1)
 	if r.planReportsChanges != nil {
 		return nil
 	}
@@ -576,7 +677,7 @@ func (r *OpentofuTests) PlanShouldNotBeCached(ctx context.Context) error { // op
 
 // PlanTargetsLimitScope asserts -target narrows the plan to the named
 // resource, leaving the fixture's other resource untouched.
-func (r *OpentofuTests) PlanTargetsLimitScope(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:99:1)
+func (r *OpentofuTests) PlanTargetsLimitScope(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:180:1)
 	if r.planTargetsLimitScope != nil {
 		return nil
 	}
@@ -649,7 +750,7 @@ func (r *OpentofuTests) SecretVariableBindsEnvironmentSecret(ctx context.Context
 
 // ShowRendersState asserts Show renders the supplied state in tofu's
 // human-readable form.
-func (r *OpentofuTests) ShowRendersState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:323:1)
+func (r *OpentofuTests) ShowRendersState(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/lifecycle.go:404:1)
 	if r.showRendersState != nil {
 		return nil
 	}
@@ -661,7 +762,7 @@ func (r *OpentofuTests) ShowRendersState(ctx context.Context) error { // opentof
 // StateAndBackendConfigAreRejected asserts the two state strategies cannot be
 // combined, and that the rejection names both of them rather than leaving the
 // caller to guess which one silently won.
-func (r *OpentofuTests) StateAndBackendConfigAreRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:16:1)
+func (r *OpentofuTests) StateAndBackendConfigAreRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:17:1)
 	if r.stateAndBackendConfigAreRejected != nil {
 		return nil
 	}
@@ -673,7 +774,7 @@ func (r *OpentofuTests) StateAndBackendConfigAreRejected(ctx context.Context) er
 // StateAndBackendConfigFileAreRejected asserts the file form of the backend
 // settings is rejected alongside WithState too — the check is on the mode,
 // not on one particular modifier.
-func (r *OpentofuTests) StateAndBackendConfigFileAreRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:29:1)
+func (r *OpentofuTests) StateAndBackendConfigFileAreRejected(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:30:1)
 	if r.stateAndBackendConfigFileAreRejected != nil {
 		return nil
 	}
@@ -684,7 +785,7 @@ func (r *OpentofuTests) StateAndBackendConfigFileAreRejected(ctx context.Context
 
 // ValidateAcceptsValidConfiguration asserts a well-formed root module
 // validates.
-func (r *OpentofuTests) ValidateAcceptsValidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:104:1)
+func (r *OpentofuTests) ValidateAcceptsValidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:191:1)
 	if r.validateAcceptsValidConfiguration != nil {
 		return nil
 	}
@@ -695,7 +796,7 @@ func (r *OpentofuTests) ValidateAcceptsValidConfiguration(ctx context.Context) e
 
 // ValidateRejectsInvalidConfiguration asserts a broken reference fails, and
 // that tofu's own diagnostic reaches the caller rather than a bare exit code.
-func (r *OpentofuTests) ValidateRejectsInvalidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:113:1)
+func (r *OpentofuTests) ValidateRejectsInvalidConfiguration(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:200:1)
 	if r.validateRejectsInvalidConfiguration != nil {
 		return nil
 	}
@@ -707,7 +808,7 @@ func (r *OpentofuTests) ValidateRejectsInvalidConfiguration(ctx context.Context)
 // ValidateWorksWithoutBackendCredentials asserts a configuration declaring a
 // remote backend validates with no credentials and no reachable bucket:
 // Validate initialises with -backend=false, so the backend is never contacted.
-func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:121:1)
+func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:208:1)
 	if r.validateWorksWithoutBackendCredentials != nil {
 		return nil
 	}
@@ -719,7 +820,7 @@ func (r *OpentofuTests) ValidateWorksWithoutBackendCredentials(ctx context.Conte
 // VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal
 // suffix lands on the same image as one who does not — the suffix is appended
 // only when absent.
-func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:159:1)
+func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:166:1)
 	if r.versionAcceptsMinimalSuffix != nil {
 		return nil
 	}
@@ -729,7 +830,7 @@ func (r *OpentofuTests) VersionAcceptsMinimalSuffix(ctx context.Context) error {
 }
 
 // VersionReportsRelease asserts Version reports the release New was asked for.
-func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:145:1)
+func (r *OpentofuTests) VersionReportsRelease(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/main.go:152:1)
 	if r.versionReportsRelease != nil {
 		return nil
 	}
@@ -776,7 +877,7 @@ func (r *OpentofuTests) WithVarOverridesDefault(ctx context.Context) error { // 
 // WithVarRejectsNameContainingEquals asserts the deferred validation on the
 // `name=value` flags fires. `-var a=b=c` would set a different variable than
 // the caller asked for.
-func (r *OpentofuTests) WithVarRejectsNameContainingEquals(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:54:1)
+func (r *OpentofuTests) WithVarRejectsNameContainingEquals(ctx context.Context) error { // opentofu-tests (../../../daggerverse/opentofu/tests/validation.go:55:1)
 	if r.withVarRejectsNameContainingEquals != nil {
 		return nil
 	}

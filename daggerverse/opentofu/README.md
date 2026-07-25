@@ -113,7 +113,8 @@ the zero value is dropped before it reaches the engine.
 One consequence: providers installed from the cache are recorded in
 `.terraform.lock.hcl` with `h1:` hashes only. A repo whose committed lock file
 carries just the registry `zh:` hashes needs either `WithoutPluginCache()` or a
-lock file refreshed with `tofu providers lock`.
+lock file refreshed with `Lock()`, which bypasses the cache for exactly this
+reason.
 
 ## Function surface
 
@@ -134,8 +135,10 @@ lock file refreshed with `tofu providers lock`.
 | `Config.WithoutPluginCache()` | Disable the shared provider cache. |
 | `Config.WithState(state)` | File-carried state. |
 | `Config.Fmt()` | `tofu fmt -check -diff -recursive`; the diff, failing on drift. |
+| `Config.Format()` | `tofu fmt -recursive`; the rewritten tree, for the caller to export. |
 | `Config.Validate()` | `tofu validate`, after an `init -backend=false`. |
 | `Config.Init()` | `tofu init`; returns the root module plus `.terraform.lock.hcl`. |
+| `Config.Lock(platforms)` | `tofu providers lock`; a `.terraform.lock.hcl` covering every named platform. |
 | `Config.Plan(destroy, targets)` | A directory of `plan.tfplan`, `plan.json`, `plan.txt`, `changes`. |
 | `Config.Apply(plan, targets)` | A directory of `terraform.tfstate`, `outputs.json`, `apply.log`. |
 | `Config.Destroy(targets)` | A directory of `terraform.tfstate`, `outputs.json`, `destroy.log`. |
@@ -150,9 +153,17 @@ lock file refreshed with `tofu providers lock`.
 
 ### What each stage emits
 
-`Fmt` returns the diff and fails on drift, so it is usable as a CI gate;
-rewriting in place is a follow-up. Because Dagger drops a function's value
-whenever its error is non-nil, a failing run carries the diff in the *error*.
+`Fmt` returns the diff and fails on drift, so it is usable as a CI gate.
+Because Dagger drops a function's value whenever its error is non-nil, a
+failing run carries the diff in the *error*.
+
+`Format` is its rewrite counterpart: it returns the corrected tree rather than
+a verdict, leaving the caller's own directory untouched until they export it.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. format export --path=.
+```
 
 `Validate` initialises with `-backend=false` first, so a configuration
 declaring a remote backend validates with no credentials and without touching
@@ -162,6 +173,21 @@ the backend at all.
 play those entries are symlinks into a cache volume that does not exist outside
 the container. The lock file is the portable artifact, and it is what a repo
 commits.
+
+`Lock` regenerates that same lock file for platforms other than the one it runs
+on. An ordinary `init` records hashes for its own platform, so a lock file
+produced by a `linux_amd64` CI job fails `tofu init` on a developer's
+`darwin_arm64` machine; naming every platform a repo builds on puts all of
+their hashes in one file. It runs with the provider cache disabled — the cache
+holds packages for this platform only, and locking is about what the registry
+publishes for the rest.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. \
+  lock --platforms=linux_amd64,darwin_arm64,windows_amd64 \
+  file --path=.terraform.lock.hcl export --path=.terraform.lock.hcl
+```
 
 `Plan` performs a single `tofu` run and derives `plan.json` and `plan.txt`
 from the saved plan file — one run, because under `+cache="never"` a second
