@@ -37,30 +37,55 @@ dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // mirror
 
 ## OpenMP fan-out — `ompThreadLimit`
 
-Alpine's tesseract links `libgomp` and reports `Found OpenMP 201511`. Left alone
-it sizes every thread team by the CPUs it can see, which is what a caller who
-owns the machine wants — so that is the default, and `ompThreadLimit` is opt-in.
+Alpine's tesseract links `libgomp` and reports `Found OpenMP 201511`, so left
+alone it sizes every thread team by the CPUs it can see. Whether that is what
+you want depends entirely on how many images you have.
 
-Opt in when several recognitions share the cores. Each pass claiming every core
-does not merely fail to help, it collapses: eleven concurrent passes over the
-4-line test fixture, pinned to four CPUs, measure
+**One image, idle cores — threads help, modestly.** A single pass over a full
+page of text, pinned to four CPUs:
 
-| CPUs | `OMP_THREAD_LIMIT` | wall |
+| threads | wall | CPU | speedup | CPU cost |
+| --- | --- | --- | --- | --- |
+| 1 | 1.96s | 1.77s | 1.00x | 1.00x |
+| 2 | 1.70s | 2.53s | 1.15x | 1.43x |
+| 4 | 1.50s | 3.86s | 1.31x | 2.18x |
+
+Four threads buy 31% off the clock for 2.18x the CPU — 33% parallel efficiency.
+Tesseract's OpenMP regions sit inside the LSTM inner loops and do not amortize.
+It is still free wall-clock when nothing else wants the cores, which is why
+unbounded is the default and `ompThreadLimit` is opt-in.
+
+**More than one image — processes win outright.** Eleven passes over that same
+page, four CPUs, every way of spending them:
+
+| shape | wall | CPU |
+| --- | --- | --- |
+| serial, 4 threads each | 17.70s | 45.69s |
+| 2 concurrent, 2 threads each | 10.53s | 28.95s |
+| 4 concurrent, 1 thread each | 6.39s | 21.17s |
+| 11 concurrent, 1 thread each | **5.95s** | 21.17s |
+
+Same output; the thread-parallel shape burns 2.2x the CPU to take 3x as long.
+Process-level parallelism runs at ~90% efficiency where OpenMP manages 33%.
+
+**Oversubscribe both at once and it collapses.** Concurrency multiplied by
+per-process threads, rather than bounded by the core count:
+
+| CPUs | `OMP_THREAD_LIMIT` | 11 concurrent passes |
 | --- | --- | --- |
 | 4 | unset | **8m34s** |
 | 4 | `1` | **1.06s** |
 | 32 | unset | 0.68s |
 | 32 | `1` | 0.55s |
 
-Same work, ~485x apart. Upstream has carried reports of this shape for years
-([#2611](https://github.com/tesseract-ocr/tesseract/issues/2611), #1171, #263)
-and `OMP_THREAD_LIMIT` is the standard answer. This module's own test suite sets
-it to `1` for exactly this reason (#226); a shared CI runner is the textbook
-case.
+~485x apart on the small fixture. Upstream has carried reports of this shape for
+years ([#2611](https://github.com/tesseract-ocr/tesseract/issues/2611), #1171,
+#263) and `OMP_THREAD_LIMIT` is the standard answer. This module's own test
+suite sets it to `1` (#226); a shared CI runner is the textbook case.
 
 ```go
-dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: 1})   // sharing the box
-dag.Tesseract()                                          // one thread per CPU
+dag.Tesseract()                                          // one image, own machine
+dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: 1})   // many images, or sharing
 ```
 
 The variable is set on the image after `apk add`, so it applies to everything
