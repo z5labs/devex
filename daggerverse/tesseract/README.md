@@ -3,7 +3,8 @@
 Daggerverse module that runs [Tesseract](https://tesseract-ocr.github.io/) OCR
 as a `dagger call`. Hand it an image and get back plain text, or hOCR / ALTO /
 TSV / PAGE / a searchable PDF for anything that needs word positions and
-confidences.
+confidences. Hand it a directory and get the same artifacts back for every page
+in it, at the paths they came in on.
 
 **There is no official Tesseract container image** — upstream ships source only,
 and every image on Docker Hub is third-party. So this module assembles its own
@@ -153,7 +154,10 @@ Tesseract.Document(source *dagger.File) *Document
 
 Unlike `kicad.Project`, the boundary input is a lone `*dagger.File`: tesseract
 resolves nothing relative to its input, so one image — including a multi-page
-TIFF — is the whole unit of work.
+TIFF — is the whole unit of work. A folder of pages is `Batch`, below; the
+directory there is a *set of independent inputs*, not context the recognition
+resolves against, which is why it is a second entry point rather than a widening
+of this one.
 
 `Document` is immutable; every `With*` returns a copy, so one configured
 document can be branched into several outputs without the branches interfering.
@@ -176,6 +180,12 @@ an image built with only `deu` still works.
 
 `WithParameter` takes a name and a value separately because Dagger functions
 cannot accept map parameters (the `kicad.Project.WithVar` precedent).
+
+Those seven builders are not implemented here. They forward to an internal
+`options` type that `Batch` carries too, so each option is written once — as a
+builder, as a piece of argv, and as a deferred check — and the two units of work
+cannot drift apart. Adding an option means touching `options.go` plus a
+three-line forwarder on each.
 
 ## Enums
 
@@ -230,6 +240,64 @@ Artifacts come back as `exec.File(path)` off the recognition container. The
 `dag.CurrentModule().Workdir` staging pattern does not apply — this module
 generates no bytes in Go.
 
+## Batch — a directory in, a mirrored directory out
+
+```go
+Tesseract.Batch(source *dagger.Directory) *Batch
+
+Batch.WithGlob(pattern string) *Batch    // default: the image extensions below
+Batch.WithLanguage(lang string) *Batch   // …and the six other Document builders
+Batch.Files(ctx) ([]string, error)
+Batch.Export(ctx, formats []Format) (*dagger.Directory, error)
+```
+
+A scanned-document pipeline has a folder, not a file. `Export` returns a
+directory mirroring the input layout with one artifact per requested format per
+image, so `scans/deep/page-3.png` becomes `scans/deep/page-3.txt` next to
+`scans/deep/page-3.pdf`. Mirroring is the point of the return type: a flat
+`result-1.txt`, `result-2.txt` would force every caller to rebuild the
+page-to-text correspondence the input directory already expressed.
+
+### Why not tesseract's own list-file mode
+
+Tesseract accepts a text file of image paths as its `FILE` argument, and #220
+proposed exactly that. It does not do what the name suggests: it treats the list
+as one multi-page **document** and renders a *single concatenated artifact set* —
+one `.txt` with form-feed page breaks, one multi-page PDF, one hOCR carrying
+`page_1`/`page_2` divs. There is no way to recover per-image files from it, least
+of all for PDF.
+
+So the batch is one container **exec** rather than one tesseract **process**: the
+exec loops over a manifest, recognising each image onto its own output base. That
+collapses the part that actually costs anything in Dagger — a `WithExec`, its
+mounts and its cache lookup, per page — to one, while each page keeps its own
+artifacts. The loop reaches flags and configfiles through `"$@"` rather than
+string interpolation, so no value needs escaping.
+
+### Which files take part
+
+`Directory.Glob` has no brace expansion, so "common image extensions" cannot be
+spelled as one pattern. The default is `**/*` narrowed by a case-insensitive
+extension filter:
+
+```
+.bmp .gif .jpe .jpeg .jpg .pbm .pgm .pnm .png .ppm .tif .tiff .webp
+```
+
+That set is what this image can decode — `tesseract --version` reports leptonica
+linked against libgif, libjpeg, libpng, libtiff and libwebp, and leptonica reads
+BMP and the PNM family itself. The README, manifest and checksum files a real
+scan folder collects are therefore ignored rather than fed to leptonica, which
+would fail the run.
+
+`WithGlob` replaces both halves: a caller who names a pattern owns it, and gets
+no extension filtering, because leptonica sniffs content rather than trusting
+extensions and `**/*.scan` is a reasonable thing to ask for. PDFs stay rejected
+either way.
+
+`Files` reports the matched set without paying for the recognition, which is the
+answer to the question a glob always raises.
+
 ## Validation
 
 Builders have no error return, so every check below is deferred to the output
@@ -244,6 +312,10 @@ letting tesseract fail in its own vocabulary.
 | `WithParameter` with an empty name, or one containing `=` | `-c` takes `name=value`, so an embedded `=` silently sets a *different* variable |
 | `WithParameter` naming an unknown control variable | tesseract only warns (`Warning: The parameter '...' was not found.`) and exits 0, so a typo is indistinguishable from a no-op |
 | `WithDpi` at zero or negative | tesseract would take it as a real measurement and scale its analysis by it |
+| a `Batch` glob matching nothing | an empty directory is indistinguishable from a batch that ran and found no text, so a typo would surface much later as missing output |
+| a `Batch` source holding no images | same, but the fix is `WithGlob` rather than the pattern, so the message names the default extension set |
+| two `Batch` inputs sharing an output base | `a.png` and `a.jpg` both render onto `a.txt`; the second silently overwrites the first and the run looks like it succeeded with a page missing |
+| a `Batch` file name containing a tab or newline | the manifest is tab-separated and newline-delimited, so the loop would recognise the wrong file |
 
 Errors fold tesseract's own output in via `Expect: ReturnTypeAny` plus a
 combined stdout+stderr helper, because tesseract splits usage errors onto stderr
@@ -251,17 +323,21 @@ and progress onto stdout.
 
 ## Caching
 
-No `+cache=` directive appears on any `Document` output: recognition is a pure
-function of the image bytes plus the flags, so the 7-day default is correct and
-there is no chained-method propagation problem to worry about. `Container`,
+No `+cache=` directive appears on any `Document` or `Batch` output: recognition
+is a pure function of the image bytes plus the flags, so the 7-day default is
+correct and there is no chained-method propagation problem to worry about. `Container`,
 `Version`, `Langs` and `Parameters` take `+cache="session"` per `kicad`, because
 a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-Batch OCR over a directory of images (#220); PDF-input rasterization (#221);
-the training toolchain (#222); a chained `Ci` builder (#223); an `examples/go`
-cookbook (#224).
+PDF-input rasterization (#221); the training toolchain (#222); a chained `Ci`
+builder (#223); an `examples/go` cookbook (#224).
+
+Batch OCR over a directory (#220) landed — see above. It deliberately does not
+expose the concatenated multi-page output tesseract's list-file mode produces; if
+"a folder of pages in, one document out" turns out to be wanted, that is a
+separate function, not a flag on `Export`.
 
 GPU acceleration is **not** a follow-up: tesseract has no CUDA path and upstream
 does not plan one, Alpine builds without OpenCL, and Dagger's GPU passthrough is

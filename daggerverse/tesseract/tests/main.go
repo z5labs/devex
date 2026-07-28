@@ -103,6 +103,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PdfHasPdfMagic", t.PdfHasPdfMagic)
 	jobs = jobs.WithJob("ExportProducesEveryRequestedFormat", t.ExportProducesEveryRequestedFormat)
 
+	jobs = jobs.WithJob("BatchMirrorsInputLayout", t.BatchMirrorsInputLayout)
+	jobs = jobs.WithJob("BatchDefaultGlobSkipsNonImages", t.BatchDefaultGlobSkipsNonImages)
+	jobs = jobs.WithJob("BatchGlobSelectsFiles", t.BatchGlobSelectsFiles)
+	jobs = jobs.WithJob("BatchExportProducesEveryFormatPerImage", t.BatchExportProducesEveryFormatPerImage)
+	jobs = jobs.WithJob("BatchSharesDocumentOptions", t.BatchSharesDocumentOptions)
+	jobs = jobs.WithJob("BatchRejectsAmbiguousInput", t.BatchRejectsAmbiguousInput)
+
 	jobs = jobs.WithJob("TessdataModelIsSelectable", t.TessdataModelIsSelectable)
 	jobs = jobs.WithJob("TessdataSuppliesOsdModel", t.TessdataSuppliesOsdModel)
 
@@ -721,6 +728,289 @@ func (t *Tests) NonPositiveDpiIsRejected(ctx context.Context) error {
 	return assertSentenceLines(got)
 }
 
+// ---------------------------------------------------------------------- batch
+
+// BatchMirrorsInputLayout asserts a directory in gives a directory out with the
+// same shape: one artifact per image, at the input's own path with the
+// renderer's extension, nested folders and all.
+//
+// Mirroring is the whole point of the return type. A batch that returned a flat
+// directory of `result-1.txt`, `result-2.txt` would force every caller to
+// rebuild the correspondence between page and text that the input directory
+// already expressed.
+func (t *Tests) BatchMirrorsInputLayout(ctx context.Context) error {
+	out := ocr().Batch(batchSource()).Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt})
+
+	entries, err := out.Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Export: %w", err)
+	}
+	want := []string{"scans/", "scans/deep/", "scans/deep/page-3.txt", "scans/page-1.txt", "scans/page-2.txt"}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected the output to mirror the input layout as %v, got %v", want, entries)
+	}
+
+	// Every mirrored artifact has to hold that image's own recognised text,
+	// not just exist at the right path.
+	for _, name := range []string{"scans/page-1.txt", "scans/page-2.txt", "scans/deep/page-3.txt"} {
+		got, err := out.File(name).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if err := assertSentenceLines(got); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// BatchDefaultGlobSkipsNonImages asserts the default glob takes the images out
+// of a real scan folder and leaves the rest alone.
+//
+// A folder of scans collects README files, manifests and checksums, and none of
+// them are pages. Handing one to tesseract is not a no-op — leptonica fails to
+// decode it and the run dies — so "ignored by default" is what makes pointing
+// Batch at an existing directory work at all.
+func (t *Tests) BatchDefaultGlobSkipsNonImages(ctx context.Context) error {
+	got, err := ocr().Batch(batchSource()).Files(ctx)
+	if err != nil {
+		return fmt.Errorf("Files: %w", err)
+	}
+	want := []string{"scans/deep/page-3.png", "scans/page-1.png", "scans/page-2.png"}
+	if !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("expected the default glob to select %v, got %v", want, got)
+	}
+
+	// Scanner software writes .JPG as readily as .jpg, so the extension match
+	// is case-insensitive.
+	got, err = ocr().Batch(dag.Directory().WithFile("PAGE.PNG", fixture(sentencePng))).Files(ctx)
+	if err != nil {
+		return fmt.Errorf("Files with an upper-case extension: %w", err)
+	}
+	if want := []string{"PAGE.PNG"}; !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("expected %v, got %v", want, got)
+	}
+
+	// A directory with nothing recognisable in it is an error naming the
+	// filter that rejected everything, not an empty result.
+	_, err = ocr().Batch(dag.Directory().
+		WithNewFile("notes.md", "x").
+		WithNewFile("checksums.txt", "y")).
+		Files(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a directory holding no images to be rejected, got nil")
+	}
+	for _, want := range []string{"holds no images", "2 file(s)", ".png", "WithGlob"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// BatchGlobSelectsFiles asserts WithGlob decides what takes part, and that a
+// pattern matching nothing fails the call.
+//
+// The empty case is the one worth pinning. Returning an empty directory would
+// be indistinguishable from a batch that ran and found no text, so a typo in a
+// pattern would surface much later as missing output rather than here as a bad
+// glob.
+func (t *Tests) BatchGlobSelectsFiles(ctx context.Context) error {
+	batch := ocr().Batch(batchSource())
+
+	// A single-level pattern stays in its folder; ** crosses into deep/.
+	got, err := batch.WithGlob("scans/*.png").Files(ctx)
+	if err != nil {
+		return fmt.Errorf("Files with a single-level glob: %w", err)
+	}
+	if want := []string{"scans/page-1.png", "scans/page-2.png"}; !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("expected a single-level glob to select %v, got %v", want, got)
+	}
+
+	got, err = batch.WithGlob("**/deep/*.png").Files(ctx)
+	if err != nil {
+		return fmt.Errorf("Files with a nested glob: %w", err)
+	}
+	if want := []string{"scans/deep/page-3.png"}; !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("expected a nested glob to select %v, got %v", want, got)
+	}
+
+	// The narrowed set is what gets recognised, so the glob reaches the exec
+	// rather than only the listing.
+	entries, err := batch.WithGlob("**/deep/*.png").
+		Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt}).
+		Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Export with a nested glob: %w", err)
+	}
+	sort.Strings(entries)
+	if want := []string{"scans/", "scans/deep/", "scans/deep/page-3.txt"}; !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected the glob to narrow the output to %v, got %v", want, entries)
+	}
+
+	_, err = batch.WithGlob("**/*.tif").Files(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a glob matching nothing to be rejected, got nil")
+	}
+	for _, want := range []string{`"**/*.tif"`, "matched no files"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// BatchExportProducesEveryFormatPerImage asserts each image gets its own full
+// artifact set, named off its own path rather than off a shared output base.
+//
+// This is where the per-image design earns itself: tesseract's list-file mode
+// would render one concatenated artifact per *format* — a single .txt with
+// form-feed page breaks and a single multi-page PDF — with no way to tell which
+// page produced what.
+func (t *Tests) BatchExportProducesEveryFormatPerImage(ctx context.Context) error {
+	source := dag.Directory().
+		WithFile("a.png", fixture(sentencePng)).
+		WithFile("nested/b.png", fixture(sentencePng))
+
+	out := ocr().Batch(source).Export([]dagger.TesseractFormat{
+		dagger.TesseractFormatTxt,
+		dagger.TesseractFormatHocr,
+		dagger.TesseractFormatAlto,
+		dagger.TesseractFormatTsv,
+		dagger.TesseractFormatPdf,
+		dagger.TesseractFormatPage,
+	})
+	entries, err := out.Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Export: %w", err)
+	}
+	want := []string{
+		"a.hocr", "a.page.xml", "a.pdf", "a.tsv", "a.txt", "a.xml",
+		"nested/", "nested/b.hocr", "nested/b.page.xml", "nested/b.pdf",
+		"nested/b.tsv", "nested/b.txt", "nested/b.xml",
+	}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected every format for every image as %v, got %v", want, entries)
+	}
+
+	// The PDF is a real one rather than an empty file left behind by a
+	// renderer that ran against the wrong output base.
+	pdf, err := exportBytes(ctx, out.File("nested/b.pdf"), "b.pdf")
+	if err != nil {
+		return err
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
+		return fmt.Errorf("expected a PDF header in the nested artifact, got %q", firstBytes(pdf, 8))
+	}
+	return nil
+}
+
+// BatchSharesDocumentOptions asserts the recognition options behave the same on
+// a batch as on a single document, which is the reason both hold one shared
+// option set rather than two parallel copies.
+//
+// It covers both halves: an option that has to reach tesseract for every image
+// in the run, and the deferred validation that has to reject a bad option
+// before any of them are recognised.
+func (t *Tests) BatchSharesDocumentOptions(ctx context.Context) error {
+	batch := ocr().Batch(batchSource())
+
+	// A digits-only whitelist suppresses every word, and has to do so in each
+	// image's own artifact — so `-c` reached every iteration of the loop, not
+	// just the first.
+	out := batch.
+		WithParameter("tessedit_char_whitelist", "0123456789").
+		Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt})
+	for _, name := range []string{"scans/page-1.txt", "scans/page-2.txt", "scans/deep/page-3.txt"} {
+		got, err := out.File(name).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if strings.Contains(got, "quick") {
+			return fmt.Errorf("expected the whitelist to suppress words in %s, got:\n%s", name, got)
+		}
+	}
+
+	// A word list still has to mount and recognise, which is what catches a
+	// flag emitted in the wrong position for the batch argv.
+	got, err := batch.
+		WithUserWords(textFile("user-words.txt", "vexingly\nSphinx\n")).
+		Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt}).
+		File("scans/page-1.txt").
+		Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Export with user words: %w", err)
+	}
+	if err := assertSentenceLines(got); err != nil {
+		return fmt.Errorf("batch with user words: %w", err)
+	}
+
+	// The deferred checks are the same ones Document defers, with the same
+	// messages, and they fire before anything is recognised.
+	for _, tc := range []struct {
+		name  string
+		build func(*dagger.TesseractBatch) *dagger.TesseractBatch
+		want  string
+	}{
+		{"WithLanguage", func(b *dagger.TesseractBatch) *dagger.TesseractBatch { return b.WithLanguage("deu") }, "is not installed"},
+		{"WithDpi", func(b *dagger.TesseractBatch) *dagger.TesseractBatch { return b.WithDpi(0) }, "dpi must be positive"},
+		{"WithParameter", func(b *dagger.TesseractBatch) *dagger.TesseractBatch {
+			return b.WithParameter("not_a_real_parameter", "1")
+		}, "unknown parameter"},
+	} {
+		_, err := tc.build(batch).
+			Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt}).
+			Entries(ctx)
+		if err == nil {
+			return fmt.Errorf("expected batch %s to be rejected, got nil", tc.name)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			return fmt.Errorf("expected batch %s to fail with %q, got: %v", tc.name, tc.want, err)
+		}
+	}
+	return nil
+}
+
+// BatchRejectsAmbiguousInput asserts the two ways a matched set cannot be
+// recognised are refused before the run, rather than producing quietly wrong
+// output.
+//
+// A collision is the subtle one: `a.png` and `a.jpg` in one folder both render
+// onto `a.txt`, so the second silently overwrites the first and the batch looks
+// like it succeeded with one page missing.
+func (t *Tests) BatchRejectsAmbiguousInput(ctx context.Context) error {
+	_, err := ocr().Batch(dag.Directory().
+		WithFile("scans/page.png", fixture(sentencePng)).
+		WithFile("scans/page.jpg", fixture(sentencePng))).
+		Files(ctx)
+	if err == nil {
+		return fmt.Errorf("expected two images sharing an output base to be rejected, got nil")
+	}
+	for _, want := range []string{"scans/page.jpg", "scans/page.png", "scans/page"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the collision error to name %q, got: %v", want, err)
+		}
+	}
+
+	// A PDF reached by an explicit glob is refused with the same explanation
+	// Document gives, since leptonica is the thing that cannot read it either
+	// way.
+	_, err = ocr().Batch(dag.Directory().WithNewFile("scan.pdf", "%PDF-1.7\n")).
+		WithGlob("**/*.pdf").
+		Files(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a PDF reached by an explicit glob to be rejected, got nil")
+	}
+	for _, want := range []string{"scan.pdf", "leptonica", "rasterize"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
 
 // ocr builds the module under test with the suite's OpenMP bound and the given
@@ -759,6 +1049,19 @@ func readOmpThreadLimit(ctx context.Context, t *dagger.Tesseract) (string, error
 // work, not to publish where Alpine keeps its own.
 func traineddata(t *dagger.Tesseract, lang string) *dagger.File {
 	return t.Container().File(packagedTessdataDir + "/" + lang + ".traineddata")
+}
+
+// batchSource builds the directory the batch tests recognise: three copies of
+// the upright fixture at three different depths, plus the non-image files a
+// real scan folder collects. It is assembled from the committed fixtures rather
+// than adding more of them, so the layout a test needs is visible in the test.
+func batchSource() *dagger.Directory {
+	return dag.Directory().
+		WithFile("scans/page-1.png", fixture(sentencePng)).
+		WithFile("scans/page-2.png", fixture(sentencePng)).
+		WithFile("scans/deep/page-3.png", fixture(sentencePng)).
+		WithNewFile("README.md", "scanned intake, 2026-07\n").
+		WithNewFile("scans/manifest.txt", "page-1\npage-2\n")
 }
 
 // fixture returns a committed test image by name under fixtures/.
