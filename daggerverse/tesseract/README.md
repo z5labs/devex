@@ -35,6 +35,39 @@ dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng","deu","osd"}})
 dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // mirror
 ```
 
+## Models Alpine has no package for — `WithTessdata`
+
+```go
+Tesseract.WithTessdata(dir *dagger.Directory) *Tesseract    // --tessdata-dir
+```
+
+The package set is a floor, not a ceiling. A fine-tuned model, a `tessdata_best`
+or `tessdata_fast` variant, or a language with no apk package at all comes in as
+a directory of `.traineddata` files. Each file becomes a language named after its
+stem — `deu_frak.traineddata` is the language `deu_frak` — so renaming the file
+renames the model.
+
+```go
+dag.Tesseract().WithTessdata(host.Directory("./models"))
+```
+
+From there a supplied model is indistinguishable from a packaged one: `Langs`
+reports the union, `WithLanguage` accepts either, and `Osd` is satisfied by an
+`osd.traineddata` that arrived this way.
+
+The directory is **merged** with the packaged one rather than swapped for it.
+`--tessdata-dir` moves the whole datadir, and that directory holds more than
+models: `configs/` carries the renderer configfiles that recognition names as
+its trailing arguments, and `pdf.ttf` is what the PDF renderer draws its
+invisible text layer with. Pointed at the caller's directory alone, every
+renderer breaks and every packaged language disappears. On a name collision the
+caller's file wins, which is what makes replacing the stock `eng` with a
+fine-tuned one work.
+
+The merge is mounted, not copied — a model set runs 20MB and up, and there is no
+reason for it to become an image layer. Nothing changes for an image without
+tessdata: the flag is omitted entirely rather than pointed at the packaged path.
+
 ## OpenMP fan-out — `ompThreadLimit`
 
 Alpine's tesseract links `libgomp` and reports `Found OpenMP 201511`, so left
@@ -97,6 +130,7 @@ thread per CPU, the opposite of what was asked for.
 ## Toolchain
 
 ```go
+Tesseract.WithTessdata(dir *dagger.Directory) *Tesseract
 Tesseract.Container() *dagger.Container            // +cache="session"
 Tesseract.Version(ctx) (string, error)             // +cache="session"
 Tesseract.Langs(ctx) ([]string, error)             // +cache="session"
@@ -134,9 +168,11 @@ Document.WithUserWords(words *dagger.File) *Document        // --user-words
 Document.WithUserPatterns(patterns *dagger.File) *Document  // --user-patterns
 ```
 
-`WithLanguage` selects from what `New` installed; it cannot add a language.
-Unset, recognition runs in the first installed language rather than tesseract's
-hardcoded `eng`, so an image built with only `deu` still works.
+`WithLanguage` selects from what the image carries — the packages `New`
+installed and any model `WithTessdata` supplied — and cannot itself add one,
+since both are baked in when the image is assembled. Unset, recognition runs in
+the first language `New` installed rather than tesseract's hardcoded `eng`, so
+an image built with only `deu` still works.
 
 `WithParameter` takes a name and a value separately because Dagger functions
 cannot accept map parameters (the `kicad.Project.WithVar` precedent).
@@ -202,8 +238,8 @@ letting tesseract fail in its own vocabulary.
 
 | Rejected | Why the raw failure is worse |
 | --- | --- |
-| `WithLanguage` naming an uninstalled language | tesseract talks about traineddata paths and `TESSDATA_PREFIX`, never about the fact that languages are chosen on `New` |
-| `Osd` without `osd` in the language set | same, plus the fix is a different function's argument |
+| `WithLanguage` naming a language neither installed nor supplied | tesseract talks about traineddata paths and `TESSDATA_PREFIX`, never about the fact that models arrive via `New` or `WithTessdata` |
+| `Osd` with no `osd` model installed or supplied | same, plus the fix is a different function's argument |
 | a `.pdf` source | Leptonica has no PDF support and reports the file's first line as if it were a file name it could not open |
 | `WithParameter` with an empty name, or one containing `=` | `-c` takes `name=value`, so an embedded `=` silently sets a *different* variable |
 | `WithParameter` naming an unknown control variable | tesseract only warns (`Warning: The parameter '...' was not found.`) and exits 0, so a typo is indistinguishable from a no-op |
@@ -223,10 +259,9 @@ a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-Caller-supplied traineddata via `--tessdata-dir` (#219); batch OCR over a
-directory of images (#220); PDF-input rasterization (#221); the training
-toolchain (#222); a chained `Ci` builder (#223); an `examples/go` cookbook
-(#224).
+Batch OCR over a directory of images (#220); PDF-input rasterization (#221);
+the training toolchain (#222); a chained `Ci` builder (#223); an `examples/go`
+cookbook (#224).
 
 GPU acceleration is **not** a follow-up: tesseract has no CUDA path and upstream
 does not plan one, Alpine builds without OpenCL, and Dagger's GPU passthrough is

@@ -13,7 +13,9 @@
 // Alpine each language is a separate apk package (`tesseract-ocr-data-<lang>`,
 // none of which the base package pulls in). Selecting a language changes what
 // the image *is*, not just what a flag says; Document.WithLanguage only picks a
-// subset of what was installed.
+// subset of what was installed. WithTessdata is the same decision for models
+// Alpine has no package for — a directory of `.traineddata` merged into the
+// image's datadir, and from there indistinguishable from a packaged language.
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
@@ -63,6 +65,17 @@ const (
 	workDir   = "/work"
 	outputDir = "/out"
 
+	// packagedTessdataDir is where the apk packages drop their models. It
+	// holds more than models: `configs/` carries the renderer configfiles
+	// recognition names as its trailing arguments, and pdf.ttf is what the
+	// PDF renderer draws its invisible text layer with.
+	packagedTessdataDir = "/usr/share/tessdata"
+
+	// tessdataDir is the module-owned datadir WithTessdata merges the
+	// packaged models and the caller's into, and the path recognition then
+	// points --tessdata-dir at.
+	tessdataDir = "/tessdata"
+
 	// outputBase is the `tesseract IMAGE OUTPUTBASE` argument. Each renderer
 	// appends its own extension to it (see Format.ext).
 	outputBase = outputDir + "/result"
@@ -99,6 +112,8 @@ type Tesseract struct {
 	Languages []string
 	// +private
 	OmpThreadLimit int
+	// +private
+	Tessdata *dagger.Directory
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
@@ -144,6 +159,30 @@ func New(
 	}, nil
 }
 
+// WithTessdata adds a directory of `.traineddata` models to the image, which
+// is the only way to reach a model Alpine has no package for: a fine-tuned
+// model, a tessdata_best or tessdata_fast variant, or a language whose package
+// simply does not exist.
+//
+// Every file whose name ends in `.traineddata` becomes a language named after
+// its stem — `deu_frak.traineddata` is the language `deu_frak` — so a model is
+// renamed by renaming its file. Langs reports the union of these and the
+// packaged ones, and everything that takes a language name accepts either.
+//
+// The directory is merged with the packaged models rather than replacing them,
+// because tesseract's datadir is more than a bag of models: it also holds the
+// renderer configfiles and the font the PDF renderer needs. A caller-supplied
+// model wins over a packaged one of the same name, which is what makes
+// replacing the stock `eng` with a fine-tuned one work.
+func (t *Tesseract) WithTessdata(
+	// Directory of `.traineddata` models to make available to recognition.
+	dir *dagger.Directory,
+) *Tesseract {
+	out := *t
+	out.Tessdata = dir
+	return &out
+}
+
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap — the training binaries the apk
 // package ships, `combine_tessdata`, and tesseract's long tail of renderers
@@ -161,6 +200,14 @@ func (t *Tesseract) Container() *dagger.Container {
 	ctr := dag.Container().
 		From(t.image()).
 		WithExec(args)
+	// Merged after the install because the packaged half of the union is
+	// whatever apk just wrote, and mounted rather than copied so a 20MB-plus
+	// model set does not become a layer per image.
+	if t.Tessdata != nil {
+		ctr = ctr.WithMountedDirectory(
+			tessdataDir,
+			ctr.Directory(packagedTessdataDir).WithDirectory("/", t.Tessdata))
+	}
 	// Applied after the install so the thread bound does not become part of
 	// the apk layer's cache key: two images differing only in their limit
 	// still share the package fetch.
@@ -187,14 +234,15 @@ func (t *Tesseract) Version(ctx context.Context) (string, error) {
 	return strings.TrimSpace(strings.TrimPrefix(first, "tesseract")), nil
 }
 
-// Langs returns the language codes installed in the image, as reported by
-// `tesseract --list-langs`. This is the set Document.WithLanguage validates
-// against, and it includes "osd" when that package was requested.
+// Langs returns the language codes the image can recognise in, as reported by
+// `tesseract --list-langs`: the packaged languages and any model WithTessdata
+// added, as one set. This is what Document.WithLanguage validates against, and
+// it includes "osd" when that model was installed or supplied.
 //
 // +cache="session"
 func (t *Tesseract) Langs(ctx context.Context) ([]string, error) {
 	out, err := t.Container().
-		WithExec([]string{"tesseract", "--list-langs"}).
+		WithExec(append([]string{"tesseract", "--list-langs"}, t.tessdataArgs()...)).
 		Stdout(ctx)
 	if err != nil {
 		return nil, err
@@ -230,9 +278,39 @@ func (t *Tesseract) image() string {
 	return fmt.Sprintf("%s/%s:%s", t.Registry, alpineImagePath, t.AlpineTag)
 }
 
-// hasLanguage reports whether a language code was installed into the image.
-// It reads the requested set rather than `--list-langs` so it stays a pure
-// function; the exec-backed check is Langs.
+// tessdataArgs returns the flag that moves tesseract's datadir to the merged
+// directory, and nothing at all when no caller-supplied models were added.
+// Leaving the flag off entirely in that case keeps the packaged path the
+// default one, so an image with no tessdata behaves exactly as it did before
+// the flag existed.
+func (t *Tesseract) tessdataArgs() []string {
+	if t.Tessdata == nil {
+		return nil
+	}
+	return []string{"--tessdata-dir", tessdataDir}
+}
+
+// hasModel reports whether a model is available under the given name. It
+// answers from the requested package set without an exec whenever it can, and
+// only asks the image itself when a caller-supplied directory could have added
+// the model — so the common case stays a pure function.
+func (t *Tesseract) hasModel(ctx context.Context, name string) (bool, error) {
+	if t.hasLanguage(name) {
+		return true, nil
+	}
+	if t.Tessdata == nil {
+		return false, nil
+	}
+	installed, err := t.Langs(ctx)
+	if err != nil {
+		return false, err
+	}
+	return contains(installed, name), nil
+}
+
+// hasLanguage reports whether a language code was requested from apk. It reads
+// the requested set rather than `--list-langs` so it stays a pure function;
+// hasModel is the one that accounts for caller-supplied models.
 func (t *Tesseract) hasLanguage(lang string) bool {
 	for _, l := range t.Languages {
 		if l == lang {

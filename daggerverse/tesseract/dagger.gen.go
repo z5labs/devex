@@ -65,11 +65,13 @@ func (r Tesseract) MarshalJSON() ([]byte, error) {
 		AlpineTag      string
 		Languages      []string
 		OmpThreadLimit int
+		Tessdata       *dagger.Directory
 	}
 	concrete.Registry = r.Registry
 	concrete.AlpineTag = r.AlpineTag
 	concrete.Languages = r.Languages
 	concrete.OmpThreadLimit = r.OmpThreadLimit
+	concrete.Tessdata = r.Tessdata
 	return json.Marshal(&concrete)
 }
 
@@ -79,6 +81,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 		AlpineTag      string
 		Languages      []string
 		OmpThreadLimit int
+		Tessdata       *dagger.Directory
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -88,6 +91,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	r.AlpineTag = concrete.AlpineTag
 	r.Languages = concrete.Languages
 	r.OmpThreadLimit = concrete.OmpThreadLimit
+	r.Tessdata = concrete.Tessdata
 	return nil
 }
 
@@ -698,6 +702,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Tesseract).Version(&parent, ctx)
+		case "WithTessdata":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var dir *dagger.Directory
+			if inputArgs["dir"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dir"]), &dir)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dir", err))
+				}
+			}
+			return (*Tesseract).WithTessdata(&parent, dir), nil
 		case "":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)

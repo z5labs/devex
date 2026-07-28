@@ -46,10 +46,11 @@ type Document struct {
 // be combined with `+`, as in "eng+deu", in which case tesseract loads all of
 // them for one pass.
 //
-// The value picks from what New installed; it cannot add a language, because
-// each one is a separate apk package baked into the image. An unknown value is
-// rejected at output time with the installed set listed. Unset, recognition
-// runs in the first installed language.
+// The value picks from what the image carries — the packages New installed and
+// any model WithTessdata supplied — and cannot itself add a language, since
+// both of those are baked in when the image is assembled. An unknown value is
+// rejected at output time with the available set listed. Unset, recognition
+// runs in the first language New installed.
 func (d *Document) WithLanguage(lang string) *Document {
 	out := d.clone()
 	out.Language = lang
@@ -195,18 +196,25 @@ func (d *Document) Export(
 // It builds its own invocation rather than reusing the document's recognition
 // options: orientation detection runs off the osd model alone, so the selected
 // language, engine and page-segmentation mode have nothing to say about it.
-// The `osd` package must be in the language set New was given.
+// The osd model has to be in the image: either as the package New installs for
+// it, or as an osd.traineddata WithTessdata supplied.
 func (d *Document) Osd(ctx context.Context) (string, error) {
-	if !d.Tesseract.hasLanguage(osdLanguage) {
+	ok, err := d.Tesseract.hasModel(ctx, osdLanguage)
+	if err != nil {
+		return "", err
+	}
+	if !ok {
 		return "", fmt.Errorf(
-			"Osd: the %q model is not installed: pass it to New(languages:) alongside the recognition languages (installed: %s)",
+			"Osd: the %q model is not installed: pass it to New(languages:) alongside the recognition languages, or supply it with WithTessdata (installed packages: %s)",
 			osdLanguage, strings.Join(d.Tesseract.Languages, ", "))
 	}
 	source, err := d.validate(ctx)
 	if err != nil {
 		return "", err
 	}
-	args := []string{"tesseract", source, stdoutBase, "-l", osdLanguage, "--psm", pageSegTokens[PageSegModeOsdOnly]}
+	args := []string{"tesseract", source, stdoutBase}
+	args = append(args, d.Tesseract.tessdataArgs()...)
+	args = append(args, "-l", osdLanguage, "--psm", pageSegTokens[PageSegModeOsdOnly])
 	if d.HasDpi {
 		args = append(args, "--dpi", strconv.Itoa(d.Dpi))
 	}
@@ -315,6 +323,7 @@ func (d *Document) container(source string) *dagger.Container {
 // is a flag, and tesseract requires the flags first.
 func (d *Document) args(source string, output string, configs ...string) ([]string, error) {
 	args := []string{"tesseract", source, output}
+	args = append(args, d.Tesseract.tessdataArgs()...)
 	args = append(args, "-l", d.language())
 	if d.PageSeg != "" {
 		tok, ok := d.PageSeg.token()
@@ -426,7 +435,7 @@ func (d *Document) validateLanguage(ctx context.Context) error {
 		}
 		if !contains(installed, lang) {
 			return fmt.Errorf(
-				"WithLanguage: language %q is not installed: installed languages are %s; pass it to New(languages:) to add it",
+				"WithLanguage: language %q is not installed: installed languages are %s; pass it to New(languages:) to add its package, or supply its model with WithTessdata",
 				lang, strings.Join(installed, ", "))
 		}
 	}

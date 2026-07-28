@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:106:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -53,7 +53,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:106:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -66,7 +66,7 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:106:6)
 	q := r.query.Select("withTesseractOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -83,18 +83,18 @@ type TesseractOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:109:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:124:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:112:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:127:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:116:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:131:2)
 	//
 	// Upper bound on the OpenMP threads tesseract may use, set on the
 	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
@@ -105,12 +105,12 @@ type TesseractOpts struct {
 	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
 	// thread per pass is the usual setting there.
 	//
-	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:126:2)
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:141:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:106:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:121:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -140,12 +140,20 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:106:6)
 	query *querybuilder.Selection
 
 	id         *ID
 	parameters *string
 	version    *string
+}
+type WithTesseractFunc func(r *Tesseract) *Tesseract
+
+// With calls the provided function with current Tesseract.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *Tesseract) With(f WithTesseractFunc) *Tesseract {
+	return f(r)
 }
 
 func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
@@ -161,7 +169,7 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 //
 // A requested OpenMP bound lives here rather than on the recognition
 // invocation so everything reached through this escape hatch inherits it too.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:156:1)
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:195:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -174,7 +182,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:225:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:273:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -233,10 +241,11 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// Langs returns the language codes installed in the image, as reported by
-// `tesseract --list-langs`. This is the set Document.WithLanguage validates
-// against, and it includes "osd" when that package was requested.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:195:1)
+// Langs returns the language codes the image can recognise in, as reported by
+// `tesseract --list-langs`: the packaged languages and any model WithTessdata
+// added, as one set. This is what Document.WithLanguage validates against, and
+// it includes "osd" when that model was installed or supplied.
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:243:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -248,7 +257,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:210:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:258:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -262,7 +271,7 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:177:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:224:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -272,6 +281,31 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// WithTessdata adds a directory of `.traineddata` models to the image, which
+// is the only way to reach a model Alpine has no package for: a fine-tuned
+// model, a tessdata_best or tessdata_fast variant, or a language whose package
+// simply does not exist.
+//
+// Every file whose name ends in `.traineddata` becomes a language named after
+// its stem — `deu_frak.traineddata` is the language `deu_frak` — so a model is
+// renamed by renaming its file. Langs reports the union of these and the
+// packaged ones, and everything that takes a language name accepts either.
+//
+// The directory is merged with the packaged models rather than replacing them,
+// because tesseract's datadir is more than a bag of models: it also holds the
+// renderer configfiles and the font the PDF renderer needs. A caller-supplied
+// model wins over a packaged one of the same name, which is what makes
+// replacing the stock `eng` with a fine-tuned one work.
+func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:177:1)
+	assertNotNil("dir", dir)
+	q := r.query.Select("withTessdata")
+	q = q.Arg("dir", dir)
+
+	return &Tesseract{
+		query: q,
+	}
 }
 
 // AsNode returns this Tesseract as a Node.
@@ -312,7 +346,7 @@ func (r *TesseractDocument) WithGraphQLQuery(q *querybuilder.Selection) *Tessera
 }
 
 // Alto returns ALTO XML, the layout schema libraries and archives ingest.
-func (r *TesseractDocument) Alto() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:147:1)
+func (r *TesseractDocument) Alto() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:148:1)
 	q := r.query.Select("alto")
 
 	return &File{
@@ -327,7 +361,7 @@ func (r *TesseractDocument) Alto() *File { // tesseract (../../../../../daggerve
 // several renderers per invocation: asking for text, hOCR and PDF together is
 // one pass over the image, not three. Each artifact is named `result` plus the
 // renderer's own extension.
-func (r *TesseractDocument) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/document.go:176:1)
+func (r *TesseractDocument) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/document.go:177:1)
 	q := r.query.Select("export")
 	q = q.Arg("formats", formats)
 
@@ -338,7 +372,7 @@ func (r *TesseractDocument) Export(formats []TesseractFormat) *Directory { // te
 
 // Hocr returns hOCR: HTML in which every recognised word carries its bounding
 // box and confidence, which is what layout-aware post-processing reads.
-func (r *TesseractDocument) Hocr() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:142:1)
+func (r *TesseractDocument) Hocr() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:143:1)
 	q := r.query.Select("hocr")
 
 	return &File{
@@ -401,8 +435,9 @@ func (r *TesseractDocument) UnmarshalJSON(bs []byte) error {
 // It builds its own invocation rather than reusing the document's recognition
 // options: orientation detection runs off the osd model alone, so the selected
 // language, engine and page-segmentation mode have nothing to say about it.
-// The `osd` package must be in the language set New was given.
-func (r *TesseractDocument) Osd(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:199:1)
+// The osd model has to be in the image: either as the package New installs for
+// it, or as an osd.traineddata WithTessdata supplied.
+func (r *TesseractDocument) Osd(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:201:1)
 	if r.osd != nil {
 		return *r.osd, nil
 	}
@@ -416,7 +451,7 @@ func (r *TesseractDocument) Osd(ctx context.Context) (string, error) { // tesser
 
 // Page returns PAGE XML, the PRImA layout-analysis schema — the alternative to
 // ALTO for tools built around that ecosystem.
-func (r *TesseractDocument) Page() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:165:1)
+func (r *TesseractDocument) Page() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:166:1)
 	q := r.query.Select("page")
 
 	return &File{
@@ -426,7 +461,7 @@ func (r *TesseractDocument) Page() *File { // tesseract (../../../../../daggerve
 
 // Pdf returns a searchable PDF: the source image with an invisible text layer
 // positioned behind it, so the page looks untouched but selects and greps.
-func (r *TesseractDocument) Pdf() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:159:1)
+func (r *TesseractDocument) Pdf() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:160:1)
 	q := r.query.Select("pdf")
 
 	return &File{
@@ -437,7 +472,7 @@ func (r *TesseractDocument) Pdf() *File { // tesseract (../../../../../daggerver
 // Text recognises the document and returns the plain text directly, by asking
 // tesseract to write to stdout instead of a file. This is the shortest path
 // for the common case; Txt is the same content as a *dagger.File.
-func (r *TesseractDocument) Text(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:121:1)
+func (r *TesseractDocument) Text(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:122:1)
 	if r.text != nil {
 		return *r.text, nil
 	}
@@ -451,7 +486,7 @@ func (r *TesseractDocument) Text(ctx context.Context) (string, error) { // tesse
 
 // Tsv returns tab-separated recognition results: one row per layout element,
 // descending from page to word, each with its box and confidence.
-func (r *TesseractDocument) Tsv() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:153:1)
+func (r *TesseractDocument) Tsv() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:154:1)
 	q := r.query.Select("tsv")
 
 	return &File{
@@ -462,7 +497,7 @@ func (r *TesseractDocument) Tsv() *File { // tesseract (../../../../../daggerver
 // Txt recognises the document and returns the plain text as a file. It is the
 // same content Text returns; take this when the next step wants a file rather
 // than a string.
-func (r *TesseractDocument) Txt() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:136:1)
+func (r *TesseractDocument) Txt() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:137:1)
 	q := r.query.Select("txt")
 
 	return &File{
@@ -474,7 +509,7 @@ func (r *TesseractDocument) Txt() *File { // tesseract (../../../../../daggerver
 // otherwise guesses from the image metadata. Guessing wrong hurts recognition
 // on images that carry no resolution at all. A non-positive value is rejected
 // at output time.
-func (r *TesseractDocument) WithDpi(dpi int) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:80:1)
+func (r *TesseractDocument) WithDpi(dpi int) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:81:1)
 	q := r.query.Select("withDpi")
 	q = q.Arg("dpi", dpi)
 
@@ -485,7 +520,7 @@ func (r *TesseractDocument) WithDpi(dpi int) *TesseractDocument { // tesseract (
 
 // WithEngine selects the OCR engine (`--oem`). Unset, tesseract picks based on
 // what the language data provides.
-func (r *TesseractDocument) WithEngine(mode TesseractEngineMode) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:70:1)
+func (r *TesseractDocument) WithEngine(mode TesseractEngineMode) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:71:1)
 	q := r.query.Select("withEngine")
 	q = q.Arg("mode", mode)
 
@@ -498,11 +533,12 @@ func (r *TesseractDocument) WithEngine(mode TesseractEngineMode) *TesseractDocum
 // be combined with `+`, as in "eng+deu", in which case tesseract loads all of
 // them for one pass.
 //
-// The value picks from what New installed; it cannot add a language, because
-// each one is a separate apk package baked into the image. An unknown value is
-// rejected at output time with the installed set listed. Unset, recognition
-// runs in the first installed language.
-func (r *TesseractDocument) WithLanguage(lang string) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:53:1)
+// The value picks from what the image carries — the packages New installed and
+// any model WithTessdata supplied — and cannot itself add a language, since
+// both of those are baked in when the image is assembled. An unknown value is
+// rejected at output time with the available set listed. Unset, recognition
+// runs in the first language New installed.
+func (r *TesseractDocument) WithLanguage(lang string) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:54:1)
 	q := r.query.Select("withLanguage")
 	q = q.Arg("lang", lang)
 
@@ -514,7 +550,7 @@ func (r *TesseractDocument) WithLanguage(lang string) *TesseractDocument { // te
 // WithPageSegmentation sets how much layout analysis precedes recognition
 // (`--psm`). Unset, tesseract uses fully automatic segmentation without
 // orientation detection.
-func (r *TesseractDocument) WithPageSegmentation(mode TesseractPageSegMode) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:62:1)
+func (r *TesseractDocument) WithPageSegmentation(mode TesseractPageSegMode) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:63:1)
 	q := r.query.Select("withPageSegmentation")
 	q = q.Arg("mode", mode)
 
@@ -530,7 +566,7 @@ func (r *TesseractDocument) WithPageSegmentation(mode TesseractPageSegMode) *Tes
 // functions cannot accept map parameters. An unknown name is rejected at
 // output time: tesseract itself only warns and carries on, so a typo would
 // otherwise silently do nothing.
-func (r *TesseractDocument) WithParameter(name string, value string) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:94:1)
+func (r *TesseractDocument) WithParameter(name string, value string) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:95:1)
 	q := r.query.Select("withParameter")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -542,7 +578,7 @@ func (r *TesseractDocument) WithParameter(name string, value string) *TesseractD
 
 // WithUserPatterns supplies a pattern list (`--user-patterns`): one pattern
 // per line describing the shape of expected strings, such as part numbers.
-func (r *TesseractDocument) WithUserPatterns(patterns *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:112:1)
+func (r *TesseractDocument) WithUserPatterns(patterns *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:113:1)
 	assertNotNil("patterns", patterns)
 	q := r.query.Select("withUserPatterns")
 	q = q.Arg("patterns", patterns)
@@ -555,7 +591,7 @@ func (r *TesseractDocument) WithUserPatterns(patterns *File) *TesseractDocument 
 // WithUserWords supplies a word list (`--user-words`): one word per line,
 // which recognition then favours. Useful for jargon and proper nouns the
 // packaged dictionary does not know.
-func (r *TesseractDocument) WithUserWords(words *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:104:1)
+func (r *TesseractDocument) WithUserWords(words *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/document.go:105:1)
 	assertNotNil("words", words)
 	q := r.query.Select("withUserWords")
 	q = q.Arg("words", words)
