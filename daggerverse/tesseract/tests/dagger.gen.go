@@ -304,6 +304,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SingleWordPageSegReturnsFewerWords(&parent, ctx)
+		case "TessdataDoesNotAdmitUnknownLanguage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TessdataDoesNotAdmitUnknownLanguage(&parent, ctx)
+		case "TessdataModelIsSelectable":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TessdataModelIsSelectable(&parent, ctx)
+		case "TessdataSuppliesOsdModel":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TessdataSuppliesOsdModel(&parent, ctx)
 		case "TextRecognizesFixture":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

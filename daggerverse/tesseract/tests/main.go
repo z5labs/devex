@@ -35,6 +35,11 @@ const (
 	// the assembled image.
 	ompThreadLimitEnv = "OMP_THREAD_LIMIT"
 
+	// packagedTessdataDir is where the apk packages drop their models. It is
+	// the source the tessdata tests round-trip a model out of, never a path
+	// the module itself asks anyone to know about.
+	packagedTessdataDir = "/usr/share/tessdata"
+
 	// suiteOmpThreadLimit is the bound every test here builds its image with.
 	// The module itself leaves OpenMP alone, so tesseract takes one thread per
 	// available CPU — right for a caller who owns the machine, wrong for this
@@ -98,6 +103,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PdfHasPdfMagic", t.PdfHasPdfMagic)
 	jobs = jobs.WithJob("ExportProducesEveryRequestedFormat", t.ExportProducesEveryRequestedFormat)
 
+	jobs = jobs.WithJob("TessdataModelIsSelectable", t.TessdataModelIsSelectable)
+	jobs = jobs.WithJob("TessdataSuppliesOsdModel", t.TessdataSuppliesOsdModel)
+
 	jobs = jobs.WithJob("SingleWordPageSegReturnsFewerWords", t.SingleWordPageSegReturnsFewerWords)
 	jobs = jobs.WithJob("LstmEngineRecognizesFixture", t.LstmEngineRecognizesFixture)
 	jobs = jobs.WithJob("UnknownParameterFails", t.UnknownParameterFails)
@@ -105,6 +113,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("OsdDetectsRotation", t.OsdDetectsRotation)
 
 	jobs = jobs.WithJob("UnknownLanguageIsRejected", t.UnknownLanguageIsRejected)
+	jobs = jobs.WithJob("TessdataDoesNotAdmitUnknownLanguage", t.TessdataDoesNotAdmitUnknownLanguage)
 	jobs = jobs.WithJob("OsdWithoutOsdDataIsRejected", t.OsdWithoutOsdDataIsRejected)
 	jobs = jobs.WithJob("PdfInputIsRejected", t.PdfInputIsRejected)
 	jobs = jobs.WithJob("MalformedParameterNameIsRejected", t.MalformedParameterNameIsRejected)
@@ -361,6 +370,86 @@ func (t *Tests) ExportProducesEveryRequestedFormat(ctx context.Context) error {
 	return nil
 }
 
+// ------------------------------------------------------------------- tessdata
+
+// TessdataModelIsSelectable asserts a caller-supplied model is a first-class
+// language: Langs lists it alongside the packaged set, WithLanguage accepts it,
+// and recognition under that name reproduces the fixture.
+//
+// The model is the image's own eng.traineddata lifted back out and re-mounted
+// under a different stem. That needs no committed binary fixture and still
+// proves the whole path: "custom" is a name no Alpine package could ever
+// install, so recognising English text under it can only mean the caller's
+// directory reached tesseract.
+//
+// The packaged language and the PDF render are asserted through the same
+// module because the caller's directory has to be merged with the packaged one
+// rather than swapped for it. `--tessdata-dir` moves the whole datadir, and
+// that directory carries more than models: `configs/` holds the renderer
+// configfiles, and pdf.ttf is what the PDF renderer draws its invisible text
+// layer with. Pointed at the caller's directory alone, every renderer breaks
+// and every packaged language disappears.
+func (t *Tests) TessdataModelIsSelectable(ctx context.Context) error {
+	custom := ocr().WithTessdata(
+		dag.Directory().WithFile("custom.traineddata", traineddata(ocr(), "eng")),
+	)
+
+	langs, err := custom.Langs(ctx)
+	if err != nil {
+		return fmt.Errorf("Langs: %w", err)
+	}
+	if want := []string{"custom", "eng"}; !reflect.DeepEqual(langs, want) {
+		return fmt.Errorf("expected Langs to report the union %v, got %v", want, langs)
+	}
+
+	got, err := custom.Document(fixture(sentencePng)).WithLanguage("custom").Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text under the caller-supplied model: %w", err)
+	}
+	if err := assertSentenceLines(got); err != nil {
+		return fmt.Errorf("caller-supplied model: %w", err)
+	}
+
+	got, err = custom.Document(fixture(sentencePng)).WithLanguage("eng").Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text under the packaged model with tessdata mounted: %w", err)
+	}
+	if err := assertSentenceLines(got); err != nil {
+		return fmt.Errorf("packaged model with tessdata mounted: %w", err)
+	}
+
+	pdf, err := exportBytes(ctx, custom.Document(fixture(sentencePng)).WithLanguage("custom").Pdf(), "result.pdf")
+	if err != nil {
+		return err
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
+		return fmt.Errorf("expected the PDF renderer to still work with tessdata mounted, got %q", firstBytes(pdf, 8))
+	}
+	return nil
+}
+
+// TessdataSuppliesOsdModel asserts orientation detection accepts an osd model
+// that arrived through WithTessdata rather than through its apk package.
+//
+// Osd is the one place that asks whether a specific model is present, and it
+// answered from the requested package set alone. A supplied osd.traineddata
+// would have been refused by this module while sitting right there in the
+// image, which is the failure mode this pins.
+func (t *Tests) TessdataSuppliesOsdModel(ctx context.Context) error {
+	supplied := ocr().WithTessdata(
+		dag.Directory().WithFile("osd.traineddata", traineddata(ocr("eng", "osd"), "osd")),
+	)
+
+	got, err := supplied.Document(fixture(sentenceRot90Png)).Osd(ctx)
+	if err != nil {
+		return fmt.Errorf("Osd with a supplied osd model: %w", err)
+	}
+	if !strings.Contains(got, "Orientation in degrees: 90") {
+		return fmt.Errorf("expected the OSD report to read the quarter turn, got:\n%s", got)
+	}
+	return nil
+}
+
 // ------------------------------------------------------------- recognition options
 
 // SingleWordPageSegReturnsFewerWords asserts --psm actually reaches tesseract.
@@ -530,6 +619,27 @@ func (t *Tests) UnknownLanguageIsRejected(ctx context.Context) error {
 	return nil
 }
 
+// TessdataDoesNotAdmitUnknownLanguage asserts the union is still a closed set:
+// mounting a tessdata directory adds the models it holds and nothing else, so a
+// language neither half carries is rejected the same way it was before, with
+// both halves listed and both ways of adding one named.
+func (t *Tests) TessdataDoesNotAdmitUnknownLanguage(ctx context.Context) error {
+	custom := ocr().WithTessdata(
+		dag.Directory().WithFile("custom.traineddata", traineddata(ocr(), "eng")),
+	)
+
+	_, err := custom.Document(fixture(sentencePng)).WithLanguage("fra").Text(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a language in neither the package set nor the tessdata directory to be rejected, got nil")
+	}
+	for _, want := range []string{`"fra"`, "custom, eng", "New(languages:)", "WithTessdata"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
 // OsdWithoutOsdDataIsRejected asserts orientation detection on an image built
 // without the osd model names the fix rather than failing inside tesseract,
 // which would report a missing traineddata file.
@@ -640,6 +750,15 @@ func readOmpThreadLimit(ctx context.Context, t *dagger.Tesseract) (string, error
 		return "", fmt.Errorf("read %s from the image: %w", ompThreadLimitEnv, err)
 	}
 	return out, nil
+}
+
+// traineddata lifts a packaged model back out of the assembled image so a test
+// can re-mount it under a different name. The path is the apk package's own,
+// not the one WithTessdata mounts at, and it is spelled out here rather than
+// exported by the module: the module's job is to make caller-supplied models
+// work, not to publish where Alpine keeps its own.
+func traineddata(t *dagger.Tesseract, lang string) *dagger.File {
+	return t.Container().File(packagedTessdataDir + "/" + lang + ".traineddata")
 }
 
 // fixture returns a committed test image by name under fixtures/.
