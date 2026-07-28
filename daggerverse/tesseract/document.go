@@ -10,9 +10,16 @@ import (
 	"dagger/tesseract/internal/dagger"
 )
 
-// Document is one image plus the recognition options that apply to it. It is
+// Document is one unit of recognition plus the options that apply to it. It is
 // immutable: every With* returns a copy, so a configured Document can be
 // branched into several outputs without the branches interfering.
+//
+// The unit comes in two shapes, and a document holds whichever it was built
+// as: a single image in Source, or the rasterized pages of a PDF in Pages.
+// They are alternatives rather than layers — exactly one is ever set — and
+// everything downstream of validate is written against the resolved FILE
+// argument, so the outputs, the options and the error paths are shared rather
+// than reimplemented per shape.
 //
 // The options themselves live on the shared options type, which Batch carries
 // too — the builders here are forwarders, so a new recognition option reaches
@@ -22,6 +29,10 @@ type Document struct {
 	Tesseract *Tesseract
 	// +private
 	Source *dagger.File
+	// +private
+	Pages *dagger.Directory
+	// +private
+	PdfDpi int
 	// +private
 	Options options
 }
@@ -274,17 +285,29 @@ func execTesseract(ctx context.Context, ctr *dagger.Container, args []string) (*
 	return exec, nil
 }
 
-// container mounts the source and any user word/pattern lists, and stages the
-// writable output directory recognition renders into.
+// container mounts whichever shape of source the document holds, alongside any
+// user word/pattern lists, and stages the writable output directory
+// recognition renders into.
+//
+// A rasterized PDF mounts its whole page directory, at the path the page list
+// names its entries by — the list holds absolute paths, so this mount and the
+// one the rasterizer wrote them under have to agree.
 func (d *Document) container(source string) *dagger.Container {
-	return d.Options.mount(d.Tesseract.Container().
-		WithMountedFile(source, d.Source).
-		WithExec([]string{"mkdir", "-p", outputDir}))
+	ctr := d.Tesseract.Container()
+	if d.Pages != nil {
+		ctr = ctr.WithMountedDirectory(pdfPagesDir, d.Pages)
+	} else {
+		ctr = ctr.WithMountedFile(source, d.Source)
+	}
+	return d.Options.mount(ctr.WithExec([]string{"mkdir", "-p", outputDir}))
 }
 
 // validate reports every deferred builder check and returns the path the
 // source is mounted at.
 func (d *Document) validate(ctx context.Context) (string, error) {
+	if err := d.validatePdfDpi(); err != nil {
+		return "", err
+	}
 	source, err := d.sourcePath(ctx)
 	if err != nil {
 		return "", err
@@ -295,10 +318,18 @@ func (d *Document) validate(ctx context.Context) (string, error) {
 	return source, nil
 }
 
-// sourcePath resolves where the source is mounted, keeping the caller's
-// extension so container logs name something recognisable, and rejects PDF
-// input along the way.
+// sourcePath resolves the FILE argument recognition runs against.
+//
+// For a rasterized PDF that is the page list rather than an image: handed a
+// file it cannot identify as one, tesseract reads it as a list of image paths
+// and processes them in order as a single document, which is exactly the unit
+// of work a PDF is. For a single image it is the mount path, keeping the
+// caller's extension so container logs name something recognisable, and PDF
+// input is rejected along the way.
 func (d *Document) sourcePath(ctx context.Context) (string, error) {
+	if d.Pages != nil {
+		return pdfPageListPath, nil
+	}
 	name, err := d.Source.Name(ctx)
 	if err != nil {
 		return "", fmt.Errorf("read source file name: %w", err)
@@ -314,12 +345,13 @@ func (d *Document) sourcePath(ctx context.Context) (string, error) {
 // Leptonica — the image library tesseract reads through — has no PDF support
 // at all, and says so unhelpfully: it reports the file's first line as if it
 // were a file name it could not open. Rejecting the extension here is the
-// difference between an actionable error and a confusing one.
+// difference between an actionable error and a confusing one, and now that
+// FromPdf exists the fix is a function name rather than an errand.
 func rejectPdf(name string) error {
 	if !strings.EqualFold(path.Ext(name), ".pdf") {
 		return nil
 	}
 	return fmt.Errorf(
-		"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; rasterize the pages to PNG or TIFF first",
+		"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; call FromPdf instead, which rasterizes the pages first and returns a Document over them",
 		name)
 }

@@ -17,6 +17,17 @@
 // Alpine has no package for — a directory of `.traineddata` merged into the
 // image's datadir, and from there indistinguishable from a packaged language.
 //
+// PDF input is rasterized rather than read, because leptonica cannot read PDF
+// at all. That work happens in its own container — Alpine at the same pinned
+// tag, plus poppler-utils and a font — instead of on the toolchain image,
+// which is a decision about who pays for it. Unconditionally installing both
+// packages takes the toolchain image from 67.1MiB to 81.4MiB, a 21% tax on
+// every caller who only ever hands this module a PNG. Rasterizing separately
+// leaves that image untouched and costs a PDF caller a 35.0MiB container of
+// which the 8.0MiB Alpine base is already shared, so the extra bytes are paid
+// once, by the callers who asked for them, and the rasterization caches
+// separately from recognition on top of that.
+//
 // File map (all `package main`, surfaced as one Dagger module):
 //
 //   - enums.go     — PageSegMode / EngineMode / Format enums plus the token and
@@ -27,6 +38,8 @@
 //   - document.go  — *Document, one image in and one artifact set out.
 //   - batch.go     — *Batch, a directory in and a mirrored directory out, all
 //     of it in a single container exec.
+//   - pdf.go       — FromPdf, the rasterizer that turns a PDF into pages a
+//     *Document can recognise.
 package main
 
 import (
@@ -103,6 +116,36 @@ const (
 	// extension filter isImagePath applies on top of it, because Dagger's glob
 	// has no brace expansion to spell the alternation with.
 	defaultBatchGlob = "**/*"
+
+	// popplerPkg carries pdftoppm, the rasterizer FromPdf drives. fontPkg is
+	// the substitute font family poppler draws with when a PDF names one of
+	// the base-14 fonts without embedding it; see rasterize for why it is not
+	// optional.
+	popplerPkg = "poppler-utils"
+	fontPkg    = "ttf-liberation"
+
+	// pdfSourcePath is where the PDF is mounted in the rasterizer. It sits
+	// outside workDir because the rasterizer is a different container from the
+	// one recognition runs in, and shares nothing with it but the page
+	// directory.
+	pdfSourcePath = "/pdf/source.pdf"
+
+	// pdfPagesDir holds the rasterized pages. The rasterizer writes them here
+	// and recognition mounts them back at the same path, which is what lets
+	// the page list name them by absolute path.
+	pdfPagesDir = workDir + "/pages"
+
+	// pdfPageBase is the OUTPUTBASE handed to pdftoppm, which appends a page
+	// number and the format's extension to it; pdfPageListPath is the file
+	// list recognition then takes as its FILE argument.
+	pdfPageBase     = pdfPagesDir + "/page"
+	pdfPageListPath = pdfPagesDir + "/pages.txt"
+
+	// defaultPdfDpi is the resolution pages are rasterized at. 300 is the
+	// long-standing recommendation for OCR input in tesseract's own quality
+	// documentation, and the resolution scanners are set to for the same
+	// reason.
+	defaultPdfDpi = 300
 
 	// ompThreadLimitEnv caps the OpenMP team size tesseract's recognition
 	// loops fan out to.

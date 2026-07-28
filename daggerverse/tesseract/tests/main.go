@@ -31,6 +31,18 @@ const (
 	sentencePng      = "sentence.png"
 	sentenceRot90Png = "sentence-rot90.png"
 
+	// ledgerPdf is a three-page PDF carrying different text on every page. It
+	// is hand-authored rather than produced by a generator: the content
+	// streams are uncompressed, so the text a page is supposed to render is
+	// readable in the fixture itself, and the whole file is 1.4KB.
+	//
+	// Its pages name the base-14 font Helvetica without embedding it, which is
+	// the common shape for a PDF that was never meant to be a scan. That makes
+	// it the fixture for the rasterizer's font substitution too: with no font
+	// installed, poppler draws these pages blank and OCR returns nothing at
+	// all, which is a silent wrong answer rather than a failure.
+	ledgerPdf = "ledger.pdf"
+
 	// ompThreadLimitEnv is the OpenMP variable New's ompThreadLimit sets on
 	// the assembled image.
 	ompThreadLimitEnv = "OMP_THREAD_LIMIT"
@@ -58,6 +70,25 @@ var sentenceLines = []string{
 	"How vexingly quick daft zebras jump about now.",
 	"Sphinx of black quartz, judge my vow tonight.",
 }
+
+// ledgerPages is what ledger.pdf renders, one entry per page in document
+// order. Every page leads with its own ordinal, which is what makes a dropped
+// or reordered page visible: without it, three pages of the same text would
+// recognise identically however they were shuffled.
+var ledgerPages = [][]string{
+	{"Page one of the ledger.", "The quick brown fox jumps over the lazy dog."},
+	{"Page two of the ledger.", "Pack my box with five dozen liquor jugs today."},
+	{"Page three of the ledger.", "How vexingly quick daft zebras jump about now."},
+}
+
+// ledgerPageMarkers is one word per page of ledger.pdf, in page order.
+//
+// The structured renderers wrap every word in its own element, so no whole
+// line is ever contiguous text in their output and the line-level assertions
+// cannot be used on them. A single word always is contiguous, and these three
+// each occur exactly once in the document, so their relative positions say
+// what page order says.
+var ledgerPageMarkers = []string{"lazy", "liquor", "zebras"}
 
 type Tests struct{}
 
@@ -102,6 +133,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("TsvHasHeaderAndWordRows", t.TsvHasHeaderAndWordRows)
 	jobs = jobs.WithJob("PdfHasPdfMagic", t.PdfHasPdfMagic)
 	jobs = jobs.WithJob("ExportProducesEveryRequestedFormat", t.ExportProducesEveryRequestedFormat)
+
+	jobs = jobs.WithJob("FromPdfRecognizesEveryPageInOrder", t.FromPdfRecognizesEveryPageInOrder)
+	jobs = jobs.WithJob("FromPdfDpiSetsRasterResolution", t.FromPdfDpiSetsRasterResolution)
+	jobs = jobs.WithJob("FromPdfExportRendersEveryFormatAsOneDocument", t.FromPdfExportRendersEveryFormatAsOneDocument)
 
 	jobs = jobs.WithJob("BatchMirrorsInputLayout", t.BatchMirrorsInputLayout)
 	jobs = jobs.WithJob("BatchDefaultGlobSkipsNonImages", t.BatchDefaultGlobSkipsNonImages)
@@ -666,12 +701,16 @@ func (t *Tests) OsdWithoutOsdDataIsRejected(ctx context.Context) error {
 // PdfInputIsRejected asserts a PDF source is refused up front. Leptonica has
 // no PDF support and reports the failure as if the file's first line were a
 // file name it could not open, which sends people looking in the wrong place.
+//
+// The error has to name FromPdf, which is the whole difference between an
+// error that ends the caller's afternoon and one that ends their next line of
+// code: rasterizing is no longer something they have to go and arrange.
 func (t *Tests) PdfInputIsRejected(ctx context.Context) error {
 	_, err := ocr().Document(textFile("scan.pdf", "%PDF-1.7\n")).Text(ctx)
 	if err == nil {
 		return fmt.Errorf("expected a PDF source to be rejected, got nil")
 	}
-	for _, want := range []string{"scan.pdf", "leptonica", "rasterize"} {
+	for _, want := range []string{"scan.pdf", "leptonica", "rasterize", "FromPdf"} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
 		}
@@ -726,6 +765,160 @@ func (t *Tests) NonPositiveDpiIsRejected(ctx context.Context) error {
 		return fmt.Errorf("Text with dpi 300: %w", err)
 	}
 	return assertSentenceLines(got)
+}
+
+// ------------------------------------------------------------------------ pdf
+
+// FromPdfRecognizesEveryPageInOrder asserts the whole PDF entry point: every
+// page is rasterized, every page is recognised, and the pages arrive in
+// document order.
+//
+// Order is the half that needs a fixture with distinct pages. Rasterization
+// writes one file per page and the recognition pass reads them from a list, so
+// a sorting bug — page-10 before page-2, say — would still produce text for
+// every page and still look like a success.
+func (t *Tests) FromPdfRecognizesEveryPageInOrder(ctx context.Context) error {
+	got, err := ocr().FromPdf(fixture(ledgerPdf)).Text(ctx)
+	if err != nil {
+		return fmt.Errorf("FromPdf: %w", err)
+	}
+	return assertLedgerPages(got)
+}
+
+// FromPdfDpiSetsRasterResolution asserts the rasterization resolution defaults
+// to 300 and that a caller's value replaces it.
+//
+// It reads the resolution back off the page geometry hOCR reports, because
+// that is the only place the module publishes it: ledger.pdf's pages are US
+// Letter, 612x792 points, so a page rasterized at D dots per inch is exactly
+// 612*D/72 by 792*D/72 pixels. Asserting on the pixels rather than on the flag
+// is what makes this a test of the rasterizer rather than of argv.
+func (t *Tests) FromPdfDpiSetsRasterResolution(ctx context.Context) error {
+	for _, tc := range []struct {
+		dpi  int
+		want string
+	}{
+		// Zero is not "rasterize at nothing": the SDK drops a zero-valued
+		// argument, so this is the call with no dpi at all, and what it pins
+		// is the 300 the default declares.
+		{0, "bbox 0 0 2550 3300"},
+		{150, "bbox 0 0 1275 1650"},
+		{72, "bbox 0 0 612 792"},
+	} {
+		got, err := ocr().
+			FromPdf(fixture(ledgerPdf), dagger.TesseractFromPdfOpts{Dpi: tc.dpi}).
+			Hocr().
+			Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("Hocr at dpi %d: %w", tc.dpi, err)
+		}
+		if !strings.Contains(got, tc.want) {
+			return fmt.Errorf("expected dpi %d to rasterize pages of %q, got:\n%s", tc.dpi, tc.want, pageTitles(got))
+		}
+	}
+
+	// A resolution that is not a resolution is refused here rather than by
+	// pdftoppm, whose own message talks about its `-r` flag and says nothing
+	// about where the value came from.
+	_, err := ocr().FromPdf(fixture(ledgerPdf), dagger.TesseractFromPdfOpts{Dpi: -300}).Text(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a negative dpi to be rejected, got nil")
+	}
+	if !strings.Contains(err.Error(), "FromPdf: dpi must be positive") {
+		return fmt.Errorf("expected the error to name the positive rule, got: %v", err)
+	}
+	return nil
+}
+
+// FromPdfExportRendersEveryFormatAsOneDocument asserts a multi-page PDF stays
+// one document through every renderer, not just through plain text.
+//
+// This is the assumption the whole design rests on. Rasterization produces one
+// image per page, and recognition feeds them to tesseract as a file list — so
+// the question is whether each renderer accumulates the pages into a single
+// artifact or whether only the text one does. If any of them emitted just the
+// last page, the fix would not be a patch: it would mean rasterizing to a
+// multi-page TIFF instead, which needs another package on the image.
+//
+// Each format is therefore checked for its own per-page structure rather than
+// for mere existence: three page elements, three page numbers, three PDF
+// pages. A renderer that kept only one page would still produce a file.
+func (t *Tests) FromPdfExportRendersEveryFormatAsOneDocument(ctx context.Context) error {
+	out := ocr().FromPdf(fixture(ledgerPdf)).Export([]dagger.TesseractFormat{
+		dagger.TesseractFormatTxt,
+		dagger.TesseractFormatHocr,
+		dagger.TesseractFormatAlto,
+		dagger.TesseractFormatTsv,
+		dagger.TesseractFormatPdf,
+		dagger.TesseractFormatPage,
+	})
+	entries, err := out.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Export: %w", err)
+	}
+	want := []string{"result.hocr", "result.page.xml", "result.pdf", "result.tsv", "result.txt", "result.xml"}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected exactly %v, got %v", want, entries)
+	}
+
+	// Plain text is the one format whose lines survive intact, so it gets the
+	// full line-by-line check.
+	txt, err := out.File("result.txt").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read result.txt: %w", err)
+	}
+	if err := assertLedgerPages(txt); err != nil {
+		return fmt.Errorf("result.txt: %w", err)
+	}
+
+	// The structured formats each mark their page boundaries their own way,
+	// and all of them have to show one boundary per page with that page's own
+	// text between them, in order.
+	for _, tc := range []struct {
+		name   string
+		marker string
+	}{
+		{"result.hocr", "class='ocr_page'"},
+		{"result.xml", "<Page "},
+		{"result.page.xml", "<Page "},
+	} {
+		got, err := out.File(tc.name).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", tc.name, err)
+		}
+		if n := strings.Count(got, tc.marker); n != len(ledgerPages) {
+			return fmt.Errorf("expected %d %q in %s, got %d", len(ledgerPages), tc.marker, tc.name, n)
+		}
+		if err := assertPageOrder(got); err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+	}
+
+	// TSV numbers its pages in a column rather than nesting them, so the
+	// evidence there is the set of page numbers the rows carry.
+	tsv, err := out.File("result.tsv").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read result.tsv: %w", err)
+	}
+	if got := tsvPageNums(tsv); !reflect.DeepEqual(got, []string{"1", "2", "3"}) {
+		return fmt.Errorf("expected TSV rows for pages 1, 2 and 3, got %v", got)
+	}
+
+	// The searchable PDF has to come back out with the page count it went in
+	// with — a renderer that overwrote rather than appended would still be a
+	// valid, single-page PDF.
+	pdf, err := exportBytes(ctx, out.File("result.pdf"), "result.pdf")
+	if err != nil {
+		return err
+	}
+	if !bytes.HasPrefix(pdf, []byte("%PDF-")) {
+		return fmt.Errorf("expected a PDF header, got %q", firstBytes(pdf, 8))
+	}
+	if n := bytes.Count(pdf, []byte("/Type /Page\n")); n != len(ledgerPages) {
+		return fmt.Errorf("expected the searchable PDF to carry %d pages, got %d", len(ledgerPages), n)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------- batch
@@ -1107,6 +1300,85 @@ func assertSentenceLines(got string) error {
 		}
 	}
 	return nil
+}
+
+// assertLedgerPages checks recognised text against what ledger.pdf renders,
+// and — the point of a multi-page source — that the pages appear in document
+// order rather than merely all being present.
+//
+// Order is checked by where each line was found rather than by splitting on
+// the page separator, because that separator differs by renderer: plain text
+// gets a form feed, the structured formats get their own page elements. A
+// monotonic position says the same thing for all of them.
+func assertLedgerPages(got string) error {
+	prev := -1
+	for i, lines := range ledgerPages {
+		for _, want := range lines {
+			at := strings.Index(got, want)
+			if at < 0 {
+				return fmt.Errorf("expected page %d to contribute %q, got:\n%s", i+1, want, got)
+			}
+			if at < prev {
+				return fmt.Errorf("expected page %d's %q to follow the preceding page, got:\n%s", i+1, want, got)
+			}
+			prev = at
+		}
+	}
+	return nil
+}
+
+// assertPageOrder checks that each page contributed its own marker word and
+// that the markers appear in page order. It is the check assertLedgerPages
+// cannot make on a format that puts every word in its own element.
+func assertPageOrder(got string) error {
+	prev := -1
+	for i, want := range ledgerPageMarkers {
+		at := strings.Index(got, want)
+		if at < 0 {
+			return fmt.Errorf("expected page %d to contribute the word %q, got:\n%s", i+1, want, got)
+		}
+		if at < prev {
+			return fmt.Errorf("expected page %d's %q to follow the preceding page, got:\n%s", i+1, want, got)
+		}
+		prev = at
+	}
+	return nil
+}
+
+// pageTitles pulls the ocr_page title lines out of hOCR, so a geometry
+// mismatch reports the handful of lines that carry the geometry instead of the
+// whole document.
+func pageTitles(hocr string) string {
+	var out []string
+	for _, line := range strings.Split(hocr, "\n") {
+		if strings.Contains(line, "ocr_page") {
+			out = append(out, strings.TrimSpace(line))
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// tsvPageNums returns the distinct page numbers the TSV rows carry, in the
+// order they first appear, which is both what pages were recognised and what
+// order they arrived in.
+func tsvPageNums(tsv string) []string {
+	var (
+		out  []string
+		seen = map[string]struct{}{}
+	)
+	for i, line := range strings.Split(strings.TrimSpace(tsv), "\n") {
+		cols := strings.Split(line, "\t")
+		// Row 0 is the column header; page_num is the second column.
+		if i == 0 || len(cols) < 2 {
+			continue
+		}
+		if _, dup := seen[cols[1]]; dup {
+			continue
+		}
+		seen[cols[1]] = struct{}{}
+		out = append(out, cols[1])
+	}
+	return out
 }
 
 func contains(haystack []string, needle string) bool {

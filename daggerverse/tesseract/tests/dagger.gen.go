@@ -269,6 +269,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ExportProducesEveryRequestedFormat(&parent, ctx)
+		case "FromPdfDpiSetsRasterResolution":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FromPdfDpiSetsRasterResolution(&parent, ctx)
+		case "FromPdfExportRendersEveryFormatAsOneDocument":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FromPdfExportRendersEveryFormatAsOneDocument(&parent, ctx)
+		case "FromPdfRecognizesEveryPageInOrder":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FromPdfRecognizesEveryPageInOrder(&parent, ctx)
 		case "HocrContainsWordBoxes":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

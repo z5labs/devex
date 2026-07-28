@@ -4,7 +4,8 @@ Daggerverse module that runs [Tesseract](https://tesseract-ocr.github.io/) OCR
 as a `dagger call`. Hand it an image and get back plain text, or hOCR / ALTO /
 TSV / PAGE / a searchable PDF for anything that needs word positions and
 confidences. Hand it a directory and get the same artifacts back for every page
-in it, at the paths they came in on.
+in it, at the paths they came in on. Hand it a PDF and it rasterizes the pages
+for you first.
 
 **There is no official Tesseract container image** — upstream ships source only,
 and every image on Docker Hub is third-party. So this module assembles its own
@@ -154,7 +155,8 @@ Tesseract.Document(source *dagger.File) *Document
 
 Unlike `kicad.Project`, the boundary input is a lone `*dagger.File`: tesseract
 resolves nothing relative to its input, so one image — including a multi-page
-TIFF — is the whole unit of work. A folder of pages is `Batch`, below; the
+TIFF — is the whole unit of work. A PDF is `FromPdf`, which rasterizes first and
+hands back one of these. A folder of pages is `Batch`, below; the
 directory there is a *set of independent inputs*, not context the recognition
 resolves against, which is why it is a second entry point rather than a widening
 of this one.
@@ -265,7 +267,9 @@ proposed exactly that. It does not do what the name suggests: it treats the list
 as one multi-page **document** and renders a *single concatenated artifact set* —
 one `.txt` with form-feed page breaks, one multi-page PDF, one hOCR carrying
 `page_1`/`page_2` divs. There is no way to recover per-image files from it, least
-of all for PDF.
+of all for PDF. (That behaviour is not useless — it is precisely what the pages
+of one PDF want, and `FromPdf` below is built on it. It is just not what a
+folder of independent scans wants.)
 
 So the batch is one container **exec** rather than one tesseract **process**: the
 exec loops over a manifest, recognising each image onto its own output base. That
@@ -298,6 +302,62 @@ either way.
 `Files` reports the matched set without paying for the recognition, which is the
 answer to the question a glob always raises.
 
+## PDF input — `FromPdf`
+
+```go
+Tesseract.FromPdf(source *dagger.File, dpi int /* +default=300 */) *Document
+```
+
+Leptonica cannot read PDF, so `Document` rejects one outright. `FromPdf` is the
+way in: it rasterizes the pages with `pdftoppm` and returns an ordinary
+`Document` over them, so every output, option and error path above works on a
+PDF exactly as it does on an image.
+
+A multi-page PDF stays **one** document. The pages are recognised through
+tesseract's list-file mode, which accumulates them into a single artifact per
+format — `Text` returns the whole document with form feeds between pages, `Pdf`
+returns one searchable PDF with the source's page count, and the structured
+formats carry one page element per page. This is the same list-file mode `Batch`
+deliberately avoids, and for the opposite reason: for a folder of independent
+scans a concatenated result is wrong, and for the pages of one PDF it is exactly
+right.
+
+`dpi` is what the pages are rasterized at, and is declared to tesseract as the
+source resolution too, since it is exactly known at that point. 300 is the
+default because it is tesseract's own long-standing recommendation for input
+resolution; raising it costs time and memory roughly with its square, and
+lowering it costs accuracy on body text.
+
+### Why a separate container
+
+Rasterization runs on its own container — Alpine at the same pinned tag, plus
+`poppler-utils` and `ttf-liberation` — rather than on the toolchain image, so
+the cost lands on the callers who asked for it:
+
+| | image | cost |
+| --- | --- | --- |
+| toolchain today | 67.1MiB | — |
+| toolchain with poppler + font installed unconditionally | 81.4MiB | +21% for every caller, PDF or not |
+| separate rasterizer | 35.0MiB | paid only by `FromPdf` callers; 8.0MiB of it is the shared Alpine base |
+
+It also caches separately, so changing a recognition option does not re-rasterize
+the document.
+
+The font package is not decoration. A PDF that names one of the base-14 fonts
+without embedding it — the usual shape for anything not born as a scan — is
+drawn by poppler through a fontconfig substitute, and with no font installed at
+all there is nothing to substitute: **the page renders blank, recognition finds
+no text, and the call succeeds**. Liberation is the family to install for it,
+being metric-compatible with Helvetica, Times and Courier, so substituted text
+keeps the line breaks and positions the document was written with. DejaVu covers
+more of Unicode but is 5.8MiB larger and matches none of those metrics.
+
+Page files are listed by globbing rather than by counting pages, because
+`pdftoppm` names them with the page number zero-padded to the width of the
+*last* page: a 9-page document yields `page-1.png` and a 10-page one
+`page-01.png`. One document means one padding width, so a lexicographic sort is
+page order.
+
 ## Validation
 
 Builders have no error return, so every check below is deferred to the output
@@ -308,7 +368,8 @@ letting tesseract fail in its own vocabulary.
 | --- | --- |
 | `WithLanguage` naming a language neither installed nor supplied | tesseract talks about traineddata paths and `TESSDATA_PREFIX`, never about the fact that models arrive via `New` or `WithTessdata` |
 | `Osd` with no `osd` model installed or supplied | same, plus the fix is a different function's argument |
-| a `.pdf` source | Leptonica has no PDF support and reports the file's first line as if it were a file name it could not open |
+| a `.pdf` source to `Document` or `Batch` | Leptonica has no PDF support and reports the file's first line as if it were a file name it could not open; the message names `FromPdf`, so the fix is a function call rather than an errand |
+| `FromPdf` at zero or negative `dpi` | `pdftoppm` would fail much later, talking about its own `-r` flag rather than about the argument the caller passed |
 | `WithParameter` with an empty name, or one containing `=` | `-c` takes `name=value`, so an embedded `=` silently sets a *different* variable |
 | `WithParameter` naming an unknown control variable | tesseract only warns (`Warning: The parameter '...' was not found.`) and exits 0, so a typo is indistinguishable from a no-op |
 | `WithDpi` at zero or negative | tesseract would take it as a real measurement and scale its analysis by it |
@@ -331,12 +392,14 @@ a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-PDF-input rasterization (#221); the training toolchain (#222); a chained `Ci`
-builder (#223); an `examples/go` cookbook (#224).
+The training toolchain (#222); a chained `Ci` builder (#223); an `examples/go`
+cookbook (#224).
 
-Batch OCR over a directory (#220) landed — see above. It deliberately does not
-expose the concatenated multi-page output tesseract's list-file mode produces; if
-"a folder of pages in, one document out" turns out to be wanted, that is a
+Batch OCR over a directory (#220) and PDF-input rasterization (#221) both
+landed — see above. `Batch` still deliberately does not expose the concatenated
+multi-page output tesseract's list-file mode produces; that mode now has exactly
+one caller, `FromPdf`, where the pages really are one document. If "a folder of
+pages in, one document out" turns out to be wanted for a `Batch` too, that is a
 separate function, not a flag on `Export`.
 
 GPU acceleration is **not** a follow-up: tesseract has no CUDA path and upstream

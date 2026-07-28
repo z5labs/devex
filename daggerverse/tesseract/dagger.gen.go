@@ -131,10 +131,14 @@ func (r Document) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Tesseract *Tesseract
 		Source    *dagger.File
+		Pages     *dagger.Directory
+		PdfDpi    int
 		Options   options
 	}
 	concrete.Tesseract = r.Tesseract
 	concrete.Source = r.Source
+	concrete.Pages = r.Pages
+	concrete.PdfDpi = r.PdfDpi
 	concrete.Options = r.Options
 	return json.Marshal(&concrete)
 }
@@ -143,6 +147,8 @@ func (r *Document) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		Tesseract *Tesseract
 		Source    *dagger.File
+		Pages     *dagger.Directory
+		PdfDpi    int
 		Options   options
 	}
 	err := json.Unmarshal(bs, &concrete)
@@ -151,6 +157,8 @@ func (r *Document) UnmarshalJSON(bs []byte) error {
 	}
 	r.Tesseract = concrete.Tesseract
 	r.Source = concrete.Source
+	r.Pages = concrete.Pages
+	r.PdfDpi = concrete.PdfDpi
 	r.Options = concrete.Options
 	return nil
 }
@@ -840,6 +848,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Tesseract).Document(&parent, source), nil
+		case "FromPdf":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.File
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			var dpi int
+			if inputArgs["dpi"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dpi"]), &dpi)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dpi", err))
+				}
+			}
+			return (*Tesseract).FromPdf(&parent, source, dpi), nil
 		case "Langs":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)
