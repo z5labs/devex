@@ -1,0 +1,73 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 3 /Kids [4 0 R 6 0 R 8 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 116 >>
+stream
+BT
+/F1 24 Tf
+72 680 Td
+40 TL
+(Page one of the ledger.) Tj T*
+(The quick brown fox jumps over the lazy dog.) Tj T*
+ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 7 0 R >>
+endobj
+7 0 obj
+<< /Length 118 >>
+stream
+BT
+/F1 24 Tf
+72 680 Td
+40 TL
+(Page two of the ledger.) Tj T*
+(Pack my box with five dozen liquor jugs today.) Tj T*
+ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 9 0 R >>
+endobj
+9 0 obj
+<< /Length 120 >>
+stream
+BT
+/F1 24 Tf
+72 680 Td
+40 TL
+(Page three of the ledger.) Tj T*
+(How vexingly quick daft zebras jump about now.) Tj T*
+ET
+endstream
+endobj
+xref
+0 10
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000133 00000 n 
+0000000230 00000 n 
+0000000356 00000 n 
+0000000523 00000 n 
+0000000649 00000 n 
+0000000818 00000 n 
+0000000944 00000 n 
+trailer
+<< /Size 10 /Root 1 0 R >>
+startxref
+1115
+%%EOF
