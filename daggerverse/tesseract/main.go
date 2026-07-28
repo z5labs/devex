@@ -40,6 +40,8 @@
 //     of it in a single container exec.
 //   - pdf.go       — FromPdf, the rasterizer that turns a PDF into pages a
 //     *Document can recognise.
+//   - training.go  — *Training, the other direction: images plus ground truth
+//     in, a fine-tuned model out.
 package main
 
 import (
@@ -116,6 +118,58 @@ const (
 	// extension filter isImagePath applies on top of it, because Dagger's glob
 	// has no brace expansion to spell the alternation with.
 	defaultBatchGlob = "**/*"
+
+	// trainingSourceDir is where Training mounts the caller's pairs together
+	// with the box files generated for them, and trainingManifestPath the
+	// record list the sample-building loop reads. trainingListPath is the
+	// sample list lstmtraining and lstmeval are both pointed at; it sits
+	// beside the manifest rather than in the scratch directory because it is
+	// written here rather than by the run.
+	trainingSourceDir    = workDir + "/training"
+	trainingManifestPath = workDir + "/training.tsv"
+	trainingListPath     = workDir + "/training-samples.txt"
+
+	// trainingScratchDir holds everything a training run writes that is not
+	// the model: the network extracted from the base model, the per-sample
+	// `.lstmf` files, and lstmtraining's checkpoints. It is inside the
+	// container and never lifted off it — the checkpoints alone are ~70MB and
+	// mean nothing outside the run that wrote them.
+	trainingScratchDir = "/training"
+	trainingLstmfDir   = trainingScratchDir + "/lstmf"
+	trainingBaseLstm   = trainingScratchDir + "/base.lstm"
+
+	// trainingModelBase is lstmtraining's `--model_output`, off which it names
+	// every checkpoint it writes; trainingCheckpoint is the one it keeps
+	// current, and the one `--stop_training` is continued from.
+	trainingModelBase  = trainingScratchDir + "/model"
+	trainingCheckpoint = trainingModelBase + "_checkpoint"
+
+	// trainingPageSeg is the `--psm` the sample-building pass runs under.
+	// Mode 6 — one uniform block of text — is what tesseract's own training
+	// tooling uses, and on a single-line image it is the mode that finds that
+	// line without also trying to work out a column layout around it.
+	trainingPageSeg = "6"
+
+	// defaultTrainingIterations is how long fine-tuning runs when the caller
+	// names no length. See Training.WithIterations for why it is this small.
+	defaultTrainingIterations = 100
+
+	// groundTruthExt is the suffix pairing a ground-truth file with its image:
+	// `line-1.png` is transcribed by `line-1.gt.txt`. It is tesseract's own
+	// training-data convention rather than this module's invention.
+	groundTruthExt = ".gt.txt"
+
+	// boxExt names the file carrying an image's ground truth in the format
+	// `lstm.train` reads it, lstmfExt the training sample built from the two,
+	// and traineddataExt the model that comes out the far end.
+	boxExt         = ".box"
+	lstmfExt       = ".lstmf"
+	traineddataExt = ".traineddata"
+
+	// processedImagesExt is what the get.images renderer appends to the output
+	// base for the image tesseract actually recognised, after its own
+	// thresholding and deskewing.
+	processedImagesExt = ".processed.tif"
 
 	// popplerPkg carries pdftoppm, the rasterizer FromPdf drives. fontPkg is
 	// the substitute font family poppler draws with when a PDF names one of
@@ -346,8 +400,35 @@ func (t *Tesseract) Batch(source *dagger.Directory) *Batch {
 	return &Batch{Tesseract: t, Source: source}
 }
 
+// Training binds a directory of image and ground-truth pairs to the toolchain
+// and fine-tunes a model against them, which is recognition run backwards: the
+// text is what you have and the model is what you want.
+//
+// It is here rather than behind Container because the apk package already
+// ships every binary the job needs — lstmtraining, combine_tessdata, lstmeval
+// — so what stands between a directory of transcribed lines and a
+// `.traineddata` is orchestration rather than installation: a box file per
+// image, a training sample per box, one training run, one freeze.
+//
+// The model it produces pairs directly with WithTessdata, so a fine-tune and
+// the recognition that uses it are two calls on the same module.
+func (t *Tesseract) Training(source *dagger.Directory) *Training {
+	return &Training{Tesseract: t, Source: source}
+}
+
 func (t *Tesseract) image() string {
 	return fmt.Sprintf("%s/%s:%s", t.Registry, alpineImagePath, t.AlpineTag)
+}
+
+// datadir is the directory the image's models actually live in: the merged one
+// when WithTessdata supplied any, and the packaged one otherwise. Recognition
+// reaches it through tessdataArgs, which can leave the flag off entirely;
+// training cannot, because it has to name a model file by path.
+func (t *Tesseract) datadir() string {
+	if t.Tessdata == nil {
+		return packagedTessdataDir
+	}
+	return tessdataDir
 }
 
 // tessdataArgs returns the flag that moves tesseract's datadir to the merged

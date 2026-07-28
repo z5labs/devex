@@ -255,6 +255,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BatchSharesDocumentOptions(&parent, ctx)
+		case "BoxReportsCharacterBoxes":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BoxReportsCharacterBoxes(&parent, ctx)
 		case "DefaultLanguagesInstallEnglish":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -304,6 +311,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).LstmEngineRecognizesFixture(&parent, ctx)
+		case "LstmTrainBuildsTrainingSample":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LstmTrainBuildsTrainingSample(&parent, ctx)
 		case "MalformedParameterNameIsRejected":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -353,6 +367,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PdfInputIsRejected(&parent, ctx)
+		case "ProcessedImagesReturnsThresholdedTiff":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ProcessedImagesReturnsThresholdedTiff(&parent, ctx)
 		case "RequestedLanguagesAreInstalled":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -395,6 +416,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).TextRecognizesFixture(&parent, ctx)
+		case "TrainingPairsImagesWithGroundTruth":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TrainingPairsImagesWithGroundTruth(&parent, ctx)
+		case "TrainingProducesUsableModel":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TrainingProducesUsableModel(&parent, ctx)
+		case "TrainingRejectsUnusableInput":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TrainingRejectsUnusableInput(&parent, ctx)
+		case "TrainingRequiresFloatBaseModel":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TrainingRequiresFloatBaseModel(&parent, ctx)
 		case "TsvHasHeaderAndWordRows":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

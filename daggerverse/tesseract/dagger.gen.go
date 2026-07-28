@@ -163,6 +163,38 @@ func (r *Document) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Training) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Tesseract  *Tesseract
+		Source     *dagger.Directory
+		BaseModel  string
+		Iterations int
+	}
+	concrete.Tesseract = r.Tesseract
+	concrete.Source = r.Source
+	concrete.BaseModel = r.BaseModel
+	concrete.Iterations = r.Iterations
+	return json.Marshal(&concrete)
+}
+
+func (r *Training) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Tesseract  *Tesseract
+		Source     *dagger.Directory
+		BaseModel  string
+		Iterations int
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Tesseract = concrete.Tesseract
+	r.Source = concrete.Source
+	r.BaseModel = concrete.BaseModel
+	r.Iterations = concrete.Iterations
+	return nil
+}
+
 func (r Format) IsEnum() {}
 
 func (r Format) Name() string {
@@ -640,6 +672,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Document).Alto(&parent, ctx)
+		case "Box":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Document).Box(&parent, ctx)
 		case "Export":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)
@@ -661,6 +700,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Document).Hocr(&parent, ctx)
+		case "LstmTrain":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var groundTruth string
+			if inputArgs["groundTruth"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["groundTruth"]), &groundTruth)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg groundTruth", err))
+				}
+			}
+			return (*Document).LstmTrain(&parent, ctx, groundTruth)
 		case "Osd":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)
@@ -682,6 +735,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Document).Pdf(&parent, ctx)
+		case "ProcessedImages":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Document).ProcessedImages(&parent, ctx)
 		case "Text":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)
@@ -883,6 +943,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Tesseract).Parameters(&parent, ctx)
+		case "Training":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Tesseract).Training(&parent, source), nil
 		case "Version":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)
@@ -939,6 +1013,60 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return New(registry, alpineTag, languages, ompThreadLimit)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
+	case "Training":
+		switch fnName {
+		case "Evaluate":
+			var parent Training
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Training).Evaluate(&parent, ctx)
+		case "Files":
+			var parent Training
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Training).Files(&parent, ctx)
+		case "Traineddata":
+			var parent Training
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Training).Traineddata(&parent, ctx)
+		case "WithBaseModel":
+			var parent Training
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var lang string
+			if inputArgs["lang"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lang"]), &lang)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lang", err))
+				}
+			}
+			return (*Training).WithBaseModel(&parent, lang), nil
+		case "WithIterations":
+			var parent Training
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var n int
+			if inputArgs["n"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["n"]), &n)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg n", err))
+				}
+			}
+			return (*Training).WithIterations(&parent, n), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
