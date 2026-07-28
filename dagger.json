@@ -70,6 +70,10 @@
       "source": "daggerverse/skill-gen/tests"
     },
     {
+      "name": "tesseract-tests",
+      "source": "daggerverse/tesseract/tests"
+    },
+    {
       "name": "valkey-tests",
       "source": "daggerverse/valkey/tests"
     },
