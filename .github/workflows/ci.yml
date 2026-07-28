@@ -107,19 +107,17 @@ jobs:
         # its own tests module instead of the whole ci/ aggregator. ci:* checks
         # stay on the root module.
         #
-        # timeout is the leg's dagger/checks step bound in minutes. A module
-        # suite's own work is far below this: the tesseract suite (the slowest
-        # new leg) measures 22s on a cold 4-vCPU engine and 1m7s on a cold
-        # 1-vCPU one, so the bound exists only to trip on the telemetry-drain
-        # hang, not to fit the tests. Raised 6 -> 12 while we confirm whether a
-        # longer window lets a stalled drain clear on its own (run 30323420558
-        # lost tesseract-tests:all and kafka-tests:schema-registry to it across
-        # all 3 attempts). If legs still die at the bound, the drain is
-        # outlasting any practical timeout and this should go back to 6 so the
-        # auto-rerun fires sooner. ci:generated is the exception (#184) because
-        # it runs codegen for every module in the workspace, so it pays
+        # timeout is the leg's dagger/checks step bound in minutes. 6 fits every
+        # leg that runs one module's suite; ci:generated is the exception (#184)
+        # because it runs codegen for every module in the workspace, so it pays
         # in one leg the module-build cost the other legs spread across
         # themselves — measured at ~5m of engine work on a cold engine.
+        #
+        # Restored from the 12 set in a19f611, which was a workaround for #226:
+        # tesseract-tests:all really was taking 9m5s on a runner, not stalling
+        # on the telemetry drain. Its OpenMP fan-out is bounded now, so the
+        # tighter bound is honest again and the auto-rerun fires sooner on a
+        # genuinely stuck leg.
         env:
           CHECKS: ${{ steps.select.outputs.checks }}
         run: |
@@ -144,7 +142,7 @@ jobs:
                   timeout: ({"ci:generated": 15, "ci:generated-self-test": 8}[.] // 6) }
               else
                 { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])),
-                  timeout: 12 }
+                  timeout: 6 }
               end
             )
             # jobTimeout is the job cap: the step bound plus setup headroom.
@@ -205,7 +203,7 @@ jobs:
 
       # Fail fast on the Dagger Cloud telemetry-drain hang. The check itself runs
       # in ~1-4m (matrix.job.timeout, set by the route step, is that leg's bound:
-      # 12m for a module suite, 15m for the whole-workspace ci:generated codegen
+      # 6m for a normal suite, 15m for the whole-workspace ci:generated codegen
       # sweep); a leg still going past it is almost certainly stuck draining
       # telemetry to api.dagger.cloud (upstream dagger/dagger#7048, #12178),
       # which otherwise hangs the leg until the job timeout. Bounding the step

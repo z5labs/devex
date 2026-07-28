@@ -27,6 +27,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"dagger/tesseract/internal/dagger"
@@ -72,6 +73,17 @@ const (
 
 	userWordsPath    = workDir + "/user-words.txt"
 	userPatternsPath = workDir + "/user-patterns.txt"
+
+	// ompThreadLimitEnv caps the OpenMP team size tesseract's recognition
+	// loops fan out to.
+	ompThreadLimitEnv = "OMP_THREAD_LIMIT"
+
+	// hostCpuOmpThreadLimit is the unset value: no OMP_THREAD_LIMIT on the
+	// image, so libgomp sizes every thread team by the CPUs it can see. That
+	// is the right default for the common case — one image, one machine, a
+	// caller who wants the whole box — and the wrong one as soon as several
+	// recognitions share the cores, which is what the bound exists for.
+	hostCpuOmpThreadLimit = 0
 )
 
 // Tesseract is the root namespace for every exported function in this module.
@@ -85,6 +97,8 @@ type Tesseract struct {
 	AlpineTag string
 	// +private
 	Languages []string
+	// +private
+	OmpThreadLimit int
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
@@ -100,18 +114,34 @@ func New(
 	// "osd" is not a recognition language but is required by Document.Osd.
 	// +optional
 	languages []string,
-) *Tesseract {
+	// Upper bound on the OpenMP threads tesseract may use, set on the
+	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
+	// per available CPU, which is what a caller who owns the machine wants.
+	// Set it when several recognitions share the cores — concurrent passes
+	// each claiming every CPU oversubscribe the box badly enough to cost an
+	// order of magnitude, which is the shape of the long-standing upstream
+	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
+	// thread per pass is the usual setting there.
+	// +optional
+	ompThreadLimit int,
+) (*Tesseract, error) {
 	if registry == "" {
 		registry = defaultRegistry
 	}
 	if alpineTag == "" {
 		alpineTag = defaultAlpineTag
 	}
-	return &Tesseract{
-		Registry:  registry,
-		AlpineTag: alpineTag,
-		Languages: normalizeLanguages(languages),
+	if ompThreadLimit < 0 {
+		return nil, fmt.Errorf(
+			"New: ompThreadLimit must not be negative, got %d: pass a positive thread cap, or leave it unset for one thread per available CPU",
+			ompThreadLimit)
 	}
+	return &Tesseract{
+		Registry:       registry,
+		AlpineTag:      alpineTag,
+		Languages:      normalizeLanguages(languages),
+		OmpThreadLimit: ompThreadLimit,
+	}, nil
 }
 
 // Container returns the assembled toolchain image. This is the escape hatch
@@ -119,15 +149,25 @@ func New(
 // package ships, `combine_tessdata`, and tesseract's long tail of renderers
 // stay reachable via `container with-exec`.
 //
+// A requested OpenMP bound lives here rather than on the recognition
+// invocation so everything reached through this escape hatch inherits it too.
+//
 // +cache="session"
 func (t *Tesseract) Container() *dagger.Container {
 	args := []string{"apk", "add", "--no-cache", tesseractPkg}
 	for _, lang := range t.Languages {
 		args = append(args, langPkgPrefix+lang)
 	}
-	return dag.Container().
+	ctr := dag.Container().
 		From(t.image()).
 		WithExec(args)
+	// Applied after the install so the thread bound does not become part of
+	// the apk layer's cache key: two images differing only in their limit
+	// still share the package fetch.
+	if t.OmpThreadLimit > hostCpuOmpThreadLimit {
+		ctr = ctr.WithEnvVariable(ompThreadLimitEnv, strconv.Itoa(t.OmpThreadLimit))
+	}
+	return ctr
 }
 
 // Version returns the tesseract release the assembled image ships, as the

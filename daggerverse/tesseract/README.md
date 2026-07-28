@@ -18,7 +18,7 @@ Nothing here handles secrets and nothing opens a port.
 ## Languages live on the root object
 
 ```go
-New(registry="docker.io", alpineTag="3.24", languages []string) *Tesseract
+New(registry="docker.io", alpineTag="3.24", languages []string, ompThreadLimit int) *Tesseract
 ```
 
 On Alpine each language is a **separate apk package**, and the base package
@@ -34,6 +34,40 @@ dag.Tesseract()                                                     // eng
 dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng","deu","osd"}})
 dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // mirror
 ```
+
+## OpenMP fan-out — `ompThreadLimit`
+
+Alpine's tesseract links `libgomp` and reports `Found OpenMP 201511`. Left alone
+it sizes every thread team by the CPUs it can see, which is what a caller who
+owns the machine wants — so that is the default, and `ompThreadLimit` is opt-in.
+
+Opt in when several recognitions share the cores. Each pass claiming every core
+does not merely fail to help, it collapses: eleven concurrent passes over the
+4-line test fixture, pinned to four CPUs, measure
+
+| CPUs | `OMP_THREAD_LIMIT` | wall |
+| --- | --- | --- |
+| 4 | unset | **8m34s** |
+| 4 | `1` | **1.06s** |
+| 32 | unset | 0.68s |
+| 32 | `1` | 0.55s |
+
+Same work, ~485x apart. Upstream has carried reports of this shape for years
+([#2611](https://github.com/tesseract-ocr/tesseract/issues/2611), #1171, #263)
+and `OMP_THREAD_LIMIT` is the standard answer. This module's own test suite sets
+it to `1` for exactly this reason (#226); a shared CI runner is the textbook
+case.
+
+```go
+dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: 1})   // sharing the box
+dag.Tesseract()                                          // one thread per CPU
+```
+
+The variable is set on the image after `apk add`, so it applies to everything
+reached through `Container()` too, and two images differing only in their limit
+still share the package fetch. A negative value is rejected on `New` — libgomp
+reads an unparseable `OMP_THREAD_LIMIT` as absent and silently goes back to one
+thread per CPU, the opposite of what was asked for.
 
 ## Toolchain
 
