@@ -61,27 +61,36 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 
 func (r Tesseract) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Registry       string
-		AlpineTag      string
-		Languages      []string
-		OmpThreadLimit int
-		Tessdata       *dagger.Directory
+		Registry        string
+		AlpineTag       string
+		Languages       []string
+		OmpThreadLimit  int
+		Tessdata        *dagger.Directory
+		ApkRepositories []string
+		ApkKeys         []*dagger.File
+		ApkAuth         *dagger.Secret
 	}
 	concrete.Registry = r.Registry
 	concrete.AlpineTag = r.AlpineTag
 	concrete.Languages = r.Languages
 	concrete.OmpThreadLimit = r.OmpThreadLimit
 	concrete.Tessdata = r.Tessdata
+	concrete.ApkRepositories = r.ApkRepositories
+	concrete.ApkKeys = r.ApkKeys
+	concrete.ApkAuth = r.ApkAuth
 	return json.Marshal(&concrete)
 }
 
 func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Registry       string
-		AlpineTag      string
-		Languages      []string
-		OmpThreadLimit int
-		Tessdata       *dagger.Directory
+		Registry        string
+		AlpineTag       string
+		Languages       []string
+		OmpThreadLimit  int
+		Tessdata        *dagger.Directory
+		ApkRepositories []string
+		ApkKeys         []*dagger.File
+		ApkAuth         *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -92,6 +101,9 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	r.Languages = concrete.Languages
 	r.OmpThreadLimit = concrete.OmpThreadLimit
 	r.Tessdata = concrete.Tessdata
+	r.ApkRepositories = concrete.ApkRepositories
+	r.ApkKeys = concrete.ApkKeys
+	r.ApkAuth = concrete.ApkAuth
 	return nil
 }
 
@@ -1071,6 +1083,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Tesseract).Version(&parent, ctx)
+		case "WithApkAuth":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var credentials *dagger.Secret
+			if inputArgs["credentials"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["credentials"]), &credentials)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg credentials", err))
+				}
+			}
+			return (*Tesseract).WithApkAuth(&parent, credentials), nil
+		case "WithApkKey":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var key *dagger.File
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			return (*Tesseract).WithApkKey(&parent, key), nil
+		case "WithApkRepository":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var url string
+			if inputArgs["url"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["url"]), &url)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg url", err))
+				}
+			}
+			return (*Tesseract).WithApkRepository(&parent, url), nil
 		case "WithTessdata":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)

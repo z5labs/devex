@@ -15,10 +15,13 @@ and every image on Docker Hub is third-party. So this module assembles its own
 the way `qemu` does rather than pinning a vendor image the way `kicad` does: a
 module-pinned Alpine (`3.24`, whose community repository carries tesseract-ocr
 5.5.2) plus `apk add tesseract-ocr` and one `tesseract-ocr-data-<lang>` package
-per requested language. Only the `registry` prefix is caller-overridable, for
-air-gapped mirrors.
+per requested language. Assembling an image that way is **two** fetches, not
+one: `registry` overrides where the *image* comes from, and `WithApkRepository`
+overrides where the *packages* installed onto it come from — see
+[Air-gapped installs](#air-gapped-installs--withapkrepository-withapkkey-withapkauth).
 
-Nothing here handles secrets and nothing opens a port.
+Nothing here opens a port. The one secret it handles is `WithApkAuth`, the
+credential for a package repository that requires one.
 
 ## Languages live on the root object
 
@@ -37,7 +40,7 @@ orientation-and-script-detection model, and `Document.Osd` needs it.
 ```go
 dag.Tesseract()                                                     // eng
 dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng","deu","osd"}})
-dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // mirror
+dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // image only
 ```
 
 ## Models Alpine has no package for — `WithTessdata`
@@ -72,6 +75,68 @@ fine-tuned one work.
 The merge is mounted, not copied — a model set runs 20MB and up, and there is no
 reason for it to become an image layer. Nothing changes for an image without
 tessdata: the flag is omitted entirely rather than pointed at the packaged path.
+
+## Air-gapped installs — `WithApkRepository`, `WithApkKey`, `WithApkAuth`
+
+```go
+Tesseract.WithApkRepository(url string) *Tesseract            // /etc/apk/repositories
+Tesseract.WithApkKey(key *dagger.File) *Tesseract             // /etc/apk/keys/<name>
+Tesseract.WithApkAuth(credentials *dagger.Secret) *Tesseract  // $NETRC
+```
+
+`registry` moves the container image. These move the packages installed onto it,
+and on a network that cannot reach `dl-cdn.alpinelinux.org` you need both:
+mirroring Alpine into a private registry and stopping there buys a container
+that fails on its very first `apk add` — or, where the CDN is blackholed rather
+than refused, hangs until it times out.
+
+```go
+dag.Tesseract(dagger.TesseractOpts{Registry: "registry.corp"}).
+    WithApkRepository("https://mirror.corp/alpine/v3.24/main").
+    WithApkRepository("https://mirror.corp/alpine/v3.24/community").
+    WithApkKey(host.File("./mirror.rsa.pub")).
+    WithApkAuth(netrc)
+```
+
+**The first call replaces the image's list rather than appending to it.**
+Repeatable after that, in preference order. Appending would be the friendlier
+default everywhere except the case the option exists for, where a surviving
+default is a repository apk still consults and still waits on. An empty URL is
+dropped rather than written, the same way an empty language code is.
+
+**A repository index is signed, and apk refuses one it cannot verify** — so a
+private mirror needs `WithApkKey` as well, and `--allow-untrusted` is
+deliberately not offered. The key file keeps its own name in `/etc/apk/keys`,
+because the name is load-bearing: an index's signature names the key file it was
+made with and apk looks that exact name up. That is why the option takes a
+`*dagger.File` rather than the key's bytes — and why it is a File and not a
+Secret, a public key being meant to be in the image.
+
+**Credentials are a `*dagger.Secret` holding a netrc file**, mounted at
+`/run/apk/netrc` with `$NETRC` pointing at it:
+
+```
+machine mirror.corp login CI_USER password CI_TOKEN
+```
+
+Alpine 3.24 ships apk-tools 3.0, whose built-in libfetch reads credentials from
+that file when a repository answers `401`, and from nowhere else that keeps them
+out of sight — userinfo in the repository URL would land in
+`/etc/apk/repositories` and in every apk error quoting it, and `HTTP_AUTH` would
+land in the image's environment. Mounted rather than written, so the credentials
+are not a layer either: nothing reaches the cache key, the argv, the environment
+or the filesystem a caller exports. Hosts are matched by name only, so one
+stanza covers a mirror on any port.
+
+**Both `apk add` this module performs are covered** — the toolchain's, and the
+PDF rasterizer's `poppler-utils` + `ttf-liberation`. They are separate
+containers on purpose (see [Why a separate container](#why-a-separate-container)),
+so they are two places the configuration has to reach; covering only the first
+would leave `FromPdf` broken in exactly the environment this option exists for.
+
+Set none of them and nothing changes. The repositories file, the keys directory
+and the environment are the image's own, so an existing caller sees no cache-key
+churn from a feature it is not using.
 
 ## OpenMP fan-out — `ompThreadLimit`
 
@@ -615,7 +680,10 @@ a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-An `examples/go` cookbook (#224); evaluation against a held-out set (#231).
+An `examples/go` cookbook (#224); evaluation against a held-out set (#231);
+authenticating to a private *container* registry for the mirrored Alpine image
+(#235), which the apk options above deliberately do not cover — they configure
+the package fetch, not the image pull.
 
 The chained `Ci` builder (#223) and the training toolchain (#222) both landed —
 see above. `Ci` deliberately exposes only `WithLanguage` of the seven recognition

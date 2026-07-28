@@ -6,8 +6,15 @@
 //
 // There is no official Tesseract container image — upstream ships source only
 // — so this module assembles its own the way the qemu module does: a
-// module-pinned Alpine plus `apk add tesseract-ocr`, with only the registry
-// prefix caller-overridable for air-gapped mirrors.
+// module-pinned Alpine plus `apk add tesseract-ocr`.
+//
+// Assembling the image means two fetches, not one, and a network that cannot
+// reach the public internet has to be told about both. New's registry argument
+// moves the *image*; WithApkRepository, WithApkKey and WithApkAuth move the
+// *packages*, and are what an air-gapped run needs — a mirrored Alpine image
+// still runs `apk add` against dl-cdn.alpinelinux.org otherwise. Both `apk add`
+// this module performs, the toolchain's and the PDF rasterizer's, are
+// configured from the one place.
 //
 // The language set lives on the root object rather than on Document because on
 // Alpine each language is a separate apk package (`tesseract-ocr-data-<lang>`,
@@ -58,8 +65,10 @@ import (
 
 const (
 	// alpineImagePath is the repository under the configured registry. Only
-	// the registry prefix is caller-overridable (air-gapped mirrors); the
-	// path is fixed so every recognition runs on a known toolchain.
+	// the registry prefix is caller-overridable, for an image mirrored into a
+	// private registry; the path is fixed so every recognition runs on a known
+	// toolchain. Where the packages come from is a separate question, answered
+	// by WithApkRepository.
 	alpineImagePath = "library/alpine"
 	defaultRegistry = "docker.io"
 
@@ -173,6 +182,29 @@ const (
 	// thresholding and deskewing.
 	processedImagesExt = ".processed.tif"
 
+	// apkRepositoriesFile is the list `apk add` resolves packages from.
+	// WithApkRepository overwrites it rather than appending to it, so a caller
+	// who names a mirror gets an image that cannot quietly fall back to the
+	// CDN the mirror exists to replace.
+	apkRepositoriesFile = "/etc/apk/repositories"
+
+	// apkKeysDir is where apk looks up the public key an index's signature
+	// names. A repository whose key is not here is untrusted, and apk refuses
+	// its index rather than installing from it — which is why a private
+	// mirror needs WithApkKey and not just WithApkRepository.
+	apkKeysDir = "/etc/apk/keys"
+
+	// apkNetrcPath is where WithApkAuth's credentials are mounted and
+	// apkNetrcEnv the variable pointing apk at them. Alpine 3.24 ships
+	// apk-tools 3.0, whose built-in libfetch reads HTTP credentials from the
+	// netrc file `$NETRC` names and from nowhere else that keeps them out of
+	// sight: userinfo in the repository URL would land in the repositories
+	// file and in every error message quoting it, and HTTP_AUTH would land in
+	// the image's environment. The file is mounted rather than written so it
+	// is not a layer either.
+	apkNetrcPath = "/run/apk/netrc"
+	apkNetrcEnv  = "NETRC"
+
 	// popplerPkg carries pdftoppm, the rasterizer FromPdf drives. fontPkg is
 	// the substitute font family poppler draws with when a PDF names one of
 	// the base-14 fonts without embedding it; see rasterize for why it is not
@@ -230,12 +262,20 @@ type Tesseract struct {
 	OmpThreadLimit int
 	// +private
 	Tessdata *dagger.Directory
+	// +private
+	ApkRepositories []string
+	// +private
+	ApkKeys []*dagger.File
+	// +private
+	ApkAuth *dagger.Secret
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
 func New(
-	// Container registry hosting the alpine image.
+	// Container registry hosting the alpine image. This moves the image only:
+	// see WithApkRepository for where the packages installed onto it are
+	// fetched from.
 	// +default="docker.io"
 	registry string,
 	// Tag of the alpine image the toolchain is assembled on.
@@ -294,9 +334,89 @@ func (t *Tesseract) WithTessdata(
 	// Directory of `.traineddata` models to make available to recognition.
 	dir *dagger.Directory,
 ) *Tesseract {
-	out := *t
+	out := t.clone()
 	out.Tessdata = dir
-	return &out
+	return out
+}
+
+// WithApkRepository points package installation at an Alpine repository other
+// than the one the base image ships, which is what makes this module work on a
+// network that cannot reach dl-cdn.alpinelinux.org.
+//
+// New's registry argument is not enough on its own and never was: it moves the
+// *image*, and the packages are still fetched by `apk add` from whatever
+// /etc/apk/repositories carries — so mirroring Alpine into a private registry
+// buys a container that then fails on its first `apk add`, or, where the CDN is
+// blackholed rather than refused, hangs until it times out.
+//
+// Repeatable, in preference order. The first call replaces the image's list
+// rather than appending to it, because the air-gapped case needs the
+// unreachable defaults gone rather than merely deprioritized: a repository apk
+// still consults is a repository apk still waits for.
+//
+// The URL is the repository base, spelled the way it would be spelled in
+// /etc/apk/repositories — `https://mirror.example.com/alpine/v3.24/main`, one
+// call per component. A repository's index is signed, so pair this with
+// WithApkKey unless the mirror is signed by a key the base image already
+// trusts.
+func (t *Tesseract) WithApkRepository(
+	// Base URL of an Alpine repository to resolve packages from.
+	url string,
+) *Tesseract {
+	url = strings.TrimSpace(url)
+	if url == "" {
+		return t
+	}
+	out := t.clone()
+	if !contains(out.ApkRepositories, url) {
+		out.ApkRepositories = append(out.ApkRepositories, url)
+	}
+	return out
+}
+
+// WithApkKey trusts a repository's signing key by dropping it into
+// /etc/apk/keys, which is the other half of WithApkRepository: a private
+// mirror's index is signed by a key the stock Alpine image has never heard of,
+// and apk refuses an index it cannot verify rather than installing from it.
+//
+// The file keeps its own name, because the name is load-bearing — an index
+// signature names the key file it was made with, and apk looks that exact file
+// up in the keys directory. A key exported from `abuild-keygen` is already
+// named correctly; renaming it renames the key.
+//
+// Repeatable, for a mirror set signed by more than one key. It is a *File
+// rather than a *Secret because a public key is not a credential: it is meant
+// to be in the image, and WithApkAuth is the option for the part that is not.
+func (t *Tesseract) WithApkKey(
+	// Public key file trusting a repository's index signature.
+	key *dagger.File,
+) *Tesseract {
+	out := t.clone()
+	out.ApkKeys = append(out.ApkKeys, key)
+	return out
+}
+
+// WithApkAuth supplies credentials for a repository that requires them.
+//
+// The secret's contents are a netrc file — `machine mirror.example.com login
+// USER password PASS`, one stanza per host — which is what apk-tools 3's
+// built-in libfetch reads when a repository answers 401. Alpine 3.24 ships
+// apk-tools 3.0; see NETRC in `apk(8)`. Hosts are matched by name only, so a
+// stanza covers a mirror on any port.
+//
+// It is a *dagger.Secret rather than a string, and is mounted rather than
+// written, so the credentials stay out of the cache key, out of argv, out of
+// the image's environment and out of any layer a caller exports. That is also
+// why the credentials are not simply userinfo in the WithApkRepository URL,
+// which would put them in /etc/apk/repositories and in every apk error message
+// that quotes it.
+func (t *Tesseract) WithApkAuth(
+	// netrc-formatted credentials for the configured repositories.
+	credentials *dagger.Secret,
+) *Tesseract {
+	out := t.clone()
+	out.ApkAuth = credentials
+	return out
 }
 
 // Container returns the assembled toolchain image. This is the escape hatch
@@ -313,9 +433,7 @@ func (t *Tesseract) Container() *dagger.Container {
 	for _, lang := range t.Languages {
 		args = append(args, langPkgPrefix+lang)
 	}
-	ctr := dag.Container().
-		From(t.image()).
-		WithExec(args)
+	ctr := t.base().WithExec(args)
 	// Merged after the install because the packaged half of the union is
 	// whatever apk just wrote, and mounted rather than copied so a 20MB-plus
 	// model set does not become a layer per image.
@@ -420,6 +538,47 @@ func (t *Tesseract) Training(source *dagger.Directory) *Training {
 
 func (t *Tesseract) image() string {
 	return fmt.Sprintf("%s/%s:%s", t.Registry, alpineImagePath, t.AlpineTag)
+}
+
+// clone copies the module's configuration for a builder method, deep enough
+// that the copy's slices are its own: a builder that appended in place would
+// let a second call off the same value overwrite the first one's addition.
+func (t *Tesseract) clone() *Tesseract {
+	out := *t
+	out.Languages = append([]string(nil), t.Languages...)
+	out.ApkRepositories = append([]string(nil), t.ApkRepositories...)
+	out.ApkKeys = append([]*dagger.File(nil), t.ApkKeys...)
+	return &out
+}
+
+// base is the module's Alpine image with package installation configured, and
+// is what every `apk add` in this module starts from — the toolchain's here,
+// the rasterizer's in pdf.go — so the two cannot drift into fetching packages
+// from different places.
+func (t *Tesseract) base() *dagger.Container {
+	return t.withApkConfig(dag.Container().From(t.image()))
+}
+
+// withApkConfig applies the caller's repositories, keys and credentials to a
+// container, immediately before the `apk add` that reads them.
+//
+// Each half is applied only when it was asked for. That is not tidiness: with
+// none of the options set the container is byte-identical to the one this
+// module assembled before they existed, so an existing caller sees no
+// cache-key churn from a feature they are not using.
+func (t *Tesseract) withApkConfig(ctr *dagger.Container) *dagger.Container {
+	if len(t.ApkRepositories) > 0 {
+		ctr = ctr.WithNewFile(apkRepositoriesFile, strings.Join(t.ApkRepositories, "\n")+"\n")
+	}
+	if len(t.ApkKeys) > 0 {
+		ctr = ctr.WithFiles(apkKeysDir, t.ApkKeys)
+	}
+	if t.ApkAuth != nil {
+		ctr = ctr.
+			WithMountedSecret(apkNetrcPath, t.ApkAuth).
+			WithEnvVariable(apkNetrcEnv, apkNetrcPath)
+	}
+	return ctr
 }
 
 // datadir is the directory the image's models actually live in: the merged one

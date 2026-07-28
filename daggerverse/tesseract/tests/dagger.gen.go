@@ -213,6 +213,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AltoIsValidXml(&parent, ctx)
+		case "ApkAuthInstallsFromAuthenticatedRepository":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ApkAuthInstallsFromAuthenticatedRepository(&parent, ctx)
+		case "ApkRepositoryAppliesToPdfRasterizer":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ApkRepositoryAppliesToPdfRasterizer(&parent, ctx)
+		case "ApkRepositoryInstallsFromPrivateMirror":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ApkRepositoryInstallsFromPrivateMirror(&parent, ctx)
+		case "ApkRepositoryReplacesImageDefaults":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ApkRepositoryReplacesImageDefaults(&parent, ctx)
+		case "AuthenticatedRepositoryIsRejectedWithoutApkAuth":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AuthenticatedRepositoryIsRejectedWithoutApkAuth(&parent, ctx)
 		case "BatchDefaultGlobSkipsNonImages":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -304,6 +339,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiRunProducesEnabledFormats(&parent, ctx)
+		case "DefaultApkConfigurationIsUntouched":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DefaultApkConfigurationIsUntouched(&parent, ctx)
 		case "DefaultLanguagesInstallEnglish":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -514,6 +556,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).UnknownParameterFails(&parent, ctx)
+		case "UntrustedIndexIsRejectedWithoutApkKey":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).UntrustedIndexIsRejectedWithoutApkKey(&parent, ctx)
 		case "UserWordsFileIsAccepted":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

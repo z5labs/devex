@@ -80,8 +80,7 @@ func (t *Tesseract) FromPdf(
 // being metric-compatible with Helvetica, Times and Courier, so substituted
 // text keeps the line breaks and positions the document was written with.
 func (t *Tesseract) rasterize(source *dagger.File, dpi int) *dagger.Directory {
-	return dag.Container().
-		From(t.image()).
+	return t.base().
 		WithExec([]string{"apk", "add", "--no-cache", popplerPkg, fontPkg}).
 		WithMountedFile(pdfSourcePath, source).
 		WithExec([]string{"sh", "-c", rasterizeScript, rasterizeArgv0, strconv.Itoa(dpi)}).
