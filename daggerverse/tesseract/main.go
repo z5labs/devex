@@ -38,6 +38,8 @@
 //   - document.go  — *Document, one image in and one artifact set out.
 //   - batch.go     — *Batch, a directory in and a mirrored directory out, all
 //     of it in a single container exec.
+//   - ci.go        — *Ci, a batch plus a confidence gate, for the repo that
+//     wants its whole document pipeline as one declarative call.
 //   - pdf.go       — FromPdf, the rasterizer that turns a PDF into pages a
 //     *Document can recognise.
 //   - training.go  — *Training, the other direction: images plus ground truth

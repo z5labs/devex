@@ -4,9 +4,11 @@ Daggerverse module that runs [Tesseract](https://tesseract-ocr.github.io/) OCR
 as a `dagger call`. Hand it an image and get back plain text, or hOCR / ALTO /
 TSV / PAGE / a searchable PDF for anything that needs word positions and
 confidences. Hand it a directory and get the same artifacts back for every page
-in it, at the paths they came in on. Hand it a PDF and it rasterizes the pages
-for you first. Hand it transcribed lines and it fine-tunes a model against them
-and gives you back a `.traineddata` the same module recognises with.
+in it, at the paths they came in on — or hand that directory to `Ci` and get the
+whole pipeline, quality gate included, as one call. Hand it a PDF and it
+rasterizes the pages for you first. Hand it transcribed lines and it fine-tunes a
+model against them and gives you back a `.traineddata` the same module recognises
+with.
 
 **There is no official Tesseract container image** — upstream ships source only,
 and every image on Docker Hub is third-party. So this module assembles its own
@@ -322,6 +324,84 @@ either way.
 `Files` reports the matched set without paying for the recognition, which is the
 answer to the question a glob always raises.
 
+## Ci — the whole pipeline as one call
+
+```go
+Tesseract.Ci(source *dagger.Directory) *Ci
+
+Ci.WithLanguage(lang string) *Ci
+Ci.WithFormats(formats []Format) *Ci        // default: TXT
+Ci.WithMinConfidence(percent int) *Ci       // default: no gate
+Ci.Check(ctx) error                         // the gate, no artifacts
+Ci.Run(ctx) (*dagger.Directory, error)      // the gate, then the artifacts
+```
+
+A document-processing repo's CI wants one declarative call: OCR everything under
+a directory, emit the archival formats, and fail the build when recognition
+quality drops. `Ci` composes `Batch` without adding capability — every stage is
+a call the caller could make by hand — so that CI is one `dagger call` rather
+than a recognition step, an export step and a hand-rolled TSV parser.
+
+Which files take part is `Batch`'s default: the image extensions above, at any
+depth. `Run` returns the same mirrored directory `Batch.Export` does.
+
+### The confidence gate
+
+`WithMinConfidence` is the part that is not merely a bundled call. It reads the
+`conf` column tesseract already publishes in its TSV output — nothing here
+re-derives a confidence — and averages the word-level rows per page:
+
+```
+level  page_num  …  conf    text
+5      1         …  96.063  The
+5      1         …  92.481  quick
+```
+
+Levels 1–4 (page, block, paragraph, line) all report `-1`, so the `level` column
+is what separates a measurement from a placeholder; word rows whose text is empty
+are skipped too, or a page would be scored by how aggressively it was segmented
+rather than by how well it was read. The columns are located by header name, not
+by position: a gate reading the wrong column would not fail, it would pass the
+wrong scans.
+
+What that catches is the class of failure recognition does not report as one. A
+page fed sideways, a scanner drifting out of focus, a language configured wrong —
+all of them recognise *something*, exit 0, and render every artifact asked for.
+
+The failure names the page that measured **worst** and how many others joined it,
+because a batch that drifted out of focus fails several pages at once and the one
+to go and find in the stack is the one furthest below the bar:
+
+```
+Ci: "scans/page-7.png" was recognised at a mean word confidence of 61.4%, below
+the required 80%, the lowest of 3 page(s) below it: check the scan and the
+recognition language, or lower the bar with WithMinConfidence
+```
+
+A page that recognised **no** words gets its own message rather than being
+reported as zero: the mean of no words is not zero, it is undefined, and a blank
+page is a different fault with a different fix.
+
+### Why the gate rides along on the artifact pass
+
+`Run` renders TSV *alongside* whatever `WithFormats` enabled, in the same
+recognition pass, then measures it — rather than recognising the directory once
+to check and again to export. Recognising everything twice is the single most
+expensive thing this module could be asked to do, and the only difference
+between a gated run and an ungated one is a TSV.
+
+A failing gate still returns the error and no directory: the artifacts exist
+inside the exec, and a caller who is refused them is no better off for their
+having been skipped. When TSV was not among the enabled formats the gate's own
+TSVs are dropped from the result, so enabling a threshold cannot silently change
+what the pipeline produces.
+
+`Check` is the same gate with nothing to export, for the PR that wants to know
+whether the scans are good enough without paying to render the archive. It runs
+recognition either way — with no threshold set the bar is simply "every matched
+file is an image tesseract can read", which is not nothing — because a page's
+confidence is not knowable without recognising it.
+
 ## PDF input — `FromPdf`
 
 ```go
@@ -518,6 +598,7 @@ letting tesseract fail in its own vocabulary.
 | `WithBaseModel` naming a quantized model | `lstmtraining` says only `is an integer (fast) model`, which names neither the float builds nor how to get one onto the image |
 | `WithIterations` at zero or negative | `lstmtraining` would write no checkpoint, and `--stop_training` would fail on its absence rather than on the argument |
 | `LstmTrain` with empty or multi-line ground truth, or on a rasterized PDF | same one-image-one-line contract; a whole PDF has no single line to claim |
+| `WithMinConfidence` outside 1–100 | confidences are percentages: a bar of 0 passes every page and one above 100 fails every page, so either is a gate that reports a verdict it never reached |
 
 Errors fold tesseract's own output in via `Expect: ReturnTypeAny` plus a
 combined stdout+stderr helper, because tesseract splits usage errors onto stderr
@@ -525,7 +606,7 @@ and progress onto stdout.
 
 ## Caching
 
-No `+cache=` directive appears on any `Document`, `Batch` or `Training` output:
+No `+cache=` directive appears on any `Document`, `Batch`, `Ci` or `Training` output:
 recognition is a pure function of the image bytes plus the flags, and so is
 fine-tuning of the samples plus the base model, so the 7-day default is correct
 and there is no chained-method propagation problem to worry about. `Container`,
@@ -534,10 +615,16 @@ a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-A chained `Ci` builder (#223); an `examples/go` cookbook (#224); evaluation
-against a held-out set (#231).
+An `examples/go` cookbook (#224); evaluation against a held-out set (#231).
 
-The training toolchain (#222) landed — see above.
+The chained `Ci` builder (#223) and the training toolchain (#222) both landed —
+see above. `Ci` deliberately exposes only `WithLanguage` of the seven recognition
+options `Batch` carries: the rest describe *how one scan is read* — a page
+segmentation mode, a DPI, a control variable — and a pipeline whose input is a
+whole intake folder has no single answer for them. A caller who needs one is
+configuring a `Batch`, not a CI. `WithGlob` is absent for the same reason from
+the other direction: the default takes the images and leaves the manifests, which
+is what pointing this at an existing scan folder should do.
 
 Batch OCR over a directory (#220) and PDF-input rasterization (#221) both
 landed — see above. `Batch` still deliberately does not expose the concatenated

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -67,6 +68,13 @@ const (
 	// able to tell the float model from the packaged one they sit beside.
 	floatModelLang = "best"
 
+	// blankPageWidth and blankPageHeight size the generated blank page. They
+	// are a page rather than a swatch because tesseract declines to analyse a
+	// layout it considers too small to have one, and a refusal to look is not
+	// the same result as looking and finding nothing.
+	blankPageWidth  = 300
+	blankPageHeight = 200
+
 	// suiteOmpThreadLimit is the bound every test here builds its image with.
 	// The module itself leaves OpenMP alone, so tesseract takes one thread per
 	// available CPU — right for a caller who owns the machine, wrong for this
@@ -104,6 +112,10 @@ var ledgerPages = [][]string{
 // each occur exactly once in the document, so their relative positions say
 // what page order says.
 var ledgerPageMarkers = []string{"lazy", "liquor", "zebras"}
+
+// confidencePattern matches the measured percentage in a Ci gate error. See
+// measuredConfidence.
+var confidencePattern = regexp.MustCompile(`([0-9]+\.[0-9]+)%`)
 
 type Tests struct{}
 
@@ -159,6 +171,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("BatchExportProducesEveryFormatPerImage", t.BatchExportProducesEveryFormatPerImage)
 	jobs = jobs.WithJob("BatchSharesDocumentOptions", t.BatchSharesDocumentOptions)
 	jobs = jobs.WithJob("BatchRejectsAmbiguousInput", t.BatchRejectsAmbiguousInput)
+
+	jobs = jobs.WithJob("CiRunProducesEnabledFormats", t.CiRunProducesEnabledFormats)
+	jobs = jobs.WithJob("CiMinConfidenceGatesTheRun", t.CiMinConfidenceGatesTheRun)
+	jobs = jobs.WithJob("CiCheckRunsTheGateWithoutArtifacts", t.CiCheckRunsTheGateWithoutArtifacts)
+	jobs = jobs.WithJob("CiGateKeepsItsTsvOutOfTheOutput", t.CiGateKeepsItsTsvOutOfTheOutput)
+	jobs = jobs.WithJob("CiLanguageReachesRecognition", t.CiLanguageReachesRecognition)
+	jobs = jobs.WithJob("CiRejectsUnusableThreshold", t.CiRejectsUnusableThreshold)
 
 	jobs = jobs.WithJob("TessdataModelIsSelectable", t.TessdataModelIsSelectable)
 	jobs = jobs.WithJob("TessdataSuppliesOsdModel", t.TessdataSuppliesOsdModel)
@@ -1228,6 +1247,265 @@ func (t *Tests) BatchRejectsAmbiguousInput(ctx context.Context) error {
 	return nil
 }
 
+// ------------------------------------------------------------------------- ci
+
+// CiRunProducesEnabledFormats asserts the pipeline's output is the batch it
+// wraps: every enabled format for every matched image, at the input's own path.
+//
+// The default is the half worth pinning. A pipeline that produced nothing until
+// WithFormats was called would look like a broken directory rather than an
+// unconfigured one, so an unconfigured Ci renders plain text — the format
+// tesseract itself produces when no renderer is named.
+func (t *Tests) CiRunProducesEnabledFormats(ctx context.Context) error {
+	entries, err := ocr().Ci(batchSource()).Run().Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Run: %w", err)
+	}
+	want := []string{"scans/", "scans/deep/", "scans/deep/page-3.txt", "scans/page-1.txt", "scans/page-2.txt"}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected an unconfigured Ci to render %v, got %v", want, entries)
+	}
+
+	out := ocr().Ci(batchSource()).
+		WithFormats([]dagger.TesseractFormat{
+			dagger.TesseractFormatTxt,
+			dagger.TesseractFormatHocr,
+			dagger.TesseractFormatPdf,
+		}).
+		Run()
+	entries, err = out.Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Run with three formats: %w", err)
+	}
+	want = []string{
+		"scans/", "scans/deep/",
+		"scans/deep/page-3.hocr", "scans/deep/page-3.pdf", "scans/deep/page-3.txt",
+		"scans/page-1.hocr", "scans/page-1.pdf", "scans/page-1.txt",
+		"scans/page-2.hocr", "scans/page-2.pdf", "scans/page-2.txt",
+	}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected every enabled format per image as %v, got %v", want, entries)
+	}
+
+	// The artifacts have to be this image's own recognised text, not merely
+	// files at the right paths.
+	got, err := out.File("scans/deep/page-3.txt").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read scans/deep/page-3.txt: %w", err)
+	}
+	return assertSentenceLines(got)
+}
+
+// CiMinConfidenceGatesTheRun asserts the quality gate: recognition that came
+// back worse than the threshold fails the run, and the failure names both the
+// value measured and the page that measured it.
+//
+// Reporting the value is what makes the threshold adjustable. "Confidence too
+// low" leaves the caller guessing whether they are one point short or thirty,
+// and the only way to find out would be to re-run the whole batch by hand
+// asking for TSV.
+//
+// Naming the page is what makes it actionable, and the mixed directory is where
+// that has to be earned: one clean scan and one blank page under a threshold
+// only the blank page misses. A gate that failed the batch as a whole would be
+// telling the caller to go and diff a hundred TSVs.
+func (t *Tests) CiMinConfidenceGatesTheRun(ctx context.Context) error {
+	clean := dag.Directory().WithFile("scans/page-1.png", fixture(sentencePng))
+
+	_, err := ocr().Ci(clean).WithMinConfidence(95).Run().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a threshold above what the fixture measures to fail the run, got nil")
+	}
+	for _, want := range []string{"scans/page-1.png", "95"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the gate error to mention %q, got: %v", want, err)
+		}
+	}
+	measured, ok := measuredConfidence(err.Error())
+	if !ok {
+		return fmt.Errorf("expected the gate error to report the measured confidence, got: %v", err)
+	}
+	if measured <= 0 || measured >= 95 {
+		return fmt.Errorf("expected a measured confidence in (0, 95), got %v from: %v", measured, err)
+	}
+
+	// A blank page recognises nothing at all, so there is no confidence to
+	// measure on it — which is a scan worth failing a build over, and worth
+	// saying so rather than reporting it as zero.
+	mixed := clean.WithFile("scans/blank.pbm", blankPage("blank.pbm"))
+	_, err = ocr().Ci(mixed).WithMinConfidence(80).Run().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a blank page to fail an 80%% gate, got nil")
+	}
+	if !strings.Contains(err.Error(), "scans/blank.pbm") {
+		return fmt.Errorf("expected the gate error to name the offending page, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "scans/page-1.png") {
+		return fmt.Errorf("expected the gate error to name only the page below the threshold, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no words") {
+		return fmt.Errorf("expected the gate error to say the page recognised nothing, got: %v", err)
+	}
+
+	// A threshold the scan clears produces the artifacts as usual, so the gate
+	// is a gate rather than a tax.
+	got, err := ocr().Ci(clean).WithMinConfidence(80).Run().File("scans/page-1.txt").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Run under a threshold the fixture clears: %w", err)
+	}
+	return assertSentenceLines(got)
+}
+
+// CiCheckRunsTheGateWithoutArtifacts asserts Check reaches the same verdict
+// Run's gate does, and that it is a real pass over the scans rather than a
+// signature that returns nil.
+//
+// Its return type is the whole reason it exists — an error and nothing else, so
+// a PR gate that never wants the archive cannot accidentally be handed one —
+// and that makes "did it actually look?" the thing worth testing. A Check that
+// short-circuited when no threshold was set would be a green build over a
+// directory of files tesseract cannot read at all.
+func (t *Tests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context) error {
+	clean := dag.Directory().WithFile("scans/page-1.png", fixture(sentencePng))
+
+	if err := ocr().Ci(clean).WithMinConfidence(80).Check(ctx); err != nil {
+		return fmt.Errorf("expected a threshold the fixture clears to pass Check: %w", err)
+	}
+
+	err := ocr().Ci(clean).WithMinConfidence(95).Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a threshold above what the fixture measures to fail Check, got nil")
+	}
+	if !strings.Contains(err.Error(), "scans/page-1.png") {
+		return fmt.Errorf("expected Check to name the offending page, got: %v", err)
+	}
+
+	// With no threshold there is still a bar: every matched file has to be an
+	// image tesseract can read.
+	err = ocr().Ci(dag.Directory().WithNewFile("scans/page-1.png", "not an image\n")).Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Check to recognise the scans even with no threshold set, got nil")
+	}
+	if !strings.Contains(err.Error(), "tesseract failed") {
+		return fmt.Errorf("expected the error to come from recognition, got: %v", err)
+	}
+	return nil
+}
+
+// CiGateKeepsItsTsvOutOfTheOutput asserts the output is what WithFormats asked
+// for, whether or not a threshold was set.
+//
+// The gate measures a TSV, and Run renders that TSV in the same pass as the
+// artifacts rather than paying for a second one. That is an implementation
+// decision and it has to stay one: a caller who enabled a threshold and asked
+// for PDFs did not ask for a TSV beside every page, and would find one in the
+// archive they published. A caller who did ask for TSV keeps it, which is the
+// half that catches a filter written as "drop every TSV".
+func (t *Tests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) error {
+	source := dag.Directory().
+		WithFile("scans/page-1.png", fixture(sentencePng)).
+		WithFile("scans/deep/page-2.png", fixture(sentencePng))
+
+	entries, err := ocr().Ci(source).
+		WithFormats([]dagger.TesseractFormat{dagger.TesseractFormatTxt}).
+		WithMinConfidence(80).
+		Run().
+		Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Run with a gate: %w", err)
+	}
+	want := []string{"scans/", "scans/deep/", "scans/deep/page-2.txt", "scans/page-1.txt"}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected a gated run to produce only %v, got %v", want, entries)
+	}
+
+	entries, err = ocr().Ci(source).
+		WithFormats([]dagger.TesseractFormat{dagger.TesseractFormatTxt, dagger.TesseractFormatTsv}).
+		WithMinConfidence(80).
+		Run().
+		Glob(ctx, "**/*")
+	if err != nil {
+		return fmt.Errorf("Run with a gate and TSV enabled: %w", err)
+	}
+	want = []string{
+		"scans/", "scans/deep/",
+		"scans/deep/page-2.tsv", "scans/deep/page-2.txt",
+		"scans/page-1.tsv", "scans/page-1.txt",
+	}
+	sort.Strings(entries)
+	if !reflect.DeepEqual(entries, want) {
+		return fmt.Errorf("expected an enabled TSV to survive the gate as %v, got %v", want, entries)
+	}
+	return nil
+}
+
+// CiLanguageReachesRecognition asserts the pipeline's language is the batch's
+// language, in both directions: a selected one recognises, and one the image
+// does not carry is rejected with the same explanation a bare batch gives.
+//
+// Ci owns no option handling of its own — that is what makes it a bundle of
+// calls rather than a second implementation — and the rejection is the half that
+// proves it, because the check that produces it lives on the shared option set
+// and could only fire if the value got there. It also fires before recognition,
+// so a wrong-language pipeline costs a message rather than a batch.
+func (t *Tests) CiLanguageReachesRecognition(ctx context.Context) error {
+	source := dag.Directory().WithFile("scans/page-1.png", fixture(sentencePng))
+
+	got, err := ocr("eng", "deu").Ci(source).
+		WithLanguage("eng").
+		Run().
+		File("scans/page-1.txt").
+		Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Run with a selected language: %w", err)
+	}
+	if err := assertSentenceLines(got); err != nil {
+		return err
+	}
+
+	_, err = ocr().Ci(source).WithLanguage("fra").Run().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an uninstalled language to be rejected, got nil")
+	}
+	for _, want := range []string{"WithLanguage", "fra", "eng"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// CiRejectsUnusableThreshold asserts a bar no page could miss, or none could
+// clear, is refused before anything is recognised.
+//
+// Zero is the one worth spelling out. It is not a lenient gate, it is no gate at
+// all — every page clears it — so a build configured that way reports a passing
+// quality check it never made. Accepting it silently would make the difference
+// between a gate and a decoration invisible.
+//
+// It is checked through Check rather than Run because that is where a
+// misconfiguration costs the most to discover late: Check is the call a PR gate
+// makes, and its whole answer is the error it returns.
+func (t *Tests) CiRejectsUnusableThreshold(ctx context.Context) error {
+	source := dag.Directory().WithFile("scans/page-1.png", fixture(sentencePng))
+
+	for _, percent := range []int{0, -10, 101} {
+		err := ocr().Ci(source).WithMinConfidence(percent).Check(ctx)
+		if err == nil {
+			return fmt.Errorf("expected a threshold of %d to be rejected, got nil", percent)
+		}
+		for _, want := range []string{"WithMinConfidence", "1 and 100"} {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected the error for %d to mention %q, got: %v", percent, want, err)
+			}
+		}
+	}
+	return nil
+}
+
 // -------------------------------------------------------- training-adjacent
 
 // BoxReportsCharacterBoxes asserts the box renderer descends to the character
@@ -1604,6 +1882,47 @@ func batchSource() *dagger.Directory {
 // fixture returns a committed test image by name under fixtures/.
 func fixture(name string) *dagger.File {
 	return dag.CurrentModule().Source().File("fixtures/" + name)
+}
+
+// blankPage builds an all-white page as an ASCII PBM: the "P1" netpbm format,
+// whose pixels are the literal characters "0" and "1".
+//
+// It is written here rather than committed because it is the one image these
+// tests need that can be spelled in text. Every other fixture is a PNG for the
+// reason the package comment gives — bare Alpine has no fonts, so an image with
+// writing on it has to arrive from outside — but a page with nothing on it
+// needs no font, and P1 needs no encoder.
+//
+// The pixel values are space-separated. Leptonica's ASCII netpbm reader takes
+// one whitespace-delimited token per pixel, and a P1 raster written as an
+// unbroken run of digits — which the format also permits — fails to decode.
+func blankPage(name string) *dagger.File {
+	row := strings.TrimSpace(strings.Repeat("0 ", blankPageWidth))
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "P1\n%d %d\n", blankPageWidth, blankPageHeight)
+	for i := 0; i < blankPageHeight; i++ {
+		sb.WriteString(row)
+		sb.WriteString("\n")
+	}
+	return dag.Directory().WithNewFile(name, sb.String()).File(name)
+}
+
+// measuredConfidence pulls the confidence percentage out of a gate error, so
+// the assertion is that the number reported is the measured one rather than
+// that the message reads a particular way.
+//
+// It matches only a value carrying a decimal point, which is what separates the
+// measurement from the whole-number threshold printed beside it.
+func measuredConfidence(msg string) (float64, bool) {
+	m := confidencePattern.FindStringSubmatch(msg)
+	if m == nil {
+		return 0, false
+	}
+	got, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return got, true
 }
 
 // trainingSource returns the committed training set: fixtures/training holds

@@ -334,6 +334,9 @@ type TerminalID string
 type TesseractBatchID string
 
 // A unique identifier for an object.
+type TesseractCiID string
+
+// A unique identifier for an object.
 type TesseractDocumentID string
 
 // A unique identifier for an object.
@@ -13366,6 +13369,16 @@ func (r *Query) LoadTesseractBatchFromID(id TesseractBatchID) *TesseractBatch {
 	q = q.Arg("id", id)
 
 	return &TesseractBatch{
+		query: q,
+	}
+}
+
+// Load a TesseractCi from its ID.
+func (r *Query) LoadTesseractCiFromID(id TesseractCiID) *TesseractCi {
+	q := r.query.Select("loadTesseractCiFromID")
+	q = q.Arg("id", id)
+
+	return &TesseractCi{
 		query: q,
 	}
 }
