@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:81:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -53,7 +53,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:81:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -66,7 +66,7 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:81:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
 	q := r.query.Select("withTesseractOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -83,23 +83,34 @@ type TesseractOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:95:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:109:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:98:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:112:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:102:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:116:2)
+	//
+	// Upper bound on the OpenMP threads tesseract may use, set on the
+	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
+	// per available CPU, which is what a caller who owns the machine wants.
+	// Set it when several recognitions share the cores — concurrent passes
+	// each claiming every CPU oversubscribe the box badly enough to cost an
+	// order of magnitude, which is the shape of the long-standing upstream
+	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
+	// thread per pass is the usual setting there.
+	//
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:126:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:92:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:106:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -114,6 +125,10 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 		if !querybuilder.IsZeroValue(opts[i].Languages) {
 			q = q.Arg("languages", opts[i].Languages)
 		}
+		// `ompThreadLimit` optional argument
+		if !querybuilder.IsZeroValue(opts[i].OmpThreadLimit) {
+			q = q.Arg("ompThreadLimit", opts[i].OmpThreadLimit)
+		}
 	}
 
 	return &Tesseract{
@@ -125,7 +140,7 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:81:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:93:6)
 	query *querybuilder.Selection
 
 	id         *ID
@@ -143,7 +158,10 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 // for everything this module does not wrap — the training binaries the apk
 // package ships, `combine_tessdata`, and tesseract's long tail of renderers
 // stay reachable via `container with-exec`.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:123:1)
+//
+// A requested OpenMP bound lives here rather than on the recognition
+// invocation so everything reached through this escape hatch inherits it too.
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:156:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -156,7 +174,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:185:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:225:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -218,7 +236,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 // Langs returns the language codes installed in the image, as reported by
 // `tesseract --list-langs`. This is the set Document.WithLanguage validates
 // against, and it includes "osd" when that package was requested.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:155:1)
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:195:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -230,7 +248,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:170:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:210:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -244,7 +262,7 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:137:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:177:1)
 	if r.version != nil {
 		return *r.version, nil
 	}

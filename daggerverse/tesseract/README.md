@@ -18,7 +18,7 @@ Nothing here handles secrets and nothing opens a port.
 ## Languages live on the root object
 
 ```go
-New(registry="docker.io", alpineTag="3.24", languages []string) *Tesseract
+New(registry="docker.io", alpineTag="3.24", languages []string, ompThreadLimit int) *Tesseract
 ```
 
 On Alpine each language is a **separate apk package**, and the base package
@@ -34,6 +34,65 @@ dag.Tesseract()                                                     // eng
 dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng","deu","osd"}})
 dag.Tesseract(dagger.TesseractOpts{Registry: "ghcr.io"})            // mirror
 ```
+
+## OpenMP fan-out — `ompThreadLimit`
+
+Alpine's tesseract links `libgomp` and reports `Found OpenMP 201511`, so left
+alone it sizes every thread team by the CPUs it can see. Whether that is what
+you want depends entirely on how many images you have.
+
+**One image, idle cores — threads help, modestly.** A single pass over a full
+page of text, pinned to four CPUs:
+
+| threads | wall | CPU | speedup | CPU cost |
+| --- | --- | --- | --- | --- |
+| 1 | 1.96s | 1.77s | 1.00x | 1.00x |
+| 2 | 1.70s | 2.53s | 1.15x | 1.43x |
+| 4 | 1.50s | 3.86s | 1.31x | 2.18x |
+
+Four threads buy 31% off the clock for 2.18x the CPU — 33% parallel efficiency.
+Tesseract's OpenMP regions sit inside the LSTM inner loops and do not amortize.
+It is still free wall-clock when nothing else wants the cores, which is why
+unbounded is the default and `ompThreadLimit` is opt-in.
+
+**More than one image — processes win outright.** Eleven passes over that same
+page, four CPUs, every way of spending them:
+
+| shape | wall | CPU |
+| --- | --- | --- |
+| serial, 4 threads each | 17.70s | 45.69s |
+| 2 concurrent, 2 threads each | 10.53s | 28.95s |
+| 4 concurrent, 1 thread each | 6.39s | 21.17s |
+| 11 concurrent, 1 thread each | **5.95s** | 21.17s |
+
+Same output; the thread-parallel shape burns 2.2x the CPU to take 3x as long.
+Process-level parallelism runs at ~90% efficiency where OpenMP manages 33%.
+
+**Oversubscribe both at once and it collapses.** Concurrency multiplied by
+per-process threads, rather than bounded by the core count:
+
+| CPUs | `OMP_THREAD_LIMIT` | 11 concurrent passes |
+| --- | --- | --- |
+| 4 | unset | **8m34s** |
+| 4 | `1` | **1.06s** |
+| 32 | unset | 0.68s |
+| 32 | `1` | 0.55s |
+
+~485x apart on the small fixture. Upstream has carried reports of this shape for
+years ([#2611](https://github.com/tesseract-ocr/tesseract/issues/2611), #1171,
+#263) and `OMP_THREAD_LIMIT` is the standard answer. This module's own test
+suite sets it to `1` (#226); a shared CI runner is the textbook case.
+
+```go
+dag.Tesseract()                                          // one image, own machine
+dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: 1})   // many images, or sharing
+```
+
+The variable is set on the image after `apk add`, so it applies to everything
+reached through `Container()` too, and two images differing only in their limit
+still share the package fetch. A negative value is rejected on `New` — libgomp
+reads an unparseable `OMP_THREAD_LIMIT` as absent and silently goes back to one
+thread per CPU, the opposite of what was asked for.
 
 ## Toolchain
 

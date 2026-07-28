@@ -30,6 +30,18 @@ const (
 	// which is what makes orientation detection have something to report.
 	sentencePng      = "sentence.png"
 	sentenceRot90Png = "sentence-rot90.png"
+
+	// ompThreadLimitEnv is the OpenMP variable New's ompThreadLimit sets on
+	// the assembled image.
+	ompThreadLimitEnv = "OMP_THREAD_LIMIT"
+
+	// suiteOmpThreadLimit is the bound every test here builds its image with.
+	// The module itself leaves OpenMP alone, so tesseract takes one thread per
+	// available CPU — right for a caller who owns the machine, wrong for this
+	// suite, which fires ~20 recognitions at once onto a shared 4-vCPU runner.
+	// Unbounded, each of them claims all four cores and the suite goes from
+	// 22s to over 9m (#226).
+	suiteOmpThreadLimit = 1
 )
 
 // sentenceLines is what sentence.png renders, and therefore what recognition
@@ -47,9 +59,17 @@ type Tests struct{}
 // All runs every tesseract-module test in parallel.
 //
 // parallel caps how many tests run concurrently inside this suite. Defaults to
-// 0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions
-// runner, so in-runner parallelism is bounded by the VM's CPU/memory, not by
-// the scheduler. Pass any positive integer to opt into a specific cap.
+// 0 (unbounded fan-out), which used to be justified with "in-runner
+// parallelism is bounded by the VM's CPU/memory, not by the scheduler". That
+// was false: an unbounded tesseract sizes its OpenMP teams by CPU count, so a
+// four-core runner bounded nothing — it multiplied. Twenty concurrent jobs
+// each fanning out to four threads is eighty threads over four cores, and the
+// suite took 9m5s on a runner it takes 22s to finish on locally (#226).
+//
+// What makes the fan-out safe is suiteOmpThreadLimit, not this cap: with one
+// thread per pass the claim finally holds, and jobs contend for cores the way
+// any other oversubscribed workload does. The cap stays available for a host
+// that wants a narrower slice.
 //
 // +check
 // +cache="session"
@@ -68,6 +88,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("VersionReportsTesseractFive", t.VersionReportsTesseractFive)
 	jobs = jobs.WithJob("DefaultLanguagesInstallEnglish", t.DefaultLanguagesInstallEnglish)
 	jobs = jobs.WithJob("RequestedLanguagesAreInstalled", t.RequestedLanguagesAreInstalled)
+	jobs = jobs.WithJob("OmpThreadLimitBoundsOpenMp", t.OmpThreadLimitBoundsOpenMp)
 
 	jobs = jobs.WithJob("TextRecognizesFixture", t.TextRecognizesFixture)
 	jobs = jobs.WithJob("TxtFileMatchesText", t.TxtFileMatchesText)
@@ -98,7 +119,7 @@ func (t *Tests) All(
 // release Alpine's community repository carries, so a base-tag bump that
 // silently changes major version fails here rather than in recognition.
 func (t *Tests) VersionReportsTesseractFive(ctx context.Context) error {
-	got, err := dag.Tesseract().Version(ctx)
+	got, err := ocr().Version(ctx)
 	if err != nil {
 		return fmt.Errorf("Version: %w", err)
 	}
@@ -113,7 +134,7 @@ func (t *Tests) VersionReportsTesseractFive(ctx context.Context) error {
 // all, so an empty default would produce an image that cannot recognise
 // anything.
 func (t *Tests) DefaultLanguagesInstallEnglish(ctx context.Context) error {
-	got, err := dag.Tesseract().Langs(ctx)
+	got, err := ocr().Langs(ctx)
 	if err != nil {
 		return fmt.Errorf("Langs: %w", err)
 	}
@@ -127,9 +148,7 @@ func (t *Tests) DefaultLanguagesInstallEnglish(ctx context.Context) error {
 // image as its own apk package, including "osd", which is a detection model
 // rather than a recognition language.
 func (t *Tests) RequestedLanguagesAreInstalled(ctx context.Context) error {
-	got, err := dag.Tesseract(dagger.TesseractOpts{
-		Languages: []string{"eng", "deu", "osd"},
-	}).Langs(ctx)
+	got, err := ocr("eng", "deu", "osd").Langs(ctx)
 	if err != nil {
 		return fmt.Errorf("Langs: %w", err)
 	}
@@ -141,12 +160,52 @@ func (t *Tests) RequestedLanguagesAreInstalled(ctx context.Context) error {
 	return nil
 }
 
+// OmpThreadLimitBoundsOpenMp asserts the OpenMP bound is absent by default and
+// otherwise reaches the environment tesseract runs in.
+//
+// The default is as much the point as the override. Alpine's tesseract links
+// libgomp and reports `Found OpenMP 201511`, so unbounded it takes one thread
+// per available CPU — right for a caller who owns the machine, and the reason
+// the bound is opt-in rather than baked in. What this pins is that opting in
+// works at all: without it, anything running several recognitions at once has
+// no way to stop each pass claiming every core, which cost this very suite
+// nine minutes on a four-core runner (#226).
+func (t *Tests) OmpThreadLimitBoundsOpenMp(ctx context.Context) error {
+	got, err := readOmpThreadLimit(ctx, dag.Tesseract())
+	if err != nil {
+		return err
+	}
+	if got != "" {
+		return fmt.Errorf("expected %s to be unset by default, got %q", ompThreadLimitEnv, got)
+	}
+
+	got, err = readOmpThreadLimit(ctx, dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: 3}))
+	if err != nil {
+		return err
+	}
+	if got != "3" {
+		return fmt.Errorf("expected %s=3 in the image, got %q", ompThreadLimitEnv, got)
+	}
+
+	// A negative cap is refused on New rather than handed to libgomp, which
+	// reads an unparseable OMP_THREAD_LIMIT as absent and silently goes back
+	// to one thread per CPU — the exact opposite of what was asked for.
+	_, err = dag.Tesseract(dagger.TesseractOpts{OmpThreadLimit: -1}).Langs(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a negative ompThreadLimit to be rejected, got nil")
+	}
+	if !strings.Contains(err.Error(), "must not be negative") {
+		return fmt.Errorf("expected the error to name the negative rule, got: %v", err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------- recognition
 
 // TextRecognizesFixture asserts the shortest path — image in, string out —
 // reproduces every line the fixture renders.
 func (t *Tests) TextRecognizesFixture(ctx context.Context) error {
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).Text(ctx)
+	got, err := ocr().Document(fixture(sentencePng)).Text(ctx)
 	if err != nil {
 		return fmt.Errorf("Text: %w", err)
 	}
@@ -156,7 +215,7 @@ func (t *Tests) TextRecognizesFixture(ctx context.Context) error {
 // TxtFileMatchesText asserts the txt renderer and the stdout path agree, so
 // choosing a file over a string is purely a plumbing decision.
 func (t *Tests) TxtFileMatchesText(ctx context.Context) error {
-	doc := dag.Tesseract().Document(fixture(sentencePng))
+	doc := ocr().Document(fixture(sentencePng))
 
 	text, err := doc.Text(ctx)
 	if err != nil {
@@ -175,7 +234,7 @@ func (t *Tests) TxtFileMatchesText(ctx context.Context) error {
 // HocrContainsWordBoxes asserts hOCR carries the per-word geometry that is the
 // whole reason to ask for it rather than plain text.
 func (t *Tests) HocrContainsWordBoxes(ctx context.Context) error {
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).Hocr().Contents(ctx)
+	got, err := ocr().Document(fixture(sentencePng)).Hocr().Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("Hocr: %w", err)
 	}
@@ -198,7 +257,7 @@ func (t *Tests) HocrContainsWordBoxes(ctx context.Context) error {
 // namespace, since its consumers are schema-driven archive tooling that will
 // reject anything else outright.
 func (t *Tests) AltoIsValidXml(ctx context.Context) error {
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).Alto().Contents(ctx)
+	got, err := ocr().Document(fixture(sentencePng)).Alto().Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("Alto: %w", err)
 	}
@@ -217,7 +276,7 @@ func (t *Tests) AltoIsValidXml(ctx context.Context) error {
 // descends all the way to word-level rows (level 5), which is the level
 // carrying the text and its confidence.
 func (t *Tests) TsvHasHeaderAndWordRows(ctx context.Context) error {
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).Tsv().Contents(ctx)
+	got, err := ocr().Document(fixture(sentencePng)).Tsv().Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("Tsv: %w", err)
 	}
@@ -251,7 +310,7 @@ func (t *Tests) TsvHasHeaderAndWordRows(ctx context.Context) error {
 // bytes go through the filesystem rather than File.Contents, which mangles
 // non-UTF-8 data.
 func (t *Tests) PdfHasPdfMagic(ctx context.Context) error {
-	got, err := exportBytes(ctx, dag.Tesseract().Document(fixture(sentencePng)).Pdf(), "result.pdf")
+	got, err := exportBytes(ctx, ocr().Document(fixture(sentencePng)).Pdf(), "result.pdf")
 	if err != nil {
 		return err
 	}
@@ -269,7 +328,7 @@ func (t *Tests) PdfHasPdfMagic(ctx context.Context) error {
 // exec is what proves they came from one recognition pass rather than six: the
 // per-format functions each run their own.
 func (t *Tests) ExportProducesEveryRequestedFormat(ctx context.Context) error {
-	out := dag.Tesseract().Document(fixture(sentencePng)).Export([]dagger.TesseractFormat{
+	out := ocr().Document(fixture(sentencePng)).Export([]dagger.TesseractFormat{
 		dagger.TesseractFormatTxt,
 		dagger.TesseractFormatHocr,
 		dagger.TesseractFormatAlto,
@@ -289,7 +348,7 @@ func (t *Tests) ExportProducesEveryRequestedFormat(ctx context.Context) error {
 
 	// A subset request renders only that subset, so the trailing configfile
 	// list really is what drives the renderers.
-	entries, err = dag.Tesseract().Document(fixture(sentencePng)).
+	entries, err = ocr().Document(fixture(sentencePng)).
 		Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt, dagger.TesseractFormatTsv}).
 		Entries(ctx)
 	if err != nil {
@@ -310,7 +369,7 @@ func (t *Tests) ExportProducesEveryRequestedFormat(ctx context.Context) error {
 // which is the observable proof the flag was passed, without asserting on
 // whatever garbage the constrained mode happens to produce.
 func (t *Tests) SingleWordPageSegReturnsFewerWords(ctx context.Context) error {
-	doc := dag.Tesseract().Document(fixture(sentencePng))
+	doc := ocr().Document(fixture(sentencePng))
 
 	full, err := doc.Text(ctx)
 	if err != nil {
@@ -343,7 +402,7 @@ func (t *Tests) LstmEngineRecognizesFixture(ctx context.Context) error {
 		dagger.TesseractEngineModeDefault,
 	}
 	for _, mode := range modes {
-		got, err := dag.Tesseract().Document(fixture(sentencePng)).WithEngine(mode).Text(ctx)
+		got, err := ocr().Document(fixture(sentencePng)).WithEngine(mode).Text(ctx)
 		if err != nil {
 			return fmt.Errorf("Text with engine %s: %w", mode, err)
 		}
@@ -362,7 +421,7 @@ func (t *Tests) LstmEngineRecognizesFixture(ctx context.Context) error {
 // that simply had no effect. The same test pins the other half: a real
 // parameter still goes through, so the check is not just rejecting everything.
 func (t *Tests) UnknownParameterFails(ctx context.Context) error {
-	_, err := dag.Tesseract().Document(fixture(sentencePng)).
+	_, err := ocr().Document(fixture(sentencePng)).
 		WithParameter("not_a_real_parameter", "1").
 		Text(ctx)
 	if err == nil {
@@ -376,7 +435,7 @@ func (t *Tests) UnknownParameterFails(ctx context.Context) error {
 
 	// tessedit_char_whitelist restricts recognition to the listed characters,
 	// which is both a real parameter and one whose effect is visible.
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).
+	got, err := ocr().Document(fixture(sentencePng)).
 		WithParameter("tessedit_char_whitelist", "0123456789").
 		Text(ctx)
 	if err != nil {
@@ -401,7 +460,7 @@ func (t *Tests) UserWordsFileIsAccepted(ctx context.Context) error {
 	words := textFile("user-words.txt", "vexingly\nSphinx\nquartz\n")
 	patterns := textFile("user-patterns.txt", `\d\d\d-\d\d\d\d`+"\n")
 
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).
+	got, err := ocr().Document(fixture(sentencePng)).
 		WithUserWords(words).
 		WithUserPatterns(patterns).
 		Text(ctx)
@@ -415,9 +474,9 @@ func (t *Tests) UserWordsFileIsAccepted(ctx context.Context) error {
 // the rotated fixture and reports the rotation that would undo it, while the
 // upright fixture reports no rotation at all.
 func (t *Tests) OsdDetectsRotation(ctx context.Context) error {
-	ocr := dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng", "osd"}})
+	withOsd := ocr("eng", "osd")
 
-	rotated, err := ocr.Document(fixture(sentenceRot90Png)).Osd(ctx)
+	rotated, err := withOsd.Document(fixture(sentenceRot90Png)).Osd(ctx)
 	if err != nil {
 		return fmt.Errorf("Osd on the rotated fixture: %w", err)
 	}
@@ -427,7 +486,7 @@ func (t *Tests) OsdDetectsRotation(ctx context.Context) error {
 		}
 	}
 
-	upright, err := ocr.Document(fixture(sentencePng)).Osd(ctx)
+	upright, err := withOsd.Document(fixture(sentencePng)).Osd(ctx)
 	if err != nil {
 		return fmt.Errorf("Osd on the upright fixture: %w", err)
 	}
@@ -444,7 +503,7 @@ func (t *Tests) OsdDetectsRotation(ctx context.Context) error {
 // traineddata paths and TESSDATA_PREFIX, which says nothing about the fact
 // that languages are chosen on New.
 func (t *Tests) UnknownLanguageIsRejected(ctx context.Context) error {
-	_, err := dag.Tesseract().Document(fixture(sentencePng)).
+	_, err := ocr().Document(fixture(sentencePng)).
 		WithLanguage("deu").
 		Text(ctx)
 	if err == nil {
@@ -458,7 +517,7 @@ func (t *Tests) UnknownLanguageIsRejected(ctx context.Context) error {
 
 	// A `+`-joined selection is validated code by code, so one bad member in
 	// an otherwise-installed list is caught too.
-	_, err = dag.Tesseract(dagger.TesseractOpts{Languages: []string{"eng", "deu"}}).
+	_, err = ocr("eng", "deu").
 		Document(fixture(sentencePng)).
 		WithLanguage("eng+deu+fra").
 		Text(ctx)
@@ -475,7 +534,7 @@ func (t *Tests) UnknownLanguageIsRejected(ctx context.Context) error {
 // without the osd model names the fix rather than failing inside tesseract,
 // which would report a missing traineddata file.
 func (t *Tests) OsdWithoutOsdDataIsRejected(ctx context.Context) error {
-	_, err := dag.Tesseract().Document(fixture(sentenceRot90Png)).Osd(ctx)
+	_, err := ocr().Document(fixture(sentenceRot90Png)).Osd(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Osd without the osd model to be rejected, got nil")
 	}
@@ -491,7 +550,7 @@ func (t *Tests) OsdWithoutOsdDataIsRejected(ctx context.Context) error {
 // no PDF support and reports the failure as if the file's first line were a
 // file name it could not open, which sends people looking in the wrong place.
 func (t *Tests) PdfInputIsRejected(ctx context.Context) error {
-	_, err := dag.Tesseract().Document(textFile("scan.pdf", "%PDF-1.7\n")).Text(ctx)
+	_, err := ocr().Document(textFile("scan.pdf", "%PDF-1.7\n")).Text(ctx)
 	if err == nil {
 		return fmt.Errorf("expected a PDF source to be rejected, got nil")
 	}
@@ -507,7 +566,7 @@ func (t *Tests) PdfInputIsRejected(ctx context.Context) error {
 // carrying its own `=`, are refused. `-c` takes `name=value`, so an embedded
 // `=` would quietly set a different variable to a different value.
 func (t *Tests) MalformedParameterNameIsRejected(ctx context.Context) error {
-	_, err := dag.Tesseract().Document(fixture(sentencePng)).
+	_, err := ocr().Document(fixture(sentencePng)).
 		WithParameter("tessedit_char_whitelist=0123", "9").
 		Text(ctx)
 	if err == nil {
@@ -517,7 +576,7 @@ func (t *Tests) MalformedParameterNameIsRejected(ctx context.Context) error {
 		return fmt.Errorf("expected the error to name the = rule, got: %v", err)
 	}
 
-	_, err = dag.Tesseract().Document(fixture(sentencePng)).
+	_, err = ocr().Document(fixture(sentencePng)).
 		WithParameter("  ", "9").
 		Text(ctx)
 	if err == nil {
@@ -534,7 +593,7 @@ func (t *Tests) MalformedParameterNameIsRejected(ctx context.Context) error {
 // and scale its analysis by it.
 func (t *Tests) NonPositiveDpiIsRejected(ctx context.Context) error {
 	for _, dpi := range []int{0, -300} {
-		_, err := dag.Tesseract().Document(fixture(sentencePng)).WithDpi(dpi).Text(ctx)
+		_, err := ocr().Document(fixture(sentencePng)).WithDpi(dpi).Text(ctx)
 		if err == nil {
 			return fmt.Errorf("expected dpi %d to be rejected, got nil", dpi)
 		}
@@ -545,7 +604,7 @@ func (t *Tests) NonPositiveDpiIsRejected(ctx context.Context) error {
 
 	// A positive value still goes through, so the check is not just
 	// rejecting every use of the flag.
-	got, err := dag.Tesseract().Document(fixture(sentencePng)).WithDpi(300).Text(ctx)
+	got, err := ocr().Document(fixture(sentencePng)).WithDpi(300).Text(ctx)
 	if err != nil {
 		return fmt.Errorf("Text with dpi 300: %w", err)
 	}
@@ -553,6 +612,35 @@ func (t *Tests) NonPositiveDpiIsRejected(ctx context.Context) error {
 }
 
 // ------------------------------------------------------------------ helpers
+
+// ocr builds the module under test with the suite's OpenMP bound and the given
+// language set; no languages leaves New's own default in place.
+//
+// Every test that recognises anything goes through this rather than
+// dag.Tesseract() directly, so the bound cannot be forgotten on a newly added
+// test. The failure mode it guards against is a slow suite, not a red one,
+// which is exactly the kind that goes unnoticed for a release.
+// OmpThreadLimitBoundsOpenMp is the deliberate exception: it is the test of
+// what the unbounded default does.
+func ocr(languages ...string) *dagger.Tesseract {
+	return dag.Tesseract(dagger.TesseractOpts{
+		Languages:      languages,
+		OmpThreadLimit: suiteOmpThreadLimit,
+	})
+}
+
+// readOmpThreadLimit reports the OpenMP bound as the environment inside the
+// image sees it rather than as container metadata, because what decides
+// recognition's fan-out is what the tesseract process inherits.
+func readOmpThreadLimit(ctx context.Context, t *dagger.Tesseract) (string, error) {
+	out, err := t.Container().
+		WithExec([]string{"sh", "-c", `printf %s "$` + ompThreadLimitEnv + `"`}).
+		Stdout(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read %s from the image: %w", ompThreadLimitEnv, err)
+	}
+	return out, nil
+}
 
 // fixture returns a committed test image by name under fixtures/.
 func fixture(name string) *dagger.File {

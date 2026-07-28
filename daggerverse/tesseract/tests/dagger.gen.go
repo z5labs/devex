@@ -255,6 +255,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).NonPositiveDpiIsRejected(&parent, ctx)
+		case "OmpThreadLimitBoundsOpenMp":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).OmpThreadLimitBoundsOpenMp(&parent, ctx)
 		case "OsdDetectsRotation":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

@@ -61,21 +61,24 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 
 func (r Tesseract) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Registry  string
-		AlpineTag string
-		Languages []string
+		Registry       string
+		AlpineTag      string
+		Languages      []string
+		OmpThreadLimit int
 	}
 	concrete.Registry = r.Registry
 	concrete.AlpineTag = r.AlpineTag
 	concrete.Languages = r.Languages
+	concrete.OmpThreadLimit = r.OmpThreadLimit
 	return json.Marshal(&concrete)
 }
 
 func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Registry  string
-		AlpineTag string
-		Languages []string
+		Registry       string
+		AlpineTag      string
+		Languages      []string
+		OmpThreadLimit int
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -84,6 +87,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	r.Registry = concrete.Registry
 	r.AlpineTag = concrete.AlpineTag
 	r.Languages = concrete.Languages
+	r.OmpThreadLimit = concrete.OmpThreadLimit
 	return nil
 }
 
@@ -721,7 +725,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg languages", err))
 				}
 			}
-			return New(registry, alpineTag, languages), nil
+			var ompThreadLimit int
+			if inputArgs["ompThreadLimit"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["ompThreadLimit"]), &ompThreadLimit)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ompThreadLimit", err))
+				}
+			}
+			return New(registry, alpineTag, languages, ompThreadLimit)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
