@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	par "github.com/dagger/dagger/util/parallel"
@@ -51,6 +52,20 @@ const (
 	// the source the tessdata tests round-trip a model out of, never a path
 	// the module itself asks anyone to know about.
 	packagedTessdataDir = "/usr/share/tessdata"
+
+	// floatModelURL is the English model from tesseract-ocr/tessdata_best,
+	// which is the float build of the same language Alpine packages
+	// integerized. It is the only kind of model lstmtraining will fine-tune
+	// from, so it is what the training tests start from. The URL names a
+	// release tag rather than a branch: the base model a fine-tune starts from
+	// decides what it produces, and that should not change because upstream
+	// pushed to main.
+	floatModelURL = "https://github.com/tesseract-ocr/tessdata_best/raw/4.1.0/eng.traineddata"
+
+	// floatModelLang is the name that model is mounted and fine-tuned under.
+	// It is deliberately not "eng": a distinct name is what makes the tests
+	// able to tell the float model from the packaged one they sit beside.
+	floatModelLang = "best"
 
 	// suiteOmpThreadLimit is the bound every test here builds its image with.
 	// The module itself leaves OpenMP alone, so tesseract takes one thread per
@@ -147,6 +162,15 @@ func (t *Tests) All(
 
 	jobs = jobs.WithJob("TessdataModelIsSelectable", t.TessdataModelIsSelectable)
 	jobs = jobs.WithJob("TessdataSuppliesOsdModel", t.TessdataSuppliesOsdModel)
+
+	jobs = jobs.WithJob("BoxReportsCharacterBoxes", t.BoxReportsCharacterBoxes)
+	jobs = jobs.WithJob("ProcessedImagesReturnsThresholdedTiff", t.ProcessedImagesReturnsThresholdedTiff)
+	jobs = jobs.WithJob("LstmTrainBuildsTrainingSample", t.LstmTrainBuildsTrainingSample)
+
+	jobs = jobs.WithJob("TrainingPairsImagesWithGroundTruth", t.TrainingPairsImagesWithGroundTruth)
+	jobs = jobs.WithJob("TrainingRejectsUnusableInput", t.TrainingRejectsUnusableInput)
+	jobs = jobs.WithJob("TrainingRequiresFloatBaseModel", t.TrainingRequiresFloatBaseModel)
+	jobs = jobs.WithJob("TrainingProducesUsableModel", t.TrainingProducesUsableModel)
 
 	jobs = jobs.WithJob("SingleWordPageSegReturnsFewerWords", t.SingleWordPageSegReturnsFewerWords)
 	jobs = jobs.WithJob("LstmEngineRecognizesFixture", t.LstmEngineRecognizesFixture)
@@ -1204,6 +1228,326 @@ func (t *Tests) BatchRejectsAmbiguousInput(ctx context.Context) error {
 	return nil
 }
 
+// -------------------------------------------------------- training-adjacent
+
+// BoxReportsCharacterBoxes asserts the box renderer descends to the character
+// level, which is the level nothing else this module offers reaches: hOCR and
+// TSV stop at the word.
+func (t *Tests) BoxReportsCharacterBoxes(ctx context.Context) error {
+	got, err := ocr().Document(fixture(sentencePng)).Box().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Box: %w", err)
+	}
+	lines := strings.Split(strings.TrimSpace(got), "\n")
+	if len(lines) < len(strings.Join(sentenceLines, ""))/2 {
+		return fmt.Errorf("expected a row per recognised character, got %d rows:\n%s", len(lines), got)
+	}
+
+	// Every row is `<char> <left> <bottom> <right> <top> <page>`, and the
+	// characters in order spell what the page says once the spaces the format
+	// does not record are put back.
+	var chars []string
+	for _, line := range lines {
+		cols := strings.Split(line, " ")
+		if len(cols) != 6 {
+			return fmt.Errorf("expected 6 columns in %q, got %d", line, len(cols))
+		}
+		for _, col := range cols[1:] {
+			if _, err := strconv.Atoi(col); err != nil {
+				return fmt.Errorf("expected numeric box coordinates in %q: %w", line, err)
+			}
+		}
+		chars = append(chars, cols[0])
+	}
+	if want := strings.ReplaceAll(sentenceLines[0], " ", ""); !strings.HasPrefix(strings.Join(chars, ""), want) {
+		return fmt.Errorf("expected the boxes to spell %q, got %q", want, strings.Join(chars, ""))
+	}
+	return nil
+}
+
+// ProcessedImagesReturnsThresholdedTiff asserts the image tesseract actually
+// recognised comes back, and that it is the processed one rather than the
+// source: the fixture goes in as a PNG and this comes out as a TIFF, which is
+// the observable half of "this is a derivative, not your file".
+func (t *Tests) ProcessedImagesReturnsThresholdedTiff(ctx context.Context) error {
+	got, err := exportBytes(ctx, ocr().Document(fixture(sentencePng)).ProcessedImages(), "result.tif")
+	if err != nil {
+		return err
+	}
+	// TIFF leads with a byte-order mark and the magic number 42 in that order.
+	if !bytes.HasPrefix(got, []byte("II\x2a\x00")) && !bytes.HasPrefix(got, []byte("MM\x00\x2a")) {
+		return fmt.Errorf("expected a TIFF header, got %q", firstBytes(got, 8))
+	}
+	return nil
+}
+
+// LstmTrainBuildsTrainingSample asserts one image plus one line of ground truth
+// becomes a training sample carrying that line, and that the two ways of
+// asking for a sample that cannot exist are refused.
+//
+// The transcription is checked inside the `.lstmf` rather than by training on
+// it, because that is what a sample is *for*: the file pairs the line's pixels
+// with the characters they are supposed to be, and a sample built against the
+// wrong text trains the model to be wrong without ever failing.
+func (t *Tests) LstmTrainBuildsTrainingSample(ctx context.Context) error {
+	got, err := exportBytes(ctx,
+		ocr().Document(trainingFixture("line-1.png")).LstmTrain(sentenceLines[0]),
+		"line-1.lstmf")
+	if err != nil {
+		return err
+	}
+	if !bytes.Contains(got, []byte(sentenceLines[0])) {
+		return fmt.Errorf("expected the sample to carry the ground truth %q, got %d bytes", sentenceLines[0], len(got))
+	}
+
+	for _, tc := range []struct {
+		name  string
+		build func() *dagger.File
+		want  string
+	}{
+		{
+			"empty ground truth",
+			func() *dagger.File { return ocr().Document(trainingFixture("line-1.png")).LstmTrain("  ") },
+			"groundTruth is required",
+		},
+		{
+			"multi-line ground truth",
+			func() *dagger.File {
+				return ocr().Document(trainingFixture("line-1.png")).LstmTrain(strings.Join(sentenceLines, "\n"))
+			},
+			"more than one line",
+		},
+		{
+			"a whole rasterized PDF",
+			func() *dagger.File { return ocr().FromPdf(fixture(ledgerPdf)).LstmTrain(sentenceLines[0]) },
+			"a training sample is one line",
+		},
+	} {
+		if _, err := tc.build().Contents(ctx); err == nil {
+			return fmt.Errorf("expected %s to be rejected, got nil", tc.name)
+		} else if !strings.Contains(err.Error(), tc.want) {
+			return fmt.Errorf("expected %s to fail with %q, got: %v", tc.name, tc.want, err)
+		}
+	}
+	return nil
+}
+
+// ------------------------------------------------------------------- training
+
+// TrainingPairsImagesWithGroundTruth asserts the source directory is read as
+// pairs, and that every way it can fail to be a training set is named by the
+// file responsible.
+//
+// Naming the file is the whole point. A training directory is assembled by
+// script — crop the lines, write the transcriptions — and the failures are
+// off-by-one ones: the run stops one image short, or one transcription is
+// saved under the wrong stem. "Something is unpaired" sends the caller to diff
+// two file listings; "line-3.png has no ground truth" does not.
+func (t *Tests) TrainingPairsImagesWithGroundTruth(ctx context.Context) error {
+	got, err := ocr().Training(trainingSource()).Files(ctx)
+	if err != nil {
+		return fmt.Errorf("Files: %w", err)
+	}
+	want := []string{"line-1.png", "line-2.png", "line-3.png", "line-4.png"}
+	if !reflect.DeepEqual(got, want) {
+		return fmt.Errorf("expected the fixture pairs %v, got %v", want, got)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		source *dagger.Directory
+		want   []string
+	}{
+		{
+			"image with no ground truth",
+			trainingSource().WithoutFile("line-3.gt.txt"),
+			[]string{"line-3.png", "line-3.gt.txt", "has no ground truth"},
+		},
+		{
+			"ground truth with no image",
+			trainingSource().WithoutFile("line-2.png"),
+			[]string{"line-2.gt.txt", "no image"},
+		},
+		{
+			"two images sharing one ground truth",
+			trainingSource().WithFile("line-1.jpg", trainingFixture("line-1.png")),
+			[]string{"line-1.jpg", "line-1.png", "line-1.gt.txt"},
+		},
+		{
+			"nothing usable at all",
+			dag.Directory().WithNewFile("README.md", "transcriptions pending\n"),
+			[]string{"no image and ground-truth pairs", "1 file(s)"},
+		},
+		{
+			"nothing at all",
+			dag.Directory(),
+			[]string{"source directory is empty"},
+		},
+	} {
+		_, err := ocr().Training(tc.source).Files(ctx)
+		if err == nil {
+			return fmt.Errorf("expected %s to be rejected, got nil", tc.name)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected %s to name %q, got: %v", tc.name, want, err)
+			}
+		}
+	}
+	return nil
+}
+
+// TrainingRejectsUnusableInput asserts every training run that could only fail
+// is refused before it starts, and refused by whatever is wrong with it.
+//
+// A training run is the most expensive thing this module does, so the cost of
+// finding out late is not a slow error message — it is minutes of a machine
+// arriving at a failure that was visible from the outside the whole time.
+func (t *Tests) TrainingRejectsUnusableInput(ctx context.Context) error {
+	for _, tc := range []struct {
+		name  string
+		build func() *dagger.TesseractTraining
+		want  []string
+	}{
+		{
+			"no base model at all",
+			func() *dagger.TesseractTraining { return ocr().Training(trainingSource()) },
+			[]string{"base model is required", "WithBaseModel", "tessdata_best"},
+		},
+		{
+			"a base model the image does not carry",
+			func() *dagger.TesseractTraining {
+				return ocr().Training(trainingSource()).WithBaseModel("deu")
+			},
+			[]string{`"deu"`, "not installed", "eng", "WithTessdata"},
+		},
+		{
+			"a negative iteration count",
+			func() *dagger.TesseractTraining {
+				return ocr().Training(trainingSource()).WithBaseModel("eng").WithIterations(-1)
+			},
+			[]string{"iterations must be positive"},
+		},
+		{
+			"ground truth of more than one line",
+			func() *dagger.TesseractTraining {
+				return ocr().Training(trainingSource().
+					WithNewFile("line-1.gt.txt", strings.Join(sentenceLines, "\n"))).
+					WithBaseModel("eng")
+			},
+			[]string{"line-1.gt.txt", "holds 4 lines", "one file per line"},
+		},
+		{
+			"ground truth with nothing in it",
+			func() *dagger.TesseractTraining {
+				return ocr().Training(trainingSource().WithNewFile("line-2.gt.txt", "\n  \n")).
+					WithBaseModel("eng")
+			},
+			[]string{"line-2.gt.txt", "is empty"},
+		},
+	} {
+		_, err := tc.build().Traineddata().Size(ctx)
+		if err == nil {
+			return fmt.Errorf("expected %s to be rejected, got nil", tc.name)
+		}
+		for _, want := range tc.want {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected %s to name %q, got: %v", tc.name, want, err)
+			}
+		}
+	}
+	return nil
+}
+
+// TrainingRequiresFloatBaseModel asserts the one failure this module cannot
+// prevent is at least explained: fine-tuning from a packaged model.
+//
+// Every model Alpine packages comes from tesseract-ocr/tessdata, whose weights
+// are quantized to integers so recognition is fast, and lstmtraining will not
+// continue from one. That is not a mistake a caller can see coming — the model
+// loads, recognises, and lists as a language like any other — and lstmtraining
+// says only "eng.lstm is an integer (fast) model", which names neither the
+// float models nor how to get one onto the image.
+func (t *Tests) TrainingRequiresFloatBaseModel(ctx context.Context) error {
+	_, err := ocr().Training(trainingSource()).
+		WithBaseModel("eng").
+		WithIterations(1).
+		Traineddata().
+		Size(ctx)
+	if err == nil {
+		return fmt.Errorf("expected fine-tuning from a packaged model to be rejected, got nil")
+	}
+	for _, want := range []string{`"eng"`, "quantized", "tessdata_best", "WithTessdata"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to name %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// TrainingProducesUsableModel asserts the whole round trip: transcribed lines
+// in, a `.traineddata` out, and that model recognising a page through
+// WithTessdata like any other language.
+//
+// The page it reads is the one the training lines were cut out of, which is
+// what makes "usable" checkable at all. A model that came back malformed, or
+// assembled without the base model's unicharset, does not read anything —
+// while a model that trained on the wrong text reads this page wrong. Both are
+// the same assertion here.
+//
+// The run uses the default iteration count rather than a smaller one, because
+// what that default is for is precisely this: a bound low enough that a
+// training run belongs in a test suite. If it ever stops being, this test is
+// where that shows up.
+func (t *Tests) TrainingProducesUsableModel(ctx context.Context) error {
+	training := trainable().Training(trainingSource()).WithBaseModel(floatModelLang)
+
+	// The model is renamed on the way in, which is the documented way to call
+	// a fine-tuned model something other than what it was trained from: the
+	// language is the file's stem and nothing else.
+	tuned := ocr().WithTessdata(dag.Directory().WithFile("tuned.traineddata", training.Traineddata()))
+
+	langs, err := tuned.Langs(ctx)
+	if err != nil {
+		return fmt.Errorf("Langs with the fine-tuned model: %w", err)
+	}
+	if want := []string{"eng", "tuned"}; !reflect.DeepEqual(langs, want) {
+		return fmt.Errorf("expected the fine-tuned model to list as %v, got %v", want, langs)
+	}
+
+	got, err := tuned.Document(fixture(sentencePng)).WithLanguage("tuned").Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text under the fine-tuned model: %w", err)
+	}
+	if err := assertSentenceLines(got); err != nil {
+		return fmt.Errorf("fine-tuned model: %w", err)
+	}
+
+	// Evaluate reads the same finished run rather than training again, and
+	// reports both rates lstmeval measures. The value is a training-set error,
+	// so it says the fit took — not that the model generalises.
+	report, err := training.Evaluate(ctx)
+	if err != nil {
+		return fmt.Errorf("Evaluate: %w", err)
+	}
+	for _, want := range []string{"BCER eval=", "BWER eval="} {
+		if !strings.Contains(report, want) {
+			return fmt.Errorf("expected the evaluation to report %q, got %q", want, report)
+		}
+	}
+	rate, err := strconv.ParseFloat(strings.TrimSpace(strings.SplitN(strings.TrimPrefix(report, "BCER eval="), ",", 2)[0]), 64)
+	if err != nil {
+		return fmt.Errorf("expected a character error rate in %q: %w", report, err)
+	}
+	// The training lines are clean renderings of text the base model already
+	// reads, so anything but a near-zero fit means the samples were built
+	// against the wrong pixels or the wrong text.
+	if rate > 1 {
+		return fmt.Errorf("expected a character error rate under 1%%, got %v from %q", rate, report)
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
 
 // ocr builds the module under test with the suite's OpenMP bound and the given
@@ -1260,6 +1604,38 @@ func batchSource() *dagger.Directory {
 // fixture returns a committed test image by name under fixtures/.
 func fixture(name string) *dagger.File {
 	return dag.CurrentModule().Source().File("fixtures/" + name)
+}
+
+// trainingSource returns the committed training set: fixtures/training holds
+// the four lines of sentence.png cut out of it one at a time, each beside the
+// `.gt.txt` naming what it renders.
+//
+// They are cuts of that fixture rather than a fresh rendering so the training
+// data and the page the fine-tuned model is then asked to read are the same
+// glyphs in the same font — which is what lets one test assert that a model
+// trained here reads the page there.
+func trainingSource() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/training")
+}
+
+// trainingFixture returns one committed line image by name.
+func trainingFixture(name string) *dagger.File {
+	return dag.CurrentModule().Source().File("fixtures/training/" + name)
+}
+
+// trainable returns the module under test carrying a model fine-tuning can
+// actually start from.
+//
+// It is fetched rather than committed and it is not packaged, because there is
+// no third option: `lstmtraining` refuses to continue from a quantized model,
+// every model Alpine packages is quantized, and the float ones are 15MB
+// apiece. The URL is pinned to a tag so the base model a run starts from does
+// not change under the suite, and Dagger caches the fetch, so the download is
+// paid once per engine rather than once per run.
+func trainable() *dagger.Tesseract {
+	return ocr().WithTessdata(
+		dag.Directory().WithFile(floatModelLang+".traineddata", dag.HTTP(floatModelURL)),
+	)
 }
 
 // textFile builds an in-memory file for the caller-supplied word and pattern

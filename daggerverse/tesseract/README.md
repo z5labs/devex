@@ -5,7 +5,8 @@ as a `dagger call`. Hand it an image and get back plain text, or hOCR / ALTO /
 TSV / PAGE / a searchable PDF for anything that needs word positions and
 confidences. Hand it a directory and get the same artifacts back for every page
 in it, at the paths they came in on. Hand it a PDF and it rasterizes the pages
-for you first.
+for you first. Hand it transcribed lines and it fine-tunes a model against them
+and gives you back a `.traineddata` the same module recognises with.
 
 **There is no official Tesseract container image** — upstream ships source only,
 and every image on Docker Hub is third-party. So this module assembles its own
@@ -222,6 +223,10 @@ Document.Pdf(ctx)  (*dagger.File, error)                        // searchable PD
 Document.Page(ctx) (*dagger.File, error)                        // PAGE XML
 Document.Export(ctx, formats []Format) (*dagger.Directory, error)
 Document.Osd(ctx)  (string, error)                              // --psm 0
+
+Document.Box(ctx)             (*dagger.File, error)             // makebox
+Document.ProcessedImages(ctx) (*dagger.File, error)             // get.images
+Document.LstmTrain(ctx, groundTruth string) (*dagger.File, error) // lstm.train
 ```
 
 `Export` exists alongside the single-artifact functions because tesseract
@@ -239,8 +244,23 @@ options: orientation detection runs off the `osd` model alone, so the selected
 language, engine and page-segmentation mode have nothing to say about it.
 
 Artifacts come back as `exec.File(path)` off the recognition container. The
-`dag.CurrentModule().Workdir` staging pattern does not apply — this module
-generates no bytes in Go.
+`dag.CurrentModule().Workdir` staging pattern applies in exactly one place —
+the box files `Training` generates in Go, below.
+
+The last three are the training-adjacent renderers, and they are deliberately
+**not** `Format` members, so `Export` cannot ask for them. `Export`'s promise is
+that a set of formats is one pass producing one artifact per format, and none of
+them keeps it: `makebox` and `get.images` describe the recognition rather than
+reporting it, and `lstm.train` is not an output of recognition at all — it needs
+ground truth, which is an argument an enum member cannot carry.
+
+`Box` is the character-level box file, the only output here that descends below
+the word: hOCR and TSV stop there. `ProcessedImages` is the image tesseract
+actually recognised — binarized and deskewed — which is what answers "is the
+model wrong, or did the page never survive thresholding?". `LstmTrain` pairs one
+line image with the text it renders and returns the `.lstmf` training sample
+built from the two; `Training` is the shorter path when the whole job is
+fine-tuning.
 
 ## Batch — a directory in, a mirrored directory out
 
@@ -358,6 +378,120 @@ Page files are listed by globbing rather than by counting pages, because
 `page-01.png`. One document means one padding width, so a lexicographic sort is
 page order.
 
+## Training — fine-tuning a model
+
+```go
+Tesseract.Training(source *dagger.Directory) *Training
+
+Training.WithBaseModel(lang string) *Training   // required
+Training.WithIterations(n int) *Training        // +default 100
+Training.Files(ctx) ([]string, error)
+Training.Traineddata(ctx) (*dagger.File, error)
+Training.Evaluate(ctx) (string, error)          // lstmeval BCER / BWER
+```
+
+Recognition run backwards: the text is what you have and the model is what you
+want. The apk package already ships every binary the job needs — `lstmtraining`,
+`combine_tessdata`, `lstmeval`, `unicharset_extractor`, `text2image` — so what
+stands between a directory of transcribed lines and a `.traineddata` is
+orchestration, not installation.
+
+The source directory holds pairs: `line-1.png` beside `line-1.gt.txt`, tesseract's
+own training-data convention. The unit is **one text line** — one image, one
+line of ground truth — which is why a `.gt.txt` carrying more than one line is
+refused rather than joined. A page is not a training sample; it is as many
+samples as it has lines, and cutting it into them is a decision about the data
+rather than about this module.
+
+The model that comes out pairs directly with `WithTessdata`, so a fine-tune and
+the recognition that uses it are two calls on the same module. It is named after
+the base model — fine-tuning `eng` gives an `eng.traineddata` that *replaces* the
+stock one — and renamed by putting it in a directory under another name, since
+`WithTessdata` reads the language off the file's stem.
+
+### The base model has to be a float model
+
+`WithBaseModel` is required and has no default, which looks unfriendly until you
+try the friendly version: **every model Alpine packages is untrainable.** They
+come from `tesseract-ocr/tessdata`, whose weights are quantized to integers so
+recognition is fast, and `lstmtraining` refuses to continue from one —
+
+```
+Error, eng.lstm is an integer (fast) model, cannot continue training
+```
+
+— which names neither the float models nor how to get one onto the image. So a
+default would be a default that always fails. The float builds live in
+[`tesseract-ocr/tessdata_best`](https://github.com/tesseract-ocr/tessdata_best)
+and reach this module the way any other unpackaged model does, through
+`WithTessdata`:
+
+```go
+best := dag.Directory().WithFile("best.traineddata", dag.HTTP(tessdataBestEng))
+model := dag.Tesseract().
+    WithTessdata(best).
+    Training(lines).
+    WithBaseModel("best").
+    Traineddata()
+```
+
+That failure is the one this module cannot prevent, only explain: the message
+carrying `is an integer (fast) model` is caught and replaced with one naming
+`tessdata_best` and `WithTessdata`.
+
+### How a sample gets built
+
+`lstm.train` takes its ground truth from a **box file** beside the image, in the
+`WordStr` format — one line of text plus the region of the image it occupies.
+Since each image here *is* one line, that region is the whole image, so the only
+thing to discover is how big the image is.
+
+That discovery happens in Go rather than in the container, because nothing on the
+toolchain image reports an image's dimensions: tesseract will, but only by
+recognising the page first, and everything else means installing an image toolkit
+(`imagemagick` is +26MB) to read two integers out of a header. The source
+directory is exported once, headers are decoded with `image.DecodeConfig` plus
+`golang.org/x/image` — and a hand-rolled PNM reader, so the training set accepts
+the same extensions `Batch` does rather than a smaller undocumented set — and the
+box files are staged through `dag.CurrentModule().Workdir` under a
+content-addressed name, so the same training set resolves to the same path every
+time.
+
+Oversized boxes were tried first and are a trap worth recording: tesseract clips
+the crop to the image, so the *sample* comes out byte-identical, but the box is
+stored in `int16` coordinates and `GetRectImage` pads it by 4 before clipping —
+so `32767` overflows to a negative box and the run dies with `Failed to read
+pages`, while `1000000` silently truncates to `16960` and appears to work.
+
+### One exec, one cache entry
+
+Extraction, sample building, training and freezing are a single container exec.
+The intermediates are worthless on their own and large — the extracted network is
+~12MB and `lstmtraining`'s checkpoints ~70MB — and keeping them inside one
+container keeps the whole run one cache entry, which is what lets `Traineddata`
+and `Evaluate` share it instead of training twice.
+
+Checks run cheapest first, and the base model is checked *last* on purpose: it is
+the only one that needs the image assembled to answer, so a directory that is not
+a training set says so without building anything.
+
+### Iterations, and what `Evaluate` measures
+
+One iteration is one sample presented to the network, so a 40-line set runs 40
+iterations per pass over the data. The count is **always bounded** — `lstmtraining`
+left to itself trains until its error rate stops improving, which on real data is
+hours — and defaults to 100. That default is far below what fine-tuning for
+production takes (upstream's own worked example uses 400 for a single font, and
+thousands is ordinary); it is chosen so that a first call, and this module's own
+test suite, finish in seconds. The end-to-end test runs at the default precisely
+so that the day it stops being CI-viable is the day that test gets slow.
+
+`Evaluate` returns `lstmeval`'s line — `BCER eval=0.000, BWER eval=0.000`,
+character and word error rates as percentages — against the **training set**. That
+is a measure of how well the model fit the data it was shown, not of how it will
+do on data it has not seen. Hold ground truth back and build a second `Training`
+over it for the second number (#231).
+
 ## Validation
 
 Builders have no error return, so every check below is deferred to the output
@@ -377,6 +511,13 @@ letting tesseract fail in its own vocabulary.
 | a `Batch` source holding no images | same, but the fix is `WithGlob` rather than the pattern, so the message names the default extension set |
 | two `Batch` inputs sharing an output base | `a.png` and `a.jpg` both render onto `a.txt`; the second silently overwrites the first and the run looks like it succeeded with a page missing |
 | a `Batch` file name containing a tab or newline | the manifest is tab-separated and newline-delimited, so the loop would recognise the wrong file |
+| a `Training` image with no `.gt.txt`, or a `.gt.txt` with no image | training directories are assembled by script and fail off-by-one; "something is unpaired" sends the caller to diff two file listings, the file's name does not |
+| two `Training` images pairing with one `.gt.txt` | `a.png` and `a.jpg` would build two samples from one transcription, and only one `.box` |
+| a `Training` `.gt.txt` that is empty or holds several lines | the box claims the whole image renders exactly this text; against a two-line image that is false in a way training cannot recover from — the network is shown two lines of pixels and told they are one line of characters |
+| `WithBaseModel` unset, or naming a model the image does not carry | there is no default that works, because every packaged model is quantized; the message names `tessdata_best` and `WithTessdata` |
+| `WithBaseModel` naming a quantized model | `lstmtraining` says only `is an integer (fast) model`, which names neither the float builds nor how to get one onto the image |
+| `WithIterations` at zero or negative | `lstmtraining` would write no checkpoint, and `--stop_training` would fail on its absence rather than on the argument |
+| `LstmTrain` with empty or multi-line ground truth, or on a rasterized PDF | same one-image-one-line contract; a whole PDF has no single line to claim |
 
 Errors fold tesseract's own output in via `Expect: ReturnTypeAny` plus a
 combined stdout+stderr helper, because tesseract splits usage errors onto stderr
@@ -384,16 +525,19 @@ and progress onto stdout.
 
 ## Caching
 
-No `+cache=` directive appears on any `Document` or `Batch` output: recognition
-is a pure function of the image bytes plus the flags, so the 7-day default is
-correct and there is no chained-method propagation problem to worry about. `Container`,
+No `+cache=` directive appears on any `Document`, `Batch` or `Training` output:
+recognition is a pure function of the image bytes plus the flags, and so is
+fine-tuning of the samples plus the base model, so the 7-day default is correct
+and there is no chained-method propagation problem to worry about. `Container`,
 `Version`, `Langs` and `Parameters` take `+cache="session"` per `kicad`, because
 a floating Alpine tag can resolve differently across sessions.
 
 ## Follow-ups
 
-The training toolchain (#222); a chained `Ci` builder (#223); an `examples/go`
-cookbook (#224).
+A chained `Ci` builder (#223); an `examples/go` cookbook (#224); evaluation
+against a held-out set (#231).
+
+The training toolchain (#222) landed — see above.
 
 Batch OCR over a directory (#220) and PDF-input rasterization (#221) both
 landed — see above. `Batch` still deliberately does not expose the concatenated

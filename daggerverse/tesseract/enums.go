@@ -154,6 +154,28 @@ var formatTable = map[Format]formatSpec{
 	FormatPage: {config: "page", ext: ".page.xml"},
 }
 
+// The training-adjacent renderers are deliberately not Format members, and so
+// are reachable only through the function named after each.
+//
+// Export's promise is that a set of formats is one recognition pass producing
+// one artifact per format, and none of these three keeps it. makebox and
+// get.images describe the recognition rather than reporting it — a caller
+// asking for TXT and PDF wants two results, not a debugging aid alongside
+// them — and lstm.train is not an output of recognition at all: it needs
+// ground truth the other renderers have no use for, which is an argument a
+// member of an enum cannot carry.
+var (
+	// boxSpec is the character-level box file: one row per recognised
+	// character with the box it was found in.
+	boxSpec = formatSpec{config: "makebox", ext: boxExt}
+	// processedImagesSpec is the image tesseract actually recognised, after
+	// its own binarization and deskewing.
+	processedImagesSpec = formatSpec{config: "get.images", ext: processedImagesExt}
+	// lstmTrainSpec is one LSTM training sample: the line image paired with
+	// the text it renders.
+	lstmTrainSpec = formatSpec{config: "lstm.train", ext: lstmfExt}
+)
+
 // formatOrder fixes the order formats are rendered and reported in, so an
 // Export's argv — and therefore its cache key — does not depend on the order
 // the caller happened to list them.

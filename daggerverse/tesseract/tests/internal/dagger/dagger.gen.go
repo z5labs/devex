@@ -340,6 +340,9 @@ type TesseractDocumentID string
 type TesseractID string
 
 // A unique identifier for an object.
+type TesseractTrainingID string
+
+// A unique identifier for an object.
 type TypeDefID string
 
 // A unique identifier for an object.
@@ -13383,6 +13386,16 @@ func (r *Query) LoadTesseractFromID(id TesseractID) *Tesseract {
 	q = q.Arg("id", id)
 
 	return &Tesseract{
+		query: q,
+	}
+}
+
+// Load a TesseractTraining from its ID.
+func (r *Query) LoadTesseractTrainingFromID(id TesseractTrainingID) *TesseractTraining {
+	q := r.query.Select("loadTesseractTrainingFromID")
+	q = q.Arg("id", id)
+
+	return &TesseractTraining{
 		query: q,
 	}
 }

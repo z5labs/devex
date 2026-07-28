@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:166:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -33,6 +33,15 @@ func (r *Binding) AsTesseractDocument() *TesseractDocument { // tesseract (../..
 	q := r.query.Select("asTesseractDocument")
 
 	return &TesseractDocument{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type TesseractTraining
+func (r *Binding) AsTesseractTraining() *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/training.go:92:6)
+	q := r.query.Select("asTesseractTraining")
+
+	return &TesseractTraining{
 		query: q,
 	}
 }
@@ -86,7 +95,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:166:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -99,8 +108,32 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:166:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
 	q := r.query.Select("withTesseractOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Create or update a binding of type TesseractTraining in the environment
+func (r *Env) WithTesseractTrainingInput(name string, value *TesseractTraining, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/training.go:92:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withTesseractTrainingInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired TesseractTraining output to be assigned in the environment
+func (r *Env) WithTesseractTrainingOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/training.go:92:6)
+	q := r.query.Select("withTesseractTrainingOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -116,18 +149,18 @@ type TesseractOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:184:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:238:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:187:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:241:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:191:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:245:2)
 	//
 	// Upper bound on the OpenMP threads tesseract may use, set on the
 	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
@@ -138,12 +171,12 @@ type TesseractOpts struct {
 	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
 	// thread per pass is the usual setting there.
 	//
-	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:201:2)
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:255:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:181:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:235:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -173,7 +206,7 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:166:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
 	query *querybuilder.Selection
 
 	id         *ID
@@ -203,7 +236,7 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 // with whatever reads the results the same way the input directory was
 // composed. Which files take part is a glob, defaulting to the image
 // extensions leptonica can read.
-func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:345:1)
+func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:399:1)
 	assertNotNil("source", source)
 	q := r.query.Select("batch")
 	q = q.Arg("source", source)
@@ -220,7 +253,7 @@ func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../
 //
 // A requested OpenMP bound lives here rather than on the recognition
 // invocation so everything reached through this escape hatch inherits it too.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:255:1)
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:309:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -233,7 +266,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:333:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:387:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -338,7 +371,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 // `tesseract --list-langs`: the packaged languages and any model WithTessdata
 // added, as one set. This is what Document.WithLanguage validates against, and
 // it includes "osd" when that model was installed or supplied.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:303:1)
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:357:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -350,7 +383,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:318:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:372:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -362,9 +395,31 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 	return response, q.Execute(ctx)
 }
 
+// Training binds a directory of image and ground-truth pairs to the toolchain
+// and fine-tunes a model against them, which is recognition run backwards: the
+// text is what you have and the model is what you want.
+//
+// It is here rather than behind Container because the apk package already
+// ships every binary the job needs — lstmtraining, combine_tessdata, lstmeval
+// — so what stands between a directory of transcribed lines and a
+// `.traineddata` is orchestration rather than installation: a box file per
+// image, a training sample per box, one training run, one freeze.
+//
+// The model it produces pairs directly with WithTessdata, so a fine-tune and
+// the recognition that uses it are two calls on the same module.
+func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:415:1)
+	assertNotNil("source", source)
+	q := r.query.Select("training")
+	q = q.Arg("source", source)
+
+	return &TesseractTraining{
+		query: q,
+	}
+}
+
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:284:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:338:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -391,7 +446,7 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 // renderer configfiles and the font the PDF renderer needs. A caller-supplied
 // model wins over a packaged one of the same name, which is what makes
 // replacing the stock `eng` with a fine-tuned one work.
-func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:237:1)
+func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:291:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withTessdata")
 	q = q.Arg("dir", dir)
@@ -669,6 +724,21 @@ func (r *TesseractDocument) Alto() *File { // tesseract (../../../../../daggerve
 	}
 }
 
+// Box returns the character-level box file: one row per recognised character,
+// giving the character and the box it was found in.
+//
+// It is the format tesseract's own training tooling corrects by hand — read
+// the boxes, fix the characters the model got wrong, feed them back — and the
+// most direct way to see where recognition thinks each glyph is. Hocr and Tsv
+// carry boxes too, but at the word level and wrapped in a document format.
+func (r *TesseractDocument) Box() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:156:1)
+	q := r.query.Select("box")
+
+	return &File{
+		query: q,
+	}
+}
+
 // Export runs one recognition pass and returns a directory holding every
 // requested format.
 //
@@ -676,7 +746,7 @@ func (r *TesseractDocument) Alto() *File { // tesseract (../../../../../daggerve
 // several renderers per invocation: asking for text, hOCR and PDF together is
 // one pass over the image, not three. Each artifact is named `result` plus the
 // renderer's own extension.
-func (r *TesseractDocument) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/document.go:156:1)
+func (r *TesseractDocument) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/document.go:225:1)
 	q := r.query.Select("export")
 	q = q.Arg("formats", formats)
 
@@ -744,6 +814,28 @@ func (r *TesseractDocument) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// LstmTrain returns one LSTM training sample — a `.lstmf` — pairing this
+// image with the line of text it renders.
+//
+// It is the unit Training is built out of, exposed on its own for the pipeline
+// that wants to build its samples somewhere else: generate them here, keep
+// them, and hand the collection to `lstmtraining` on its own terms. Training
+// is the shorter path when the whole job is fine-tuning a model.
+//
+// The ground truth is an argument rather than a file beside the image because
+// a Document is one image, not a directory: there is nowhere for a `.gt.txt`
+// to sit. It has to be a single line, and the image has to be a single line of
+// text, for the same reason Training says so — the sample claims the whole
+// image renders exactly this text.
+func (r *TesseractDocument) LstmTrain(groundTruth string) *File { // tesseract (../../../../../daggerverse/tesseract/document.go:185:1)
+	q := r.query.Select("lstmTrain")
+	q = q.Arg("groundTruth", groundTruth)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Osd detects the document's orientation and script without recognising any
 // text (`--psm 0`), reporting the rotation needed to make the page upright.
 //
@@ -752,7 +844,7 @@ func (r *TesseractDocument) UnmarshalJSON(bs []byte) error {
 // language, engine and page-segmentation mode have nothing to say about it.
 // The osd model has to be in the image: either as the package New installs for
 // it, or as an osd.traineddata WithTessdata supplied.
-func (r *TesseractDocument) Osd(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:180:1)
+func (r *TesseractDocument) Osd(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/document.go:249:1)
 	if r.osd != nil {
 		return *r.osd, nil
 	}
@@ -778,6 +870,22 @@ func (r *TesseractDocument) Page() *File { // tesseract (../../../../../daggerve
 // positioned behind it, so the page looks untouched but selects and greps.
 func (r *TesseractDocument) Pdf() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:139:1)
 	q := r.query.Select("pdf")
+
+	return &File{
+		query: q,
+	}
+}
+
+// ProcessedImages returns the image tesseract actually recognised, which is
+// not the one it was given: recognition runs on a binarized, deskewed
+// derivative, and this is that derivative as a TIFF.
+//
+// It answers the question a disappointing result always raises — is the model
+// wrong, or did the page never survive thresholding? A scan that comes back as
+// a field of black has failed before recognition started, and no amount of
+// tuning `--psm` will fix it.
+func (r *TesseractDocument) ProcessedImages() *File { // tesseract (../../../../../daggerverse/tesseract/document.go:168:1)
+	q := r.query.Select("processedImages")
 
 	return &File{
 		query: q,
@@ -919,6 +1027,201 @@ func (r *TesseractDocument) WithUserWords(words *File) *TesseractDocument { // t
 // AsNode returns this TesseractDocument as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *TesseractDocument) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// Training is a directory of image plus ground-truth pairs bound to the
+// toolchain, and the fine-tuning run that turns them into a model.
+//
+// The unit of work is one text line: each image holds a single line and its
+// `.gt.txt` holds the text that line renders, which is the shape tesseract's
+// own training data takes and the reason the ground truth is rejected when it
+// carries more than one line. A page of text is not a training sample; it is
+// as many samples as it has lines, and cutting it into them is a decision
+// about the data rather than about this module.
+//
+// Fine-tuning needs a *float* base model, which nothing Alpine packages is:
+// every model in tesseract-ocr/tessdata is quantized to integers for
+// recognition speed and lstmtraining refuses to continue from one. The float
+// models live in tesseract-ocr/tessdata_best, and reach this module the same
+// way any other unpackaged model does — through WithTessdata. That is why
+// WithBaseModel is required rather than defaulting to the recognition
+// language: the default would be a model that cannot be trained.
+type TesseractTraining struct { // tesseract (../../../../../daggerverse/tesseract/training.go:92:6)
+	query *querybuilder.Selection
+
+	evaluate *string
+	id       *ID
+}
+type WithTesseractTrainingFunc func(r *TesseractTraining) *TesseractTraining
+
+// With calls the provided function with current TesseractTraining.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *TesseractTraining) With(f WithTesseractTrainingFunc) *TesseractTraining {
+	return f(r)
+}
+
+func (r *TesseractTraining) WithGraphQLQuery(q *querybuilder.Selection) *TesseractTraining {
+	return &TesseractTraining{
+		query: q,
+	}
+}
+
+// Evaluate runs `lstmeval` against the fine-tuned model and returns the error
+// rates it reports: BCER, the character error rate, and BWER, the word error
+// rate, both as percentages.
+//
+// It evaluates against the training set, which makes this a measure of how
+// well the model fit the data it was shown rather than of how it will do on
+// data it has not seen. Those are different numbers and the second one is the
+// one that matters for a model going into production: hold part of the ground
+// truth back, and build a second Training over it to measure that.
+//
+// The run is shared with Traineddata rather than repeated — both read the same
+// finished container — so asking for the model and its error rate costs one
+// training run, not two.
+func (r *TesseractTraining) Evaluate(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/training.go:205:1)
+	if r.evaluate != nil {
+		return *r.evaluate, nil
+	}
+	q := r.query.Select("evaluate")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// Files lists the images the run will train on, as paths relative to the
+// source directory root, in the order they are presented.
+//
+// It is where the pairing is checked, so it answers the question a training
+// directory always raises — did every image find its ground truth? — without
+// paying for the training run. The check is by name alone; what the ground
+// truth files actually say is read when the run happens.
+func (r *TesseractTraining) Files(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/training.go:165:1)
+	q := r.query.Select("files")
+
+	var response []string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// A unique identifier for this TesseractTraining.
+func (r *TesseractTraining) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *TesseractTraining) XXX_GraphQLType() string {
+	return "TesseractTraining"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *TesseractTraining) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *TesseractTraining) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *TesseractTraining) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *TesseractTraining) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = TesseractTraining{query: selectNode(dag.query, id, "TesseractTraining")}
+	return nil
+}
+
+// Traineddata runs the fine-tuning and returns the resulting model, named
+// after the base model it was trained from.
+//
+// The file is a complete `.traineddata`: `--stop_training` folds the trained
+// network back together with the base model's unicharset and dictionaries, so
+// it is a drop-in for the model it started from rather than a fragment needing
+// assembly. Hand it to WithTessdata and it becomes a language like any other.
+func (r *TesseractTraining) Traineddata() *File { // tesseract (../../../../../daggerverse/tesseract/training.go:184:1)
+	q := r.query.Select("traineddata")
+
+	return &File{
+		query: q,
+	}
+}
+
+// WithBaseModel names the model fine-tuning starts from. It is required, and
+// it has to be a float model: `lstmtraining` refuses to continue from a
+// quantized one, and every model Alpine packages is quantized.
+//
+// The float models are published as tesseract-ocr/tessdata_best, and are
+// supplied to this module exactly as any other unpackaged model is — as a
+// directory handed to WithTessdata. The name here is the one that directory
+// gives the model, so a `best.traineddata` is the base model "best".
+//
+// The name is also what the trained model is called: fine-tuning "eng"
+// produces an `eng.traineddata`, which is what makes the result drop straight
+// back into WithTessdata as a replacement for the model it came from. Give it
+// another name by putting it in a directory under one — WithTessdata reads the
+// language off the file name.
+func (r *TesseractTraining) WithBaseModel(lang string) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/training.go:128:1)
+	q := r.query.Select("withBaseModel")
+	q = q.Arg("lang", lang)
+
+	return &TesseractTraining{
+		query: q,
+	}
+}
+
+// WithIterations sets how many training iterations to run — one iteration is
+// one training sample presented to the network, so a 40-line set runs 40
+// iterations per pass over the data.
+//
+// The count is always bounded: lstmtraining left to itself trains until its
+// error rate stops improving, which on a real data set is hours, so this
+// module always passes `--max_iterations` and defaults it to 100. That default
+// is deliberately far below what fine-tuning a model for production takes
+// (upstream's own worked example uses 400 for a single font, and thousands is
+// ordinary) and is chosen instead to keep the first call a caller makes —
+// and this module's own test suite — finish in seconds rather than turning
+// into an unattended job. Raise it for anything real.
+func (r *TesseractTraining) WithIterations(n int) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/training.go:149:1)
+	q := r.query.Select("withIterations")
+	q = q.Arg("n", n)
+
+	return &TesseractTraining{
+		query: q,
+	}
+}
+
+// AsNode returns this TesseractTraining as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *TesseractTraining) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}

@@ -146,6 +146,75 @@ func (d *Document) Page(ctx context.Context) (*dagger.File, error) {
 	return d.render(ctx, FormatPage)
 }
 
+// Box returns the character-level box file: one row per recognised character,
+// giving the character and the box it was found in.
+//
+// It is the format tesseract's own training tooling corrects by hand — read
+// the boxes, fix the characters the model got wrong, feed them back — and the
+// most direct way to see where recognition thinks each glyph is. Hocr and Tsv
+// carry boxes too, but at the word level and wrapped in a document format.
+func (d *Document) Box(ctx context.Context) (*dagger.File, error) {
+	return d.renderSpec(ctx, boxSpec)
+}
+
+// ProcessedImages returns the image tesseract actually recognised, which is
+// not the one it was given: recognition runs on a binarized, deskewed
+// derivative, and this is that derivative as a TIFF.
+//
+// It answers the question a disappointing result always raises — is the model
+// wrong, or did the page never survive thresholding? A scan that comes back as
+// a field of black has failed before recognition started, and no amount of
+// tuning `--psm` will fix it.
+func (d *Document) ProcessedImages(ctx context.Context) (*dagger.File, error) {
+	return d.renderSpec(ctx, processedImagesSpec)
+}
+
+// LstmTrain returns one LSTM training sample — a `.lstmf` — pairing this
+// image with the line of text it renders.
+//
+// It is the unit Training is built out of, exposed on its own for the pipeline
+// that wants to build its samples somewhere else: generate them here, keep
+// them, and hand the collection to `lstmtraining` on its own terms. Training
+// is the shorter path when the whole job is fine-tuning a model.
+//
+// The ground truth is an argument rather than a file beside the image because
+// a Document is one image, not a directory: there is nowhere for a `.gt.txt`
+// to sit. It has to be a single line, and the image has to be a single line of
+// text, for the same reason Training says so — the sample claims the whole
+// image renders exactly this text.
+func (d *Document) LstmTrain(
+	ctx context.Context,
+	// The single line of text this image renders.
+	groundTruth string,
+) (*dagger.File, error) {
+	if d.Pages != nil {
+		return nil, fmt.Errorf(
+			"LstmTrain: a rasterized PDF is a whole document, and a training sample is one line: call Document on the page images you want to train on, one line at a time")
+	}
+	source, err := d.validate(ctx)
+	if err != nil {
+		return nil, err
+	}
+	box, err := groundTruthBox(ctx, d.Source, groundTruth)
+	if err != nil {
+		return nil, err
+	}
+	flags, err := d.Options.flags(d.Tesseract)
+	if err != nil {
+		return nil, err
+	}
+	// tesseract resolves a training box relative to the image it was handed
+	// rather than relative to the output base, so the box is mounted beside
+	// the source under the source's own name.
+	ctr := d.container(source).WithMountedFile(outputBaseFor(source)+boxExt, box)
+	args := append([]string{"tesseract", source, outputBase}, flags...)
+	exec, err := execTesseract(ctx, ctr, append(args, lstmTrainSpec.config))
+	if err != nil {
+		return nil, err
+	}
+	return exec.File(outputBase + lstmTrainSpec.ext), nil
+}
+
 // Export runs one recognition pass and returns a directory holding every
 // requested format.
 //
@@ -211,7 +280,12 @@ func (d *Document) Osd(ctx context.Context) (string, error) {
 // render runs one recognition pass for a single format and lifts the artifact
 // off the finished exec.
 func (d *Document) render(ctx context.Context, format Format) (*dagger.File, error) {
-	spec := formatTable[format]
+	return d.renderSpec(ctx, formatTable[format])
+}
+
+// renderSpec is render over a renderer that is not a Format member, which is
+// what the training-adjacent outputs are.
+func (d *Document) renderSpec(ctx context.Context, spec formatSpec) (*dagger.File, error) {
 	exec, err := d.run(ctx, outputBase, spec.config)
 	if err != nil {
 		return nil, err
@@ -271,16 +345,22 @@ func (d *Document) run(ctx context.Context, output string, configs ...string) (*
 }
 
 // execTesseract runs one tesseract invocation, turning a non-zero exit into an
-// error carrying tesseract's own output. Expect=ReturnTypeAny keeps the failed
-// exec on the value path so both streams stay readable.
+// error carrying tesseract's own output.
 func execTesseract(ctx context.Context, ctr *dagger.Container, args []string) (*dagger.Container, error) {
+	return execTool(ctx, ctr, args, "tesseract")
+}
+
+// execTool runs one exec and reports a non-zero exit as an error naming the
+// tool that failed and carrying its own output. Expect=ReturnTypeAny keeps the
+// failed exec on the value path so both streams stay readable.
+func execTool(ctx context.Context, ctr *dagger.Container, args []string, tool string) (*dagger.Container, error) {
 	exec := ctr.WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 	code, err := exec.ExitCode(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if code != 0 {
-		return nil, fmt.Errorf("tesseract failed (exit %d):\n%s", code, combinedOutput(ctx, exec))
+		return nil, fmt.Errorf("%s failed (exit %d):\n%s", tool, code, combinedOutput(ctx, exec))
 	}
 	return exec, nil
 }

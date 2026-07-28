@@ -217,7 +217,7 @@ func (b *Batch) matches(ctx context.Context) ([]string, error) {
 			return nil, fmt.Errorf("Batch: %w", err)
 		}
 		if err := checkManifestSafe(p); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("Batch: %w: rename it, or recognise it on its own with Document", err)
 		}
 		sources = append(sources, p)
 	}
@@ -267,12 +267,13 @@ func checkOutputCollisions(sources []string) error {
 }
 
 // checkManifestSafe rejects a path the tab-separated manifest cannot carry
-// unambiguously. Spaces are fine — the exec splits on tabs alone — but a tab or
-// a newline in a file name would be read as a field or record boundary and
-// recognise the wrong file.
+// unambiguously. Spaces are fine — the loops split on tabs alone — but a tab or
+// a newline in a file name would be read as a field or record boundary and act
+// on the wrong file. Batch and Training share the manifest shape and therefore
+// share the check; each adds its own way out of it.
 func checkManifestSafe(p string) error {
 	if strings.ContainsAny(p, "\t\n") {
-		return fmt.Errorf("Batch: file name %q contains a tab or newline, which the batch manifest cannot represent: rename it, or recognise it on its own with Document", p)
+		return fmt.Errorf("file name %q contains a tab or newline, which the manifest cannot represent", p)
 	}
 	return nil
 }
