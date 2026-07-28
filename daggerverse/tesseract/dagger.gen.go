@@ -127,6 +127,38 @@ func (r *Batch) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r Ci) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Batch            *Batch
+		Formats          []Format
+		MinConfidence    int
+		HasMinConfidence bool
+	}
+	concrete.Batch = r.Batch
+	concrete.Formats = r.Formats
+	concrete.MinConfidence = r.MinConfidence
+	concrete.HasMinConfidence = r.HasMinConfidence
+	return json.Marshal(&concrete)
+}
+
+func (r *Ci) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Batch            *Batch
+		Formats          []Format
+		MinConfidence    int
+		HasMinConfidence bool
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Batch = concrete.Batch
+	r.Formats = concrete.Formats
+	r.MinConfidence = concrete.MinConfidence
+	r.HasMinConfidence = concrete.HasMinConfidence
+	return nil
+}
+
 func (r Document) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Tesseract *Tesseract
@@ -663,6 +695,67 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "Ci":
+		switch fnName {
+		case "Check":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Ci).Check(&parent, ctx)
+		case "Run":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).Run(&parent, ctx)
+		case "WithFormats":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var formats []Format
+			if inputArgs["formats"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["formats"]), &formats)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg formats", err))
+				}
+			}
+			return (*Ci).WithFormats(&parent, formats), nil
+		case "WithLanguage":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var lang string
+			if inputArgs["lang"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lang"]), &lang)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lang", err))
+				}
+			}
+			return (*Ci).WithLanguage(&parent, lang), nil
+		case "WithMinConfidence":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var percent int
+			if inputArgs["percent"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["percent"]), &percent)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg percent", err))
+				}
+			}
+			return (*Ci).WithMinConfidence(&parent, percent), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Document":
 		switch fnName {
 		case "Alto":
@@ -887,6 +980,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Tesseract).Batch(&parent, source), nil
+		case "Ci":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Tesseract).Ci(&parent, source), nil
 		case "Container":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)

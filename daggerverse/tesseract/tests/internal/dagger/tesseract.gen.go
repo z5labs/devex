@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -24,6 +24,15 @@ func (r *Binding) AsTesseractBatch() *TesseractBatch { // tesseract (../../../..
 	q := r.query.Select("asTesseractBatch")
 
 	return &TesseractBatch{
+		query: q,
+	}
+}
+
+// Retrieve the binding value, as type TesseractCi
+func (r *Binding) AsTesseractCi() *TesseractCi { // tesseract (../../../../../daggerverse/tesseract/ci.go:48:6)
+	q := r.query.Select("asTesseractCi")
+
+	return &TesseractCi{
 		query: q,
 	}
 }
@@ -70,6 +79,30 @@ func (r *Env) WithTesseractBatchOutput(name string, description string) *Env { /
 	}
 }
 
+// Create or update a binding of type TesseractCi in the environment
+func (r *Env) WithTesseractCiInput(name string, value *TesseractCi, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/ci.go:48:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withTesseractCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired TesseractCi output to be assigned in the environment
+func (r *Env) WithTesseractCiOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/ci.go:48:6)
+	q := r.query.Select("withTesseractCiOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
 // Create or update a binding of type TesseractDocument in the environment
 func (r *Env) WithTesseractDocumentInput(name string, value *TesseractDocument, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/document.go:27:6)
 	assertNotNil("value", value)
@@ -95,7 +128,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -108,7 +141,7 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
 	q := r.query.Select("withTesseractOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -149,18 +182,18 @@ type TesseractOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:238:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:240:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:241:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:243:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:245:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:247:2)
 	//
 	// Upper bound on the OpenMP threads tesseract may use, set on the
 	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
@@ -171,12 +204,12 @@ type TesseractOpts struct {
 	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
 	// thread per pass is the usual setting there.
 	//
-	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:255:2)
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:257:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:235:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:237:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -206,7 +239,7 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:220:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
 	query *querybuilder.Selection
 
 	id         *ID
@@ -236,12 +269,25 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 // with whatever reads the results the same way the input directory was
 // composed. Which files take part is a glob, defaulting to the image
 // extensions leptonica can read.
-func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:399:1)
+func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:401:1)
 	assertNotNil("source", source)
 	q := r.query.Select("batch")
 	q = q.Arg("source", source)
 
 	return &TesseractBatch{
+		query: q,
+	}
+}
+
+// Ci returns a new pipeline builder over a directory of scans. Which files take
+// part is the batch default: the image extensions leptonica can read, at any
+// depth.
+func (r *Tesseract) Ci(source *Directory) *TesseractCi { // tesseract (../../../../../daggerverse/tesseract/ci.go:62:1)
+	assertNotNil("source", source)
+	q := r.query.Select("ci")
+	q = q.Arg("source", source)
+
+	return &TesseractCi{
 		query: q,
 	}
 }
@@ -253,7 +299,7 @@ func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../
 //
 // A requested OpenMP bound lives here rather than on the recognition
 // invocation so everything reached through this escape hatch inherits it too.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:309:1)
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:311:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -266,7 +312,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:387:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:389:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -371,7 +417,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 // `tesseract --list-langs`: the packaged languages and any model WithTessdata
 // added, as one set. This is what Document.WithLanguage validates against, and
 // it includes "osd" when that model was installed or supplied.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:357:1)
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:359:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -383,7 +429,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:372:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:374:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -407,7 +453,7 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 //
 // The model it produces pairs directly with WithTessdata, so a fine-tune and
 // the recognition that uses it are two calls on the same module.
-func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:415:1)
+func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:417:1)
 	assertNotNil("source", source)
 	q := r.query.Select("training")
 	q = q.Arg("source", source)
@@ -419,7 +465,7 @@ func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesserac
 
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:338:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:340:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -446,7 +492,7 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 // renderer configfiles and the font the PDF renderer needs. A caller-supplied
 // model wins over a packaged one of the same name, which is what makes
 // replacing the stock `eng` with a fine-tuned one work.
-func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:291:1)
+func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:293:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withTessdata")
 	q = q.Arg("dir", dir)
@@ -674,6 +720,177 @@ func (r *TesseractBatch) WithUserWords(words *File) *TesseractBatch { // tessera
 // AsNode returns this TesseractBatch as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *TesseractBatch) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// Ci is a chained builder for a document-processing pipeline: a directory of
+// scans in, the archival formats out, and a quality gate in between.
+//
+// It composes the Batch primitive without adding capability of its own — every
+// stage is a call the caller could make by hand — so a document repo's CI is one
+// declarative `dagger call` rather than a recognition step, an export step and a
+// hand-rolled TSV parser.
+//
+// The confidence gate is the part that is not merely a bundled call. It reads
+// the `conf` column tesseract already reports in its TSV output and fails the
+// run when mean word confidence falls below the threshold, which is how a
+// scanner regression or a wrong-language configuration is caught before the
+// artifacts ship rather than after they are archived.
+type TesseractCi struct { // tesseract (../../../../../daggerverse/tesseract/ci.go:48:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ID
+}
+type WithTesseractCiFunc func(r *TesseractCi) *TesseractCi
+
+// With calls the provided function with current TesseractCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *TesseractCi) With(f WithTesseractCiFunc) *TesseractCi {
+	return f(r)
+}
+
+func (r *TesseractCi) WithGraphQLQuery(q *querybuilder.Selection) *TesseractCi {
+	return &TesseractCi{
+		query: q,
+	}
+}
+
+// Check runs the pipeline's gate and produces nothing, for the PR that wants to
+// know whether the scans are good enough without paying to render the archive.
+//
+// The gate is recognition itself plus the confidence bar: every matched image is
+// recognised, so a page tesseract cannot read fails here, and when a threshold
+// was set every page is measured against it. Recognition is what costs, and it
+// is unavoidable — a page's confidence is not knowable without recognising it.
+func (r *TesseractCi) Check(ctx context.Context) error { // tesseract (../../../../../daggerverse/tesseract/ci.go:114:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this TesseractCi.
+func (r *TesseractCi) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *TesseractCi) XXX_GraphQLType() string {
+	return "TesseractCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *TesseractCi) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *TesseractCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *TesseractCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *TesseractCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = TesseractCi{query: selectNode(dag.query, id, "TesseractCi")}
+	return nil
+}
+
+// Run executes the pipeline and returns every enabled format for every matched
+// image, in a directory mirroring the source layout. A failing gate returns the
+// error and no directory, so artifacts never reach a caller whose scans did not
+// clear the bar.
+//
+// Gating rides along on the recognition pass that renders the artifacts rather
+// than preceding it, because recognising the whole directory twice is the
+// single most expensive thing this module could be asked to do, and the only
+// difference between a gated run and an ungated one is a TSV. So a gated run
+// renders TSV alongside whatever was enabled, measures it, and withholds the
+// whole directory if the measurement fails — the artifacts exist inside the
+// exec, and a caller who is refused them is no better off for them having been
+// skipped.
+func (r *TesseractCi) Run() *Directory { // tesseract (../../../../../daggerverse/tesseract/ci.go:148:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// WithFormats replaces the set of formats the pipeline renders for each image.
+// Unset, it renders plain text.
+func (r *TesseractCi) WithFormats(formats []TesseractFormat) *TesseractCi { // tesseract (../../../../../daggerverse/tesseract/ci.go:76:1)
+	q := r.query.Select("withFormats")
+	q = q.Arg("formats", formats)
+
+	return &TesseractCi{
+		query: q,
+	}
+}
+
+// WithLanguage selects the recognition language (`-l`) for every image in the
+// source directory. See Document.WithLanguage.
+func (r *TesseractCi) WithLanguage(lang string) *TesseractCi { // tesseract (../../../../../daggerverse/tesseract/ci.go:68:1)
+	q := r.query.Select("withLanguage")
+	q = q.Arg("lang", lang)
+
+	return &TesseractCi{
+		query: q,
+	}
+}
+
+// WithMinConfidence fails the pipeline when a page comes back recognised less
+// confidently than this, as a percentage from 1 to 100.
+//
+// The measurement is the mean of the per-word confidences tesseract already
+// reports in its TSV output, taken per page: the gate names the page that
+// measured worst rather than the batch, because a batch is assembled by a
+// scanner and it is one sheet that goes through crooked.
+//
+// What it catches is the class of failure recognition does not report as one. A
+// page fed sideways, a scanner drifting out of focus, a language configured
+// wrong — all of them recognise *something*, exit 0 and render every artifact
+// asked for. Unset, there is no bar and no page can be too poor to ship.
+func (r *TesseractCi) WithMinConfidence(percent int) *TesseractCi { // tesseract (../../../../../daggerverse/tesseract/ci.go:97:1)
+	q := r.query.Select("withMinConfidence")
+	q = q.Arg("percent", percent)
+
+	return &TesseractCi{
+		query: q,
+	}
+}
+
+// AsNode returns this TesseractCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *TesseractCi) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}

@@ -262,6 +262,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BoxReportsCharacterBoxes(&parent, ctx)
+		case "CiCheckRunsTheGateWithoutArtifacts":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckRunsTheGateWithoutArtifacts(&parent, ctx)
+		case "CiGateKeepsItsTsvOutOfTheOutput":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiGateKeepsItsTsvOutOfTheOutput(&parent, ctx)
+		case "CiLanguageReachesRecognition":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiLanguageReachesRecognition(&parent, ctx)
+		case "CiMinConfidenceGatesTheRun":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiMinConfidenceGatesTheRun(&parent, ctx)
+		case "CiRejectsUnusableThreshold":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRejectsUnusableThreshold(&parent, ctx)
+		case "CiRunProducesEnabledFormats":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunProducesEnabledFormats(&parent, ctx)
 		case "DefaultLanguagesInstallEnglish":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
