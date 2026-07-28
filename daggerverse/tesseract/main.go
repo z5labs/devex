@@ -21,8 +21,12 @@
 //
 //   - enums.go     — PageSegMode / EngineMode / Format enums plus the token and
 //     output-extension tables that map them onto the CLI.
-//   - document.go  — *Document, its immutable With* builders, the deferred
-//     validation, the argument builder, and every output.
+//   - options.go   — the recognition option set Document and Batch share: one
+//     builder, one piece of argv and one deferred check per option, so the two
+//     units of work cannot drift apart.
+//   - document.go  — *Document, one image in and one artifact set out.
+//   - batch.go     — *Batch, a directory in and a mirrored directory out, all
+//     of it in a single container exec.
 package main
 
 import (
@@ -86,6 +90,19 @@ const (
 
 	userWordsPath    = workDir + "/user-words.txt"
 	userPatternsPath = workDir + "/user-patterns.txt"
+
+	// batchSourceDir is where Batch mounts the caller's directory, and
+	// batchManifestPath the record list its exec loops over. Both sit beside
+	// the single-document mounts rather than replacing them, so the user word
+	// and pattern lists land in the same place for either unit of work.
+	batchSourceDir    = workDir + "/batch"
+	batchManifestPath = workDir + "/batch.tsv"
+
+	// defaultBatchGlob matches every path in the source directory. It is not
+	// the whole default: what actually narrows a batch to images is the
+	// extension filter isImagePath applies on top of it, because Dagger's glob
+	// has no brace expansion to spell the alternation with.
+	defaultBatchGlob = "**/*"
 
 	// ompThreadLimitEnv caps the OpenMP team size tesseract's recognition
 	// loops fan out to.
@@ -272,6 +289,18 @@ func (t *Tesseract) Parameters(ctx context.Context) (string, error) {
 // so one image — including a multi-page TIFF — is the whole unit of work.
 func (t *Tesseract) Document(source *dagger.File) *Document {
 	return &Document{Tesseract: t, Source: source}
+}
+
+// Batch binds a directory of images to the toolchain, for the shape a
+// scanned-document pipeline actually arrives in: a folder of pages rather than
+// one file at a time.
+//
+// Export returns a directory mirroring the input layout, so a batch composes
+// with whatever reads the results the same way the input directory was
+// composed. Which files take part is a glob, defaulting to the image
+// extensions leptonica can read.
+func (t *Tesseract) Batch(source *dagger.Directory) *Batch {
+	return &Batch{Tesseract: t, Source: source}
 }
 
 func (t *Tesseract) image() string {

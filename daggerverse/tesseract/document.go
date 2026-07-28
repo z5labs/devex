@@ -14,32 +14,16 @@ import (
 // immutable: every With* returns a copy, so a configured Document can be
 // branched into several outputs without the branches interfering.
 //
-// Options are validated at output time rather than in the builders, because a
-// builder has no error return and some checks (is this language installed? is
-// this a real control variable?) need the image itself to answer.
+// The options themselves live on the shared options type, which Batch carries
+// too — the builders here are forwarders, so a new recognition option reaches
+// both units of work at once instead of being implemented twice.
 type Document struct {
 	// +private
 	Tesseract *Tesseract
 	// +private
 	Source *dagger.File
 	// +private
-	Language string
-	// +private
-	PageSeg PageSegMode
-	// +private
-	Engine EngineMode
-	// +private
-	Dpi int
-	// +private
-	HasDpi bool
-	// +private
-	ParamNames []string
-	// +private
-	ParamValues []string
-	// +private
-	UserWords *dagger.File
-	// +private
-	UserPatterns *dagger.File
+	Options options
 }
 
 // WithLanguage selects the recognition language (`-l`). Several languages can
@@ -52,26 +36,20 @@ type Document struct {
 // rejected at output time with the available set listed. Unset, recognition
 // runs in the first language New installed.
 func (d *Document) WithLanguage(lang string) *Document {
-	out := d.clone()
-	out.Language = lang
-	return out
+	return d.with(d.Options.withLanguage(lang))
 }
 
 // WithPageSegmentation sets how much layout analysis precedes recognition
 // (`--psm`). Unset, tesseract uses fully automatic segmentation without
 // orientation detection.
 func (d *Document) WithPageSegmentation(mode PageSegMode) *Document {
-	out := d.clone()
-	out.PageSeg = mode
-	return out
+	return d.with(d.Options.withPageSegmentation(mode))
 }
 
 // WithEngine selects the OCR engine (`--oem`). Unset, tesseract picks based on
 // what the language data provides.
 func (d *Document) WithEngine(mode EngineMode) *Document {
-	out := d.clone()
-	out.Engine = mode
-	return out
+	return d.with(d.Options.withEngine(mode))
 }
 
 // WithDpi declares the source image's resolution (`--dpi`), which tesseract
@@ -79,10 +57,7 @@ func (d *Document) WithEngine(mode EngineMode) *Document {
 // on images that carry no resolution at all. A non-positive value is rejected
 // at output time.
 func (d *Document) WithDpi(dpi int) *Document {
-	out := d.clone()
-	out.Dpi = dpi
-	out.HasDpi = true
-	return out
+	return d.with(d.Options.withDpi(dpi))
 }
 
 // WithParameter sets one of tesseract's control variables (`-c name=value`);
@@ -93,27 +68,20 @@ func (d *Document) WithDpi(dpi int) *Document {
 // output time: tesseract itself only warns and carries on, so a typo would
 // otherwise silently do nothing.
 func (d *Document) WithParameter(name string, value string) *Document {
-	out := d.clone()
-	out.ParamNames = append(out.ParamNames, name)
-	out.ParamValues = append(out.ParamValues, value)
-	return out
+	return d.with(d.Options.withParameter(name, value))
 }
 
 // WithUserWords supplies a word list (`--user-words`): one word per line,
 // which recognition then favours. Useful for jargon and proper nouns the
 // packaged dictionary does not know.
 func (d *Document) WithUserWords(words *dagger.File) *Document {
-	out := d.clone()
-	out.UserWords = words
-	return out
+	return d.with(d.Options.withUserWords(words))
 }
 
 // WithUserPatterns supplies a pattern list (`--user-patterns`): one pattern
 // per line describing the shape of expected strings, such as part numbers.
 func (d *Document) WithUserPatterns(patterns *dagger.File) *Document {
-	out := d.clone()
-	out.UserPatterns = patterns
-	return out
+	return d.with(d.Options.withUserPatterns(patterns))
 }
 
 // Text recognises the document and returns the plain text directly, by asking
@@ -215,8 +183,8 @@ func (d *Document) Osd(ctx context.Context) (string, error) {
 	args := []string{"tesseract", source, stdoutBase}
 	args = append(args, d.Tesseract.tessdataArgs()...)
 	args = append(args, "-l", osdLanguage, "--psm", pageSegTokens[PageSegModeOsdOnly])
-	if d.HasDpi {
-		args = append(args, "--dpi", strconv.Itoa(d.Dpi))
+	if d.Options.HasDpi {
+		args = append(args, "--dpi", strconv.Itoa(d.Options.Dpi))
 	}
 	exec, err := execTesseract(ctx, d.container(source), args)
 	if err != nil {
@@ -263,10 +231,11 @@ func selectFormats(formats []Format) ([]string, error) {
 	return configs, nil
 }
 
-func (d *Document) clone() *Document {
+// with returns a copy of the document carrying a new option set, which is what
+// keeps every builder immutable.
+func (d *Document) with(opts options) *Document {
 	out := *d
-	out.ParamNames = append([]string(nil), d.ParamNames...)
-	out.ParamValues = append([]string(nil), d.ParamValues...)
+	out.Options = opts
 	return &out
 }
 
@@ -282,11 +251,12 @@ func (d *Document) run(ctx context.Context, output string, configs ...string) (*
 	if err != nil {
 		return nil, err
 	}
-	args, err := d.args(source, output, configs...)
+	flags, err := d.Options.flags(d.Tesseract)
 	if err != nil {
 		return nil, err
 	}
-	return execTesseract(ctx, d.container(source), args)
+	args := append([]string{"tesseract", source, output}, flags...)
+	return execTesseract(ctx, d.container(source), append(args, configs...))
 }
 
 // execTesseract runs one tesseract invocation, turning a non-zero exit into an
@@ -307,62 +277,9 @@ func execTesseract(ctx context.Context, ctr *dagger.Container, args []string) (*
 // container mounts the source and any user word/pattern lists, and stages the
 // writable output directory recognition renders into.
 func (d *Document) container(source string) *dagger.Container {
-	ctr := d.Tesseract.Container().
+	return d.Options.mount(d.Tesseract.Container().
 		WithMountedFile(source, d.Source).
-		WithExec([]string{"mkdir", "-p", outputDir})
-	if d.UserWords != nil {
-		ctr = ctr.WithMountedFile(userWordsPath, d.UserWords)
-	}
-	if d.UserPatterns != nil {
-		ctr = ctr.WithMountedFile(userPatternsPath, d.UserPatterns)
-	}
-	return ctr
-}
-
-// args renders the tesseract argv. Everything except the trailing configfiles
-// is a flag, and tesseract requires the flags first.
-func (d *Document) args(source string, output string, configs ...string) ([]string, error) {
-	args := []string{"tesseract", source, output}
-	args = append(args, d.Tesseract.tessdataArgs()...)
-	args = append(args, "-l", d.language())
-	if d.PageSeg != "" {
-		tok, ok := d.PageSeg.token()
-		if !ok {
-			return nil, fmt.Errorf("WithPageSegmentation: unknown mode %q", string(d.PageSeg))
-		}
-		args = append(args, "--psm", tok)
-	}
-	if d.Engine != "" {
-		tok, ok := d.Engine.token()
-		if !ok {
-			return nil, fmt.Errorf("WithEngine: unknown mode %q", string(d.Engine))
-		}
-		args = append(args, "--oem", tok)
-	}
-	if d.HasDpi {
-		args = append(args, "--dpi", strconv.Itoa(d.Dpi))
-	}
-	if d.UserWords != nil {
-		args = append(args, "--user-words", userWordsPath)
-	}
-	if d.UserPatterns != nil {
-		args = append(args, "--user-patterns", userPatternsPath)
-	}
-	for i, name := range d.ParamNames {
-		args = append(args, "-c", name+"="+d.ParamValues[i])
-	}
-	return append(args, configs...), nil
-}
-
-// language resolves the `-l` value: the caller's selection, or the first
-// installed language. Defaulting to the installed set rather than omitting the
-// flag matters when English was not installed — tesseract's own default is
-// "eng", which would fail to load.
-func (d *Document) language() string {
-	if strings.TrimSpace(d.Language) != "" {
-		return d.Language
-	}
-	return d.Tesseract.Languages[0]
+		WithExec([]string{"mkdir", "-p", outputDir}))
 }
 
 // validate reports every deferred builder check and returns the path the
@@ -372,13 +289,7 @@ func (d *Document) validate(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := d.validateDpi(); err != nil {
-		return "", err
-	}
-	if err := d.validateLanguage(ctx); err != nil {
-		return "", err
-	}
-	if err := d.validateParameters(ctx); err != nil {
+	if err := d.Options.validate(ctx, d.Tesseract); err != nil {
 		return "", err
 	}
 	return source, nil
@@ -387,116 +298,28 @@ func (d *Document) validate(ctx context.Context) (string, error) {
 // sourcePath resolves where the source is mounted, keeping the caller's
 // extension so container logs name something recognisable, and rejects PDF
 // input along the way.
-//
-// Leptonica — the image library tesseract reads through — has no PDF support
-// at all, and says so unhelpfully: it reports the file's first line as if it
-// were a file name it could not open. Rejecting the extension up front is the
-// difference between an actionable error and a confusing one.
 func (d *Document) sourcePath(ctx context.Context) (string, error) {
 	name, err := d.Source.Name(ctx)
 	if err != nil {
 		return "", fmt.Errorf("read source file name: %w", err)
 	}
-	if strings.EqualFold(path.Ext(name), ".pdf") {
-		return "", fmt.Errorf(
-			"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; rasterize the pages to PNG or TIFF first",
-			name)
+	if err := rejectPdf(name); err != nil {
+		return "", err
 	}
 	return workDir + "/source" + path.Ext(name), nil
 }
 
-// validateDpi rejects a non-positive `--dpi`, which tesseract would take as a
-// real resolution and scale its analysis by.
-func (d *Document) validateDpi() error {
-	if d.HasDpi && d.Dpi <= 0 {
-		return fmt.Errorf("WithDpi: dpi must be positive, got %d", d.Dpi)
-	}
-	return nil
-}
-
-// validateLanguage checks every `+`-joined code against what the image
-// actually carries. tesseract does fail on an unknown language, but its error
-// talks about traineddata paths and TESSDATA_PREFIX rather than about the
-// language set this module built the image with.
-func (d *Document) validateLanguage(ctx context.Context) error {
-	if strings.TrimSpace(d.Language) == "" {
-		return nil
-	}
-	installed, err := d.Tesseract.Langs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, lang := range strings.Split(d.Language, "+") {
-		lang = strings.TrimSpace(lang)
-		if lang == "" {
-			return fmt.Errorf(
-				"WithLanguage: empty language code in %q: installed languages are %s",
-				d.Language, strings.Join(installed, ", "))
-		}
-		if !contains(installed, lang) {
-			return fmt.Errorf(
-				"WithLanguage: language %q is not installed: installed languages are %s; pass it to New(languages:) to add its package, or supply its model with WithTessdata",
-				lang, strings.Join(installed, ", "))
-		}
-	}
-	return nil
-}
-
-// validateParameters rejects a malformed or unknown control-variable name.
+// rejectPdf refuses a PDF source up front.
 //
-// The `=` and empty-name checks matter because `-c` takes `name=value`: an
-// embedded `=` would silently set a different variable to a different value.
-// The unknown-name check matters because tesseract only prints
-// `Warning: The parameter '...' was not found.` and exits 0, so a typo would
-// otherwise be indistinguishable from a setting that had no effect.
-func (d *Document) validateParameters(ctx context.Context) error {
-	for _, name := range d.ParamNames {
-		if strings.TrimSpace(name) == "" {
-			return fmt.Errorf("WithParameter: parameter name is required")
-		}
-		if strings.Contains(name, "=") {
-			return fmt.Errorf("WithParameter: parameter name %q must not contain %q", name, "=")
-		}
-	}
-	if len(d.ParamNames) == 0 {
+// Leptonica — the image library tesseract reads through — has no PDF support
+// at all, and says so unhelpfully: it reports the file's first line as if it
+// were a file name it could not open. Rejecting the extension here is the
+// difference between an actionable error and a confusing one.
+func rejectPdf(name string) error {
+	if !strings.EqualFold(path.Ext(name), ".pdf") {
 		return nil
 	}
-	known, err := d.Tesseract.Parameters(ctx)
-	if err != nil {
-		return err
-	}
-	names := parseParameterNames(known)
-	for _, name := range d.ParamNames {
-		if !contains(names, name) {
-			return fmt.Errorf(
-				"WithParameter: unknown parameter %q: tesseract reports %d control variables and this is not one of them; call Parameters() for the full list",
-				name, len(names))
-		}
-	}
-	return nil
-}
-
-// parseParameterNames pulls the names out of `--print-parameters`, whose rows
-// are `name<TAB>default<TAB>description` under a one-line header.
-func parseParameterNames(out string) []string {
-	var names []string
-	for _, line := range strings.Split(out, "\n") {
-		name, _, ok := strings.Cut(line, "\t")
-		if !ok {
-			continue
-		}
-		if name = strings.TrimSpace(name); name != "" {
-			names = append(names, name)
-		}
-	}
-	return names
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, h := range haystack {
-		if h == needle {
-			return true
-		}
-	}
-	return false
+	return fmt.Errorf(
+		"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; rasterize the pages to PNG or TIFF first",
+		name)
 }

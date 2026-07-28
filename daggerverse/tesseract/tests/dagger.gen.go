@@ -213,6 +213,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AltoIsValidXml(&parent, ctx)
+		case "BatchDefaultGlobSkipsNonImages":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchDefaultGlobSkipsNonImages(&parent, ctx)
+		case "BatchExportProducesEveryFormatPerImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchExportProducesEveryFormatPerImage(&parent, ctx)
+		case "BatchGlobSelectsFiles":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchGlobSelectsFiles(&parent, ctx)
+		case "BatchMirrorsInputLayout":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchMirrorsInputLayout(&parent, ctx)
+		case "BatchRejectsAmbiguousInput":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchRejectsAmbiguousInput(&parent, ctx)
+		case "BatchSharesDocumentOptions":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchSharesDocumentOptions(&parent, ctx)
 		case "DefaultLanguagesInstallEnglish":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

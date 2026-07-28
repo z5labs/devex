@@ -95,47 +95,26 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r Document) MarshalJSON() ([]byte, error) {
+func (r Batch) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Tesseract    *Tesseract
-		Source       *dagger.File
-		Language     string
-		PageSeg      PageSegMode
-		Engine       EngineMode
-		Dpi          int
-		HasDpi       bool
-		ParamNames   []string
-		ParamValues  []string
-		UserWords    *dagger.File
-		UserPatterns *dagger.File
+		Tesseract *Tesseract
+		Source    *dagger.Directory
+		Glob      string
+		Options   options
 	}
 	concrete.Tesseract = r.Tesseract
 	concrete.Source = r.Source
-	concrete.Language = r.Language
-	concrete.PageSeg = r.PageSeg
-	concrete.Engine = r.Engine
-	concrete.Dpi = r.Dpi
-	concrete.HasDpi = r.HasDpi
-	concrete.ParamNames = r.ParamNames
-	concrete.ParamValues = r.ParamValues
-	concrete.UserWords = r.UserWords
-	concrete.UserPatterns = r.UserPatterns
+	concrete.Glob = r.Glob
+	concrete.Options = r.Options
 	return json.Marshal(&concrete)
 }
 
-func (r *Document) UnmarshalJSON(bs []byte) error {
+func (r *Batch) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Tesseract    *Tesseract
-		Source       *dagger.File
-		Language     string
-		PageSeg      PageSegMode
-		Engine       EngineMode
-		Dpi          int
-		HasDpi       bool
-		ParamNames   []string
-		ParamValues  []string
-		UserWords    *dagger.File
-		UserPatterns *dagger.File
+		Tesseract *Tesseract
+		Source    *dagger.Directory
+		Glob      string
+		Options   options
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -143,15 +122,36 @@ func (r *Document) UnmarshalJSON(bs []byte) error {
 	}
 	r.Tesseract = concrete.Tesseract
 	r.Source = concrete.Source
-	r.Language = concrete.Language
-	r.PageSeg = concrete.PageSeg
-	r.Engine = concrete.Engine
-	r.Dpi = concrete.Dpi
-	r.HasDpi = concrete.HasDpi
-	r.ParamNames = concrete.ParamNames
-	r.ParamValues = concrete.ParamValues
-	r.UserWords = concrete.UserWords
-	r.UserPatterns = concrete.UserPatterns
+	r.Glob = concrete.Glob
+	r.Options = concrete.Options
+	return nil
+}
+
+func (r Document) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Tesseract *Tesseract
+		Source    *dagger.File
+		Options   options
+	}
+	concrete.Tesseract = r.Tesseract
+	concrete.Source = r.Source
+	concrete.Options = r.Options
+	return json.Marshal(&concrete)
+}
+
+func (r *Document) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Tesseract *Tesseract
+		Source    *dagger.File
+		Options   options
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Tesseract = concrete.Tesseract
+	r.Source = concrete.Source
+	r.Options = concrete.Options
 	return nil
 }
 
@@ -478,6 +478,151 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
+	case "Batch":
+		switch fnName {
+		case "Export":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var formats []Format
+			if inputArgs["formats"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["formats"]), &formats)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg formats", err))
+				}
+			}
+			return (*Batch).Export(&parent, ctx, formats)
+		case "Files":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Batch).Files(&parent, ctx)
+		case "WithDpi":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var dpi int
+			if inputArgs["dpi"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dpi"]), &dpi)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dpi", err))
+				}
+			}
+			return (*Batch).WithDpi(&parent, dpi), nil
+		case "WithEngine":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var mode EngineMode
+			if inputArgs["mode"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["mode"]), &mode)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg mode", err))
+				}
+			}
+			return (*Batch).WithEngine(&parent, mode), nil
+		case "WithGlob":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var pattern string
+			if inputArgs["pattern"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["pattern"]), &pattern)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pattern", err))
+				}
+			}
+			return (*Batch).WithGlob(&parent, pattern), nil
+		case "WithLanguage":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var lang string
+			if inputArgs["lang"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lang"]), &lang)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lang", err))
+				}
+			}
+			return (*Batch).WithLanguage(&parent, lang), nil
+		case "WithPageSegmentation":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var mode PageSegMode
+			if inputArgs["mode"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["mode"]), &mode)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg mode", err))
+				}
+			}
+			return (*Batch).WithPageSegmentation(&parent, mode), nil
+		case "WithParameter":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var value string
+			if inputArgs["value"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["value"]), &value)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg value", err))
+				}
+			}
+			return (*Batch).WithParameter(&parent, name, value), nil
+		case "WithUserPatterns":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var patterns *dagger.File
+			if inputArgs["patterns"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["patterns"]), &patterns)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg patterns", err))
+				}
+			}
+			return (*Batch).WithUserPatterns(&parent, patterns), nil
+		case "WithUserWords":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var words *dagger.File
+			if inputArgs["words"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["words"]), &words)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg words", err))
+				}
+			}
+			return (*Batch).WithUserWords(&parent, words), nil
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "Document":
 		switch fnName {
 		case "Alto":
@@ -660,6 +805,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Tesseract":
 		switch fnName {
+		case "Batch":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Tesseract).Batch(&parent, source), nil
 		case "Container":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)
