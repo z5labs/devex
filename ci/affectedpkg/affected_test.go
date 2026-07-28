@@ -102,6 +102,19 @@ func TestAggregatorBindingsExcludesAmbiguous(t *testing.T) {
 	}
 }
 
+// selectPaths runs the production pipeline — attribution then selection — over a
+// plain list of changed paths, none deleted. Source contexts are left
+// unresolved, so every path under a module counts as one of its inputs, which is
+// the fail-safe default and the behaviour these older cases were written against.
+func selectPaths(universe []string, closure map[string]map[string]bool, changed []string, dirs []string, bindings map[string]string) ([]string, bool) {
+	cs := make([]Change, 0, len(changed))
+	for _, p := range changed {
+		cs = append(cs, Change{Path: p})
+	}
+	got, global := Attribute(cs, dirs, nil, bindings)
+	return Select(universe, closure, got, global)
+}
+
 func TestSelectReattributesToolchainBinding(t *testing.T) {
 	universe := []string{"ci:generated", "kicad-tests:all", "kafka-tests:native"}
 	closure := map[string]map[string]bool{
@@ -148,7 +161,7 @@ func TestSelectReattributesToolchainBinding(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			kept, full := Select(universe, closure, tc.changed, dirs, bindings)
+			kept, full := selectPaths(universe, closure, tc.changed, dirs, bindings)
 			if full != tc.wantFull {
 				t.Fatalf("full = %v, want %v", full, tc.wantFull)
 			}
@@ -159,6 +172,157 @@ func TestSelectReattributesToolchainBinding(t *testing.T) {
 				t.Errorf("selected %v, want %v", sortedCopy(kept), sortedCopy(tc.want))
 			}
 		})
+	}
+}
+
+// TestOwningModuleRootIsCatchAll pins RootPkg's role: it claims anything no
+// nested module claims, and always loses to a real prefix.
+func TestOwningModuleRootIsCatchAll(t *testing.T) {
+	dirs := []string{RootPkg, "daggerverse/kicad", "daggerverse/kicad/tests"}
+	cases := []struct {
+		path string
+		want string
+	}{
+		{"ci/main.go", RootPkg},
+		{"README.md", RootPkg},
+		{"docs/dagger-internals/nesting.md", RootPkg},
+		{"dagger.json", RootPkg},
+		{"daggerverse/kicad/main.go", "daggerverse/kicad"},
+		{"daggerverse/kicad/tests/main.go", "daggerverse/kicad/tests"}, // innermost wins over both
+	}
+	for _, tc := range cases {
+		got, ok := OwningModule(tc.path, dirs)
+		if !ok || got != tc.want {
+			t.Errorf("OwningModule(%q) = (%q, %v), want (%q, true)", tc.path, got, ok, tc.want)
+		}
+	}
+}
+
+// TestAttributeSourceContext is the core of #195: attribution asks whether a
+// path is an *input* to its module, not merely whether it sits inside it.
+func TestAttributeSourceContext(t *testing.T) {
+	dirs := []string{RootPkg, "daggerverse/crypto", "daggerverse/crypto/tests"}
+	// crypto ships its main.go but has declared its README out; the root module's
+	// context is ci/** plus dagger.json, so repo-level prose is in no context.
+	srcs := map[string]map[string]bool{
+		RootPkg:                    {"ci/main.go": true, "dagger.json": true},
+		"daggerverse/crypto":       {"daggerverse/crypto/main.go": true},
+		"daggerverse/crypto/tests": {"daggerverse/crypto/tests/main.go": true},
+	}
+
+	cases := []struct {
+		name        string
+		changes     []Change
+		wantChanged []string
+		wantGlobal  bool
+	}{
+		{
+			name:        "a source file is an input to its module",
+			changes:     []Change{{Path: "daggerverse/crypto/main.go"}},
+			wantChanged: []string{"daggerverse/crypto"},
+		},
+		{
+			name:    "a path outside its module's source context is an input to nothing",
+			changes: []Change{{Path: "daggerverse/crypto/README.md"}},
+		},
+		{
+			name:    "repo-level prose is an input to nothing",
+			changes: []Change{{Path: "README.md"}, {Path: "docs/dagger-internals/nesting.md"}},
+		},
+		{
+			name:        "a non-input alongside a real input keeps the input",
+			changes:     []Change{{Path: "daggerverse/crypto/README.md"}, {Path: "daggerverse/crypto/tests/main.go"}},
+			wantChanged: []string{"daggerverse/crypto/tests"},
+		},
+		{
+			name:       "an input to the root module is global",
+			changes:    []Change{{Path: "ci/main.go"}},
+			wantGlobal: true,
+		},
+		{
+			name:       "a workflow change is global even though no module contains it",
+			changes:    []Change{{Path: ".github/workflows/ci.yml"}},
+			wantGlobal: true,
+		},
+		{
+			name:       "an empty change set is no information, not nothing",
+			changes:    nil,
+			wantGlobal: true,
+		},
+		{
+			// A deleted path is absent from every head source context, which is
+			// indistinguishable from being declared out. Err toward its module.
+			name:        "a deleted source file is still attributed to its module",
+			changes:     []Change{{Path: "daggerverse/crypto/main.go", Deleted: true}},
+			wantChanged: []string{"daggerverse/crypto"},
+		},
+		{
+			name:        "a deleted non-input over-runs rather than under-runs",
+			changes:     []Change{{Path: "daggerverse/crypto/README.md", Deleted: true}},
+			wantChanged: []string{"daggerverse/crypto"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			changed, global := Attribute(tc.changes, dirs, srcs, nil)
+			if global != tc.wantGlobal {
+				t.Fatalf("global = %v, want %v", global, tc.wantGlobal)
+			}
+			if tc.wantGlobal {
+				return
+			}
+			got := make([]string, 0, len(changed))
+			for d := range changed {
+				got = append(got, d)
+			}
+			if !sameSet(got, tc.wantChanged) {
+				t.Errorf("changed = %v, want %v", sortedCopy(got), sortedCopy(tc.wantChanged))
+			}
+		})
+	}
+}
+
+// TestAttributeUnresolvedSourceContextDoesNotNarrow guards the fail-safe: if the
+// live Workspace cannot report a module's source context, every path under it
+// must still count as an input.
+func TestAttributeUnresolvedSourceContextDoesNotNarrow(t *testing.T) {
+	dirs := []string{RootPkg, "daggerverse/crypto"}
+	srcs := map[string]map[string]bool{RootPkg: {"ci/main.go": true}} // crypto absent
+
+	changed, global := Attribute([]Change{{Path: "daggerverse/crypto/README.md"}}, dirs, srcs, nil)
+	if global {
+		t.Fatal("did not expect the full-suite fallback")
+	}
+	if !changed["daggerverse/crypto"] {
+		t.Errorf("unresolved source context narrowed anyway: changed = %v", changed)
+	}
+}
+
+// TestAttributeBindingsBeatSourceContext pins the #179 carve-out surviving the
+// input model: a per-toolchain aggregator binding lives under ci/ and is an
+// input to the root module, which would otherwise make it global.
+func TestAttributeBindingsBeatSourceContext(t *testing.T) {
+	dirs := []string{RootPkg, "daggerverse/kicad", "daggerverse/kicad/tests"}
+	srcs := map[string]map[string]bool{
+		RootPkg: {
+			"ci/internal/dagger/kicad-tests.gen.go": true,
+			"ci/internal/dagger/dagger.gen.go":      true,
+		},
+		"daggerverse/kicad":       {},
+		"daggerverse/kicad/tests": {},
+	}
+	bindings := AggregatorBindings(map[string]string{"kicad-tests:all": "daggerverse/kicad/tests"})
+
+	changed, global := Attribute([]Change{{Path: "ci/internal/dagger/kicad-tests.gen.go"}}, dirs, srcs, bindings)
+	if global {
+		t.Fatal("toolchain binding forced the full suite; #179 regressed")
+	}
+	if !changed["daggerverse/kicad/tests"] {
+		t.Errorf("binding was not reattributed: changed = %v", changed)
+	}
+
+	if _, global := Attribute([]Change{{Path: "ci/internal/dagger/dagger.gen.go"}}, dirs, srcs, bindings); !global {
+		t.Error("the ci module's own core binding must still force the full suite")
 	}
 }
 
@@ -194,7 +358,7 @@ func TestSelectUnresolvedIsKept(t *testing.T) {
 		"kicad-tests:all": {"daggerverse/kicad/tests": true, "daggerverse/kicad": true},
 	}
 	dirs := []string{"daggerverse/kicad", "daggerverse/kicad/tests"}
-	kept, full := Select(universe, closure, []string{"daggerverse/kicad/main.go"}, dirs, nil)
+	kept, full := selectPaths(universe, closure, []string{"daggerverse/kicad/main.go"}, dirs, nil)
 	if full {
 		t.Fatal("did not expect full-suite fallback")
 	}

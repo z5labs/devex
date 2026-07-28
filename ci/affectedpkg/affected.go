@@ -62,42 +62,116 @@ func closureOf(root string, adj map[string][]string, memo map[string]map[string]
 	return res
 }
 
-// Select returns the subset of check names in universe that could be affected by
-// changedFiles, together with full=true when the entire universe must run.
+// RootPkg is the module directory of the repository root module. It claims every
+// path no nested module claims, so a change to broadly-shared code lands here
+// rather than nowhere.
+const RootPkg = "."
+
+// Change is one path from the diff, together with whether it survives at head.
+// Deleted is load-bearing: see isInput.
+type Change struct {
+	Path    string
+	Deleted bool
+}
+
+// globalPrefixes are the paths that govern how CI itself runs — which checks are
+// selected, how the matrix is built, what the timeouts are — rather than what any
+// check computes. They belong to no module's source context, so nothing else
+// would attribute them, yet a change to one can invalidate the whole run.
+var globalPrefixes = []string{".github/workflows/"}
+
+// Attribute maps a change set onto the modules it is actually an input to,
+// returning the set of changed module directories and whether a global input
+// changed (which forces the full universe).
+//
+// srcs gives, per module directory, the repo-relative paths that make up that
+// module's source context — precisely what Dagger uploads for it. A path that
+// lies under a module but is absent from its source context is an input to
+// nothing and is dropped. That is what stops a module's README from triggering
+// its dependents, and it is a property Dagger enforces (the file is never
+// shipped to the engine) rather than one this package asserts about which files
+// look like prose.
+//
+// A module missing from srcs is treated as owning everything beneath it: when we
+// cannot resolve a source context we decline to narrow.
+//
+// bindings is the per-toolchain aggregator-binding reattribution map from
+// AggregatorBindings; those generated files under ci/ are provably owned by a
+// single toolchain, so they resolve to it rather than to the root module (#179).
+//
+// global is set — meaning run everything — when:
+//   - changes is empty, which means "no usable diff", not "nothing changed";
+//   - a path lies under one of globalPrefixes;
+//   - a path is an input to the root module (root dagger.json, ci/**);
+//   - a path is claimed by no module at all, not even the root.
+func Attribute(changes []Change, moduleDirs []string, srcs map[string]map[string]bool, bindings map[string]string) (changed map[string]bool, global bool) {
+	if len(changes) == 0 {
+		return nil, true
+	}
+	changed = make(map[string]bool)
+	for _, c := range changes {
+		if dir, ok := bindings[c.Path]; ok {
+			changed[dir] = true
+			continue
+		}
+		if hasAnyPrefix(c.Path, globalPrefixes) {
+			return nil, true
+		}
+		dir, ok := OwningModule(c.Path, moduleDirs)
+		if !ok {
+			return nil, true
+		}
+		if !isInput(c, dir, srcs) {
+			continue // in no module's source context: an input to nothing
+		}
+		if dir == RootPkg {
+			return nil, true
+		}
+		changed[dir] = true
+	}
+	return changed, false
+}
+
+// isInput reports whether c is part of dir's source context.
+//
+// A deleted path can never appear in the head source context, which makes it
+// indistinguishable from a path the module declared out — so deletions are
+// attributed to their module instead. That over-runs on a deleted README and
+// under-runs on nothing, which is the direction this package errs in.
+func isInput(c Change, dir string, srcs map[string]map[string]bool) bool {
+	set, resolved := srcs[dir]
+	if !resolved {
+		return true
+	}
+	return set[c.Path] || c.Deleted
+}
+
+func hasAnyPrefix(path string, prefixes []string) bool {
+	for _, p := range prefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// Select returns the subset of check names in universe reachable from the
+// changed module directories, together with full=true when the entire universe
+// must run.
 //
 // closure is the per-check dependency closure from BuildClosures. A check absent
 // from closure is "unresolved" and is always kept — never skipped.
 //
-// moduleDirs is the set of all known daggerverse module directories, used to map
-// each changed file to its owning module by longest-prefix match.
-//
-// bindings is the per-toolchain aggregator-binding reattribution map from
-// AggregatorBindings: those few generated files under ci/ are provably owned by a
-// single toolchain, so they resolve to it instead of tripping the ci/ fail-safe.
-//
-// The result is full (run everything) when any fail-safe condition holds:
-//   - changedFiles is empty (no diff available or it could not be computed);
-//   - any changed file does not resolve to a daggerverse module directory (nor to
-//     a known toolchain binding) — i.e. a change to CI infra, the ci/ aggregator
-//     itself, root dagger.json, or other broadly-shared code.
+// changed and global come from Attribute. An empty changed set with global=false
+// is a real answer, not a missing one: it means every changed path was an input
+// to nothing, so only the always-on ci:* checks run.
 //
 // Otherwise only affected checks — plus every ci:* check, which always runs
 // (repo-wide generated-code freshness and this package's own self-test) — are
 // returned, in universe order.
-func Select(universe []string, closure map[string]map[string]bool, changedFiles []string, moduleDirs []string, bindings map[string]string) (kept []string, full bool) {
-	if len(changedFiles) == 0 {
+func Select(universe []string, closure map[string]map[string]bool, changed map[string]bool, global bool) (kept []string, full bool) {
+	if global {
 		return universe, true
-	}
-	changed := make(map[string]bool)
-	for _, f := range changedFiles {
-		dir, ok := bindings[f]
-		if !ok {
-			dir, ok = OwningModule(f, moduleDirs)
-		}
-		if !ok {
-			return universe, true
-		}
-		changed[dir] = true
 	}
 	for _, name := range universe {
 		switch {
@@ -171,13 +245,24 @@ func AggregatorBindings(checkModule map[string]string) map[string]string {
 // OwningModule returns the directory in moduleDirs that owns path, chosen by
 // longest-prefix match on a path-segment boundary, and ok=false when path lies
 // under no known module directory.
+//
+// The innermost module wins, so daggerverse/crypto/tests/main.go belongs to
+// daggerverse/crypto/tests and not to daggerverse/crypto — even though Dagger's
+// own source context for crypto contains it. That is deliberate: a nested module
+// is a separate Go module that never compiles into its parent, so scoping
+// ownership to the innermost dagger.json is both correct and what keeps a
+// tests-only edit from fanning out to the parent's dependents.
+//
+// RootPkg, when present in moduleDirs, matches every path. Being the shortest
+// possible directory it always loses to a real prefix, so it acts as the
+// catch-all owner for anything no nested module claims.
 func OwningModule(path string, moduleDirs []string) (dir string, ok bool) {
 	best := ""
 	for _, d := range moduleDirs {
 		if d == "" {
 			continue
 		}
-		if path == d || strings.HasPrefix(path, d+"/") {
+		if d == RootPkg || path == d || strings.HasPrefix(path, d+"/") {
 			if len(d) > len(best) {
 				best = d
 			}

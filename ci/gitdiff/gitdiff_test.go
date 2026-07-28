@@ -58,6 +58,15 @@ func (b *repoBuilder) commit(files map[string]string) plumbing.Hash {
 	return h
 }
 
+func (b *repoBuilder) remove(paths ...string) {
+	b.t.Helper()
+	for _, p := range paths {
+		if _, err := b.wt.Remove(p); err != nil {
+			b.t.Fatalf("remove %s: %v", p, err)
+		}
+	}
+}
+
 func (b *repoBuilder) checkout(h plumbing.Hash) {
 	b.t.Helper()
 	if err := b.wt.Checkout(&git.CheckoutOptions{Hash: h}); err != nil {
@@ -106,6 +115,54 @@ func TestChangedFilesMergeBase(t *testing.T) {
 	want := []string{"daggerverse/kicad/main.go"} // NOT kafka
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("three-dot diff = %v, want %v (base-only change must be excluded)", got, want)
+	}
+}
+
+// TestChangesMarksDeletions pins the distinction the selector depends on: a
+// removed file is reported Deleted, a surviving one is not. Without it a
+// deleted source file looks exactly like a file a module declared out of its
+// source set, and the module's checks would be skipped.
+func TestChangesMarksDeletions(t *testing.T) {
+	b := newRepo(t)
+	base := b.commit(map[string]string{
+		"daggerverse/kicad/main.go":   "v1",
+		"daggerverse/kicad/README.md": "docs",
+	})
+	b.remove("daggerverse/kicad/main.go")
+	head := b.commit(map[string]string{"daggerverse/kicad/README.md": "docs v2"})
+
+	got, err := Changes(b.dir, base.String(), head.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Change{
+		{Path: "daggerverse/kicad/README.md", Deleted: false},
+		{Path: "daggerverse/kicad/main.go", Deleted: true},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+// TestChangesRenameKeepsBothSides shows a rename contributing both names, the
+// old one marked gone. go-git's plain tree diff reports a rename as a delete
+// plus an add, which is exactly the conservative attribution we want.
+func TestChangesRenameKeepsBothSides(t *testing.T) {
+	b := newRepo(t)
+	base := b.commit(map[string]string{"daggerverse/kicad/main.go": "v1"})
+	b.remove("daggerverse/kicad/main.go")
+	head := b.commit(map[string]string{"daggerverse/kicad/renamed.go": "v1"})
+
+	got, err := Changes(b.dir, base.String(), head.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Change{
+		{Path: "daggerverse/kicad/main.go", Deleted: true},
+		{Path: "daggerverse/kicad/renamed.go", Deleted: false},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
