@@ -179,6 +179,14 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiLanguageReachesRecognition", t.CiLanguageReachesRecognition)
 	jobs = jobs.WithJob("CiRejectsUnusableThreshold", t.CiRejectsUnusableThreshold)
 
+	jobs = jobs.WithJob("ApkRepositoryInstallsFromPrivateMirror", t.ApkRepositoryInstallsFromPrivateMirror)
+	jobs = jobs.WithJob("ApkRepositoryReplacesImageDefaults", t.ApkRepositoryReplacesImageDefaults)
+	jobs = jobs.WithJob("ApkRepositoryAppliesToPdfRasterizer", t.ApkRepositoryAppliesToPdfRasterizer)
+	jobs = jobs.WithJob("UntrustedIndexIsRejectedWithoutApkKey", t.UntrustedIndexIsRejectedWithoutApkKey)
+	jobs = jobs.WithJob("ApkAuthInstallsFromAuthenticatedRepository", t.ApkAuthInstallsFromAuthenticatedRepository)
+	jobs = jobs.WithJob("AuthenticatedRepositoryIsRejectedWithoutApkAuth", t.AuthenticatedRepositoryIsRejectedWithoutApkAuth)
+	jobs = jobs.WithJob("DefaultApkConfigurationIsUntouched", t.DefaultApkConfigurationIsUntouched)
+
 	jobs = jobs.WithJob("TessdataModelIsSelectable", t.TessdataModelIsSelectable)
 	jobs = jobs.WithJob("TessdataSuppliesOsdModel", t.TessdataSuppliesOsdModel)
 

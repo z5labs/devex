@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:254:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -128,7 +128,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:254:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -141,7 +141,7 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:254:6)
 	q := r.query.Select("withTesseractOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -178,22 +178,24 @@ func (r *Env) WithTesseractTrainingOutput(name string, description string) *Env 
 // TesseractOpts contains options for Query.Tesseract
 type TesseractOpts struct {
 	//
-	// Container registry hosting the alpine image.
+	// Container registry hosting the alpine image. This moves the image only:
+	// see WithApkRepository for where the packages installed onto it are
+	// fetched from.
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:240:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:280:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:243:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:283:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:247:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:287:2)
 	//
 	// Upper bound on the OpenMP threads tesseract may use, set on the
 	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
@@ -204,12 +206,12 @@ type TesseractOpts struct {
 	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
 	// thread per pass is the usual setting there.
 	//
-	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:257:2)
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:297:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:237:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:275:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -239,7 +241,7 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:254:6)
 	query *querybuilder.Selection
 
 	id         *ID
@@ -269,7 +271,7 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 // with whatever reads the results the same way the input directory was
 // composed. Which files take part is a glob, defaulting to the image
 // extensions leptonica can read.
-func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:401:1)
+func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:519:1)
 	assertNotNil("source", source)
 	q := r.query.Select("batch")
 	q = q.Arg("source", source)
@@ -299,7 +301,7 @@ func (r *Tesseract) Ci(source *Directory) *TesseractCi { // tesseract (../../../
 //
 // A requested OpenMP bound lives here rather than on the recognition
 // invocation so everything reached through this escape hatch inherits it too.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:311:1)
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:431:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -312,7 +314,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:389:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:507:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -417,7 +419,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 // `tesseract --list-langs`: the packaged languages and any model WithTessdata
 // added, as one set. This is what Document.WithLanguage validates against, and
 // it includes "osd" when that model was installed or supplied.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:359:1)
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:477:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -429,7 +431,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:374:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:492:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -453,7 +455,7 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 //
 // The model it produces pairs directly with WithTessdata, so a fine-tune and
 // the recognition that uses it are two calls on the same module.
-func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:417:1)
+func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:535:1)
 	assertNotNil("source", source)
 	q := r.query.Select("training")
 	q = q.Arg("source", source)
@@ -465,7 +467,7 @@ func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesserac
 
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:340:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:458:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -475,6 +477,82 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// WithApkAuth supplies credentials for a repository that requires them.
+//
+// The secret's contents are a netrc file — `machine mirror.example.com login
+// USER password PASS`, one stanza per host — which is what apk-tools 3's
+// built-in libfetch reads when a repository answers 401. Alpine 3.24 ships
+// apk-tools 3.0; see NETRC in `apk(8)`. Hosts are matched by name only, so a
+// stanza covers a mirror on any port.
+//
+// It is a *dagger.Secret rather than a string, and is mounted rather than
+// written, so the credentials stay out of the cache key, out of argv, out of
+// the image's environment and out of any layer a caller exports. That is also
+// why the credentials are not simply userinfo in the WithApkRepository URL,
+// which would put them in /etc/apk/repositories and in every apk error message
+// that quotes it.
+func (r *Tesseract) WithApkAuth(credentials *Secret) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:413:1)
+	assertNotNil("credentials", credentials)
+	q := r.query.Select("withApkAuth")
+	q = q.Arg("credentials", credentials)
+
+	return &Tesseract{
+		query: q,
+	}
+}
+
+// WithApkKey trusts a repository's signing key by dropping it into
+// /etc/apk/keys, which is the other half of WithApkRepository: a private
+// mirror's index is signed by a key the stock Alpine image has never heard of,
+// and apk refuses an index it cannot verify rather than installing from it.
+//
+// The file keeps its own name, because the name is load-bearing — an index
+// signature names the key file it was made with, and apk looks that exact file
+// up in the keys directory. A key exported from `abuild-keygen` is already
+// named correctly; renaming it renames the key.
+//
+// Repeatable, for a mirror set signed by more than one key. It is a *File
+// rather than a *Secret because a public key is not a credential: it is meant
+// to be in the image, and WithApkAuth is the option for the part that is not.
+func (r *Tesseract) WithApkKey(key *File) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:390:1)
+	assertNotNil("key", key)
+	q := r.query.Select("withApkKey")
+	q = q.Arg("key", key)
+
+	return &Tesseract{
+		query: q,
+	}
+}
+
+// WithApkRepository points package installation at an Alpine repository other
+// than the one the base image ships, which is what makes this module work on a
+// network that cannot reach dl-cdn.alpinelinux.org.
+//
+// New's registry argument is not enough on its own and never was: it moves the
+// *image*, and the packages are still fetched by `apk add` from whatever
+// /etc/apk/repositories carries — so mirroring Alpine into a private registry
+// buys a container that then fails on its first `apk add`, or, where the CDN is
+// blackholed rather than refused, hangs until it times out.
+//
+// Repeatable, in preference order. The first call replaces the image's list
+// rather than appending to it, because the air-gapped case needs the
+// unreachable defaults gone rather than merely deprioritized: a repository apk
+// still consults is a repository apk still waits for.
+//
+// The URL is the repository base, spelled the way it would be spelled in
+// /etc/apk/repositories — `https://mirror.example.com/alpine/v3.24/main`, one
+// call per component. A repository's index is signed, so pair this with
+// WithApkKey unless the mirror is signed by a key the base image already
+// trusts.
+func (r *Tesseract) WithApkRepository(url string) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:362:1)
+	q := r.query.Select("withApkRepository")
+	q = q.Arg("url", url)
+
+	return &Tesseract{
+		query: q,
+	}
 }
 
 // WithTessdata adds a directory of `.traineddata` models to the image, which
@@ -492,7 +570,7 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 // renderer configfiles and the font the PDF renderer needs. A caller-supplied
 // model wins over a packaged one of the same name, which is what makes
 // replacing the stock `eng` with a fine-tuned one work.
-func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:293:1)
+func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:333:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withTessdata")
 	q = q.Arg("dir", dir)
