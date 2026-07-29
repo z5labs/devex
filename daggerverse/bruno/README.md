@@ -126,6 +126,64 @@ from the CLI.
 or workspace not found, or an unparseable collection file), 12 and 13 (global
 environment problems), and 255 for everything else.
 
+## Linting
+
+Bruno ships no linter, and the failure modes that leaves open are the expensive
+kind: a `{{baseUrl}}` that resolves nowhere fails at request time in CI rather
+than at review time, and an API key committed as a plaintext value under
+`environments/` is a leak nobody notices.
+
+`Lint` runs without issuing a single request — and without starting a
+container, since every rule is evaluated in pure Go over the source tree.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/bruno call \
+  collection --source=./api-tests with-environment --name=ci \
+  lint --fail-on-warnings
+```
+
+The rules:
+
+| Rule | Level |
+|---|---|
+| `bruno.json` exists at the collection root and declares `version`, `name` and `type` | error |
+| The environment `WithEnvironment` selected exists under `environments/` | error |
+| Every `{{var}}` resolves to a collection, folder or request variable, the selected environment, a `WithVar` override, a `WithEnvFile` file, a `bru.setVar` call, or `process.env` | error |
+| No credential-shaped name (`token`, `key`, `password`, `secret`) carries a literal value in a committed `environments/*.bru` `vars` block | error |
+| Every request declares `meta { name, seq }`, with `seq` unique within its folder | error |
+| A request declares neither `tests` nor `asserts` | warning |
+
+The first two are bru's exit 4 and exit 6, caught before a container starts and
+named against the file that is actually missing.
+
+Findings are folded into the returned error, following `kicad`'s `Drc` and
+`Erc`: Dagger drops a function's value when it also returns a non-nil error, so
+a `(findings, error)` signature would hide the findings on exactly the path
+that needs them. Warnings that fail nothing are written to stderr instead, so
+they still land in the run's logs.
+
+```
+bru lint found 2 errors and 1 warning:
+  error   environments/local.bru:3: "apiKey" is credential-shaped and carries a literal value in a committed file: move the name to a vars:secret block, or set the value to {{process.env.<NAME>}}
+  error   tenant.bru:8: {{tenantId}} resolves to nothing: declare it in the selected environment "local" or in a vars block, pass it with with-var, or read it from process.env
+  warning ping.bru: declares neither tests nor asserts: it passes whatever the API returns
+```
+
+Three things about the variable rule worth knowing. With **no** environment
+selected, every file under `environments/` contributes — otherwise linting a
+collection would force a choice the caller has not made, and report every
+`{{baseUrl}}` as broken. A `WithSecretVar` secret is deliberately *not* a bru
+variable, so `{{API_TOKEN}}` is a finding where `{{process.env.API_TOKEN}}` is
+not. And references inside `docs`, `tests` and `script:*` blocks are skipped:
+bru does not interpolate them, so linting them would invent findings out of
+prose.
+
+Scope limit: this reads the collection's block and reference structure, not a
+full `.bru` parse. Blocks are recognised by their opener at column 0, which is
+where Bruno's own writer puts them; everything indented under one — a JS
+script, a JSON body, an `example`'s nested request and response — is stepped
+over. A complete grammar is tracked separately.
+
 ## Generating a collection from OpenAPI
 
 A collection hand-maintained beside an OpenAPI document drifts. `Generate`
@@ -214,7 +272,7 @@ module or touch the filesystem needs `WithSandbox("developer")` — and fails at
 
 `Run` and `Report` carry `+cache="never"`: a collection run hits a live
 service, so a cached pass would report a now-broken API as green. `Container`,
-`Version` and `Generate` stay `+cache="session"` — those are pure.
+`Version`, `Generate` and `Lint` stay `+cache="session"` — those are pure.
 
 That directive governs the *function* result; the `WithExec` layer underneath
 is still content-addressed, so both terminals stamp a per-call nonce onto the
@@ -249,6 +307,7 @@ reachable through `Container()`.
 | `Collection.WithTestsOnly()` | `--tests-only`; skip requests with no test or assertion. |
 | `Collection.WithBail()` | `--bail`; stop at the first failure. |
 | `Collection.WithDelay(milliseconds)` | `--delay`; wait between requests. |
+| `Collection.Lint(failOnWarnings)` | Check the collection's structure in pure Go, issuing no requests. |
 | `Collection.Run(recursive)` | Run the collection; bru's output, failing on exit 1. |
 | `Collection.Report(format)` | Run it and return the `json`, `junit` or `html` artifact, failing only on usage errors. |
 
@@ -276,6 +335,17 @@ that same responder, which is what makes
 `GenerateProducesRunnableCollection` a real test — the generated collection is
 handed straight to `Collection` and run, rather than merely inspected for a
 `bruno.json`.
+
+The `fixtures/lint/` tree is the exception to all of that: one deliberately
+broken collection per rule, linted rather than run, so nothing there needs the
+responder at all. Each carries controls beside its violation — a
+`{{process.env.*}}` value beside the plaintext credential, a second folder
+reusing a `seq` beside the folder that duplicates one — because a rule that
+fires is only half of what needs pinning.
+
+`LintAcceptsValidCollection` deliberately reuses `fixtures/api`, the same
+collection the run tests drive against a live service: a linter that only
+accepts collections written for it is a linter nobody can adopt.
 
 `SecretVarIsNotOnArgv` is the one test that needs the collection's own
 scripting. Its fixture reports `process.argv` — bru's own command line — back

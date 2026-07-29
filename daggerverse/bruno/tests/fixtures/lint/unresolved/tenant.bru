@@ -1,0 +1,24 @@
+meta {
+  name: tenant
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tenants/{{tenantId}}
+  body: none
+  auth: none
+}
+
+docs {
+  The {{tenantId}} above is declared nowhere: not by an environment, not by a
+  vars block, not by process.env. bru resolves it to the literal string
+  "{{tenantId}}" and issues the request anyway.
+
+  This {{alsoUndeclared}} reference is here to pin the opposite behaviour --
+  docs are prose, so nothing in this block is a finding.
+}
+
+assert {
+  res.status: eq 200
+}

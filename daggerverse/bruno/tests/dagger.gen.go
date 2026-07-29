@@ -234,6 +234,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).JsonEnvFileKeepsItsExtension(&parent, ctx)
+		case "LintAcceptsValidCollection":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintAcceptsValidCollection(&parent, ctx)
+		case "LintRejectsDuplicateSequence":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintRejectsDuplicateSequence(&parent, ctx)
+		case "LintRejectsMissingBrunoJson":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintRejectsMissingBrunoJson(&parent, ctx)
+		case "LintRejectsPlaintextSecret":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintRejectsPlaintextSecret(&parent, ctx)
+		case "LintRejectsUnknownEnvironment":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintRejectsUnknownEnvironment(&parent, ctx)
+		case "LintRejectsUnresolvedVariable":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintRejectsUnresolvedVariable(&parent, ctx)
+		case "LintWarnsOnRequestWithoutTests":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).LintWarnsOnRequestWithoutTests(&parent, ctx)
 		case "PassThroughFlagsAreAccepted":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

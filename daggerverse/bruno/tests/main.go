@@ -62,6 +62,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
 	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
 	jobs = jobs.WithJob("GenerateRejectsUnknownFormat", t.GenerateRejectsUnknownFormat)
+	jobs = jobs.WithJob("LintAcceptsValidCollection", t.LintAcceptsValidCollection)
+	jobs = jobs.WithJob("LintRejectsMissingBrunoJson", t.LintRejectsMissingBrunoJson)
+	jobs = jobs.WithJob("LintRejectsUnknownEnvironment", t.LintRejectsUnknownEnvironment)
+	jobs = jobs.WithJob("LintRejectsUnresolvedVariable", t.LintRejectsUnresolvedVariable)
+	jobs = jobs.WithJob("LintRejectsPlaintextSecret", t.LintRejectsPlaintextSecret)
+	jobs = jobs.WithJob("LintRejectsDuplicateSequence", t.LintRejectsDuplicateSequence)
+	jobs = jobs.WithJob("LintWarnsOnRequestWithoutTests", t.LintWarnsOnRequestWithoutTests)
 
 	return jobs.Run(ctx)
 }
@@ -611,6 +618,159 @@ func (t *Tests) GenerateRejectsUnknownFormat(ctx context.Context) error {
 	for _, want := range []string{"postman", "bru", "opencollection"} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the error to mention %q, got: %s", want, err.Error())
+		}
+	}
+	return nil
+}
+
+// LintAcceptsValidCollection checks that a collection this suite already runs
+// against a live service is also one the linter is happy with. The api fixture
+// is deliberately reused rather than a purpose-built clean one: a linter that
+// only accepts collections written for it is a linter nobody can adopt.
+//
+// It is checked under failOnWarnings=true as well, so the fixture has to be
+// free of warnings and not merely free of errors.
+func (t *Tests) LintAcceptsValidCollection(ctx context.Context) error {
+	collection := dag.Bruno().Collection(fixture("api")).WithEnvironment("local")
+	for _, strict := range []bool{false, true} {
+		if err := collection.Lint(ctx, dagger.BrunoCollectionLintOpts{FailOnWarnings: strict}); err != nil {
+			return fmt.Errorf("expected a clean collection to lint (failOnWarnings=%t): %w", strict, err)
+		}
+	}
+	// The same collection with no environment selected still resolves
+	// {{baseUrl}}: with nothing selected every file under environments/ counts,
+	// so linting does not force a choice the caller has not made.
+	if err := dag.Bruno().Collection(fixture("api")).Lint(ctx); err != nil {
+		return fmt.Errorf("expected a clean collection to lint with no environment selected: %w", err)
+	}
+	return nil
+}
+
+// LintRejectsMissingBrunoJson checks the finding that stands in for bru's exit
+// 4. bru reports that one as "not a collection root", from inside a container,
+// without naming the file it wanted.
+func (t *Tests) LintRejectsMissingBrunoJson(ctx context.Context) error {
+	err := dag.Bruno().Collection(fixture("lint/missing-manifest")).WithEnvironment("local").Lint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a collection with no bruno.json to be an error")
+	}
+	for _, want := range []string{"bruno.json", "collection root"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	return nil
+}
+
+// LintRejectsUnknownEnvironment checks that a mistyped --env name is caught
+// here rather than as bru's exit 6, and that the finding lists the names the
+// collection does ship.
+func (t *Tests) LintRejectsUnknownEnvironment(ctx context.Context) error {
+	err := dag.Bruno().Collection(fixture("api")).WithEnvironment("nope").Lint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an unknown environment to be an error")
+	}
+	for _, want := range []string{`"nope"`, "environments/", `"local"`} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	return nil
+}
+
+// LintRejectsUnresolvedVariable checks the finding the whole function exists
+// for: a {{var}} that resolves nowhere, named along with the file it appears
+// in, before a request has been issued to discover it.
+//
+// The fixture also references two undeclared variables from its docs block,
+// which bru never interpolates — so this pins that prose is not linted as
+// though it were a request.
+func (t *Tests) LintRejectsUnresolvedVariable(ctx context.Context) error {
+	err := dag.Bruno().Collection(fixture("lint/unresolved")).WithEnvironment("local").Lint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an unresolved variable to be an error")
+	}
+	for _, want := range []string{"tenantId", "tenant.bru"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to name %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	// baseUrl is declared by the selected environment, and the docs block's
+	// references are prose. Either one showing up would mean the rule fires on
+	// things that resolve perfectly well.
+	for _, unwanted := range []string{"baseUrl", "alsoUndeclared"} {
+		if strings.Contains(err.Error(), unwanted) {
+			return fmt.Errorf("expected %q not to be reported, got:\n%s", unwanted, head(err.Error()))
+		}
+	}
+	return nil
+}
+
+// LintRejectsPlaintextSecret checks the rule that catches a leak rather than a
+// breakage: a credential-shaped variable carrying a literal in a file that is
+// committed.
+//
+// The fixture holds two controls beside the violation — a token whose value is
+// a {{process.env.*}} interpolation, and a name declared in a vars:secret
+// block — so this also pins that the rule accepts the shape it is asking for.
+func (t *Tests) LintRejectsPlaintextSecret(ctx context.Context) error {
+	err := dag.Bruno().Collection(fixture("lint/plaintext-secret")).WithEnvironment("local").Lint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a plaintext credential to be an error")
+	}
+	for _, want := range []string{"apiKey", "environments/local.bru", "vars:secret"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	if strings.Contains(err.Error(), "sessionToken") {
+		return fmt.Errorf("expected a {{process.env}} value not to be reported as a committed literal, got:\n%s",
+			head(err.Error()))
+	}
+	if strings.Contains(err.Error(), "refreshToken") {
+		return fmt.Errorf("expected a vars:secret name to satisfy the rule rather than trip it, got:\n%s",
+			head(err.Error()))
+	}
+	return nil
+}
+
+// LintRejectsDuplicateSequence checks that two requests claiming the same seq
+// in one folder is a finding, and that the same seq in a different folder is
+// not — seq orders a folder's requests, so it is only ambiguous within one.
+func (t *Tests) LintRejectsDuplicateSequence(ctx context.Context) error {
+	err := dag.Bruno().Collection(fixture("lint/duplicate-seq")).WithEnvironment("local").Lint(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a duplicated seq to be an error")
+	}
+	for _, want := range []string{"second.bru", "first.bru", "seq 1"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	if strings.Contains(err.Error(), "also-first.bru") {
+		return fmt.Errorf("expected a seq reused in a different folder to be fine, got:\n%s", head(err.Error()))
+	}
+	return nil
+}
+
+// LintWarnsOnRequestWithoutTests checks the one finding that is a warning: a
+// request that checks nothing passes whatever the API returns, which is worth
+// saying and not worth failing a pipeline over by default.
+//
+// The fixture's only assertion is disabled, which is the same as not having
+// written it — so this also pins that a commented-out assert does not count.
+func (t *Tests) LintWarnsOnRequestWithoutTests(ctx context.Context) error {
+	collection := dag.Bruno().Collection(fixture("lint/no-tests")).WithEnvironment("local")
+	if err := collection.Lint(ctx); err != nil {
+		return fmt.Errorf("expected a warning not to fail by default: %w", err)
+	}
+	err := collection.Lint(ctx, dagger.BrunoCollectionLintOpts{FailOnWarnings: true})
+	if err == nil {
+		return fmt.Errorf("expected failOnWarnings to turn the warning into an error")
+	}
+	for _, want := range []string{"warning", "ping.bru", "tests"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
 		}
 	}
 	return nil

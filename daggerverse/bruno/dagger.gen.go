@@ -379,6 +379,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Collection":
 		switch fnName {
+		case "Lint":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var failOnWarnings bool
+			if inputArgs["failOnWarnings"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["failOnWarnings"]), &failOnWarnings)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg failOnWarnings", err))
+				}
+			}
+			return nil, (*Collection).Lint(&parent, ctx, failOnWarnings)
 		case "Report":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)

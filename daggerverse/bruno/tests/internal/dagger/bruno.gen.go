@@ -200,8 +200,9 @@ func (r *Bruno) AsNode() Node {
 type BrunoCollection struct { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
 	query *querybuilder.Selection
 
-	id  *ID
-	run *string
+	id   *ID
+	lint *Void
+	run  *string
 }
 type WithBrunoCollectionFunc func(r *BrunoCollection) *BrunoCollection
 
@@ -265,6 +266,50 @@ func (r *BrunoCollection) UnmarshalJSON(bs []byte) error {
 	}
 	*r = BrunoCollection{query: selectNode(dag.query, id, "BrunoCollection")}
 	return nil
+}
+
+// BrunoCollectionLintOpts contains options for BrunoCollection.Lint
+type BrunoCollectionLintOpts struct {
+	//
+	// Treat warnings as failures.
+	//
+	FailOnWarnings bool // bruno (../../../../../daggerverse/bruno/lint.go:103:2)
+}
+
+// Lint checks a collection's structure without issuing a single request.
+//
+// Bruno ships no linter, and the failure modes it leaves open are the
+// expensive kind: a {{baseUrl}} that resolves nowhere fails at request time in
+// CI rather than at review time, and an API key committed as a plaintext value
+// under environments/ is a leak nobody notices.
+//
+// Findings are folded into the returned error rather than returned as a value,
+// following kicad's Drc and Erc: Dagger drops a function's value when it also
+// returns a non-nil error, so a (findings, error) signature would hide the
+// findings on exactly the path that needs them. Warnings that do not fail the
+// call are written to stderr instead, so they are still visible in the run's
+// logs.
+//
+// Everything is evaluated in pure Go over the source tree — no container, per
+// the module's runtime-I/O convention — which is also why it is
+// directory's contents and nothing else.
+//
+// Scope limit: this reads the collection's block and reference structure, not
+// a full .bru parse. Blocks are recognised by their opener at column 0, which
+// is where Bruno's own writer puts them.
+func (r *BrunoCollection) Lint(ctx context.Context, opts ...BrunoCollectionLintOpts) error { // bruno (../../../../../daggerverse/bruno/lint.go:99:1)
+	if r.lint != nil {
+		return nil
+	}
+	q := r.query.Select("lint")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `failOnWarnings` optional argument
+		if !querybuilder.IsZeroValue(opts[i].FailOnWarnings) {
+			q = q.Arg("failOnWarnings", opts[i].FailOnWarnings)
+		}
+	}
+
+	return q.Execute(ctx)
 }
 
 // Report executes the collection and returns the reporter's artifact.
