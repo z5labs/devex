@@ -76,23 +76,83 @@ func (f fixture) universe() []string {
 }
 
 func (f fixture) moduleDirs() []string {
-	dirs := make([]string, 0, len(f.adj))
+	dirs := make([]string, 0, len(f.adj)+1)
 	for d := range f.adj {
 		if strings.HasPrefix(d, "daggerverse/") {
 			dirs = append(dirs, d)
 		}
 	}
-	return dirs
+	// The root module claims whatever no nested module does, mirroring the
+	// dagger.json walk in the ci module.
+	return append(dirs, RootPkg)
+}
+
+// nonInputs are the fixture paths that no module's source context contains, and
+// so are inputs to nothing.
+//
+// Module-scoped entries are declared out in that module's dagger.json
+// ("include": ["!README.md"]), which stops Dagger uploading them at all.
+// Repo-level entries were never in any context to begin with: the root module's
+// source is ci/, so its context is exactly ci/** plus dagger.json.
+func nonInputs() map[string]bool {
+	return map[string]bool{
+		"daggerverse/crypto/README.md":      true,
+		"daggerverse/kicad/README.md":       true,
+		"daggerverse/kicad/tests/README.md": true,
+		"ci/README.md":                      true,
+		"README.md":                         true,
+		"LICENSE":                           true,
+		"docs/dagger-internals/nesting.md":  true,
+	}
+}
+
+// srcsFor models the per-module source contexts Dagger would report for the
+// paths a case touches: everything under the owning module, minus nonInputs and
+// minus anything deleted (which cannot appear in the head context). Every module
+// dir gets an entry, because a missing one means "source context unresolved" and
+// makes Attribute decline to narrow.
+func (f fixture) srcsFor(changes []Change) map[string]map[string]bool {
+	dirs := f.moduleDirs()
+	skip := nonInputs()
+	out := make(map[string]map[string]bool, len(dirs))
+	for _, d := range dirs {
+		out[d] = map[string]bool{}
+	}
+	for _, c := range changes {
+		if c.Deleted || skip[c.Path] {
+			continue
+		}
+		if d, ok := OwningModule(c.Path, dirs); ok {
+			out[d][c.Path] = true
+		}
+	}
+	return out
 }
 
 // selfCheckCase is one change -> expected selection assertion.
 type selfCheckCase struct {
 	name    string
 	changed []string
+	// removed are paths that the change set deletes, i.e. that do not exist at
+	// head. They are attributed to their module even though no source context
+	// can contain them.
+	removed []string
 	// wantFull asserts the full-suite fail-safe fired.
 	wantFull bool
 	// wantChecks, when wantFull is false, is the exact expected kept set.
 	wantChecks []string
+}
+
+// changes flattens a case into the (path, deleted) pairs Attribute consumes.
+func (c selfCheckCase) changes() []Change {
+	out := make([]Change, 0, len(c.changed)+len(c.removed))
+	for _, p := range c.changed {
+		out = append(out, Change{Path: p})
+	}
+	for _, p := range c.removed {
+		out = append(out, Change{Path: p, Deleted: true})
+	}
+	return out
 }
 
 // selfCheckCases returns the invariants that must hold. They double as the
@@ -200,8 +260,73 @@ func selfCheckCases() []selfCheckCase {
 		{name: "no changed files runs the full suite", changed: nil, wantFull: true},
 		{
 			name:     "a module change mixed with an infra change runs the full suite",
-			changed:  []string{"daggerverse/kicad/main.go", "README.md"},
+			changed:  []string{"daggerverse/kicad/main.go", "dagger.json"},
 			wantFull: true,
+		},
+
+		// Input-awareness (#195). A path that lies under a module but outside its
+		// Dagger source context is an input to nothing, so it selects nothing.
+		{
+			name:       "a module-root README triggers no dependents",
+			changed:    []string{"daggerverse/crypto/README.md"},
+			wantChecks: []string{ci1, ci2},
+		},
+		{
+			name:       "repo-level docs run no module checks instead of the full suite",
+			changed:    []string{"README.md", "LICENSE", "docs/dagger-internals/nesting.md"},
+			wantChecks: []string{ci1, ci2},
+		},
+		{
+			// ci/README.md is declared out of the root module, so unlike every
+			// other path under ci/ it no longer forces the whole universe.
+			name:       "the ci module's own README runs no module checks",
+			changed:    []string{"ci/README.md"},
+			wantChecks: []string{ci1, ci2},
+		},
+		{
+			name:       "docs alongside a module change keep that module's checks",
+			changed:    []string{"daggerverse/kicad/main.go", "README.md"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
+		},
+		{
+			name:     "docs alongside an infra change still run the full suite",
+			changed:  []string{"README.md", "ci/main.go"},
+			wantFull: true,
+		},
+		{
+			// The template is embedded by daggerverse/skill-gen/skill/render.go, so
+			// it is program data. Nothing declares it out, so it stays an input —
+			// the reason this classification is a source-context question and never
+			// a question about which files look like prose.
+			name:       "an embedded markdown template is an input, not docs",
+			changed:    []string{"daggerverse/skill-gen/skill/templates/README.md.tmpl"},
+			wantChecks: []string{ci1, ci2, "skill-gen-tests:all"},
+		},
+		{
+			name:       "a golden testdata README is an input, not docs",
+			changed:    []string{"daggerverse/skill-gen/skill/testdata/golden/README.md"},
+			wantChecks: []string{ci1, ci2, "skill-gen-tests:all"},
+		},
+		{
+			// Only a module's own root README is declared out; one nested in a
+			// fixture tree is untouched by that declaration.
+			name:       "a README nested inside a module stays an input",
+			changed:    []string{"daggerverse/kicad/tests/fixtures/no-board/README.md"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
+		},
+		{
+			// Deleted paths cannot appear in any head source context, so they are
+			// attributed to their module rather than read as declared out.
+			name:       "a deleted module source file still triggers its module",
+			removed:    []string{"daggerverse/kicad/main.go"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
+		},
+		{
+			// The documented cost of that rule: deleting a declared-out file
+			// over-runs. Rare, and in the safe direction.
+			name:       "a deleted module README over-runs rather than under-runs",
+			removed:    []string{"daggerverse/kicad/README.md"},
+			wantChecks: []string{ci1, ci2, "kicad-tests:all"},
 		},
 	}
 }
@@ -217,7 +342,9 @@ func SelfCheck() error {
 	bindings := AggregatorBindings(f.checkModule)
 
 	for _, tc := range selfCheckCases() {
-		kept, full := Select(universe, closure, tc.changed, dirs, bindings)
+		changes := tc.changes()
+		changed, global := Attribute(changes, dirs, f.srcsFor(changes), bindings)
+		kept, full := Select(universe, closure, changed, global)
 		if full != tc.wantFull {
 			return fmt.Errorf("%s: full=%v, want %v", tc.name, full, tc.wantFull)
 		}

@@ -86,6 +86,9 @@
       "source": "daggerverse/zig/tests"
     }
   ],
+  "include": [
+    "!ci/README.md"
+  ],
   "source": "ci",
   "codegen": {
     "automaticGitignore": false

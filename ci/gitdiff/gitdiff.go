@@ -14,16 +14,47 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 )
 
-// ChangedFiles returns the repo-relative paths changed between base and head,
-// using three-dot (merge-base) semantics: the diff is taken from the
-// merge-base of base and head to head, so changes made on the base branch after
-// the two diverged are not attributed to head. This mirrors
-// `git diff base...head` and is what a PR "changes" set means.
+// Change is one repo-relative path touched between two commits, together with
+// whether it still exists at head.
+//
+// The caller needs the distinction because a path that is absent from a
+// module's source set is indistinguishable, by path alone, from a path that was
+// deleted: the first must be ignored (it is not an input), the second must not
+// (its module really did change). Deleted is what tells them apart.
+type Change struct {
+	// Path is the repo-relative path.
+	Path string
+	// Deleted reports that Path does not exist at head, either because it was
+	// removed or because it is the old name of a rename.
+	Deleted bool
+}
+
+// ChangedFiles returns the repo-relative paths changed between base and head.
+// It is Changes with the change type dropped, kept for callers that only need
+// the path set. See Changes for the diff semantics.
+func ChangedFiles(repoDir, base, head string) ([]string, error) {
+	changes, err := Changes(repoDir, base, head)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(changes))
+	for _, c := range changes {
+		out = append(out, c.Path)
+	}
+	return out, nil
+}
+
+// Changes returns the repo-relative paths changed between base and head, using
+// three-dot (merge-base) semantics: the diff is taken from the merge-base of
+// base and head to head, so changes made on the base branch after the two
+// diverged are not attributed to head. This mirrors `git diff base...head` and
+// is what a PR "changes" set means.
 //
 // repoDir is a working-tree root containing a .git directory. Renamed paths
 // contribute both their old and new names (conservative — the change could
-// affect the module on either side). base/head are full commit SHAs.
-func ChangedFiles(repoDir, base, head string) ([]string, error) {
+// affect the module on either side), with the old name marked Deleted. base and
+// head are full commit SHAs. The result is sorted by path.
+func Changes(repoDir, base, head string) ([]Change, error) {
 	repo, err := git.PlainOpen(repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("open repo %q: %w", repoDir, err)
@@ -57,19 +88,31 @@ func ChangedFiles(repoDir, base, head string) ([]string, error) {
 		return nil, fmt.Errorf("diff trees: %w", err)
 	}
 
-	set := make(map[string]struct{})
+	// A path exists at head exactly when it is the destination of some change.
+	// Collect those first so a path that is both the source of one rename and
+	// the destination of another (a swap) is not mistaken for deleted.
+	atHead := make(map[string]struct{}, len(changes))
 	for _, c := range changes {
-		if c.From.Name != "" {
-			set[c.From.Name] = struct{}{}
-		}
 		if c.To.Name != "" {
-			set[c.To.Name] = struct{}{}
+			atHead[c.To.Name] = struct{}{}
 		}
 	}
-	out := make([]string, 0, len(set))
-	for p := range set {
-		out = append(out, p)
+
+	deleted := make(map[string]bool, len(changes))
+	for _, c := range changes {
+		if n := c.From.Name; n != "" {
+			_, present := atHead[n]
+			deleted[n] = !present
+		}
+		if n := c.To.Name; n != "" {
+			deleted[n] = false
+		}
 	}
-	sort.Strings(out)
+
+	out := make([]Change, 0, len(deleted))
+	for p, gone := range deleted {
+		out = append(out, Change{Path: p, Deleted: gone})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
 }
