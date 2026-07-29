@@ -65,6 +65,61 @@ func (r *Bruno) Container() *Container { // bruno (../../../../../daggerverse/br
 	}
 }
 
+// BrunoGenerateOpts contains options for Bruno.Generate
+type BrunoGenerateOpts struct {
+	//
+	// Name stamped into the generated collection's bruno.json.
+	//
+	//
+	// Default: "api"
+	Name string // bruno (../../../../../daggerverse/bruno/generate.go:64:2)
+	//
+	// Output shape: "bru", the tree this module can run, or "opencollection".
+	//
+	//
+	// Default: "bru"
+	Format string // bruno (../../../../../daggerverse/bruno/generate.go:67:2)
+}
+
+// Generate converts an OpenAPI document into a Bruno collection directory
+// (`bru import openapi`), so a collection can be produced in CI rather than
+// hand-maintained beside the spec it drifts from.
+//
+// The spec is a *dagger.File rather than a URL string, so a local document and
+// a remote one are the same call: dag.HTTP(url) covers the URL case without a
+// second parameter — and without needing bru's `--insecure`, since the fetch
+// never happens inside the container.
+//
+// format defaults to "bru" where upstream defaults to "opencollection". Only
+// the bru shape carries the bruno.json and .bru requests that Collection, Run
+// and Report read, so the default is the one whose output feeds straight back
+// into this module. "opencollection" writes an opencollection.yml instead and
+// is not runnable here.
+//
+// Requests are grouped by OpenAPI tag, which is bru's own default, so they
+// land one folder deep and need Run's recursive default to be reached.
+//
+// It isthe document and touches no live service.
+func (r *Bruno) Generate(spec *File, opts ...BrunoGenerateOpts) *Directory { // bruno (../../../../../daggerverse/bruno/generate.go:57:1)
+	assertNotNil("spec", spec)
+	q := r.query.Select("generate")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `name` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Name) {
+			q = q.Arg("name", opts[i].Name)
+		}
+		// `format` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Format) {
+			q = q.Arg("format", opts[i].Format)
+		}
+	}
+	q = q.Arg("spec", spec)
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // A unique identifier for this Bruno.
 func (r *Bruno) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {

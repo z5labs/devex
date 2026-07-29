@@ -1,0 +1,104 @@
+# A small OpenAPI document for the generation tests.
+#
+# Its single server is the recording responder the suite binds under the `api`
+# alias, because that is what `bru import` turns into the generated
+# collection's baseUrl — so the collection it produces is runnable against the
+# suite's own service without anything being rewritten afterwards.
+#
+# Two tags and a path parameter are deliberate: `bru import` groups by tag, so
+# the requests land one folder deep rather than at the collection root, and the
+# parameter exercises the one shape that could come back unresolvable.
+#
+# The server's description is what names the generated environment file, so it
+# is kept free of punctuation a filename would rather not carry.
+openapi: 3.0.3
+info:
+  title: Petstore
+  description: A very small store, for a test that has to run what it generates.
+  version: 1.0.0
+servers:
+  - url: http://api:8080
+    description: recording responder
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags:
+        - status
+      summary: Report service health
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /pets:
+    get:
+      operationId: listPets
+      tags:
+        - pets
+      summary: List every pet
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+    post:
+      operationId: createPet
+      tags:
+        - pets
+      summary: Add a pet to the store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Pet"
+      responses:
+        "200":
+          description: The pet that was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    get:
+      operationId: showPetById
+      tags:
+        - pets
+      summary: Fetch one pet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The pet's identifier.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested pet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tag:
+          type: string

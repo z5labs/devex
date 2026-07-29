@@ -206,6 +206,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "GenerateHonoursOpenCollectionFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GenerateHonoursOpenCollectionFormat(&parent, ctx)
+		case "GenerateProducesRunnableCollection":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GenerateProducesRunnableCollection(&parent, ctx)
+		case "GenerateRejectsUnknownFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GenerateRejectsUnknownFormat(&parent, ctx)
 		case "JsonEnvFileKeepsItsExtension":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

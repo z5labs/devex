@@ -7,6 +7,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"path"
+	"slices"
 	"strings"
 
 	par "github.com/dagger/dagger/util/parallel"
@@ -20,6 +22,10 @@ const (
 	// resolves to a different release fails loudly rather than silently
 	// running some other CLI.
 	pinnedVersion = "3.4.2"
+
+	// specOperations is how many operations fixtures/petstore.yaml declares,
+	// and therefore how many requests a collection generated from it makes.
+	specOperations = 4
 )
 
 type Tests struct{}
@@ -53,6 +59,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("SecretVarIsNotOnArgv", t.SecretVarIsNotOnArgv)
 	jobs = jobs.WithJob("PassThroughFlagsAreAccepted", t.PassThroughFlagsAreAccepted)
 	jobs = jobs.WithJob("JsonEnvFileKeepsItsExtension", t.JsonEnvFileKeepsItsExtension)
+	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
+	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
+	jobs = jobs.WithJob("GenerateRejectsUnknownFormat", t.GenerateRejectsUnknownFormat)
 
 	return jobs.Run(ctx)
 }
@@ -478,6 +487,135 @@ func (t *Tests) JsonEnvFileKeepsItsExtension(ctx context.Context) error {
 	return nil
 }
 
+// GenerateProducesRunnableCollection checks the claim the default format is
+// chosen for: what Generate hands back is a collection this module can run,
+// with nothing rearranged in between.
+//
+// Structure alone would not establish that — a tree can hold a bruno.json and
+// still fail at exit 4 — so the generated directory is fed straight into
+// Collection and run against the recording responder, which is the host the
+// fixture's `servers:` entry names and therefore the baseUrl `bru import`
+// writes into the generated environment.
+//
+// The environment's name is read off the generated tree rather than hardcoded:
+// bru derives it from the server's description, which is the spec's business
+// and not this module's.
+func (t *Tests) GenerateProducesRunnableCollection(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	const name = "petstore"
+	generated := dag.Bruno().Generate(fixtureFile("petstore.yaml"), dagger.BrunoGenerateOpts{
+		Name: name,
+	})
+
+	entries, err := generated.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("generate: %w", err)
+	}
+	if !slices.Contains(entries, "bruno.json") {
+		return fmt.Errorf("expected bruno.json at the generated collection root, got %v", entries)
+	}
+
+	manifest, err := generated.File("bruno.json").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the generated bruno.json: %w", err)
+	}
+	if !strings.Contains(manifest, `"name": "`+name+`"`) {
+		return fmt.Errorf("expected the collection name %q in bruno.json, got:\n%s", name, head(manifest))
+	}
+
+	requests, err := generatedRequests(ctx, generated)
+	if err != nil {
+		return err
+	}
+	if len(requests) == 0 {
+		return fmt.Errorf("expected at least one .bru request in the generated collection, got %v", entries)
+	}
+
+	environments, err := generated.Entries(ctx, dagger.DirectoryEntriesOpts{Path: "environments"})
+	if err != nil {
+		return fmt.Errorf("read the generated environments: %w", err)
+	}
+	if len(environments) != 1 {
+		return fmt.Errorf("expected the spec's one server to become one environment, got %v", environments)
+	}
+	environment := strings.TrimSuffix(environments[0], ".bru")
+
+	out, err := dag.Bruno().
+		Collection(generated).
+		WithEnvironment(environment).
+		WithService(responderAlias, rsp.Svc).
+		Run(ctx)
+	if err != nil {
+		return fmt.Errorf("run the generated collection: %w", err)
+	}
+	if !strings.Contains(out, "List every pet") {
+		return fmt.Errorf("expected the run output to name a generated request, got:\n%s", head(out))
+	}
+
+	got, err := rsp.stats(ctx, "after-generated")
+	if err != nil {
+		return err
+	}
+	// The spec declares four operations, and `bru import` groups them by tag —
+	// so this also says the run reached requests a folder deep, which is where
+	// every generated request lives.
+	if got.Count != specOperations {
+		return fmt.Errorf("expected the generated collection to serve %d requests, got %d",
+			specOperations, got.Count)
+	}
+	return nil
+}
+
+// GenerateHonoursOpenCollectionFormat checks that the format argument reaches
+// bru at all: every other assertion in this suite would pass just as well
+// against a Generate that had "bru" hardcoded.
+//
+// It also pins the reason the default diverges from upstream's. The
+// opencollection shape carries no bruno.json, so it is not something Collection
+// could run — which is why this module defaults to the other one.
+func (t *Tests) GenerateHonoursOpenCollectionFormat(ctx context.Context) error {
+	entries, err := dag.Bruno().
+		Generate(fixtureFile("petstore.yaml"), dagger.BrunoGenerateOpts{Format: "opencollection"}).
+		Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("generate opencollection: %w", err)
+	}
+	if !slices.Contains(entries, "opencollection.yml") {
+		return fmt.Errorf("expected opencollection.yml at the root, got %v", entries)
+	}
+	if slices.Contains(entries, "bruno.json") {
+		return fmt.Errorf("expected no bruno.json in the opencollection shape, got %v", entries)
+	}
+	return nil
+}
+
+// GenerateRejectsUnknownFormat checks that a shape `bru import` does not write
+// is refused by name. bru refuses one too, but by printing its whole help text
+// with the actual complaint on the last line — and only after a container has
+// been started to find out.
+func (t *Tests) GenerateRejectsUnknownFormat(ctx context.Context) error {
+	// As with Report, the rejection surfaces on the read rather than on the
+	// call: a Directory-returning function is lazy, so its error travels with
+	// the directory.
+	_, err := dag.Bruno().
+		Generate(fixtureFile("petstore.yaml"), dagger.BrunoGenerateOpts{Format: "postman"}).
+		Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an unknown collection format to be an error")
+	}
+	for _, want := range []string{"postman", "bru", "opencollection"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got: %s", want, err.Error())
+		}
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
 
 // fixture returns the named hand-authored Bruno collection under fixtures/.
@@ -498,6 +636,31 @@ func exportContents(ctx context.Context, f *dagger.File, name string) (string, e
 		return "", fmt.Errorf("read exported %s: %w", name, err)
 	}
 	return contents, nil
+}
+
+// generatedRequests lists the request files in a generated collection.
+//
+// Not every .bru file is a request: `bru import` writes the collection's own
+// settings to collection.bru, one folder.bru per tag group, and the
+// environments under environments/. Counting those as requests would let a
+// collection with no requests at all satisfy "at least one .bru request".
+func generatedRequests(ctx context.Context, collection *dagger.Directory) ([]string, error) {
+	paths, err := collection.Glob(ctx, "**/*.bru")
+	if err != nil {
+		return nil, fmt.Errorf("glob the generated collection: %w", err)
+	}
+	var requests []string
+	for _, p := range paths {
+		if strings.HasPrefix(p, "environments/") {
+			continue
+		}
+		switch path.Base(p) {
+		case "collection.bru", "folder.bru":
+			continue
+		}
+		requests = append(requests, p)
+	}
+	return requests, nil
 }
 
 // fixtureFile returns a single file under fixtures/, for the inputs — an

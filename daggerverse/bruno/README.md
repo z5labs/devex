@@ -40,7 +40,7 @@ for exactly those.
 
 `Container()` is the escape hatch for every flag this module does not wrap —
 `--proxy`, `--disable-cookies`, `--verbose`, the reporter-redaction switches,
-`bru import` — all reachable via `dagger call container with-exec`.
+`bru import wsdl` — all reachable via `dagger call container with-exec`.
 
 ## Collection, not file
 
@@ -126,6 +126,58 @@ from the CLI.
 or workspace not found, or an unparseable collection file), 12 and 13 (global
 environment problems), and 255 for everything else.
 
+## Generating a collection from OpenAPI
+
+A collection hand-maintained beside an OpenAPI document drifts. `Generate`
+wraps `bru import openapi`, so the collection can be produced in CI instead of
+committed and forgotten.
+
+```go
+collection := dag.Bruno().Generate(spec, dagger.BrunoGenerateOpts{Name: "petstore"})
+out, err := dag.Bruno().Collection(collection).WithService("api", api).Run(ctx)
+```
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/bruno call \
+  generate --spec=./openapi.yaml --name=petstore \
+  export --path=./api-tests
+```
+
+The spec is a `*File`, not a URL string, so a local document and a remote one
+are the same call — `dag.HTTP(url)` covers the URL case without a second
+parameter, and without needing `bru`'s `--insecure`, because the fetch never
+happens inside the container. YAML or JSON either way: `bru import` reads the
+contents, not the file name.
+
+`format` defaults to `"bru"` where **upstream defaults to
+`"opencollection"`**. Only the `bru` shape carries the `bruno.json` and `.bru`
+requests that `Collection`, `Run` and `Report` read; `"opencollection"` writes
+an `opencollection.yml` and no `bruno.json`, so it is not runnable here. The
+default is the one whose output feeds straight back in.
+
+What comes out, for a spec with a `servers:` entry and tagged operations:
+
+```
+bruno.json                     # the collection manifest, named by --name
+collection.bru                 # collection-level settings
+environments/<server>.bru      # baseUrl, from servers[].url
+<tag>/folder.bru               # one folder per OpenAPI tag
+<tag>/<summary>.bru            # one request per operation
+```
+
+Two things worth knowing about that tree. Requests are grouped by tag, so they
+land a folder deep and need `Run`'s recursive default to be reached. And the
+environment file is named after the server's *description* (falling back to
+`Environment 1`), which is the spec's business rather than this module's — read
+it off the generated directory rather than hardcoding it, or override `baseUrl`
+with `WithVar` and skip `WithEnvironment` entirely.
+
+`Generate` is `+cache="session"`, not `"never"`: conversion is a pure function
+of the document and touches no live service.
+
+`--group-by path` (the alternative to grouping by tag) and `bru import wsdl`
+are not wrapped; both are reachable through `Container()`.
+
 ## Secrets
 
 `WithSecretVar(name, secret)` is a separate function from `WithVar` rather than
@@ -161,8 +213,8 @@ module or touch the filesystem needs `WithSandbox("developer")` — and fails at
 ## Caching
 
 `Run` and `Report` carry `+cache="never"`: a collection run hits a live
-service, so a cached pass would report a now-broken API as green. `Container`
-and `Version` stay `+cache="session"` — those are pure.
+service, so a cached pass would report a now-broken API as green. `Container`,
+`Version` and `Generate` stay `+cache="session"` — those are pure.
 
 That directive governs the *function* result; the `WithExec` layer underneath
 is still content-addressed, so both terminals stamp a per-call nonce onto the
@@ -183,6 +235,7 @@ reachable through `Container()`.
 |---|---|
 | `Container()` | The pinned `usebruno/cli` image — the escape hatch for unwrapped flags. |
 | `Version()` | The Bruno CLI release the image ships. |
+| `Generate(spec, name, format)` | Convert an OpenAPI document into a collection directory. |
 | `Collection(source)` | Bind a collection tree to the toolchain. |
 | `Collection.WithEnvironment(name)` | `--env`; the file under `environments/` without its extension. |
 | `Collection.WithVar(name, value)` | `--env-var name=value`. A pair, not a map. |
@@ -216,6 +269,13 @@ that counts requests would otherwise be counting a previous session's.
 Counting requests at the service, rather than reading bru's summary, is what
 makes the caching assertions mean anything: a cached `Run` prints a perfectly
 convincing "1 request, 1 passed".
+
+`fixtures/petstore.yaml` is the one fixture that is not a Bruno collection: it
+is the OpenAPI document `Generate` converts. Its single `servers:` entry names
+that same responder, which is what makes
+`GenerateProducesRunnableCollection` a real test — the generated collection is
+handed straight to `Collection` and run, rather than merely inspected for a
+`bruno.json`.
 
 `SecretVarIsNotOnArgv` is the one test that needs the collection's own
 scripting. Its fixture reports `process.argv` — bru's own command line — back
