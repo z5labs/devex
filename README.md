@@ -18,7 +18,7 @@ dagger install github.com/z5labs/devex/daggerverse/<module>
 
 | Module | Description |
 | ------ | ----------- |
-| [`bruno`](daggerverse/bruno) | Run Bruno API collections — a pass/fail gate or a JUnit report. |
+| [`bruno`](daggerverse/bruno) | Run Bruno API collections — a pass/fail gate or a JUnit report — or generate one from OpenAPI. |
 | [`certificate-management`](daggerverse/certificate-management) | Manage X.509 certificate authorities and issue TLS certificates. |
 | [`crypto`](daggerverse/crypto) | Common crypto utilities — file digests and ephemeral keys. |
 | [`dgraph`](daggerverse/dgraph) | Spin up a Dgraph graph-database cluster. |

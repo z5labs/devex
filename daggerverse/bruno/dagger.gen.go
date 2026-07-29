@@ -311,6 +311,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Bruno).Container(&parent), nil
+		case "Generate":
+			var parent Bruno
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var spec *dagger.File
+			if inputArgs["spec"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spec"]), &spec)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spec", err))
+				}
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var format string
+			if inputArgs["format"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["format"]), &format)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
+				}
+			}
+			return (*Bruno).Generate(&parent, ctx, spec, name, format)
 		case "Version":
 			var parent Bruno
 			err = json.Unmarshal(parentJSON, &parent)
