@@ -1,0 +1,12 @@
+{
+  "name": "local",
+  "variables": [
+    {
+      "name": "baseUrl",
+      "value": "http://api:8080",
+      "enabled": true,
+      "secret": false,
+      "type": "text"
+    }
+  ]
+}

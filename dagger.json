@@ -6,6 +6,10 @@
   },
   "toolchains": [
     {
+      "name": "bruno-tests",
+      "source": "daggerverse/bruno/tests"
+    },
+    {
       "name": "certificate-management-tests",
       "source": "daggerverse/certificate-management/tests"
     },
