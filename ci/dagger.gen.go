@@ -212,7 +212,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg head", err))
 				}
 			}
-			return (*Ci).AffectedChecks(&parent, ctx, base, head)
+			var knownGood string
+			if inputArgs["knownGood"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["knownGood"]), &knownGood)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownGood", err))
+				}
+			}
+			return (*Ci).AffectedChecks(&parent, ctx, base, head, knownGood)
 		case "Generated":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)

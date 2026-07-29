@@ -193,8 +193,14 @@ const (
 	bindingDir = "ci/internal/dagger/"
 	bindingExt = ".gen.go"
 	// coreBinding is the ci module's own core binding. It is not attributable to
-	// any single toolchain, so it must keep failing open even in the pathological
-	// case of a toolchain literally named "dagger".
+	// any single toolchain, so *selection* must keep failing open on it even in
+	// the pathological case of a toolchain literally named "dagger" — hence its
+	// removal from the AggregatorBindings map below.
+	//
+	// Memoization treats it differently, and deliberately: see
+	// nonGlobalRootPaths. Attribution and the input hash answer different
+	// questions, and only the first has to be conservative about a file dagger
+	// regenerates every time the toolchain set changes.
 	coreBinding = bindingDir + "dagger" + bindingExt
 )
 
