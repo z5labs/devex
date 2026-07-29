@@ -155,6 +155,9 @@ type AddressID string
 type BindingID string
 
 // A unique identifier for an object.
+type BrunoCiID string
+
+// A unique identifier for an object.
 type BrunoCollectionID string
 
 // A unique identifier for an object.
@@ -12805,6 +12808,16 @@ func (r *Query) LoadBindingFromID(id BindingID) *Binding {
 	q = q.Arg("id", id)
 
 	return &Binding{
+		query: q,
+	}
+}
+
+// Load a BrunoCi from its ID.
+func (r *Query) LoadBrunoCiFromID(id BrunoCiID) *BrunoCi {
+	q := r.query.Select("loadBrunoCiFromID")
+	q = q.Arg("id", id)
+
+	return &BrunoCi{
 		query: q,
 	}
 }

@@ -236,6 +236,76 @@ of the document and touches no live service.
 `--group-by path` (the alternative to grouping by tag) and `bru import wsdl`
 are not wrapped; both are reachable through `Container()`.
 
+## The Ci pipeline
+
+Lint, run and report are three calls plus the glue that decides what fails the
+build. `Ci` bundles them, so an API repo's pipeline is one declarative
+`dagger call`.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/bruno call \
+  ci --source=./api-tests \
+  with-environment --name=ci \
+  with-lint \
+  with-report --format=junit \
+  check
+```
+
+```go
+ci := dag.Bruno().Ci(source).
+    WithEnvironment("ci").
+    WithService("api", api).
+    WithSecretVar("API_TOKEN", token).
+    WithLint().
+    WithReport("junit")
+
+err := ci.Check(ctx)   // the gate
+reports := ci.Run()    // the artifacts: reports/report.xml
+```
+
+It composes `Collection` without adding capability — every stage is a call the
+caller could make by hand. What it adds is the *ordering*: lint runs before the
+collection, so a `{{baseUrl}}` that resolves nowhere or a credential committed
+in plaintext is reported without spending a request on discovering it.
+
+| Stage | What it does |
+|---|---|
+| `WithEnvironment(name)` | `--env`, and the environment lint resolves references against. |
+| `WithService(alias, service)` | Put a Dagger service on the pipeline's network. |
+| `WithSecretVar(name, secret)` | A credential readable as `{{process.env.NAME}}`, never on argv. |
+| `WithLint(failOnWarnings)` | Add the lint stage, ahead of the collection. |
+| `WithReport(format)` | Add `json`, `junit` or `html` to the set `Run` returns. Call it more than once. |
+| `Check()` | The gate: fails on a lint error, on a failing request/test/assertion, and on a usage error. |
+| `Run()` | The artifacts: `report.json`, `report.xml` (junit), `report.html`. |
+
+`Check` gates and `Run` does not, which is the same split as `Collection`'s
+`Run` and `Report` and for the same reason: a Dagger function that returns an
+error forfeits its value, so a gating `Run` would hand back nothing on exactly
+the runs whose report a pipeline needs. Pair them — `Run` for the artifacts,
+`Check` for the gate. A lint error and a usage error still fail `Run`, because
+then the collection never ran and there is no report to return.
+
+Every requested format comes out of **one** collection pass: `bru` accepts all
+of its `--reporter-*` flags at once, so asking for both JUnit and HTML costs one
+run and the two artifacts describe the same set of responses.
+
+`Run` with no `WithReport` is an error rather than an empty directory: running
+the collection to hand back nothing reads as a pass, and a pipeline that only
+wants to gate wants `Check`.
+
+Lint is opt-in rather than always-on because it is an opinion about how a
+collection is written, and a pipeline should not start failing on one the day it
+adopts the builder.
+
+The pipeline deliberately wraps a subset of `Collection`'s surface: secrets but
+not plain `WithVar` overrides (a value passed into CI by hand is usually a
+credential, and `--env-var` would put it on the command line), and no sandbox,
+tag, bail or delay switches. A collection that needs those is assembled through
+`Collection` directly.
+
+Both terminals are `+cache="never"`, and the suite proves the second `Check` in
+one session really re-runs by counting requests at the service.
+
 ## Secrets
 
 `WithSecretVar(name, secret)` is a separate function from `WithVar` rather than
@@ -270,14 +340,20 @@ module or touch the filesystem needs `WithSandbox("developer")` — and fails at
 
 ## Caching
 
-`Run` and `Report` carry `+cache="never"`: a collection run hits a live
-service, so a cached pass would report a now-broken API as green. `Container`,
-`Version`, `Generate` and `Lint` stay `+cache="session"` — those are pure.
+`Run`, `Report`, `Ci.Check` and `Ci.Run` carry `+cache="never"`: a collection
+run hits a live service, so a cached pass would report a now-broken API as
+green. `Container`, `Version`, `Generate` and `Lint` stay `+cache="session"` —
+those are pure.
 
 That directive governs the *function* result; the `WithExec` layer underneath
-is still content-addressed, so both terminals stamp a per-call nonce onto the
+is still content-addressed, so every terminal stamps a per-call nonce onto the
 run. Without it, a second `Run` of the same collection against the same service
 would be a build-cache hit and never leave the engine.
+
+`Ci.Run` returns a directory, and a never-cached function is re-invoked by each
+selection off its result — so reading two reports out of one `Run` would be two
+runs of the collection. Resolve the directory's `ID` once and load it back
+before fanning out, as `tests/main.go`'s `pin` does.
 
 ## Security posture
 
@@ -310,6 +386,14 @@ reachable through `Container()`.
 | `Collection.Lint(failOnWarnings)` | Check the collection's structure in pure Go, issuing no requests. |
 | `Collection.Run(recursive)` | Run the collection; bru's output, failing on exit 1. |
 | `Collection.Report(format)` | Run it and return the `json`, `junit` or `html` artifact, failing only on usage errors. |
+| `Ci(source)` | Bind a collection to the standardized pipeline builder. |
+| `Ci.WithEnvironment(name)` | `--env`, and the environment lint resolves against. |
+| `Ci.WithService(alias, service)` | Put a Dagger service on the pipeline's network. |
+| `Ci.WithSecretVar(name, secret)` | A credential readable as `{{process.env.NAME}}`. |
+| `Ci.WithLint(failOnWarnings)` | Add the lint stage, ahead of the collection. |
+| `Ci.WithReport(format)` | Add a reporter format to the set `Ci.Run` returns. |
+| `Ci.Check()` | The pipeline as a gate: lint, then the collection. Produces nothing. |
+| `Ci.Run()` | The pipeline's reports as a directory. Does not gate. |
 
 ## Tests
 
@@ -351,4 +435,15 @@ accepts collections written for it is a linter nobody can adopt.
 scripting. Its fixture reports `process.argv` — bru's own command line — back
 to the responder in a header, which is the only vantage point from which "the
 secret never reached argv" can be checked at all. That script needs the
-developer sandbox, since the safe one has no `process`.
+developer sandbox, since the safe one has no `process` — which is why
+`fixtures/ci-secret/` exists as a script-free copy of the same request: the
+pipeline builder wraps no sandbox switch.
+
+The `Ci` tests lean on the request counter for the two things the builder itself
+adds. `CiLintFailsBeforeAnyRequest` runs the `fixtures/lint/unresolved`
+collection, which bru is perfectly happy to execute — it interpolates the
+literal `{{tenantId}}` and gets a 200 — so a count of zero is the lint stage
+short-circuiting and not an unrunnable fixture, and the same pipeline without
+`WithLint` is checked afterwards to prove it. And
+`CiRunProducesEveryRequestedReport` asks for two formats over the 2-request
+`fixtures/api`: a count of two says both reports came out of one pass.

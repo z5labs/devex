@@ -206,6 +206,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "CiCheckGatesOnFailingAssertion":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckGatesOnFailingAssertion(&parent, ctx)
+		case "CiLintFailsBeforeAnyRequest":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiLintFailsBeforeAnyRequest(&parent, ctx)
+		case "CiRejectsUnknownReportFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRejectsUnknownReportFormat(&parent, ctx)
+		case "CiRunProducesEveryRequestedReport":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunProducesEveryRequestedReport(&parent, ctx)
+		case "CiRunStillReportsWhenTheCollectionFails":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRunStillReportsWhenTheCollectionFails(&parent, ctx)
+		case "CiSecretVarReachesTheCollection":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiSecretVarReachesTheCollection(&parent, ctx)
+		case "CiShouldNotBeCached":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiShouldNotBeCached(&parent, ctx)
 		case "GenerateHonoursOpenCollectionFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

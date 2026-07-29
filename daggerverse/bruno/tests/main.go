@@ -6,6 +6,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
 	"slices"
@@ -69,6 +70,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("LintRejectsPlaintextSecret", t.LintRejectsPlaintextSecret)
 	jobs = jobs.WithJob("LintRejectsDuplicateSequence", t.LintRejectsDuplicateSequence)
 	jobs = jobs.WithJob("LintWarnsOnRequestWithoutTests", t.LintWarnsOnRequestWithoutTests)
+	jobs = jobs.WithJob("CiRejectsUnknownReportFormat", t.CiRejectsUnknownReportFormat)
+	jobs = jobs.WithJob("CiLintFailsBeforeAnyRequest", t.CiLintFailsBeforeAnyRequest)
+	jobs = jobs.WithJob("CiCheckGatesOnFailingAssertion", t.CiCheckGatesOnFailingAssertion)
+	jobs = jobs.WithJob("CiRunProducesEveryRequestedReport", t.CiRunProducesEveryRequestedReport)
+	jobs = jobs.WithJob("CiRunStillReportsWhenTheCollectionFails", t.CiRunStillReportsWhenTheCollectionFails)
+	jobs = jobs.WithJob("CiShouldNotBeCached", t.CiShouldNotBeCached)
+	jobs = jobs.WithJob("CiSecretVarReachesTheCollection", t.CiSecretVarReachesTheCollection)
 
 	return jobs.Run(ctx)
 }
@@ -776,11 +784,360 @@ func (t *Tests) LintWarnsOnRequestWithoutTests(ctx context.Context) error {
 	return nil
 }
 
+// CiRejectsUnknownReportFormat checks that a reporter format bru has no writer
+// for is caught before anything is started. WithReport has no error return, so
+// the finding belongs to the terminal — and it belongs to Check as much as to
+// Run, because a pipeline whose declared artifact cannot be produced is broken
+// whichever terminal is invoked first.
+func (t *Tests) CiRejectsUnknownReportFormat(ctx context.Context) error {
+	ci := dag.Bruno().Ci(fixture("single")).WithEnvironment("local").WithReport("tap")
+	err := ci.Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected an unknown reporter format to be an error")
+	}
+	for _, want := range []string{`"tap"`, "json", "junit", "html"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	if _, err := ci.Run().Entries(ctx); err == nil {
+		return fmt.Errorf("expected Run to reject the format as well")
+	}
+
+	// The other unusable report set is the empty one. Run would otherwise run
+	// the collection and hand back an empty directory, which reads as a pass;
+	// the caller who wants that wants Check.
+	_, err = dag.Bruno().Ci(fixture("single")).WithEnvironment("local").Run().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Run with no requested report to be an error")
+	}
+	for _, want := range []string{"with-report", "check"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to point at %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	return nil
+}
+
+// CiLintFailsBeforeAnyRequest checks the ordering that is the builder's own
+// contribution: the lint stage runs ahead of the collection, so a structural
+// error is reported without spending a request on discovering it.
+//
+// The fixture is the one whose {{tenantId}} resolves nowhere — and which bru
+// runs perfectly happily, interpolating the literal string and getting a 200
+// back. That is what makes the assertion mean something: the un-linted pipeline
+// is checked afterwards and passes, so a request count of zero on the first
+// pass is the lint stage short-circuiting rather than the collection being
+// unrunnable.
+func (t *Tests) CiLintFailsBeforeAnyRequest(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	ci := dag.Bruno().Ci(fixture("lint/unresolved")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc)
+
+	err = ci.WithLint().Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a lint error to fail the pipeline")
+	}
+	for _, want := range []string{"bru lint found", "tenantId", "tenant.bru"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to carry the lint finding %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+	got, err := rsp.stats(ctx, "after-lint-failure")
+	if err != nil {
+		return err
+	}
+	if got.Count != 0 {
+		return fmt.Errorf("expected the lint stage to fail before a request was issued, but the service served %d",
+			got.Count)
+	}
+
+	// The control: the same collection with no lint stage runs, so the zero
+	// above was the ordering and not an unrunnable fixture.
+	if err := ci.Check(ctx); err != nil {
+		return fmt.Errorf("expected the un-linted pipeline to pass: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-unlinted-check")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the un-linted pipeline to issue 1 request, got %d", got.Count)
+	}
+	return nil
+}
+
+// CiCheckGatesOnFailingAssertion checks the other half of the gate: a
+// collection that lints clean and then fails a request, test or assertion fails
+// the pipeline, carrying bru's own account of what failed.
+//
+// The lint stage is enabled deliberately, so the failure has to be the
+// assertion and not the linter having an opinion about the fixture.
+func (t *Tests) CiCheckGatesOnFailingAssertion(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	err = dag.Bruno().Ci(fixture("failing")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithLint().
+		Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a failing assertion to fail the pipeline")
+	}
+	if !strings.Contains(err.Error(), "expected 200 to equal 418") {
+		return fmt.Errorf("expected the error to carry bru's failure output, got:\n%s", head(err.Error()))
+	}
+	if strings.Contains(err.Error(), "bru lint found") {
+		return fmt.Errorf("expected the gate to fail on the assertion, not on lint, got:\n%s", head(err.Error()))
+	}
+	got, err := rsp.stats(ctx, "after-failing-check")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the collection to reach the service once, got %d", got.Count)
+	}
+	return nil
+}
+
+// CiRunProducesEveryRequestedReport checks the artifact terminal: each format
+// WithReport asked for comes back as its own file in the returned directory.
+//
+// It also pins that all of them come out of one collection pass. The api
+// fixture makes two requests, so a service that served exactly two after a
+// two-format Run is a pipeline that ran the collection once — and therefore two
+// reports describing the same set of responses, rather than two runs of the same
+// collection reporting on different ones.
+func (t *Tests) CiRunProducesEveryRequestedReport(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	reports, err := pin(ctx, dag.Bruno().Ci(fixture("api")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithLint().
+		WithReport("json").
+		WithReport("junit").
+		Run())
+	if err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+	entries, err := reports.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("list the reports directory: %w", err)
+	}
+	slices.Sort(entries)
+	if want := []string{"report.json", "report.xml"}; !slices.Equal(entries, want) {
+		return fmt.Errorf("expected the reports directory to hold %v, got %v", want, entries)
+	}
+
+	// The junit artifact carries the .xml extension its reporter writes, so the
+	// name has to be checked against what it is rather than what it was asked
+	// for.
+	jsonReport, err := exportContents(ctx, reports.File("report.json"), "ci-report.json")
+	if err != nil {
+		return err
+	}
+	var results []any
+	if err := json.Unmarshal([]byte(jsonReport), &results); err != nil {
+		return fmt.Errorf("expected the json report to be a JSON array, got:\n%s", head(jsonReport))
+	}
+	if !strings.Contains(jsonReport, "health") {
+		return fmt.Errorf("expected the json report to name the health request, got:\n%s", head(jsonReport))
+	}
+	junitReport, err := exportContents(ctx, reports.File("report.xml"), "ci-report.xml")
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"<testsuite", "health"} {
+		if !strings.Contains(junitReport, want) {
+			return fmt.Errorf("expected the junit report to contain %q, got:\n%s", want, head(junitReport))
+		}
+	}
+
+	got, err := rsp.stats(ctx, "after-report-run")
+	if err != nil {
+		return err
+	}
+	if got.Count != 2 {
+		return fmt.Errorf("expected two formats to come out of one pass over the 2-request fixture, but the service served %d requests",
+			got.Count)
+	}
+	return nil
+}
+
+// CiRunStillReportsWhenTheCollectionFails pins the split between the two terminals: Run
+// hands back the artifact for a run whose assertions failed, and does not fail
+// itself.
+//
+// This is the whole reason the gate is Check's job. Dagger drops a function's
+// value when it also returns an error, so a Run that gated would return nothing
+// on exactly the runs whose report a pipeline needs — the JUnit file a CI system
+// turns into a test report names which assertion failed, and it is worthless if
+// it only arrives when nothing did.
+func (t *Tests) CiRunStillReportsWhenTheCollectionFails(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	ci := dag.Bruno().Ci(fixture("failing")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithReport("junit")
+
+	reports, err := pin(ctx, ci.Run())
+	if err != nil {
+		return fmt.Errorf("expected a failing collection still to produce its report: %w", err)
+	}
+	report, err := exportContents(ctx, reports.File("report.xml"), "ci-failing-report.xml")
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"teapot", "<failure"} {
+		if !strings.Contains(report, want) {
+			return fmt.Errorf("expected the junit report to record the failure with %q, got:\n%s", want, head(report))
+		}
+	}
+
+	// The same pipeline through the gate does fail, so Run's silence is the
+	// split between the terminals and not a failure nobody notices.
+	if err := ci.Check(ctx); err == nil {
+		return fmt.Errorf("expected Check to gate the same pipeline Run reported on")
+	}
+	return nil
+}
+
+// CiShouldNotBeCached checks that both terminals re-run within one session.
+// A pipeline hits a live API, so a cached pass would report a now-broken API as
+// green — and it is the second call in a session, not the first, that a CI
+// system makes when somebody re-runs a failed job.
+//
+// Counted at the service rather than read out of bru's summary: a replayed run
+// prints a perfectly convincing "1 request, 1 passed".
+func (t *Tests) CiShouldNotBeCached(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	ci := dag.Bruno().Ci(fixture("single")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithReport("json")
+
+	served := 0
+	for i := 1; i <= 2; i++ {
+		if err := ci.Check(ctx); err != nil {
+			return fmt.Errorf("check %d: %w", i, err)
+		}
+		served++
+		got, err := rsp.stats(ctx, fmt.Sprintf("after-check-%d", i))
+		if err != nil {
+			return err
+		}
+		if got.Count != served {
+			return fmt.Errorf("expected %d request(s) after %d check(s), got %d", served, i, got.Count)
+		}
+	}
+	for i := 1; i <= 2; i++ {
+		if _, err := pin(ctx, ci.Run()); err != nil {
+			return fmt.Errorf("run %d: %w", i, err)
+		}
+		served++
+		got, err := rsp.stats(ctx, fmt.Sprintf("after-run-%d", i))
+		if err != nil {
+			return err
+		}
+		if got.Count != served {
+			return fmt.Errorf("expected %d request(s) after %d run(s), got %d", served, i, got.Count)
+		}
+	}
+	return nil
+}
+
+// CiSecretVarReachesTheCollection checks that the pipeline's one secret-passing
+// method actually delegates: a WithSecretVar secret is readable from the
+// collection as {{process.env.NAME}} and arrives at the service.
+//
+// A builder that silently dropped the secret would look identical from the
+// outside — the collection would send an empty header and the responder would
+// answer 200 either way — so the value is read back off the request rather than
+// inferred from the run passing.
+//
+// It runs against its own fixture rather than the one SecretVarIsNotOnArgv
+// uses, because that one records bru's command line from a pre-request script
+// and reading process.argv needs the developer sandbox. The pipeline builder
+// wraps no sandbox switch — a collection needing one is assembled through
+// Collection — so it gets the same request without the script.
+func (t *Tests) CiSecretVarReachesTheCollection(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	// No credential is ever a literal in this repo, not even a throwaway one
+	// for a service that exists for four seconds.
+	value, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("mint the test token: %w", err)
+	}
+
+	err = dag.Bruno().Ci(fixture("ci-secret")).
+		WithEnvironment("local").
+		WithSecretVar("API_TOKEN", dag.SetSecret("bruno-ci-api-token", value)).
+		WithService(responderAlias, rsp.Svc).
+		WithLint().
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("check: %w", err)
+	}
+	got, err := rsp.stats(ctx, "after-ci-secret")
+	if err != nil {
+		return err
+	}
+	if got.Token != value {
+		return fmt.Errorf("expected the secret to reach the request as its X-Token header, got %q", got.Token)
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
 
 // fixture returns the named hand-authored Bruno collection under fixtures/.
 func fixture(name string) *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/" + name)
+}
+
+// pin resolves a lazily-returned directory once and hands back a handle to that
+// exact result.
+//
+// Ci.Run is +cache="never", so every selection off the directory it returns
+// would otherwise re-invoke it — reading two reports out of one Run would be two
+// runs of the collection, each reporting on its own set of responses. Resolving
+// to an ID first pins the result.
+func pin(ctx context.Context, dir *dagger.Directory) (*dagger.Directory, error) {
+	id, err := dir.ID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return dag.LoadDirectoryFromID(dagger.DirectoryID(id)), nil
 }
 
 // exportContents round-trips an artifact through the module's own workdir and
