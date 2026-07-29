@@ -334,7 +334,18 @@ func selfCheckCases() []selfCheckCase {
 // SelfCheck runs every invariant against the fixture graph and returns a non-nil
 // error describing the first failure. It backs both the ci:selection-self-test
 // Dagger check and the Go unit test.
+//
+// It covers both halves of the selector: which checks a change selects
+// (selectionSelfCheck) and which selected checks a recorded pass may retire
+// (memoSelfCheck).
 func SelfCheck() error {
+	if err := selectionSelfCheck(); err != nil {
+		return err
+	}
+	return memoSelfCheck()
+}
+
+func selectionSelfCheck() error {
 	f := repoFixture()
 	closure := BuildClosures(f.checkModule, f.adj)
 	universe := f.universe()

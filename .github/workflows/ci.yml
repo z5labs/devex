@@ -7,9 +7,30 @@ on:
 
 permissions:
   contents: read
+  # Read-only listing of the Actions cache, which is where the memoization store
+  # lives (see MEMO_PREFIX). Writes go through actions/cache/save, which uses its
+  # own scoped token rather than this one.
+  actions: read
 
 env:
   DAGGER_VERSION: "0.21.7"
+
+  # Memoization of check results by input hash (#238). A leg that passes records
+  # its input hash as a (near-empty) Actions cache entry under this prefix; a
+  # later run that computes the same hash skips that check.
+  MEMO_PREFIX: "ci-memo-v1-"
+
+  # How long a recorded pass may be honoured. This is the repo's answer to
+  # base-image drift, which a source-derived hash cannot see: these checks boot
+  # real services from floating tags, so an identical tree does not imply an
+  # identical container. Rather than fold resolved image digests into the hash —
+  # which would mean resolving every module's images, most of the cost
+  # memoization is meant to avoid, and would break the "derived from git object
+  # ids" property that makes the hash stable across engine releases — the window
+  # in which upstream drift can hide behind a memo hit is bounded outright.
+  # 24h captures essentially all the reuse, which is concentrated in hours-scale
+  # PR iteration. Do NOT raise this without re-reading ci/README.md.
+  MEMO_TTL_SECONDS: "86400"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -63,6 +84,66 @@ jobs:
             | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - id: memo
+        # Read the known-good set: the input hashes that some earlier leg already
+        # passed on (#238). Selection can only skip work unaffected by *this*
+        # diff; this is what lets it also skip work a previous run already proved
+        # good — most visibly a PR's second and later pushes, which today re-run
+        # everything that was green on the first.
+        #
+        # Only two cache scopes are trusted, and both are ones GitHub itself
+        # confines: the default branch, and (on a PR) that PR's own scope. A run
+        # can only write caches under its own GITHUB_REF, so no other branch and
+        # no fork can plant an entry either job here will read. That is stricter
+        # than GitHub's own restore rules, which would also expose the base
+        # branch of a stacked PR.
+        #
+        # Within a PR's own scope the writer is that PR — which is why
+        # affectedpkg refuses to honour any recorded pass once a global input
+        # (.github/workflows/**, the root module's context) changed: those are
+        # the only paths that can alter how a pass gets recorded, and a change to
+        # one also perturbs every input hash, so a forged entry lands in a hash
+        # space no untampered tree computes. See MemoTrusted. The exceptions are
+        # the root dagger.json and the core binding dagger regenerates with it,
+        # which decide which checks exist and never what one computes — see
+        # nonGlobalRootPaths and ci/README.md.
+        #
+        # Every failure here is soft: an unreadable store, a stale entry, an
+        # unparseable response all shrink the known-good set, which costs CI time
+        # and never correctness. Hence `set -uo pipefail` without -e, and the
+        # scratch file under RUNNER_TEMP rather than in the checkout, whose tree
+        # is what the next step hashes.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRUSTED_REFS: >-
+            refs/heads/${{ github.event.repository.default_branch }}
+            ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+        run: |
+          set -uo pipefail
+          now=$(date -u +%s)
+          # fd 3 carries the hashes so stdout stays free for ::warning:: — a
+          # workflow command swallowed into the list would read back as a hash.
+          exec 3> "$RUNNER_TEMP/known-good.txt"
+          for ref in $TRUSTED_REFS; do
+            raw=$(gh api --paginate -X GET \
+              "repos/${GITHUB_REPOSITORY}/actions/caches" \
+              -f key="$MEMO_PREFIX" -f ref="$ref" -f per_page=100 \
+              --jq '.actions_caches[] | [.key, .created_at] | @tsv') || {
+                echo "::warning::cannot read the memo store for $ref; those checks will just run"
+                continue
+              }
+            while IFS=$'\t' read -r key created; do
+              [ -n "$key" ] || continue
+              stamp=$(date -u -d "$created" +%s 2>/dev/null) || continue
+              [ $(( now - stamp )) -le "$MEMO_TTL_SECONDS" ] || continue
+              printf '%s\n' "${key#"$MEMO_PREFIX"}" >&3
+            done <<< "$raw"
+          done
+          exec 3>&-
+          known=$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' < "$RUNNER_TEMP/known-good.txt")
+          echo "recorded passes within ${MEMO_TTL_SECONDS}s: $(jq -r 'length' <<< "$known")"
+          echo "known-good=$known" >> "$GITHUB_OUTPUT"
+
       - id: select
         # Emit the minimum set of checks a change could affect (issue #170). The
         # whole computation is the ci module's affected-checks function: it
@@ -98,9 +179,17 @@ jobs:
         #   - ci:* checks -> always run.
         # If enumeration itself fails there is no independent universe to fall back
         # to, so the step fails closed (CI blocks) rather than risk under-running.
+        #
+        # The surviving set is then filtered against the known-good hashes from
+        # the memo step (#238): a check whose whole input closure hashes to a
+        # value some earlier leg already passed on is dropped. Each returned
+        # {name, hash} pair carries the hash forward so the leg that runs it can
+        # record its own pass. An empty hash means "never memoize this check" —
+        # a ci:* check, or one whose inputs could not be hashed from git objects.
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          KNOWN_GOOD: ${{ steps.memo.outputs.known-good }}
           # Export this selection to Dagger Cloud so a run's check set can be
           # traced back to the decision that produced it (#180). A raw
           # `dagger call` reads the token from its environment, unlike the
@@ -109,16 +198,20 @@ jobs:
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
-          jobs="$(dagger -m . call affected-checks --base="$BASE" --head="$HEAD")"
+          jobs="$(dagger -m . call affected-checks \
+            --base="$BASE" --head="$HEAD" --known-good="$KNOWN_GOOD")"
           [ -n "$jobs" ] || { echo "::error::affected-checks returned no checks"; exit 1; }
           echo "selected checks: $jobs"
           echo "checks=$jobs" >> "$GITHUB_OUTPUT"
 
       - id: route
-        # Re-shape the (already-filtered) check list into
-        # {name, module, filter, timeout} objects so each run job can load only
-        # its own tests module instead of the whole ci/ aggregator. ci:* checks
-        # stay on the root module.
+        # Re-shape the (already-filtered) {name, hash} list into
+        # {name, module, filter, hash, timeout} objects so each run job can load
+        # only its own tests module instead of the whole ci/ aggregator. ci:*
+        # checks stay on the root module. hash is passed through untouched so the
+        # leg records exactly the hash selection computed — it is never
+        # recomputed on the run job, which checks out at depth 1 and could not
+        # reproduce it.
         #
         # timeout is the leg's dagger/checks step bound in minutes. 6 fits every
         # leg that runs one module's suite; ci:generated is the exception (#184)
@@ -149,12 +242,14 @@ jobs:
               value: .source
             }) | from_entries) as $module_for |
             $checks | map(
-              (split(":")[0]) as $prefix |
+              .name as $name | .hash as $hash |
+              ($name | split(":")[0]) as $prefix |
               if $prefix == "ci" then
-                { name: ., module: ".", filter: .,
-                  timeout: ({"ci:generated": 15, "ci:generated-self-test": 8}[.] // 6) }
+                { name: $name, module: ".", filter: $name, hash: $hash,
+                  timeout: ({"ci:generated": 15, "ci:generated-self-test": 8}[$name] // 6) }
               else
-                { name: ., module: $module_for[$prefix], filter: ("tests:" + (split(":")[1])),
+                { name: $name, module: $module_for[$prefix],
+                  filter: ("tests:" + ($name | split(":")[1])), hash: $hash,
                   timeout: 6 }
               end
             )
@@ -233,13 +328,38 @@ jobs:
           filter: ${{ matrix.job.filter }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
+      # Record the pass (#238). The entry's whole meaning is its key: the input
+      # hash the list job computed for this check. A later run that computes the
+      # same hash — same source closure, same global inputs, same engineVersion —
+      # skips this leg. The payload exists only because a cache entry needs a
+      # path; nothing ever reads it back.
+      #
+      # Guarded on success() so only a green leg records, and on a non-empty hash
+      # so ci:* checks and unhashable inputs never do. Best-effort: the write is
+      # refused outright on a fork PR and is a no-op when the key already exists,
+      # neither of which should fail a leg that passed.
+      - name: Record the input hash
+        if: ${{ success() && matrix.job.hash != '' }}
+        env:
+          NAME: ${{ matrix.job.name }}
+        run: |
+          printf 'passed %s\n' "$NAME" > .ci-memo
+
+      - uses: actions/cache/save@v4
+        if: ${{ success() && matrix.job.hash != '' }}
+        continue-on-error: true
+        with:
+          path: .ci-memo
+          key: ${{ env.MEMO_PREFIX }}${{ matrix.job.hash }}
+
   # Single, stable status check for branch protection. Because the run matrix is
-  # dynamic — and now change-aware, so unaffected legs are intentionally absent
-  # (issue #170) — the per-leg check names cannot be required directly: a skipped
-  # leg would leave its required check pending forever. Require ONLY "CI Gate" in
-  # branch protection instead. It always runs and passes iff `list` succeeded and
-  # no executed leg failed (an all-skipped `run` — impossible today since ci:*
-  # always runs — is treated as success).
+  # dynamic — and now change-aware (#170) and memoized (#238), so unaffected legs
+  # and already-proven ones are intentionally absent — the per-leg check names
+  # cannot be required directly: a skipped leg would leave its required check
+  # pending forever. Require ONLY "CI Gate" in branch protection instead. It
+  # always runs and passes iff `list` succeeded and no executed leg failed (an
+  # all-skipped `run` — impossible today, since ci:* always runs and is never
+  # memoized — is treated as success).
   gate:
     name: CI Gate
     needs: [list, run]

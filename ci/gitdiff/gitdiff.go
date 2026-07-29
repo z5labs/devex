@@ -12,7 +12,50 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+// HeadBlobs returns the blob object id of every file in the commit HEAD points
+// at, keyed by repo-relative path.
+//
+// It reads HEAD rather than a caller-supplied SHA on purpose: the object ids are
+// paired with file lists read out of the *checked-out* tree (a module's Dagger
+// source context), and only HEAD is guaranteed to be the commit those files came
+// from. On a pull_request event GitHub checks out refs/pull/N/merge, whose tree
+// is not the head SHA's tree, so hashing against the event's head SHA would pair
+// paths from one tree with object ids from another. A detached HEAD — which is
+// what actions/checkout leaves behind — resolves fine.
+//
+// Git blob ids are content hashes computed by git itself, so this is a Merkle
+// digest of the tree that costs nothing to recompute and, unlike a Dagger
+// directory digest, is stable across engine releases.
+func HeadBlobs(repoDir string) (map[string]string, error) {
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		return nil, fmt.Errorf("open repo %q: %w", repoDir, err)
+	}
+	ref, err := repo.Head()
+	if err != nil {
+		return nil, fmt.Errorf("resolve HEAD: %w", err)
+	}
+	commit, err := repo.CommitObject(ref.Hash())
+	if err != nil {
+		return nil, fmt.Errorf("resolve HEAD commit %s: %w", ref.Hash(), err)
+	}
+	tree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("HEAD tree: %w", err)
+	}
+	blobs := map[string]string{}
+	err = tree.Files().ForEach(func(f *object.File) error {
+		blobs[f.Name] = f.Hash.String()
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk HEAD tree: %w", err)
+	}
+	return blobs, nil
+}
 
 // Change is one repo-relative path touched between two commits, together with
 // whether it still exists at head.

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -172,4 +173,62 @@ func TestChangedFilesBadSHA(t *testing.T) {
 	if _, err := ChangedFiles(b.dir, "deadbeef", head.String()); err == nil {
 		t.Error("expected error for unresolvable base SHA")
 	}
+}
+
+// TestHeadBlobs covers the property the input hashes rest on: the object id of
+// a path is a function of its content and nothing else, so two runs over the
+// same tree agree and any edit disagrees.
+func TestHeadBlobs(t *testing.T) {
+	b := newRepo(t)
+	first := b.commit(map[string]string{
+		"daggerverse/kicad/main.go": "v1",
+		"daggerverse/go/main.go":    "g1",
+		"docs/copy.go":              "v1", // byte-identical to kicad's file
+	})
+	second := b.commit(map[string]string{"daggerverse/kicad/main.go": "v2"})
+
+	// Checking out by hash leaves a detached HEAD, which is the shape
+	// actions/checkout produces and so the shape HeadBlobs must handle.
+	b.checkout(first)
+	before, err := HeadBlobs(b.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"daggerverse/go/main.go", "daggerverse/kicad/main.go", "docs/copy.go"}
+	if got := sortedKeys(before); !reflect.DeepEqual(got, want) {
+		t.Errorf("paths = %v, want %v", got, want)
+	}
+	if before["daggerverse/kicad/main.go"] != before["docs/copy.go"] {
+		t.Error("identical content must share an object id")
+	}
+
+	b.checkout(second)
+	after, err := HeadBlobs(b.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sortedKeys(after); !reflect.DeepEqual(got, want) {
+		t.Errorf("paths = %v, want %v", got, want)
+	}
+	if after["daggerverse/kicad/main.go"] == before["daggerverse/kicad/main.go"] {
+		t.Error("edited content must change its object id")
+	}
+	if after["daggerverse/go/main.go"] != before["daggerverse/go/main.go"] {
+		t.Error("untouched content must keep its object id")
+	}
+}
+
+func TestHeadBlobsNoRepo(t *testing.T) {
+	if _, err := HeadBlobs(t.TempDir()); err == nil {
+		t.Error("expected error when there is no repository to read")
+	}
+}
+
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
