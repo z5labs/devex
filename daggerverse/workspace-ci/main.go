@@ -49,7 +49,8 @@ type WorkspaceCi struct {
 func New(
 	// Repo-relative path prefixes that govern how CI runs rather than what any
 	// check computes; a change to one runs everything. They belong to no module's
-	// source context, so nothing else would attribute them.
+	// source context, so nothing else would attribute them. Defaults to
+	// .github/workflows/, which costs nothing in a workspace that has none.
 	//
 	// +optional
 	globalPaths []string,

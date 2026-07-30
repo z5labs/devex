@@ -316,11 +316,12 @@ func (ws *workspace) hash(legs []planner.Entry) []planner.Entry {
 	out := make([]planner.Entry, 0, len(legs))
 	for _, leg := range legs {
 		if leg.Module != planner.RootModule {
-			closure, resolved := ws.closures[leg.Module]
-			if h, ok := hasher.Check(leg.Name, closure); resolved && ok {
-				leg.Hash = h
-			} else {
+			if closure, resolved := ws.closures[leg.Module]; !resolved {
 				unhashable[leg.Module] = true
+			} else if h, ok := hasher.Check(leg.Name, closure); !ok {
+				unhashable[leg.Module] = true
+			} else {
+				leg.Hash = h
 			}
 		}
 		out = append(out, leg)
