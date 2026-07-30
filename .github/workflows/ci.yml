@@ -8,29 +8,41 @@ on:
 permissions:
   contents: read
   # Read-only listing of the Actions cache, which is where the memoization store
-  # lives (see MEMO_PREFIX). Writes go through actions/cache/save, which uses its
-  # own scoped token rather than this one.
+  # lives (see MEMO_PREFIX). The planner reads it through this token; writes go
+  # through actions/cache/save, which uses its own scoped token instead.
   actions: read
 
 env:
   DAGGER_VERSION: "0.21.7"
 
-  # Memoization of check results by input hash (#238). A leg that passes records
-  # its input hash as a (near-empty) Actions cache entry under this prefix; a
-  # later run that computes the same hash skips that check.
-  MEMO_PREFIX: "ci-memo-v1-"
+  # Memoization of check results by input hash. A leg that passes records its
+  # input hash as a (near-empty) Actions cache entry under this prefix; a later
+  # run whose plan computes the same hash skips that leg.
+  #
+  # This is workspace-ci's memostore.KeyPrefix. The planner reads exactly this
+  # prefix and nothing else, so the two are one constant in two places: changing
+  # it here without changing it there silently disables every skip.
+  MEMO_PREFIX: "workspace-ci-memo-v1-"
 
   # How long a recorded pass may be honoured. This is the repo's answer to
   # base-image drift, which a source-derived hash cannot see: these checks boot
   # real services from floating tags, so an identical tree does not imply an
-  # identical container. Rather than fold resolved image digests into the hash —
-  # which would mean resolving every module's images, most of the cost
-  # memoization is meant to avoid, and would break the "derived from git object
-  # ids" property that makes the hash stable across engine releases — the window
-  # in which upstream drift can hide behind a memo hit is bounded outright.
-  # 24h captures essentially all the reuse, which is concentrated in hours-scale
-  # PR iteration. Do NOT raise this without re-reading ci/README.md.
+  # identical container. 24h captures essentially all the reuse, which is
+  # concentrated in hours-scale PR iteration. Do NOT raise this without
+  # re-reading daggerverse/workspace-ci/README.md.
   MEMO_TTL_SECONDS: "86400"
+
+  # Per-leg check-step budgets in minutes; anything unlisted gets the planner's
+  # default of 6, which fits every leg that runs one module's suite.
+  #
+  # The root module is the exception (#184): its `generated` check runs codegen
+  # for every module in the workspace, so it pays in one leg the module-build
+  # cost the other legs spread across themselves — measured at ~5m of engine work
+  # on a cold engine. The "." key covers every root leg, including the single
+  # coarse one the run-everything path emits, which runs all three root checks
+  # back to back; the two per-check keys tighten the ones that do no such sweep,
+  # so a stuck telemetry drain there still fails fast.
+  CHECK_TIMEOUTS: '{".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2}'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -42,13 +54,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
-      jobs: ${{ steps.route.outputs.jobs }}
+      jobs: ${{ steps.plan.outputs.jobs }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Full history so the change-detection step can diff against the PR
-          # merge-base / the push's before-SHA (see the "Select affected" step).
+          # Full history so the planner can diff against the PR merge-base / the
+          # push's before-SHA. It reads the change set out of this .git directly.
           fetch-depth: 0
 
       - name: Cache Dagger engine image
@@ -76,187 +88,75 @@ jobs:
           fi
 
       - name: Install Dagger CLI
-        # Needed to `dagger call` the ci module's affected-checks function in the
-        # next step. The engine image is already docker-loaded above, so this
-        # provisions from the local image (no registry pull).
+        # Needed to `dagger call` the planner in the next step. The engine image
+        # is already docker-loaded above, so this provisions from the local image
+        # (no registry pull).
         run: |
           curl -fsSL https://dl.dagger.io/dagger/install.sh \
             | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      - id: memo
-        # Read the known-good set: the input hashes that some earlier leg already
-        # passed on (#238). Selection can only skip work unaffected by *this*
-        # diff; this is what lets it also skip work a previous run already proved
-        # good — most visibly a PR's second and later pushes, which today re-run
-        # everything that was green on the first.
+      - id: plan
+        # The whole plan is one call to daggerverse/workspace-ci: it discovers the
+        # workspace's modules, diffs base...head out of the checkout's .git,
+        # attributes each changed path to the modules it is actually an input to,
+        # enumerates only those modules' checks, drops the legs a previous run
+        # already recorded a pass for, and returns each survivor routed at its own
+        # module with a timeout. Nothing here re-derives any of that; the matrix is
+        # its output verbatim.
         #
-        # Only two cache scopes are trusted, and both are ones GitHub itself
-        # confines: the default branch, and (on a PR) that PR's own scope. A run
-        # can only write caches under its own GITHUB_REF, so no other branch and
-        # no fork can plant an entry either job here will read. That is stricter
-        # than GitHub's own restore rules, which would also expose the base
-        # branch of a stacked PR.
+        # What the rules are — what counts as a change, what is never memoized, why
+        # a generated file need not be a global input, how base-image drift is
+        # bounded — lives in daggerverse/workspace-ci/README.md, next to the code
+        # that applies them, rather than in comments here that could drift from it.
         #
-        # Within a PR's own scope the writer is that PR — which is why
-        # affectedpkg refuses to honour any recorded pass once a global input
-        # (.github/workflows/**, the root module's context) changed: those are
-        # the only paths that can alter how a pass gets recorded, and a change to
-        # one also perturbs every input hash, so a forged entry lands in a hash
-        # space no untampered tree computes. See MemoTrusted. The exceptions are
-        # the root dagger.json and the core binding dagger regenerates with it,
-        # which decide which checks exist and never what one computes — see
-        # nonGlobalRootPaths and ci/README.md.
+        # Two trust decisions are this workflow's rather than the planner's, and so
+        # are spelled out here:
         #
-        # Every failure here is soft: an unreadable store, a stale entry, an
-        # unparseable response all shrink the known-good set, which costs CI time
-        # and never correctness. Hence `set -uo pipefail` without -e, and the
-        # scratch file under RUNNER_TEMP rather than in the checkout, whose tree
-        # is what the next step hashes.
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TRUSTED_REFS: >-
-            refs/heads/${{ github.event.repository.default_branch }}
-            ${{ github.event_name == 'pull_request' && format('refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
-        run: |
-          set -uo pipefail
-          now=$(date -u +%s)
-          # fd 3 carries the hashes so stdout stays free for ::warning:: — a
-          # workflow command swallowed into the list would read back as a hash.
-          exec 3> "$RUNNER_TEMP/known-good.txt"
-          for ref in $TRUSTED_REFS; do
-            raw=$(gh api --paginate -X GET \
-              "repos/${GITHUB_REPOSITORY}/actions/caches" \
-              -f key="$MEMO_PREFIX" -f ref="$ref" -f per_page=100 \
-              --jq '.actions_caches[] | [.key, .created_at] | @tsv') || {
-                echo "::warning::cannot read the memo store for $ref; those checks will just run"
-                continue
-              }
-            while IFS=$'\t' read -r key created; do
-              [ -n "$key" ] || continue
-              stamp=$(date -u -d "$created" +%s 2>/dev/null) || continue
-              [ $(( now - stamp )) -le "$MEMO_TTL_SECONDS" ] || continue
-              printf '%s\n' "${key#"$MEMO_PREFIX"}" >&3
-            done <<< "$raw"
-          done
-          exec 3>&-
-          known=$(jq -Rsc 'split("\n") | map(select(length > 0)) | unique' < "$RUNNER_TEMP/known-good.txt")
-          echo "recorded passes within ${MEMO_TTL_SECONDS}s: $(jq -r 'length' <<< "$known")"
-          echo "known-good=$known" >> "$GITHUB_OUTPUT"
-
-      - id: select
-        # Emit the minimum set of checks a change could affect (issue #170). The
-        # whole computation is the ci module's affected-checks function: it
-        # enumerates the check universe AND the dependency graph from the live
-        # Dagger Workspace (dag.CurrentWorkspace()), diffs base...head against the
-        # workspace's .git with pure-Go go-git, and returns the affected names —
-        # so there is no separate `dagger check -l` stage. This step only forwards
-        # context; base/head come straight from the event (PR base/head, else the
-        # push's before/after — GitHub sends all-zeros before for a new branch,
-        # which the function treats as "run everything").
+        #   - which cache scopes may hold a recorded pass. Only two, and both are
+        #     ones GitHub itself confines: the default branch, and (on a PR) that
+        #     PR's own scope. A run can only write caches under its own GITHUB_REF,
+        #     so no other branch and no fork can plant an entry this step reads.
+        #     That is stricter than GitHub's own restore rules, which would also
+        #     expose the base branch of a stacked PR. Within a PR's own scope the
+        #     writer is that PR — which is why the planner refuses to honour any
+        #     recorded pass once a global input changed.
         #
-        # A changed path counts against a module only when it is one of that
-        # module's inputs — a member of the source context Dagger uploads for it
-        # — rather than merely living under its directory (#195). A file a module
-        # declared out via dagger.json "include" is shipped to no engine and so
-        # can affect no check.
+        #   - base and head, which come straight from the event: the PR's base and
+        #     head, else the push's before/after. GitHub sends an all-zeros before
+        #     for the first push to a branch, which the planner reads as "no usable
+        #     range, run everything".
         #
-        # A check is skipped only when it provably cannot be affected — any doubt
-        # and it runs:
-        #   - CI infra (.github/workflows/**), anything in the root module's
-        #     source context (ci/**, root dagger.json), or an uncomputable diff
-        #     -> the FULL suite. The one exception (#179) is a regenerated
-        #     per-toolchain aggregator binding,
-        #     ci/internal/dagger/<toolchain>.gen.go, which is provably owned by
-        #     that toolchain and so is attributed to it;
-        #   - a path in no module's source context (repo-level prose, a module's
-        #     own README) -> an input to nothing, so it selects nothing;
-        #   - a deleted path -> attributed to its module, since no source context
-        #     can contain it;
-        #   - a module whose source context can't be read -> everything under it
-        #     counts as an input;
-        #   - a check whose module can't be resolved -> kept;
-        #   - ci:* checks -> always run.
-        # If enumeration itself fails there is no independent universe to fall back
-        # to, so the step fails closed (CI blocks) rather than risk under-running.
-        #
-        # The surviving set is then filtered against the known-good hashes from
-        # the memo step (#238): a check whose whole input closure hashes to a
-        # value some earlier leg already passed on is dropped. Each returned
-        # {name, hash} pair carries the hash forward so the leg that runs it can
-        # record its own pass. An empty hash means "never memoize this check" —
-        # a ci:* check, or one whose inputs could not be hashed from git objects.
+        # The planner fails rather than returning an empty plan, since an empty
+        # matrix would skip the run job and pass the gate having run nothing; the
+        # guard below is belt and braces for that contract.
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-          KNOWN_GOOD: ${{ steps.memo.outputs.known-good }}
-          # Export this selection to Dagger Cloud so a run's check set can be
-          # traced back to the decision that produced it (#180). A raw
-          # `dagger call` reads the token from its environment, unlike the
-          # dagger/checks action the run legs use, which takes it as a
-          # cloud-token input. Empty for fork PRs -> no telemetry, no failure.
+          # actions:read on this repository, which is all the planner asks for --
+          # it never writes to the store.
+          GH_TOKEN: ${{ github.token }}
+          MEMO_REFS: >-
+            refs/heads/${{ github.event.repository.default_branch }}${{ github.event_name == 'pull_request' && format(',refs/pull/{0}/merge', github.event.pull_request.number) || '' }}
+          # Export this plan to Dagger Cloud so a run's leg set can be traced back
+          # to the decision that produced it (#180). A raw `dagger call` reads the
+          # token from its environment, unlike the dagger/checks action the run legs
+          # use, which takes it as a cloud-token input. Empty for fork PRs -> no
+          # telemetry, no failure.
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
-          jobs="$(dagger -m . call affected-checks \
-            --base="$BASE" --head="$HEAD" --known-good="$KNOWN_GOOD")"
-          [ -n "$jobs" ] || { echo "::error::affected-checks returned no checks"; exit 1; }
-          echo "selected checks: $jobs"
-          echo "checks=$jobs" >> "$GITHUB_OUTPUT"
-
-      - id: route
-        # Re-shape the (already-filtered) {name, hash} list into
-        # {name, module, filter, hash, timeout} objects so each run job can load
-        # only its own tests module instead of the whole ci/ aggregator. ci:*
-        # checks stay on the root module. hash is passed through untouched so the
-        # leg records exactly the hash selection computed — it is never
-        # recomputed on the run job, which checks out at depth 1 and could not
-        # reproduce it.
-        #
-        # timeout is the leg's dagger/checks step bound in minutes. 6 fits every
-        # leg that runs one module's suite; ci:generated is the exception (#184)
-        # because it runs codegen for every module in the workspace, so it pays
-        # in one leg the module-build cost the other legs spread across
-        # themselves — measured at ~5m of engine work on a cold engine.
-        #
-        # Restored from the 12 set in a19f611, which was a workaround for #226:
-        # tesseract-tests:all really was taking 9m5s on a runner, not stalling
-        # on the telemetry drain. Its OpenMP fan-out is bounded now, so the
-        # tighter bound is honest again and the auto-rerun fires sooner on a
-        # genuinely stuck leg.
-        env:
-          CHECKS: ${{ steps.select.outputs.checks }}
-        run: |
-          jobs=$(jq -nc \
-            --argjson checks "$CHECKS" \
-            --slurpfile tcs <(jq -c '.toolchains' dagger.json) '
-            ($tcs[0] // []) as $toolchains |
-            # Dagger kebab-cases toolchain names and splits on letter↔digit
-            # boundaries (z5labs → z-5-labs), so apply the same rule when
-            # mapping the filter prefix back to its source path.
-            ($toolchains | map({
-              key: (.name
-                | gsub("(?<a>[a-z])(?<d>[0-9])"; "\(.a)-\(.d)")
-                | gsub("(?<d>[0-9])(?<a>[a-z])"; "\(.d)-\(.a)")
-              ),
-              value: .source
-            }) | from_entries) as $module_for |
-            $checks | map(
-              .name as $name | .hash as $hash |
-              ($name | split(":")[0]) as $prefix |
-              if $prefix == "ci" then
-                { name: $name, module: ".", filter: $name, hash: $hash,
-                  timeout: ({"ci:generated": 15, "ci:generated-self-test": 8}[$name] // 6) }
-              else
-                { name: $name, module: $module_for[$prefix],
-                  filter: ("tests:" + ($name | split(":")[1])), hash: $hash,
-                  timeout: 6 }
-              end
-            )
-            # jobTimeout is the job cap: the step bound plus setup headroom.
-            # Computed here because GitHub expressions have no arithmetic.
-            | map(. + { jobTimeout: (.timeout + 4) })
-          ')
+          jobs="$(dagger -m daggerverse/workspace-ci call \
+            --timeouts="$CHECK_TIMEOUTS" \
+            --memo-token=env:GH_TOKEN \
+            --memo-repo="$GITHUB_REPOSITORY" \
+            --memo-refs="$MEMO_REFS" \
+            --memo-ttl="$MEMO_TTL_SECONDS" \
+            plan --base="$BASE" --head="$HEAD" --format=GITHUB_ACTIONS)"
+          case "$jobs" in
+            ''|'[]') echo "::error::the planner returned no legs"; exit 1 ;;
+          esac
+          echo "planned legs: $jobs"
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
   run:
@@ -266,19 +166,19 @@ jobs:
     # Per matrix leg. Observed real legs finish in <4m; this is only a backstop
     # above the leg's dagger/checks step bound (matrix.job.timeout) + setup, so
     # the step's timeout is what fails a telemetry-drain hang fast, not this job
-    # cap.
+    # cap. The planner computes it as timeout + headroom, because GitHub
+    # expressions have no arithmetic.
     timeout-minutes: ${{ matrix.job.jobTimeout }}
     strategy:
       fail-fast: false
-      # Burst-throttling mitigation (#125): the matrix fans out one leg per
-      # check (finer-grained than the toolchain modules), so an uncapped fan-out
-      # boots several dozen ephemeral engines at once that all simultaneously
-      # pull Docker Hub base images (anonymous, per-IP limited via GitHub's
-      # shared egress NAT) and flush OTLP telemetry to Dagger Cloud. Both
-      # upstreams answer the resulting thundering herd with 504s. Cap concurrent
-      # legs to spread the same load over time — remaining legs queue and start
-      # as slots free. Same shape as #116's cold engine-image pull. Do NOT raise
-      # this to "speed up CI" without re-checking the 504 rate.
+      # Burst-throttling mitigation (#125): the matrix fans out one leg per check,
+      # so an uncapped fan-out boots several dozen ephemeral engines at once that
+      # all simultaneously pull Docker Hub base images (anonymous, per-IP limited
+      # via GitHub's shared egress NAT) and flush OTLP telemetry to Dagger Cloud.
+      # Both upstreams answer the resulting thundering herd with 504s. Cap
+      # concurrent legs to spread the same load over time — remaining legs queue
+      # and start as slots free. Same shape as #116's cold engine-image pull. Do
+      # NOT raise this to "speed up CI" without re-checking the 504 rate.
       max-parallel: 10
       matrix:
         job: ${{ fromJSON(needs.list.outputs.jobs) }}
@@ -309,35 +209,40 @@ jobs:
             docker image inspect "$IMAGE" >/dev/null
           fi
 
-      # Fail fast on the Dagger Cloud telemetry-drain hang. The check itself runs
-      # in ~1-4m (matrix.job.timeout, set by the route step, is that leg's bound:
-      # 6m for a normal suite, 15m for the whole-workspace ci:generated codegen
-      # sweep); a leg still going past it is almost certainly stuck draining
-      # telemetry to api.dagger.cloud (upstream dagger/dagger#7048, #12178),
-      # which otherwise hangs the leg until the job timeout. Bounding the step
-      # makes the job fail quickly so ci-auto-rerun.yml re-runs the failed leg on
-      # a fresh runner + fresh engine — the manual re-run that reliably clears a
-      # transient/sustained Cloud stall (an in-process retry can't: it reuses the
-      # same stuck engine and re-hits the ongoing stall). Telemetry stays on
-      # (cloud-token set); we only bound how long a stuck drain may hang.
+      # Each leg loads only the module that owns its check, never the workspace.
+      # An empty filter means "every check this module has", which is what the
+      # run-everything path emits (one coarse leg per module, so that path loads
+      # no module while planning); the action spells that '**'.
+      #
+      # The step is bounded separately from the job to fail fast on the Dagger
+      # Cloud telemetry-drain hang. The check itself runs in ~1-4m; a leg still
+      # going past matrix.job.timeout is almost certainly stuck draining telemetry
+      # to api.dagger.cloud (upstream dagger/dagger#7048, #12178), which otherwise
+      # hangs the leg until the job timeout. Bounding the step makes the job fail
+      # quickly so ci-auto-rerun.yml re-runs the failed leg on a fresh runner +
+      # fresh engine — the manual re-run that reliably clears a transient/sustained
+      # Cloud stall (an in-process retry can't: it reuses the same stuck engine and
+      # re-hits the ongoing stall). Telemetry stays on (cloud-token set); we only
+      # bound how long a stuck drain may hang.
       - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
         timeout-minutes: ${{ matrix.job.timeout }}
         with:
           version: ${{ env.DAGGER_VERSION }}
           module: ${{ matrix.job.module }}
-          filter: ${{ matrix.job.filter }}
+          filter: ${{ matrix.job.filter || '**' }}
           cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
 
-      # Record the pass (#238). The entry's whole meaning is its key: the input
-      # hash the list job computed for this check. A later run that computes the
-      # same hash — same source closure, same global inputs, same engineVersion —
-      # skips this leg. The payload exists only because a cache entry needs a
-      # path; nothing ever reads it back.
+      # Record the pass. The entry's whole meaning is its key: the input hash the
+      # planner computed for this leg. A later run that computes the same hash
+      # skips this leg. The payload exists only because a cache entry needs a path;
+      # nothing ever reads it back.
       #
       # Guarded on success() so only a green leg records, and on a non-empty hash
-      # so ci:* checks and unhashable inputs never do. Best-effort: the write is
-      # refused outright on a fork PR and is a no-op when the key already exists,
-      # neither of which should fail a leg that passed.
+      # so root-module legs and unhashable inputs never do. The hash is passed
+      # through from the plan and never recomputed here: this job checks out at
+      # depth 1 and could not reproduce it. Best-effort: the write is refused
+      # outright on a fork PR and is a no-op when the key already exists, neither
+      # of which should fail a leg that passed.
       - name: Record the input hash
         if: ${{ success() && matrix.job.hash != '' }}
         env:
@@ -353,13 +258,13 @@ jobs:
           key: ${{ env.MEMO_PREFIX }}${{ matrix.job.hash }}
 
   # Single, stable status check for branch protection. Because the run matrix is
-  # dynamic — and now change-aware (#170) and memoized (#238), so unaffected legs
-  # and already-proven ones are intentionally absent — the per-leg check names
-  # cannot be required directly: a skipped leg would leave its required check
-  # pending forever. Require ONLY "CI Gate" in branch protection instead. It
-  # always runs and passes iff `list` succeeded and no executed leg failed (an
-  # all-skipped `run` — impossible today, since ci:* always runs and is never
-  # memoized — is treated as success).
+  # dynamic — change-aware and memoized, so unaffected legs and already-proven ones
+  # are intentionally absent — the per-leg check names cannot be required directly:
+  # a skipped leg would leave its required check pending forever. Require ONLY
+  # "CI Gate" in branch protection instead. It always runs and passes iff `list`
+  # succeeded and no executed leg failed (an all-skipped `run` — impossible today,
+  # since the root module's legs always run and are never memoized — is treated as
+  # success).
   gate:
     name: CI Gate
     needs: [list, run]
@@ -377,6 +282,6 @@ jobs:
             exit 1
           fi
           case "$RUN_RESULT" in
-            success|skipped) echo "all selected checks passed" ;;
+            success|skipped) echo "all planned checks passed" ;;
             *) echo "::error::one or more checks failed"; exit 1 ;;
           esac

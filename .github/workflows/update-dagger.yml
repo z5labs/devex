@@ -76,12 +76,12 @@ jobs:
             || { echo "dagger version is '$GOT', expected 'v${BARE}'" >&2; exit 1; }
 
       - name: Regenerate every module (leaf -> tests -> root)
-        # tests/ load their parent module and root ci generates its
-        # *-tests.gen.go from the 16 tests toolchains, so develop mains first,
-        # tests next, root LAST (else root regenerates against stale deps -- the
-        # java/kafka aggregator-binding concern). Glob-based discovery needs no
-        # hardcoded module list and picks up modules added later automatically;
-        # the [ -f ... ] guard skips any dir without a dagger.json.
+        # tests/ load their parent module, and the root ci module depends on
+        # daggerverse/workspace-ci, so develop mains first, tests next, root LAST
+        # (else a module regenerates against stale deps -- the java/kafka
+        # aggregator-binding concern). Glob-based discovery needs no hardcoded
+        # module list and picks up modules added later automatically; the
+        # [ -f ... ] guard skips any dir without a dagger.json.
         run: |
           set -euo pipefail
           for d in daggerverse/*/; do
@@ -92,28 +92,41 @@ jobs:
           done
           dagger develop -m .
 
-      - name: Verify Workspace check enumeration still matches `dagger check -l`
-        # ci.yml's affected-check selector (ci/affected.go AffectedChecks)
-        # enumerates checks from the experimental dag.CurrentWorkspace().Checks()
-        # API instead of a separate `dagger check -l` stage. If a Dagger upgrade
-        # makes that experimental enumeration diverge from the stable CLI list, the
-        # selector could silently under-run CI (skip a real check). Compare the two
-        # at the new version and fail the bump PR on any difference, so a human
-        # reconciles before it lands. Same-version tautology today; the guard only
-        # bites when an upgrade regresses the experimental surface.
+      - name: Verify Module.checks still matches `dagger check -l`
+        # The planner (daggerverse/workspace-ci) builds ci.yml's matrix by asking
+        # each module for its own checks through the Module.checks API, never
+        # through a `dagger check -l` stage. If a Dagger upgrade makes that API
+        # diverge from what the CLI actually runs, CI would silently under-run: a
+        # check the API stops reporting is a check no leg ever runs, and the gate
+        # goes green regardless. Compare the two per module at the new version and
+        # fail the bump PR on any difference, so a human reconciles before it
+        # lands. Same-version tautology today; the guard only bites on a
+        # regression.
+        #
+        # Every module is compared, not a sample, because a divergence could be
+        # specific to how one module declares its checks. Enumeration reads the
+        # SDK's introspection rather than building a module runtime, so this costs
+        # a couple of seconds per module.
         run: |
-          set -euo pipefail
-          stable="$(dagger check -l -m . \
-            | sed 's/\x1b\[[0-9;]*m//g' \
-            | awk 'NR>1 && $1 ~ /:/ {print $1}' | sort)"
-          workspace="$(echo '{ currentWorkspace { checks { list { name } } } }' \
-            | dagger query \
-            | jq -r '.currentWorkspace.checks.list[].name' | sort)"
-          if ! diff <(printf '%s\n' "$stable") <(printf '%s\n' "$workspace"); then
-            echo "::error::dag.CurrentWorkspace().Checks() diverges from 'dagger check -l' at this Dagger version; the affected-check selector (ci/affected.go) may under-run CI. Reconcile before merging." >&2
-            exit 1
-          fi
-          echo "check enumeration agrees ($(printf '%s\n' "$stable" | grep -c .) checks)"
+          set -uo pipefail
+          rc=0
+          count=0
+          while IFS= read -r cfg; do
+            mod="$(dirname "$cfg")"
+            stable="$(dagger check -l -m "$mod" \
+              | sed 's/\x1b\[[0-9;]*m//g' \
+              | awk 'NR>1 && $1 ~ /:/ {print $1}' | sort)"
+            enumerated="$(printf '{ moduleSource(refString: "%s") { asModule { name checks { list { name } } } } }' "$mod" \
+              | dagger query \
+              | jq -r '.moduleSource.asModule as $m | $m.checks.list[] | "\($m.name):\(.name)"' | sort)"
+            if ! diff <(printf '%s\n' "$stable") <(printf '%s\n' "$enumerated"); then
+              echo "::error::Module.checks for $mod diverges from 'dagger check -l' at this Dagger version; the planner may under-run CI. Reconcile before merging." >&2
+              rc=1
+            fi
+            count=$(( count + $(printf '%s\n' "$stable" | grep -c .) ))
+          done < <(find . -name dagger.json -not -path './.git/*' | sort)
+          [ "$rc" -eq 0 ] && echo "check enumeration agrees ($count checks)"
+          exit "$rc"
 
       - name: Bump DAGGER_VERSION pin in ci.yml
         # ci.yml is the single source of truth (both dagger/checks steps read
