@@ -44,7 +44,8 @@
 //     units of work cannot drift apart.
 //   - document.go  — *Document, one image in and one artifact set out.
 //   - batch.go     — *Batch, a directory in and a mirrored directory out, all
-//     of it in a single container exec.
+//     of it in a single container exec, as many recognitions wide as
+//     WithConcurrency asked for.
 //   - ci.go        — *Ci, a batch plus a confidence gate, for the repo that
 //     wants its whole document pipeline as one declarative call.
 //   - pdf.go       — FromPdf, the rasterizer that turns a PDF into pages a
@@ -123,6 +124,18 @@ const (
 	// and pattern lists land in the same place for either unit of work.
 	batchSourceDir    = workDir + "/batch"
 	batchManifestPath = workDir + "/batch.tsv"
+
+	// batchFailureDir collects one report per worker that hit a failure, and
+	// batchStopFile is the flag the first of them raises to stop the rest.
+	// Both sit outside outputDir: they are how the run reports itself, not
+	// artifacts, and the caller exports that directory.
+	batchFailureDir = "/batch-failures"
+	batchStopFile   = "/batch-stop"
+
+	// defaultBatchConcurrency is how many images a batch recognises at once
+	// when WithConcurrency named no bound: one, which is what a batch did
+	// before the bound existed.
+	defaultBatchConcurrency = 1
 
 	// defaultBatchGlob matches every path in the source directory. It is not
 	// the whole default: what actually narrows a batch to images is the
@@ -245,6 +258,12 @@ const (
 	// caller who wants the whole box — and the wrong one as soon as several
 	// recognitions share the cores, which is what the bound exists for.
 	hostCpuOmpThreadLimit = 0
+
+	// concurrentOmpThreadLimit is the bound a concurrent batch applies to its
+	// own exec. One thread per process is not a compromise between the two
+	// kinds of parallelism: it is the fast shape outright, and the only one
+	// that does not multiply concurrency by the core count.
+	concurrentOmpThreadLimit = 1
 )
 
 // Tesseract is the root namespace for every exported function in this module.

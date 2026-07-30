@@ -197,6 +197,31 @@ still share the package fetch. A negative value is rejected on `New` — libgomp
 reads an unparseable `OMP_THREAD_LIMIT` as absent and silently goes back to one
 thread per CPU, the opposite of what was asked for.
 
+**A batch already has more than one image.** `Batch.WithConcurrency` runs N of
+them at a time inside the one exec, and pairs itself with the bound rather than
+leaving two knobs to reconcile by hand. Eleven copies of the four-line test
+fixture through `Batch.Export`, four CPUs — the same fixture and CPU count as
+the oversubscription table above, not the full page the two before it use:
+
+| `WithConcurrency` | `OMP_THREAD_LIMIT` | wall | CPU |
+| --- | --- | --- | --- |
+| unset — 1 | the image's, unset | 3.37s | 5.78s |
+| 4 | `1`, on the exec | 1.24s | 4.21s |
+| 8 | `1`, on the exec | 1.18s | 4.25s |
+| 11 | `1`, on the exec | **1.05s** | 4.12s |
+| 4 | the image's, unset | **3m36.8s** | 14m24s |
+
+The last row is the whole reason concurrency implies the bound: it is the same
+four workers as the second row, inheriting an unbounded image, 174x apart. A
+caller who reaches for concurrency without having read anything about libgomp
+lands on the second row rather than the last. `WithConcurrency(11)` landing on
+the 1.06s the oversubscription table reports for eleven bare concurrent
+processes is the other half of it — the runner itself costs nothing.
+
+An `ompThreadLimit` named on `New` is left alone, because it was named. The
+automatic bound is a `WithEnvVariable` on that one batch's exec, so the image
+keeps whatever it had and every other caller's recognition is untouched.
+
 ## Toolchain
 
 ```go
@@ -334,8 +359,9 @@ fine-tuning.
 ```go
 Tesseract.Batch(source *dagger.Directory) *Batch
 
-Batch.WithGlob(pattern string) *Batch    // default: the image extensions below
-Batch.WithLanguage(lang string) *Batch   // …and the six other Document builders
+Batch.WithGlob(pattern string) *Batch          // default: the image extensions below
+Batch.WithConcurrency(concurrency int) *Batch  // default: 1
+Batch.WithLanguage(lang string) *Batch         // …and the six other Document builders
 Batch.Files(ctx) ([]string, error)
 Batch.Export(ctx, formats []Format) (*dagger.Directory, error)
 ```
@@ -364,6 +390,43 @@ collapses the part that actually costs anything in Dagger — a `WithExec`, its
 mounts and its cache lookup, per page — to one, while each page keeps its own
 artifacts. The loop reaches flags and configfiles through `"$@"` rather than
 string interpolation, so no value needs escaping.
+
+### `WithConcurrency` — how many at once inside that exec
+
+Collapsing the exec was only half the cost. The recognitions themselves ran one
+after another, and recognition is where all the time is. `WithConcurrency`
+bounds how many of them run at the same time — still inside the one exec, still
+one artifact set per image.
+
+```go
+tess.Batch(scans).WithConcurrency(4).Export(ctx, formats)
+```
+
+**The default is 1**, unchanged from before the knob existed, and a non-positive
+bound is refused at output time rather than quietly recognising nothing. Above 1
+it also caps OpenMP at one thread per process *for that exec* — see [OpenMP
+fan-out](#openmp-fan-out--ompthreadlimit) for the measured reason, which is that
+concurrency multiplied by threads is the one shape slower than doing nothing. An
+`ompThreadLimit` named on `New` wins; nothing is set on the image either way.
+
+Two things the serial loop got for free and the runner has to keep:
+
+- **A page that cannot be read still fails the batch**, rather than going
+  missing from a thousand results. Each recognition's output is captured and
+  reported as one block naming its image — `xargs -P` would answer a failed
+  child with its own exit 123, which names nothing, and tesseract's own message
+  often cannot name it either: handed a file leptonica will not decode, it falls
+  back to reading it as a list of image paths and reports the *contents* of the
+  first line as the file it could not open. The first failure raises a stop flag
+  every worker checks, so the run does not recognise the remaining pages first.
+- **Output directories are created in one serial pass** before any recognition
+  starts. Several images share a directory, and two workers creating
+  `scans/deep` at the same moment is a race worth not having.
+
+Work is partitioned round-robin over the manifest, so a worker knows which
+records are its own without coordinating with anyone. Somewhere around the core
+count is the number to pass; past that each process is already single-threaded
+and there is little left to win.
 
 ### Which files take part
 
