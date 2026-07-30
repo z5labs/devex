@@ -59,6 +59,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("WithVarOverridesEnvironmentValue", t.WithVarOverridesEnvironmentValue)
 	jobs = jobs.WithJob("SecretVarIsNotOnArgv", t.SecretVarIsNotOnArgv)
 	jobs = jobs.WithJob("PassThroughFlagsAreAccepted", t.PassThroughFlagsAreAccepted)
+	jobs = jobs.WithJob("TlsControlsAreValidated", t.TlsControlsAreValidated)
+	jobs = jobs.WithJob("CaCertReachesPrivateCaService", t.CaCertReachesPrivateCaService)
+	jobs = jobs.WithJob("ClientCertAuthenticatesToMtlsService", t.ClientCertAuthenticatesToMtlsService)
+	jobs = jobs.WithJob("ClientCertPassphraseUnlocksTheKey", t.ClientCertPassphraseUnlocksTheKey)
+	jobs = jobs.WithJob("ClientCertMaterialStaysOutOfTheCollection", t.ClientCertMaterialStaysOutOfTheCollection)
 	jobs = jobs.WithJob("JsonEnvFileKeepsItsExtension", t.JsonEnvFileKeepsItsExtension)
 	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
 	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
@@ -1118,7 +1123,375 @@ func (t *Tests) CiSecretVarReachesTheCollection(ctx context.Context) error {
 	return nil
 }
 
+// TlsControlsAreValidated checks the two TLS combinations that cannot mean what
+// they say, both of which bru accepts and then quietly does something else with.
+//
+// `--cacert` alongside `--insecure` is dropped by bru with a message on stderr,
+// leaving a run that verifies nothing when the caller asked for verification
+// against a named CA. `--ignore-truststore` is evaluated in combination with
+// `--cacert` only, so on its own it is a flag that does nothing. Neither is a
+// non-zero exit, which is why they are the module's to catch.
+func (t *Tests) TlsControlsAreValidated(ctx context.Context) error {
+	collection := dag.Bruno().Collection(fixture("single")).WithEnvironment("local")
+
+	_, err := collection.WithInsecure().WithCaCert(fixtureFile("env/api.json")).Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected WithCaCert with WithInsecure to be an error")
+	}
+	for _, want := range []string{"WithCaCert", "WithInsecure"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+
+	_, err = collection.WithoutTruststore().Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected WithoutTruststore without WithCaCert to be an error")
+	}
+	for _, want := range []string{"WithoutTruststore", "WithCaCert"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
+	}
+
+	// A host pattern is what binds a client certificate to a request: bru skips
+	// an entry with no domain rather than presenting it to everything, so an
+	// empty one is a certificate that is never used.
+	_, err = collection.
+		WithClientCert(" ", fixtureFile("env/api.json"), dag.SetSecret("bruno-blank-host-key", "unused")).
+		Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a blank client certificate host to be an error")
+	}
+	if !strings.Contains(err.Error(), "WithClientCert") {
+		return fmt.Errorf("expected the error to mention WithClientCert, got:\n%s", head(err.Error()))
+	}
+	return nil
+}
+
+// CaCertReachesPrivateCaService checks what WithCaCert is for: a collection whose
+// target presents a certificate signed by a CA the image has never heard of
+// reaches it, and verifies while doing so.
+//
+// The negative case is the whole point. Verification against a private CA is
+// indistinguishable from no verification at all unless the run without the CA
+// fails, so the same collection is run first without WithCaCert — where bru has
+// to reject the peer — and then with it.
+//
+// The third pass adds WithoutTruststore, which narrows verification to that CA
+// alone. It has to still pass: the flag is a no-op that is easy to render into a
+// run that was going to pass anyway, and easy to get wrong in a way that severs
+// the connection.
+func (t *Tests) CaCertReachesPrivateCaService(ctx context.Context) error {
+	assets, err := newTlsAssets(ctx, "cacert", responderAlias, "bruno-client")
+	if err != nil {
+		return err
+	}
+	rsp, err := newTlsResponder(ctx, assets, false)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	collection := dag.Bruno().
+		Collection(fixture("tls")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc)
+
+	_, err = collection.Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a private-CA certificate to be rejected without WithCaCert")
+	}
+	// bru reports the rejection as a failing request — exit 1 — carrying Node's
+	// own account of it.
+	if !strings.Contains(err.Error(), "certificate") {
+		return fmt.Errorf("expected the error to name the certificate as the problem, got:\n%s", head(err.Error()))
+	}
+	got, err := rsp.stats(ctx, "after-unverified")
+	if err != nil {
+		return err
+	}
+	if got.Count != 0 {
+		return fmt.Errorf("expected a rejected peer to serve no request, got %d", got.Count)
+	}
+
+	if _, err := collection.WithCaCert(assets.CaCert).Run(ctx); err != nil {
+		return fmt.Errorf("expected WithCaCert to verify the private-CA certificate: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-cacert")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the verified run to serve 1 request, got %d", got.Count)
+	}
+
+	if _, err := collection.WithCaCert(assets.CaCert).WithoutTruststore().Run(ctx); err != nil {
+		return fmt.Errorf("expected WithoutTruststore to leave the private CA sufficient: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-ignore-truststore")
+	if err != nil {
+		return err
+	}
+	if got.Count != 2 {
+		return fmt.Errorf("expected the truststore-free run to serve a 2nd request, got %d", got.Count)
+	}
+	return nil
+}
+
+// ClientCertAuthenticatesToMtlsService checks that WithClientCert authenticates
+// the run: the responder demands a certificate signed by the test's CA, and the
+// collection presents one.
+//
+// What is asserted is the certificate and not the handshake. The responder
+// records the peer certificate's Common Name, so a run that somehow completed a
+// TLS handshake without presenting anything would fail here rather than pass on
+// the strength of having connected.
+//
+// The first pass is the control: the same collection, verifying the same server,
+// with no client certificate configured. It has to fail, or the second pass says
+// nothing about the certificate having been needed.
+func (t *Tests) ClientCertAuthenticatesToMtlsService(ctx context.Context) error {
+	const clientCn = "bruno-mtls-client"
+
+	assets, err := newTlsAssets(ctx, "mtls", responderAlias, clientCn)
+	if err != nil {
+		return err
+	}
+	rsp, err := newTlsResponder(ctx, assets, true)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	collection := dag.Bruno().
+		Collection(fixture("tls")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithCaCert(assets.CaCert)
+
+	if _, err := collection.Run(ctx); err == nil {
+		return fmt.Errorf("expected an mTLS endpoint to reject a run with no client certificate")
+	}
+	got, err := rsp.stats(ctx, "after-no-client-cert")
+	if err != nil {
+		return err
+	}
+	if got.Count != 0 {
+		return fmt.Errorf("expected a rejected client to serve no request, got %d", got.Count)
+	}
+
+	if _, err := collection.
+		WithClientCert(responderAlias, assets.ClientCert, assets.ClientKey).
+		Run(ctx); err != nil {
+		return fmt.Errorf("expected WithClientCert to authenticate to the mTLS endpoint: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-client-cert")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the authenticated run to serve 1 request, got %d", got.Count)
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the request to arrive under the client certificate %q, got %q", clientCn, got.Peer)
+	}
+
+	// A second entry, for a host this collection never reaches, added ahead of
+	// the one it does. Each entry is staged under its own path, so this is where
+	// two of them writing over each other would show up — and the decoy carries
+	// the responder's own leaf, whose Common Name is the bound alias rather than
+	// the client's, so presenting the wrong one is a wrong answer and not a
+	// failed handshake.
+	if _, err := collection.
+		WithClientCert("other.internal", assets.ServerCert, assets.ServerKey).
+		WithClientCert(responderAlias, assets.ClientCert, assets.ClientKey).
+		Run(ctx); err != nil {
+		return fmt.Errorf("expected a second client certificate not to disturb the matching one: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-two-client-certs")
+	if err != nil {
+		return err
+	}
+	if got.Count != 2 {
+		return fmt.Errorf("expected the two-certificate run to serve a 2nd request, got %d", got.Count)
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the entry matching %q to be the one presented, got the certificate for %q",
+			responderAlias, got.Peer)
+	}
+	return nil
+}
+
+// ClientCertMaterialStaysOutOfTheCollection checks the two properties the
+// rendered config exists to keep: the key never reaches bru's command line, and
+// nothing this module writes lands in the collection the caller handed over.
+//
+// Both are checked from inside the run, which is the only vantage point they are
+// visible from. Nothing outside the container can read a finished process's
+// command line, and the collection bru sees is the mount rather than the
+// caller's directory — so the fixture's pre-request script reports argv and the
+// contents of the working directory back to the responder. That script needs the
+// developer sandbox, the safe one having no process and no require.
+//
+// The responder demands the certificate, so this is not a run that skipped the
+// key: it reports the peer's Common Name back, and the key was necessary to
+// produce it.
+func (t *Tests) ClientCertMaterialStaysOutOfTheCollection(ctx context.Context) error {
+	const clientCn = "bruno-argv-client"
+
+	assets, err := newTlsAssets(ctx, "argv", responderAlias, clientCn)
+	if err != nil {
+		return err
+	}
+	rsp, err := newTlsResponder(ctx, assets, true)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	// The needle is one base64 line of the key itself rather than the whole PEM:
+	// a multi-line document is never going to appear verbatim in a
+	// space-joined command line, so searching for it would pass whatever
+	// happened.
+	needle, err := keyNeedle(ctx, assets.ClientKey)
+	if err != nil {
+		return err
+	}
+
+	out, err := dag.Bruno().
+		Collection(fixture("tls-argv")).
+		WithEnvironment("local").
+		WithSandbox("developer").
+		WithService(responderAlias, rsp.Svc).
+		WithCaCert(assets.CaCert).
+		WithClientCert(responderAlias, assets.ClientCert, assets.ClientKey).
+		Run(ctx)
+	if err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+
+	got, err := rsp.stats(ctx, "after-argv")
+	if err != nil {
+		return err
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the request to arrive under the client certificate %q, got %q", clientCn, got.Peer)
+	}
+	if got.Argv == "" {
+		return fmt.Errorf("the fixture reported no argv, so this test proves nothing; check the pre-request script and the sandbox mode")
+	}
+	// The flag has to be there, or "the key is not on argv" would be satisfied by
+	// a client certificate that was never configured at all.
+	if !strings.Contains(got.Argv, "--client-cert-config") {
+		return fmt.Errorf("expected the run to have been given a client certificate config, got argv: %s", got.Argv)
+	}
+	for _, unwanted := range []string{needle, "PRIVATE KEY"} {
+		if strings.Contains(got.Argv, unwanted) {
+			return fmt.Errorf("the key is on bru's command line: %s", got.Argv)
+		}
+		if strings.Contains(out, unwanted) {
+			return fmt.Errorf("the key is in bru's output:\n%s", head(out))
+		}
+	}
+
+	// The collection is the tree a caller lints and commits. The config, the
+	// certificate and the key are this module's, and are mounted outside it.
+	if want := "bruno.json,environments,health.bru"; got.Collection != want {
+		return fmt.Errorf("expected the mounted collection to hold exactly %q, got %q", want, got.Collection)
+	}
+	return nil
+}
+
+// ClientCertPassphraseUnlocksTheKey checks WithClientCert's optional argument
+// against a key that genuinely needs it.
+//
+// The passphrase is the one field of the rendered config that is not a path, and
+// it is the reason the document travels as a secret rather than a file. It is
+// also the easiest thing in the module to leave out and not notice: an
+// unencrypted key ignores it, and every other test here uses one.
+//
+// So the same encrypted key is run twice. Without the passphrase the key cannot
+// be loaded and the run fails; with it, the run authenticates to the mTLS
+// endpoint and the responder reports the certificate back.
+func (t *Tests) ClientCertPassphraseUnlocksTheKey(ctx context.Context) error {
+	const clientCn = "bruno-passphrase-client"
+
+	assets, err := newTlsAssets(ctx, "passphrase", responderAlias, clientCn)
+	if err != nil {
+		return err
+	}
+	rsp, err := newTlsResponder(ctx, assets, true)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	passphrase, err := randNamedSecret(ctx, "bruno-client-key-passphrase")
+	if err != nil {
+		return fmt.Errorf("mint the key passphrase: %w", err)
+	}
+	locked, err := encryptedKey(ctx, "passphrase", assets.ClientKey, passphrase)
+	if err != nil {
+		return err
+	}
+
+	collection := dag.Bruno().
+		Collection(fixture("tls")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithCaCert(assets.CaCert)
+
+	if _, err := collection.
+		WithClientCert(responderAlias, assets.ClientCert, locked).
+		Run(ctx); err == nil {
+		return fmt.Errorf("expected an encrypted key with no passphrase to be an error")
+	}
+	got, err := rsp.stats(ctx, "after-locked-key")
+	if err != nil {
+		return err
+	}
+	if got.Count != 0 {
+		return fmt.Errorf("expected a client that could not load its key to serve no request, got %d", got.Count)
+	}
+
+	if _, err := collection.
+		WithClientCert(responderAlias, assets.ClientCert, locked,
+			dagger.BrunoCollectionWithClientCertOpts{Passphrase: passphrase}).
+		Run(ctx); err != nil {
+		return fmt.Errorf("expected the passphrase to unlock the client key: %w", err)
+	}
+	got, err = rsp.stats(ctx, "after-unlocked-key")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the unlocked run to serve 1 request, got %d", got.Count)
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the request to arrive under the client certificate %q, got %q", clientCn, got.Peer)
+	}
+	return nil
+}
+
 // ------------------------------------------------------------------ helpers
+
+// keyNeedle returns one base64 line out of a PEM key, as a fingerprint to search
+// argv and output for. The whole document would never appear verbatim in a
+// space-joined command line, so a search for it would pass no matter what
+// happened.
+func keyNeedle(ctx context.Context, key *dagger.Secret) (string, error) {
+	pem, err := key.Plaintext(ctx)
+	if err != nil {
+		return "", fmt.Errorf("read the client key: %w", err)
+	}
+	for _, line := range strings.Split(pem, "\n") {
+		if len(line) >= 40 && !strings.Contains(line, "-----") {
+			return line, nil
+		}
+	}
+	return "", fmt.Errorf("found no base64 line in the client key to fingerprint it by")
+}
 
 // fixture returns the named hand-authored Bruno collection under fixtures/.
 func fixture(name string) *dagger.Directory {

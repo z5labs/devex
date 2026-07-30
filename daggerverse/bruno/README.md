@@ -300,8 +300,10 @@ adopts the builder.
 The pipeline deliberately wraps a subset of `Collection`'s surface: secrets but
 not plain `WithVar` overrides (a value passed into CI by hand is usually a
 credential, and `--env-var` would put it on the command line), and no sandbox,
-tag, bail or delay switches. A collection that needs those is assembled through
-`Collection` directly.
+tag, bail or delay switches. The TLS controls are not wrapped either — a pipeline
+whose target sits behind a private CA is assembled through `Collection`, and
+loses the bundled lint stage and reports in the process. A collection that needs
+any of those is assembled through `Collection` directly.
 
 Both terminals are `+cache="never"`, and the suite proves the second `Check` in
 one session really re-runs by counting requests at the service.
@@ -355,13 +357,57 @@ selection off its result — so reading two reports out of one `Run` would be tw
 runs of the collection. Resolve the directory's `ID` once and load it back
 before fanning out, as `tests/main.go`'s `pin` does.
 
-## Security posture
+## TLS
 
 `WithInsecure()` accepts a certificate the run cannot verify — the usual shape
-for a service that only exists for the length of the pipeline. Custom CA
-certificates (`--cacert`, `--ignore-truststore`) and client certificates
-(`--client-cert-config`) are not wrapped yet; until they are, they are
-reachable through `Container()`.
+for a service that only exists for the length of the pipeline. It is the wrong
+tool for an internal endpoint behind a private CA, because it verifies nothing:
+
+```go
+collection.
+    WithCaCert(ca).                                  // --cacert
+    WithoutTruststore().                             // --ignore-truststore
+    WithClientCert("*.internal", cert, key).         // --client-cert-config
+    Run(ctx)
+```
+
+`WithCaCert(file)` adds a CA to the truststore the image ships rather than
+replacing it, so a collection that also reaches a public endpoint keeps working.
+`WithoutTruststore()` narrows verification to that CA alone, and means nothing
+without it — `bru` evaluates `--ignore-truststore` "in combination with
+`--cacert` only" — so on its own it is rejected by the run. So is `WithCaCert`
+alongside `WithInsecure`: `bru` drops `--cacert` when `--insecure` is set, with
+a message on stderr and a zero exit, leaving a run that verifies nothing when
+the caller asked to verify against a named CA.
+
+Neither certificate is a path the caller supplies. A `--cacert` pointing at a
+file that is not there is not one of `bru`'s usage errors: it prints "Cacert
+File … does not exist" and carries on with the default truststore, so the run
+fails verification for a reason that looks nothing like the mistake. The module
+mounts the files it names.
+
+`WithClientCert(host, cert, key, passphrase)` takes the key as a `*Secret` and
+not a `*File`, matching the `skill-gen` postgres precedent: a file's contents are
+content-addressed into the build cache and readable from a trace. `host` is
+matched against the request URL, wildcards included, and `bru` presents the first
+configured host that matches — so a host configured twice is rejected rather than
+silently resolved to the first one.
+
+`bru` takes client certificates as a JSON document that refers to the
+certificate and key *by path*. That document is rendered by this module at run
+time against the paths it mounts them under, because a caller writing it by hand
+would have to name paths inside a container they cannot see. It is rendered into
+a `*Secret` rather than a file: the passphrase is a plaintext field of it, which
+is the shape `bru` reads, so keeping it out of a cacheable layer is the only
+place that can be dealt with. Certificate, key and document are all mounted
+outside the collection — the tree a caller lints and commits — and handed to the
+image's non-root user, since a secret mount is root-owned `0400` by default and
+`certificate-management` writes its PEM files `0600`.
+
+The one client-certificate shape not wrapped is `bru`'s `"pfx"` entry: a PKCS#12
+archive is a single file, so it would not need the key to travel separately. It
+stays reachable through `Container()`, along with the rest of `bru`'s TLS long
+tail.
 
 ## Function surface
 
@@ -380,6 +426,9 @@ reachable through `Container()`.
 | `Collection.WithService(alias, service)` | Put a Dagger service on the run's network under `alias`. |
 | `Collection.WithSandbox(mode)` | `--sandbox`; `safe` (default) or `developer`. |
 | `Collection.WithInsecure()` | `--insecure`; accept unverifiable TLS certificates. |
+| `Collection.WithCaCert(cert)` | `--cacert`; verify peers against a private CA as well as the default truststore. |
+| `Collection.WithoutTruststore()` | `--ignore-truststore`; verify against the `WithCaCert` CA alone. |
+| `Collection.WithClientCert(host, cert, key, passphrase)` | `--client-cert-config`; present a client certificate to hosts matching `host`. |
 | `Collection.WithTestsOnly()` | `--tests-only`; skip requests with no test or assertion. |
 | `Collection.WithBail()` | `--bail`; stop at the first failure. |
 | `Collection.WithDelay(milliseconds)` | `--delay`; wait between requests. |
@@ -438,6 +487,30 @@ secret never reached argv" can be checked at all. That script needs the
 developer sandbox, since the safe one has no `process` — which is why
 `fixtures/ci-secret/` exists as a script-free copy of the same request: the
 pipeline builder wraps no sandbox switch.
+
+`ClientCertMaterialStaysOutOfTheCollection` uses the same trick for the same
+reason, and adds a `readdirSync` of the working directory, because the collection
+bru sees is the mount and not the caller's directory.
+
+The TLS tests get a second responder. `tests/tlsresponder.go` serves the same
+recording handler over HTTPS on 8443 — presenting a leaf signed by a CA minted
+for that one test — and keeps the record on a *plaintext* listener on 8080. That
+is not a shortcut: under mTLS the recording listener rejects any client that does
+not present a certificate, so asking it what happened would mean handing it the
+credential the test is trying to prove arrived. Every key, password and serial
+comes from the `crypto`, `random` and `certificate-management` modules at test
+time; `tests/certs.go` is ported from `skill-gen`, which took it from `postgres`.
+
+Each of those tests runs the same collection twice, because verification against
+a private CA is indistinguishable from no verification unless the run *without*
+the CA fails. And the mTLS assertions are about the certificate rather than the
+handshake: the responder reports the peer certificate's Common Name back, so a
+run that connected without presenting anything fails instead of passing on the
+strength of having connected. `ClientCertPassphraseUnlocksTheKey` needs a key
+that genuinely wants one, which neither `crypto` nor `certificate-management`
+produces and the image has no `openssl` to make — so `certs.go` re-exports the
+issued key through Node's own `crypto`, encrypted, reading it back as a file
+rather than off stdout.
 
 The `Ci` tests lean on the request counter for the two things the builder itself
 adds. `CiLintFailsBeforeAnyRequest` runs the `fixtures/lint/unresolved`
