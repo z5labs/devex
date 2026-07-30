@@ -241,6 +241,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).EncryptedDocumentNeedsThePassword(&parent, ctx)
+		case "EpsWritesEveryPageOfTheDocument":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).EpsWritesEveryPageOfTheDocument(&parent, ctx)
+		case "HtmlCarriesPageMarkupAndItsImages":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).HtmlCarriesPageMarkupAndItsImages(&parent, ctx)
 		case "InfoReportsPageCountAndSize":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -262,6 +276,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).LayoutModesProduceDifferentOrderings(&parent, ctx)
+		case "PageRangeNarrowsEveryPerPageFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PageRangeNarrowsEveryPerPageFormat(&parent, ctx)
 		case "PageRangeNarrowsText":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -304,6 +325,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PngSinglePageIsStillNumbered(&parent, ctx)
+		case "PsHoldsEveryPageInOneFile":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PsHoldsEveryPageInOneFile(&parent, ctx)
 		case "RenderSettingsRejectNonPositiveValues":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +346,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ScaleToOverridesDpi(&parent, ctx)
+		case "SvgWritesOneVectorFilePerPage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SvgWritesOneVectorFilePerPage(&parent, ctx)
 		case "TextOnImageOnlyPdfReturnsNothing":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -339,6 +374,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).TxtMatchesText(&parent, ctx)
+		case "VectorFormatsIgnoreRasterOnlySettings":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).VectorFormatsIgnoreRasterOnlySettings(&parent, ctx)
 		case "VersionReportsPopplerRelease":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

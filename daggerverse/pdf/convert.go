@@ -274,6 +274,114 @@ func (c *Convert) Tiff(ctx context.Context) (*dagger.Directory, error) {
 	return c.raster(ctx, "Tiff", formatTiff)
 }
 
+// Svg renders each page in range to its own SVG and returns the directory
+// holding them, named `page-0001.svg`, `page-0002.svg`, and so on.
+//
+// This is the output for a caller who wants to keep the type outlines rather
+// than pixels of them: embedding a page in a web view, feeding a plotter,
+// re-flowing it in a vector editor. Text arrives as glyph outlines and not as
+// `<text>` — poppler converts every glyph to a `<path>` and references it with
+// `<use>` — so the page is faithful and is not searchable. Reach for Text when
+// the words are what is wanted.
+//
+// One SVG per page is this module's doing and matters. `pdftocairo -svg` run
+// once over a multi-page document writes a single file holding every page,
+// wrapped in the SVG 1.2 `pageSet` and `page` elements — which no browser,
+// librsvg or Inkscape implements, so the file draws page one and silently
+// discards the rest. Rendering each page on its own invocation is what makes
+// every page reachable.
+//
+// WithDpi governs the rasterized regions a page can still contain — an embedded
+// photograph has no vector form to keep. WithColorMode, WithScaleTo and
+// WithoutAnnotations are ignored: see the note on Ps.
+func (c *Convert) Svg(ctx context.Context) (*dagger.Directory, error) {
+	return c.pageRender(ctx, "Svg", formatSvg)
+}
+
+// Eps renders each page in range to its own Encapsulated PostScript file and
+// returns the directory holding them, named `page-0001.eps`, `page-0002.eps`,
+// and so on.
+//
+// EPS is the format for placing one page inside another document — a figure in
+// a LaTeX paper, artwork in a layout program — which is why it is one page per
+// file by definition and not by this module's choice: `pdftocairo -eps` handed a
+// multi-page document refuses to write anything at all and exits non-zero. The
+// per-page loop is what turns that refusal into the whole document.
+//
+// The bounding box is the page's *ink*, not its media box: poppler crops an EPS
+// to what is drawn, so a page of a US Letter document with a single line of text
+// on it comes out a few inches wide. That is EPS's own convention — a figure
+// carries its extent so the placing document can size it — and it is the one
+// place these files do not agree with the page geometry Png reports.
+//
+// WithDpi governs rasterized regions; WithColorMode, WithScaleTo and
+// WithoutAnnotations are ignored: see the note on Ps.
+func (c *Convert) Eps(ctx context.Context) (*dagger.Directory, error) {
+	return c.pageRender(ctx, "Eps", formatEps)
+}
+
+// Ps renders the pages in range to a single PostScript file.
+//
+// It returns a file rather than a directory because PostScript is a multi-page
+// format: one document with a `%%Pages:` count and a `%%Page:` marker per page,
+// which is what a printer queue and every downstream PostScript tool expect.
+// Splitting it into a page-per-file directory would produce fragments that are
+// each individually invalid.
+//
+// WithDpi governs the rasterized regions the output can still contain.
+// WithColorMode, WithScaleTo and WithoutAnnotations are ignored here and by Svg,
+// Eps and Html, and are documented no-ops rather than rejections for the same
+// reason they are on Text: a conversion configured for the raster outputs should
+// fan out into a vector one without having to un-set an option first. The flags
+// are dropped rather than forwarded because poppler does not ignore them — it
+// exits non-zero with `-mono may only be used with the -png, -jpeg, or -tiff
+// output options`, and `-hide-annotations` is not a pdftocairo option at all.
+func (c *Convert) Ps(ctx context.Context) (*dagger.File, error) {
+	flags, err := c.cairoFlags(formatPs)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Document.validateRange(ctx); err != nil {
+		return nil, err
+	}
+	flags = append(flags, c.Document.rangeArgs()...)
+
+	script := strings.Join([]string{
+		"set -e",
+		"mkdir -p " + outputDir,
+		c.Document.command(formatPs.tool, flags, sourcePath, psOutputPath),
+	}, "\n")
+
+	res, err := c.Document.runScript(ctx, "Ps", script)
+	if err != nil {
+		return nil, err
+	}
+	return res.container.File(psOutputPath), nil
+}
+
+// Html converts each page in range to its own HTML file and returns the
+// directory holding them, named `page-0001.html`, `page-0002.html`, and so on,
+// with each page's extracted images beside them.
+//
+// The directory therefore holds more than the pages: a page carrying images gets
+// `page-0001-1_1.png` and so on next to `page-0001.html`, referenced from the
+// markup by a relative path. Those names are pdftohtml's, not this module's, and
+// are left alone precisely because they are written *into* the HTML — renaming
+// them to a contract would mean rewriting the markup to match. A consumer
+// walking this directory should select `page-*.html`, not assume every entry is
+// a page.
+//
+// The relative reference is the reason the conversion runs with the output
+// directory as its working directory: handed an absolute output base, pdftohtml
+// writes that absolute path into every `img src`, and the markup then only
+// resolves on the machine that produced it.
+//
+// Every render option is ignored, pdftohtml having no resolution, colour or
+// annotation switch of any kind. WithPageRange narrows it like everything else.
+func (c *Convert) Html(ctx context.Context) (*dagger.Directory, error) {
+	return c.pageRender(ctx, "Html", formatHtml)
+}
+
 // clone copies the conversion for a builder method. Every field is a value or a
 // handle, so the shallow copy is the deep one.
 func (c *Convert) clone() *Convert {
@@ -344,6 +452,115 @@ func (c *Convert) dpi() int {
 		return c.Dpi
 	}
 	return defaultDpi
+}
+
+// cairoFlags renders everything a pdftocairo invocation needs that is not the
+// document, the page bounds or the output name.
+//
+// Only the resolution reaches the command line. The colour modes, the pixel
+// bound and the annotation switch are dropped rather than translated, because
+// pdftocairo has no equivalent for any of them and rejects the two it recognises
+// by name — see the note on Ps for why that is a silent no-op here rather than a
+// rejection.
+func (c *Convert) cairoFlags(format pageFormat) ([]string, error) {
+	if c.HasDpi && c.Dpi <= 0 {
+		return nil, fmt.Errorf(
+			"WithDpi: dpi must be positive, got %d", c.Dpi)
+	}
+	args := append([]string(nil), format.flags...)
+	if format.takesResolution {
+		args = append(args, "-r", strconv.Itoa(c.dpi()))
+	}
+	return args, nil
+}
+
+// pageRender writes one file per page and returns the directory holding them.
+//
+// The page loop runs in the container rather than here because its upper bound
+// is the document's page count, and reading that from Go would mean a second
+// round trip to fetch what the very next exec is about to open anyway. Resolving
+// it in the same shell keeps the whole conversion one exec, the way the raster
+// path's rename pass does.
+func (c *Convert) pageRender(ctx context.Context, label string, format pageFormat) (*dagger.Directory, error) {
+	flags, err := c.cairoFlags(format)
+	if err != nil {
+		return nil, err
+	}
+	if err := c.Document.validateRange(ctx); err != nil {
+		return nil, err
+	}
+
+	name := pageNamePrefix + `$padded`
+	if format.namesExtension {
+		name += "." + format.ext
+	}
+	// The bounds are the loop variable, so the document's own range flags are
+	// deliberately not appended: this invocation renders exactly one page.
+	render := c.Document.command(format.tool, flags,
+		"-f", `"$p"`, "-l", `"$p"`, sourcePath, name)
+
+	res, err := c.Document.runScript(ctx, label, c.pageLoop(render))
+	if err != nil {
+		return nil, err
+	}
+	return res.container.Directory(outputDir), nil
+}
+
+// pageLoop is the script that runs a per-page conversion once for every page in
+// range, with `$padded` set to the page's zero-padded number.
+//
+// It works the output directory from the inside — `cd` rather than an absolute
+// output path — because pdftohtml writes the output name it was given into every
+// `img src` in the markup it produces. Named absolutely, it emits markup whose
+// images only resolve on the machine that rendered them.
+func (c *Convert) pageLoop(render string) string {
+	first := 1
+	if c.Document.HasRange && c.Document.FirstPage > 0 {
+		first = c.Document.FirstPage
+	}
+	last := endOfDocument
+	if c.Document.HasRange {
+		last = c.Document.LastPage
+	}
+
+	return strings.Join([]string{
+		// set -e is what makes a page poppler cannot write stop the loop
+		// carrying its own message, rather than leaving a directory that is
+		// short a page and says nothing about it.
+		`set -e`,
+		`mkdir -p ` + outputDir,
+		`cd ` + outputDir,
+		`first=` + strconv.Itoa(first),
+		`last=` + strconv.Itoa(last),
+		// An open-ended range is resolved here rather than in Go so the page
+		// count and the render share one exec.
+		//
+		// The report is captured and parsed in two steps rather than piped
+		// straight into sed, because set -e reads the exit status of the *last*
+		// command in a pipeline. Piped, a document pdfinfo cannot open leaves
+		// sed succeeding on nothing, and the run gets as far as the page-count
+		// check below and fails there — with poppler's diagnostic still on
+		// stderr, but joined by a second message about a page count that was
+		// never the problem. Split, the script stops on pdfinfo's own status.
+		`if [ "$last" -eq ` + strconv.Itoa(endOfDocument) + ` ]; then`,
+		`	info=$(` + c.Document.command("pdfinfo", nil, sourcePath) + `)`,
+		`	last=$(printf '%s\n' "$info" | sed -n 's/^Pages:[[:space:]]*//p')`,
+		`fi`,
+		`case "$last" in`,
+		`	''|*[!0-9]*) echo "could not read the page count: $last" >&2; exit 1;;`,
+		`esac`,
+		// The width is the greater of the module's minimum and what the last
+		// page number needs, so a document longer than the minimum can express
+		// stays uniform. Same contract the raster path normalizes to.
+		`width=` + strconv.Itoa(minPageNumberWidth),
+		`if [ ${#last} -gt "$width" ]; then width=${#last}; fi`,
+		`p="$first"`,
+		`while [ "$p" -le "$last" ]; do`,
+		`	padded=$(printf "%0${width}d" "$p")`,
+		`	` + render,
+		`	p=$((p + 1))`,
+		`done`,
+	}, "\n")
 }
 
 // raster renders the pages and returns the directory holding them, with every
