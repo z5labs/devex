@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type TesseractTests
-func (r *Binding) AsTesseractTests() *TesseractTests { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:120:6)
+func (r *Binding) AsTesseractTests() *TesseractTests { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:124:6)
 	q := r.query.Select("asTesseractTests")
 
 	return &TesseractTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsTesseractTests() *TesseractTests { // tesseract-tests (../..
 }
 
 // Create or update a binding of type TesseractTests in the environment
-func (r *Env) WithTesseractTestsInput(name string, value *TesseractTests, description string) *Env { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:120:6)
+func (r *Env) WithTesseractTestsInput(name string, value *TesseractTests, description string) *Env { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:124:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithTesseractTestsInput(name string, value *TesseractTests, descri
 }
 
 // Declare a desired TesseractTests output to be assigned in the environment
-func (r *Env) WithTesseractTestsOutput(name string, description string) *Env { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:120:6)
+func (r *Env) WithTesseractTestsOutput(name string, description string) *Env { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:124:6)
 	q := r.query.Select("withTesseractTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -50,7 +50,7 @@ func (r *Env) WithTesseractTestsOutput(name string, description string) *Env { /
 // The fixtures under fixtures/ are committed rather than generated in-container:
 // bare Alpine ships no fonts, so rendering text inside the toolchain image would
 // mean pulling in fontconfig and a font package purely to make the tests run.
-func (r *Query) TesseractTests() *TesseractTests { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:120:6)
+func (r *Query) TesseractTests() *TesseractTests { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:124:6)
 	q := r.query.Select("tesseractTests")
 
 	return &TesseractTests{
@@ -58,13 +58,12 @@ func (r *Query) TesseractTests() *TesseractTests { // tesseract-tests (../../../
 	}
 }
 
-type TesseractTests struct { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:120:6)
+type TesseractTests struct { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:124:6)
 	query *querybuilder.Selection
 
 	all                                             *Void
 	altoIsValidXml                                  *Void
 	apkAuthInstallsFromAuthenticatedRepository      *Void
-	apkRepositoryAppliesToPdfRasterizer             *Void
 	apkRepositoryInstallsFromPrivateMirror          *Void
 	apkRepositoryReplacesImageDefaults              *Void
 	authenticatedRepositoryIsRejectedWithoutApkAuth *Void
@@ -86,9 +85,6 @@ type TesseractTests struct { // tesseract-tests (../../../daggerverse/tesseract/
 	defaultApkConfigurationIsUntouched              *Void
 	defaultLanguagesInstallEnglish                  *Void
 	exportProducesEveryRequestedFormat              *Void
-	fromPdfDpiSetsRasterResolution                  *Void
-	fromPdfExportRendersEveryFormatAsOneDocument    *Void
-	fromPdfRecognizesEveryPageInOrder               *Void
 	hocrContainsWordBoxes                           *Void
 	id                                              *ID
 	lstmEngineRecognizesFixture                     *Void
@@ -100,6 +96,7 @@ type TesseractTests struct { // tesseract-tests (../../../daggerverse/tesseract/
 	osdWithoutOsdDataIsRejected                     *Void
 	pdfHasPdfMagic                                  *Void
 	pdfInputIsRejected                              *Void
+	pdfModulePagesBatchIntoOneSearchablePdf         *Void
 	processedImagesReturnsThresholdedTiff           *Void
 	requestedLanguagesAreInstalled                  *Void
 	singleWordPageSegReturnsFewerWords              *Void
@@ -128,7 +125,7 @@ func (r *TesseractTests) WithGraphQLQuery(q *querybuilder.Selection) *TesseractT
 
 // TesseractTestsAllOpts contains options for TesseractTests.All
 type TesseractTestsAllOpts struct {
-	Parallel int // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:142:2)
+	Parallel int // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:146:2)
 }
 
 // All runs every tesseract-module test in parallel.
@@ -145,7 +142,7 @@ type TesseractTestsAllOpts struct {
 // thread per pass the claim finally holds, and jobs contend for cores the way
 // any other oversubscribed workload does. The cap stays available for a host
 // that wants a narrower slice.
-func (r *TesseractTests) All(ctx context.Context, opts ...TesseractTestsAllOpts) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:139:1)
+func (r *TesseractTests) All(ctx context.Context, opts ...TesseractTestsAllOpts) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:143:1)
 	if r.all != nil {
 		return nil
 	}
@@ -163,7 +160,7 @@ func (r *TesseractTests) All(ctx context.Context, opts ...TesseractTestsAllOpts)
 // AltoIsValidXml asserts the ALTO renderer emits well-formed XML in the ALTO
 // namespace, since its consumers are schema-driven archive tooling that will
 // reject anything else outright.
-func (r *TesseractTests) AltoIsValidXML(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:363:1)
+func (r *TesseractTests) AltoIsValidXML(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:364:1)
 	if r.altoIsValidXml != nil {
 		return nil
 	}
@@ -178,7 +175,7 @@ func (r *TesseractTests) AltoIsValidXML(ctx context.Context) error { // tesserac
 // The second half is the reason the option takes a Secret: a mirror password
 // spelled into a repository URL would land in /etc/apk/repositories, in every
 // apk error quoting it, and in the layer a caller exports.
-func (r *TesseractTests) ApkAuthInstallsFromAuthenticatedRepository(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:338:1)
+func (r *TesseractTests) ApkAuthInstallsFromAuthenticatedRepository(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:317:1)
 	if r.apkAuthInstallsFromAuthenticatedRepository != nil {
 		return nil
 	}
@@ -187,26 +184,10 @@ func (r *TesseractTests) ApkAuthInstallsFromAuthenticatedRepository(ctx context.
 	return q.Execute(ctx)
 }
 
-// ApkRepositoryAppliesToPdfRasterizer asserts the PDF rasterizer installs its
-// packages from the configured mirror too.
-//
-// It is a separate container from the toolchain — poppler and its font are
-// paid for only by callers who rasterize something — so it is a second place
-// the configuration has to reach, and covering only the first would leave PDF
-// input broken in exactly the environment this option exists for.
-func (r *TesseractTests) ApkRepositoryAppliesToPdfRasterizer(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:293:1)
-	if r.apkRepositoryAppliesToPdfRasterizer != nil {
-		return nil
-	}
-	q := r.query.Select("apkRepositoryAppliesToPdfRasterizer")
-
-	return q.Execute(ctx)
-}
-
 // ApkRepositoryInstallsFromPrivateMirror asserts the toolchain image can be
 // assembled entirely out of a caller-supplied repository, which is the whole
 // point of the option: with the mirror configured, the packages come from it.
-func (r *TesseractTests) ApkRepositoryInstallsFromPrivateMirror(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:245:1)
+func (r *TesseractTests) ApkRepositoryInstallsFromPrivateMirror(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:243:1)
 	if r.apkRepositoryInstallsFromPrivateMirror != nil {
 		return nil
 	}
@@ -223,7 +204,7 @@ func (r *TesseractTests) ApkRepositoryInstallsFromPrivateMirror(ctx context.Cont
 // The difference only shows on the network this option exists for, where a
 // surviving default is a repository apk waits on until it times out. So the
 // assertion is on the file, and it is that the CDN is *gone*.
-func (r *TesseractTests) ApkRepositoryReplacesImageDefaults(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:268:1)
+func (r *TesseractTests) ApkRepositoryReplacesImageDefaults(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:266:1)
 	if r.apkRepositoryReplacesImageDefaults != nil {
 		return nil
 	}
@@ -237,7 +218,7 @@ func (r *TesseractTests) ApkRepositoryReplacesImageDefaults(ctx context.Context)
 // credentials were supplied and used, and not because the server never asked
 // for any. Both installs run against the one mirror, so WithApkAuth is the
 // only difference between them.
-func (r *TesseractTests) AuthenticatedRepositoryIsRejectedWithoutApkAuth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:387:1)
+func (r *TesseractTests) AuthenticatedRepositoryIsRejectedWithoutApkAuth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:366:1)
 	if r.authenticatedRepositoryIsRejectedWithoutApkAuth != nil {
 		return nil
 	}
@@ -257,7 +238,7 @@ func (r *TesseractTests) AuthenticatedRepositoryIsRejectedWithoutApkAuth(ctx con
 // finished in, so a directory that came out right only because the work
 // happened to be serial would fail here. The digest covers the mirrored layout
 // too, nested directories and all.
-func (r *TesseractTests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1271:1)
+func (r *TesseractTests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1209:1)
 	if r.batchConcurrencyMatchesSerialOutput != nil {
 		return nil
 	}
@@ -280,7 +261,7 @@ func (r *TesseractTests) BatchConcurrencyMatchesSerialOutput(ctx context.Context
 // the words in the fake PNG. Two of the good pages recognise fine either side
 // of it, so what is asserted is a failure that survives its siblings
 // succeeding.
-func (r *TesseractTests) BatchConcurrencyReportsFailingImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1343:1)
+func (r *TesseractTests) BatchConcurrencyReportsFailingImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1281:1)
 	if r.batchConcurrencyReportsFailingImage != nil {
 		return nil
 	}
@@ -296,7 +277,7 @@ func (r *TesseractTests) BatchConcurrencyReportsFailingImage(ctx context.Context
 // them are pages. Handing one to tesseract is not a no-op — leptonica fails to
 // decode it and the run dies — so "ignored by default" is what makes pointing
 // Batch at an existing directory work at all.
-func (r *TesseractTests) BatchDefaultGlobSkipsNonImages(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1021:1)
+func (r *TesseractTests) BatchDefaultGlobSkipsNonImages(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:959:1)
 	if r.batchDefaultGlobSkipsNonImages != nil {
 		return nil
 	}
@@ -312,7 +293,7 @@ func (r *TesseractTests) BatchDefaultGlobSkipsNonImages(ctx context.Context) err
 // would render one concatenated artifact per *format* — a single .txt with
 // form-feed page breaks and a single multi-page PDF — with no way to tell which
 // page produced what.
-func (r *TesseractTests) BatchExportProducesEveryFormatPerImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1117:1)
+func (r *TesseractTests) BatchExportProducesEveryFormatPerImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1055:1)
 	if r.batchExportProducesEveryFormatPerImage != nil {
 		return nil
 	}
@@ -328,7 +309,7 @@ func (r *TesseractTests) BatchExportProducesEveryFormatPerImage(ctx context.Cont
 // be indistinguishable from a batch that ran and found no text, so a typo in a
 // pattern would surface much later as missing output rather than here as a bad
 // glob.
-func (r *TesseractTests) BatchGlobSelectsFiles(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1065:1)
+func (r *TesseractTests) BatchGlobSelectsFiles(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1003:1)
 	if r.batchGlobSelectsFiles != nil {
 		return nil
 	}
@@ -345,7 +326,7 @@ func (r *TesseractTests) BatchGlobSelectsFiles(ctx context.Context) error { // t
 // directory of `result-1.txt`, `result-2.txt` would force every caller to
 // rebuild the correspondence between page and text that the input directory
 // already expressed.
-func (r *TesseractTests) BatchMirrorsInputLayout(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:987:1)
+func (r *TesseractTests) BatchMirrorsInputLayout(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:925:1)
 	if r.batchMirrorsInputLayout != nil {
 		return nil
 	}
@@ -361,7 +342,7 @@ func (r *TesseractTests) BatchMirrorsInputLayout(ctx context.Context) error { //
 // A collision is the subtle one: `a.png` and `a.jpg` in one folder both render
 // onto `a.txt`, so the second silently overwrites the first and the batch looks
 // like it succeeded with one page missing.
-func (r *TesseractTests) BatchRejectsAmbiguousInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1229:1)
+func (r *TesseractTests) BatchRejectsAmbiguousInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1167:1)
 	if r.batchRejectsAmbiguousInput != nil {
 		return nil
 	}
@@ -377,7 +358,7 @@ func (r *TesseractTests) BatchRejectsAmbiguousInput(ctx context.Context) error {
 // It covers both halves: an option that has to reach tesseract for every image
 // in the run, and the deferred validation that has to reject a bad option
 // before any of them are recognised.
-func (r *TesseractTests) BatchSharesDocumentOptions(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1163:1)
+func (r *TesseractTests) BatchSharesDocumentOptions(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1101:1)
 	if r.batchSharesDocumentOptions != nil {
 		return nil
 	}
@@ -389,7 +370,7 @@ func (r *TesseractTests) BatchSharesDocumentOptions(ctx context.Context) error {
 // BoxReportsCharacterBoxes asserts the box renderer descends to the character
 // level, which is the level nothing else this module offers reaches: hOCR and
 // TSV stop at the word.
-func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1637:1)
+func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1575:1)
 	if r.boxReportsCharacterBoxes != nil {
 		return nil
 	}
@@ -407,7 +388,7 @@ func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { /
 // and that makes "did it actually look?" the thing worth testing. A Check that
 // short-circuited when no threshold was set would be a green build over a
 // directory of files tesseract cannot read at all.
-func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1493:1)
+func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1431:1)
 	if r.ciCheckRunsTheGateWithoutArtifacts != nil {
 		return nil
 	}
@@ -425,7 +406,7 @@ func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context)
 // for PDFs did not ask for a TSV beside every page, and would find one in the
 // archive they published. A caller who did ask for TSV keeps it, which is the
 // half that catches a filter written as "drop every TSV".
-func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1529:1)
+func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1467:1)
 	if r.ciGateKeepsItsTsvOutOfTheOutput != nil {
 		return nil
 	}
@@ -443,7 +424,7 @@ func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) er
 // proves it, because the check that produces it lives on the shared option set
 // and could only fire if the value got there. It also fires before recognition,
 // so a wrong-language pipeline costs a message rather than a batch.
-func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1577:1)
+func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1515:1)
 	if r.ciLanguageReachesRecognition != nil {
 		return nil
 	}
@@ -465,7 +446,7 @@ func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error
 // that has to be earned: one clean scan and one blank page under a threshold
 // only the blank page misses. A gate that failed the batch as a whole would be
 // telling the caller to go and diff a hundred TSVs.
-func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1437:1)
+func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1375:1)
 	if r.ciMinConfidenceGatesTheRun != nil {
 		return nil
 	}
@@ -485,7 +466,7 @@ func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error {
 // It is checked through Check rather than Run because that is where a
 // misconfiguration costs the most to discover late: Check is the call a PR gate
 // makes, and its whole answer is the error it returns.
-func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1615:1)
+func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1553:1)
 	if r.ciRejectsUnusableThreshold != nil {
 		return nil
 	}
@@ -501,7 +482,7 @@ func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error {
 // WithFormats was called would look like a broken directory rather than an
 // unconfigured one, so an unconfigured Ci renders plain text — the format
 // tesseract itself produces when no renderer is named.
-func (r *TesseractTests) CiRunProducesEnabledFormats(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1382:1)
+func (r *TesseractTests) CiRunProducesEnabledFormats(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1320:1)
 	if r.ciRunProducesEnabledFormats != nil {
 		return nil
 	}
@@ -518,7 +499,7 @@ func (r *TesseractTests) CiRunProducesEnabledFormats(ctx context.Context) error 
 // writing a repositories file, or setting the credential variable,
 // unconditionally — which would work for the mirror and rebuild the world for
 // every existing caller.
-func (r *TesseractTests) DefaultApkConfigurationIsUntouched(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:409:1)
+func (r *TesseractTests) DefaultApkConfigurationIsUntouched(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:388:1)
 	if r.defaultApkConfigurationIsUntouched != nil {
 		return nil
 	}
@@ -531,7 +512,7 @@ func (r *TesseractTests) DefaultApkConfigurationIsUntouched(ctx context.Context)
 // English and nothing else. The base apk package carries no language data at
 // all, so an empty default would produce an image that cannot recognise
 // anything.
-func (r *TesseractTests) DefaultLanguagesInstallEnglish(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:240:1)
+func (r *TesseractTests) DefaultLanguagesInstallEnglish(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:241:1)
 	if r.defaultLanguagesInstallEnglish != nil {
 		return nil
 	}
@@ -544,7 +525,7 @@ func (r *TesseractTests) DefaultLanguagesInstallEnglish(ctx context.Context) err
 // formats. That the artifacts arrive in a single directory lifted off a single
 // exec is what proves they came from one recognition pass rather than six: the
 // per-format functions each run their own.
-func (r *TesseractTests) ExportProducesEveryRequestedFormat(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:434:1)
+func (r *TesseractTests) ExportProducesEveryRequestedFormat(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:435:1)
 	if r.exportProducesEveryRequestedFormat != nil {
 		return nil
 	}
@@ -553,65 +534,9 @@ func (r *TesseractTests) ExportProducesEveryRequestedFormat(ctx context.Context)
 	return q.Execute(ctx)
 }
 
-// FromPdfDpiSetsRasterResolution asserts the rasterization resolution defaults
-// to 300 and that a caller's value replaces it.
-//
-// It reads the resolution back off the page geometry hOCR reports, because
-// that is the only place the module publishes it: ledger.pdf's pages are US
-// Letter, 612x792 points, so a page rasterized at D dots per inch is exactly
-// 612*D/72 by 792*D/72 pixels. Asserting on the pixels rather than on the flag
-// is what makes this a test of the rasterizer rather than of argv.
-func (r *TesseractTests) FromPdfDpiSetsRasterResolution(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:849:1)
-	if r.fromPdfDpiSetsRasterResolution != nil {
-		return nil
-	}
-	q := r.query.Select("fromPdfDpiSetsRasterResolution")
-
-	return q.Execute(ctx)
-}
-
-// FromPdfExportRendersEveryFormatAsOneDocument asserts a multi-page PDF stays
-// one document through every renderer, not just through plain text.
-//
-// This is the assumption the whole design rests on. Rasterization produces one
-// image per page, and recognition feeds them to tesseract as a file list — so
-// the question is whether each renderer accumulates the pages into a single
-// artifact or whether only the text one does. If any of them emitted just the
-// last page, the fix would not be a patch: it would mean rasterizing to a
-// multi-page TIFF instead, which needs another package on the image.
-//
-// Each format is therefore checked for its own per-page structure rather than
-// for mere existence: three page elements, three page numbers, three PDF
-// pages. A renderer that kept only one page would still produce a file.
-func (r *TesseractTests) FromPdfExportRendersEveryFormatAsOneDocument(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:899:1)
-	if r.fromPdfExportRendersEveryFormatAsOneDocument != nil {
-		return nil
-	}
-	q := r.query.Select("fromPdfExportRendersEveryFormatAsOneDocument")
-
-	return q.Execute(ctx)
-}
-
-// FromPdfRecognizesEveryPageInOrder asserts the whole PDF entry point: every
-// page is rasterized, every page is recognised, and the pages arrive in
-// document order.
-//
-// Order is the half that needs a fixture with distinct pages. Rasterization
-// writes one file per page and the recognition pass reads them from a list, so
-// a sorting bug — page-10 before page-2, say — would still produce text for
-// every page and still look like a success.
-func (r *TesseractTests) FromPdfRecognizesEveryPageInOrder(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:833:1)
-	if r.fromPdfRecognizesEveryPageInOrder != nil {
-		return nil
-	}
-	q := r.query.Select("fromPdfRecognizesEveryPageInOrder")
-
-	return q.Execute(ctx)
-}
-
 // HocrContainsWordBoxes asserts hOCR carries the per-word geometry that is the
 // whole reason to ask for it rather than plain text.
-func (r *TesseractTests) HocrContainsWordBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:340:1)
+func (r *TesseractTests) HocrContainsWordBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:341:1)
 	if r.hocrContainsWordBoxes != nil {
 		return nil
 	}
@@ -676,7 +601,7 @@ func (r *TesseractTests) UnmarshalJSON(bs []byte) error {
 // is that no member is dead: LEGACY and LEGACY_LSTM only work because Alpine
 // packages the *combined* tessdata models. A rebuild against tessdata_fast or
 // tessdata_best would strip the legacy data and this is where that shows up.
-func (r *TesseractTests) LstmEngineRecognizesFixture(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:581:1)
+func (r *TesseractTests) LstmEngineRecognizesFixture(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:582:1)
 	if r.lstmEngineRecognizesFixture != nil {
 		return nil
 	}
@@ -693,7 +618,7 @@ func (r *TesseractTests) LstmEngineRecognizesFixture(ctx context.Context) error 
 // it, because that is what a sample is *for*: the file pairs the line's pixels
 // with the characters they are supposed to be, and a sample built against the
 // wrong text trains the model to be wrong without ever failing.
-func (r *TesseractTests) LstmTrainBuildsTrainingSample(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1693:1)
+func (r *TesseractTests) LstmTrainBuildsTrainingSample(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1631:1)
 	if r.lstmTrainBuildsTrainingSample != nil {
 		return nil
 	}
@@ -705,7 +630,7 @@ func (r *TesseractTests) LstmTrainBuildsTrainingSample(ctx context.Context) erro
 // MalformedParameterNameIsRejected asserts an empty parameter name, and one
 // carrying its own `=`, are refused. `-c` takes `name=value`, so an embedded
 // `=` would quietly set a different variable to a different value.
-func (r *TesseractTests) MalformedParameterNameIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:777:1)
+func (r *TesseractTests) MalformedParameterNameIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:779:1)
 	if r.malformedParameterNameIsRejected != nil {
 		return nil
 	}
@@ -717,7 +642,7 @@ func (r *TesseractTests) MalformedParameterNameIsRejected(ctx context.Context) e
 // NonPositiveDpiIsRejected asserts a zero or negative resolution is refused
 // rather than handed to tesseract, which would take it as a real measurement
 // and scale its analysis by it.
-func (r *TesseractTests) NonPositiveDpiIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:803:1)
+func (r *TesseractTests) NonPositiveDpiIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:805:1)
 	if r.nonPositiveDpiIsRejected != nil {
 		return nil
 	}
@@ -736,7 +661,7 @@ func (r *TesseractTests) NonPositiveDpiIsRejected(ctx context.Context) error { /
 // works at all: without it, anything running several recognitions at once has
 // no way to stop each pass claiming every core, which cost this very suite
 // nine minutes on a four-core runner (#226).
-func (r *TesseractTests) OmpThreadLimitBoundsOpenMp(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:277:1)
+func (r *TesseractTests) OmpThreadLimitBoundsOpenMp(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:278:1)
 	if r.ompThreadLimitBoundsOpenMp != nil {
 		return nil
 	}
@@ -748,7 +673,7 @@ func (r *TesseractTests) OmpThreadLimitBoundsOpenMp(ctx context.Context) error {
 // OsdDetectsRotation asserts orientation detection reads the quarter-turn in
 // the rotated fixture and reports the rotation that would undo it, while the
 // upright fixture reports no rotation at all.
-func (r *TesseractTests) OsdDetectsRotation(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:660:1)
+func (r *TesseractTests) OsdDetectsRotation(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:661:1)
 	if r.osdDetectsRotation != nil {
 		return nil
 	}
@@ -760,7 +685,7 @@ func (r *TesseractTests) OsdDetectsRotation(ctx context.Context) error { // tess
 // OsdWithoutOsdDataIsRejected asserts orientation detection on an image built
 // without the osd model names the fix rather than failing inside tesseract,
 // which would report a missing traineddata file.
-func (r *TesseractTests) OsdWithoutOsdDataIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:741:1)
+func (r *TesseractTests) OsdWithoutOsdDataIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:742:1)
 	if r.osdWithoutOsdDataIsRejected != nil {
 		return nil
 	}
@@ -772,7 +697,7 @@ func (r *TesseractTests) OsdWithoutOsdDataIsRejected(ctx context.Context) error 
 // PdfHasPdfMagic asserts the searchable-PDF renderer emits a real PDF. The
 // bytes go through the filesystem rather than File.Contents, which mangles
 // non-UTF-8 data.
-func (r *TesseractTests) PdfHasPdfMagic(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:416:1)
+func (r *TesseractTests) PdfHasPdfMagic(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:417:1)
 	if r.pdfHasPdfMagic != nil {
 		return nil
 	}
@@ -785,10 +710,11 @@ func (r *TesseractTests) PdfHasPdfMagic(ctx context.Context) error { // tesserac
 // no PDF support and reports the failure as if the file's first line were a
 // file name it could not open, which sends people looking in the wrong place.
 //
-// The error has to name FromPdf, which is the whole difference between an
-// error that ends the caller's afternoon and one that ends their next line of
-// code: rasterizing is no longer something they have to go and arrange.
-func (r *TesseractTests) PdfInputIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:761:1)
+// The error has to name the pdf module and Batch, which is the whole difference
+// between an error that ends the caller's afternoon and one that ends their
+// next line of code: it names the two calls that fix it rather than leaving
+// "render this first" as an errand.
+func (r *TesseractTests) PdfInputIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:763:1)
 	if r.pdfInputIsRejected != nil {
 		return nil
 	}
@@ -797,11 +723,41 @@ func (r *TesseractTests) PdfInputIsRejected(ctx context.Context) error { // tess
 	return q.Execute(ctx)
 }
 
+// PdfModulePagesBatchIntoOneSearchablePdf runs the flow this module's PDF story
+// is now made of, end to end and across two modules: the pdf module renders a
+// document's pages, Batch recognises them concurrently, and the per-page
+// searchable PDFs are merged back into one.
+//
+// It is one test rather than three because the seam is what is under test. Each
+// module's own suite already covers its half; what neither can check alone is
+// that the page names the pdf module writes sort into page order here, that the
+// render resolution has to be carried across by the caller because nothing in
+// the images states it, and that what Batch returns is in a shape the pdf
+// module will take back.
+//
+// The merge is the half worth spelling out. Batch gives one single-page
+// searchable PDF per image — that is what "a directory of independent inputs"
+// means, and it is the price of recognising the pages concurrently instead of
+// as one serial document — so reassembling the document is the caller's job.
+// This pins that the job is one call and not a project.
+//
+// The TSV is the other half of the primary use case, and the assertion on it is
+// per page: each file is named after the page it describes, which is the whole
+// reason reconciling word positions back to pages is possible.
+func (r *TesseractTests) PdfModulePagesBatchIntoOneSearchablePdf(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:848:1)
+	if r.pdfModulePagesBatchIntoOneSearchablePdf != nil {
+		return nil
+	}
+	q := r.query.Select("pdfModulePagesBatchIntoOneSearchablePdf")
+
+	return q.Execute(ctx)
+}
+
 // ProcessedImagesReturnsThresholdedTiff asserts the image tesseract actually
 // recognised comes back, and that it is the processed one rather than the
 // source: the fixture goes in as a PNG and this comes out as a TIFF, which is
 // the observable half of "this is a derivative, not your file".
-func (r *TesseractTests) ProcessedImagesReturnsThresholdedTiff(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1673:1)
+func (r *TesseractTests) ProcessedImagesReturnsThresholdedTiff(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1611:1)
 	if r.processedImagesReturnsThresholdedTiff != nil {
 		return nil
 	}
@@ -813,7 +769,7 @@ func (r *TesseractTests) ProcessedImagesReturnsThresholdedTiff(ctx context.Conte
 // RequestedLanguagesAreInstalled asserts every requested language lands in the
 // image as its own apk package, including "osd", which is a detection model
 // rather than a recognition language.
-func (r *TesseractTests) RequestedLanguagesAreInstalled(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:254:1)
+func (r *TesseractTests) RequestedLanguagesAreInstalled(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:255:1)
 	if r.requestedLanguagesAreInstalled != nil {
 		return nil
 	}
@@ -827,7 +783,7 @@ func (r *TesseractTests) RequestedLanguagesAreInstalled(ctx context.Context) err
 // that finds the lines, so it returns far less than the default mode does —
 // which is the observable proof the flag was passed, without asserting on
 // whatever garbage the constrained mode happens to produce.
-func (r *TesseractTests) SingleWordPageSegReturnsFewerWords(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:555:1)
+func (r *TesseractTests) SingleWordPageSegReturnsFewerWords(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:556:1)
 	if r.singleWordPageSegReturnsFewerWords != nil {
 		return nil
 	}
@@ -840,7 +796,7 @@ func (r *TesseractTests) SingleWordPageSegReturnsFewerWords(ctx context.Context)
 // mounting a tessdata directory adds the models it holds and nothing else, so a
 // language neither half carries is rejected the same way it was before, with
 // both halves listed and both ways of adding one named.
-func (r *TesseractTests) TessdataDoesNotAdmitUnknownLanguage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:721:1)
+func (r *TesseractTests) TessdataDoesNotAdmitUnknownLanguage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:722:1)
 	if r.tessdataDoesNotAdmitUnknownLanguage != nil {
 		return nil
 	}
@@ -866,7 +822,7 @@ func (r *TesseractTests) TessdataDoesNotAdmitUnknownLanguage(ctx context.Context
 // configfiles, and pdf.ttf is what the PDF renderer draws its invisible text
 // layer with. Pointed at the caller's directory alone, every renderer breaks
 // and every packaged language disappears.
-func (r *TesseractTests) TessdataModelIsSelectable(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:487:1)
+func (r *TesseractTests) TessdataModelIsSelectable(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:488:1)
 	if r.tessdataModelIsSelectable != nil {
 		return nil
 	}
@@ -882,7 +838,7 @@ func (r *TesseractTests) TessdataModelIsSelectable(ctx context.Context) error { 
 // answered from the requested package set alone. A supplied osd.traineddata
 // would have been refused by this module while sitting right there in the
 // image, which is the failure mode this pins.
-func (r *TesseractTests) TessdataSuppliesOsdModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:533:1)
+func (r *TesseractTests) TessdataSuppliesOsdModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:534:1)
 	if r.tessdataSuppliesOsdModel != nil {
 		return nil
 	}
@@ -893,7 +849,7 @@ func (r *TesseractTests) TessdataSuppliesOsdModel(ctx context.Context) error { /
 
 // TextRecognizesFixture asserts the shortest path — image in, string out —
 // reproduces every line the fixture renders.
-func (r *TesseractTests) TextRecognizesFixture(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:311:1)
+func (r *TesseractTests) TextRecognizesFixture(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:312:1)
 	if r.textRecognizesFixture != nil {
 		return nil
 	}
@@ -911,7 +867,7 @@ func (r *TesseractTests) TextRecognizesFixture(ctx context.Context) error { // t
 // off-by-one ones: the run stops one image short, or one transcription is
 // saved under the wrong stem. "Something is unpaired" sends the caller to diff
 // two file listings; "line-3.png has no ground truth" does not.
-func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1747:1)
+func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1680:1)
 	if r.trainingPairsImagesWithGroundTruth != nil {
 		return nil
 	}
@@ -934,7 +890,7 @@ func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context)
 // what that default is for is precisely this: a bound low enough that a
 // training run belongs in a test suite. If it ever stops being, this test is
 // where that shows up.
-func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1903:1)
+func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1836:1)
 	if r.trainingProducesUsableModel != nil {
 		return nil
 	}
@@ -949,7 +905,7 @@ func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error 
 // A training run is the most expensive thing this module does, so the cost of
 // finding out late is not a slow error message — it is minutes of a machine
 // arriving at a failure that was visible from the outside the whole time.
-func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1807:1)
+func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1740:1)
 	if r.trainingRejectsUnusableInput != nil {
 		return nil
 	}
@@ -967,7 +923,7 @@ func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error
 // loads, recognises, and lists as a language like any other — and lstmtraining
 // says only "eng.lstm is an integer (fast) model", which names neither the
 // float models nor how to get one onto the image.
-func (r *TesseractTests) TrainingRequiresFloatBaseModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1872:1)
+func (r *TesseractTests) TrainingRequiresFloatBaseModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1805:1)
 	if r.trainingRequiresFloatBaseModel != nil {
 		return nil
 	}
@@ -979,7 +935,7 @@ func (r *TesseractTests) TrainingRequiresFloatBaseModel(ctx context.Context) err
 // TsvHasHeaderAndWordRows asserts the TSV renderer emits its column header and
 // descends all the way to word-level rows (level 5), which is the level
 // carrying the text and its confidence.
-func (r *TesseractTests) TsvHasHeaderAndWordRows(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:382:1)
+func (r *TesseractTests) TsvHasHeaderAndWordRows(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:383:1)
 	if r.tsvHasHeaderAndWordRows != nil {
 		return nil
 	}
@@ -990,7 +946,7 @@ func (r *TesseractTests) TsvHasHeaderAndWordRows(ctx context.Context) error { //
 
 // TxtFileMatchesText asserts the txt renderer and the stdout path agree, so
 // choosing a file over a string is purely a plumbing decision.
-func (r *TesseractTests) TxtFileMatchesText(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:321:1)
+func (r *TesseractTests) TxtFileMatchesText(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:322:1)
 	if r.txtFileMatchesText != nil {
 		return nil
 	}
@@ -1003,7 +959,7 @@ func (r *TesseractTests) TxtFileMatchesText(ctx context.Context) error { // tess
 // rejected with the installed set named. tesseract's own failure talks about
 // traineddata paths and TESSDATA_PREFIX, which says nothing about the fact
 // that languages are chosen on New.
-func (r *TesseractTests) UnknownLanguageIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:689:1)
+func (r *TesseractTests) UnknownLanguageIsRejected(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:690:1)
 	if r.unknownLanguageIsRejected != nil {
 		return nil
 	}
@@ -1019,7 +975,7 @@ func (r *TesseractTests) UnknownLanguageIsRejected(ctx context.Context) error { 
 // and exits 0, so a typo would otherwise be indistinguishable from a setting
 // that simply had no effect. The same test pins the other half: a real
 // parameter still goes through, so the check is not just rejecting everything.
-func (r *TesseractTests) UnknownParameterFails(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:607:1)
+func (r *TesseractTests) UnknownParameterFails(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:608:1)
 	if r.unknownParameterFails != nil {
 		return nil
 	}
@@ -1041,7 +997,7 @@ func (r *TesseractTests) UnknownParameterFails(ctx context.Context) error { // t
 // asserting on apk's own wording (it says `UNTRUSTED signature`) is not
 // available: an exec failure crosses the module boundary as its exit status,
 // with the output left in the logs.
-func (r *TesseractTests) UntrustedIndexIsRejectedWithoutApkKey(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:318:1)
+func (r *TesseractTests) UntrustedIndexIsRejectedWithoutApkKey(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/apk.go:297:1)
 	if r.untrustedIndexIsRejectedWithoutApkKey != nil {
 		return nil
 	}
@@ -1059,7 +1015,7 @@ func (r *TesseractTests) UntrustedIndexIsRejectedWithoutApkKey(ctx context.Conte
 // a dictionary hint on an already-clean fixture is not reliably observable.
 // What this does catch is a wrong mount path or a flag emitted in the wrong
 // position, either of which turns the whole run into a usage error.
-func (r *TesseractTests) UserWordsFileIsAccepted(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:643:1)
+func (r *TesseractTests) UserWordsFileIsAccepted(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:644:1)
 	if r.userWordsFileIsAccepted != nil {
 		return nil
 	}
@@ -1071,7 +1027,7 @@ func (r *TesseractTests) UserWordsFileIsAccepted(ctx context.Context) error { //
 // VersionReportsTesseractFive asserts the assembled image ships the tesseract
 // release Alpine's community repository carries, so a base-tag bump that
 // silently changes major version fails here rather than in recognition.
-func (r *TesseractTests) VersionReportsTesseractFive(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:225:1)
+func (r *TesseractTests) VersionReportsTesseractFive(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:226:1)
 	if r.versionReportsTesseractFive != nil {
 		return nil
 	}

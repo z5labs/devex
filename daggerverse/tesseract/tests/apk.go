@@ -28,15 +28,13 @@ const (
 	mirrorImage = "docker.io/library/alpine:3.24"
 
 	// mirrorPackages is what the mirror has to carry to stand in for the
-	// public repositories completely — the toolchain's packages *and* the PDF
-	// rasterizer's, because a mirror that covers only the first leaves FromPdf
-	// broken in exactly the environment it exists for.
-	mirrorPackages = tesseractPkg + " " + tesseractDataPkg + " " + popplerPkg + " " + fontPkg
+	// public repositories completely. That is the whole toolchain and nothing
+	// else: this module performs exactly one `apk add`, rendering a document's
+	// pages having moved to the pdf module along with the packages that did it.
+	mirrorPackages = tesseractPkg + " " + tesseractDataPkg
 
 	tesseractPkg     = "tesseract-ocr"
 	tesseractDataPkg = "tesseract-ocr-data-eng"
-	popplerPkg       = "poppler-utils"
-	fontPkg          = "ttf-liberation"
 
 	// mirrorBuildDir is the repository tree the build container assembles —
 	// one architecture directory holding the packages and the signed index —
@@ -281,25 +279,6 @@ func (t *Tests) ApkRepositoryReplacesImageDefaults(ctx context.Context) error {
 		return fmt.Errorf("expected %s to hold only %q, got:\n%s", apkRepositoriesFile, mirror.URL, got)
 	}
 	return nil
-}
-
-// ApkRepositoryAppliesToPdfRasterizer asserts the PDF rasterizer installs its
-// packages from the configured mirror too.
-//
-// It is a separate container from the toolchain — poppler and its font are
-// paid for only by callers who rasterize something — so it is a second place
-// the configuration has to reach, and covering only the first would leave PDF
-// input broken in exactly the environment this option exists for.
-func (t *Tests) ApkRepositoryAppliesToPdfRasterizer(ctx context.Context) error {
-	mirror, err := startApkMirror(ctx, false)
-	if err != nil {
-		return err
-	}
-	got, err := mirror.apply(ocr()).FromPdf(fixture(ledgerPdf)).Text(ctx)
-	if err != nil {
-		return fmt.Errorf("FromPdf off a private mirror: %w", err)
-	}
-	return assertLedgerPages(got)
 }
 
 // UntrustedIndexIsRejectedWithoutApkKey asserts a repository whose index is

@@ -14,12 +14,10 @@ import (
 // immutable: every With* returns a copy, so a configured Document can be
 // branched into several outputs without the branches interfering.
 //
-// The unit comes in two shapes, and a document holds whichever it was built
-// as: a single image in Source, or the rasterized pages of a PDF in Pages.
-// They are alternatives rather than layers — exactly one is ever set — and
-// everything downstream of validate is written against the resolved FILE
-// argument, so the outputs, the options and the error paths are shared rather
-// than reimplemented per shape.
+// The unit is one image, and that is the whole of it: tesseract resolves
+// nothing relative to its input, so a file is the natural boundary. A folder of
+// them is Batch, which is built out of these rather than beside them — one
+// Document per image — so everything below is what a batch runs too.
 //
 // The options themselves live on the shared options type, which Batch carries
 // too — the builders here are forwarders, so a new recognition option reaches
@@ -29,10 +27,6 @@ type Document struct {
 	Tesseract *Tesseract
 	// +private
 	Source *dagger.File
-	// +private
-	Pages *dagger.Directory
-	// +private
-	PdfDpi int
 	// +private
 	Options options
 }
@@ -187,10 +181,6 @@ func (d *Document) LstmTrain(
 	// The single line of text this image renders.
 	groundTruth string,
 ) (*dagger.File, error) {
-	if d.Pages != nil {
-		return nil, fmt.Errorf(
-			"LstmTrain: a rasterized PDF is a whole document, and a training sample is one line: call Document on the page images you want to train on, one line at a time")
-	}
 	source, err := d.validate(ctx)
 	if err != nil {
 		return nil, err
@@ -390,30 +380,18 @@ func execTool(ctx context.Context, ctr *dagger.Container, args []string, tool st
 // user word/pattern lists, and stages the writable output directory
 // recognition renders into.
 //
-// A rasterized PDF mounts its whole page directory, at the path the page list
-// names its entries by — the list holds absolute paths, so this mount and the
-// one the rasterizer wrote them under have to agree.
-//
 // The output directory arrives as an empty directory rather than as a `mkdir`
 // exec. tesseract will not create it and the difference is one exec per
 // recognition — invisible on one document, and doubled work on a batch, which
 // runs one of these per image.
 func (d *Document) container(source string) *dagger.Container {
-	ctr := d.Tesseract.Container()
-	if d.Pages != nil {
-		ctr = ctr.WithMountedDirectory(pdfPagesDir, d.Pages)
-	} else {
-		ctr = ctr.WithMountedFile(source, d.Source)
-	}
+	ctr := d.Tesseract.Container().WithMountedFile(source, d.Source)
 	return d.Options.mount(ctr.WithDirectory(outputDir, dag.Directory()))
 }
 
 // validate reports every deferred builder check and returns the path the
 // source is mounted at.
 func (d *Document) validate(ctx context.Context) (string, error) {
-	if err := d.validatePdfDpi(); err != nil {
-		return "", err
-	}
 	source, err := d.sourcePath(ctx)
 	if err != nil {
 		return "", err
@@ -424,18 +402,10 @@ func (d *Document) validate(ctx context.Context) (string, error) {
 	return source, nil
 }
 
-// sourcePath resolves the FILE argument recognition runs against.
-//
-// For a rasterized PDF that is the page list rather than an image: handed a
-// file it cannot identify as one, tesseract reads it as a list of image paths
-// and processes them in order as a single document, which is exactly the unit
-// of work a PDF is. For a single image it is the mount path, keeping the
-// caller's extension so container logs name something recognisable, and PDF
-// input is rejected along the way.
+// sourcePath resolves the FILE argument recognition runs against: the mount
+// path, keeping the caller's extension so container logs name something
+// recognisable. PDF input is rejected along the way.
 func (d *Document) sourcePath(ctx context.Context) (string, error) {
-	if d.Pages != nil {
-		return pdfPageListPath, nil
-	}
 	name, err := d.Source.Name(ctx)
 	if err != nil {
 		return "", fmt.Errorf("read source file name: %w", err)
@@ -451,13 +421,18 @@ func (d *Document) sourcePath(ctx context.Context) (string, error) {
 // Leptonica — the image library tesseract reads through — has no PDF support
 // at all, and says so unhelpfully: it reports the file's first line as if it
 // were a file name it could not open. Rejecting the extension here is the
-// difference between an actionable error and a confusing one, and now that
-// FromPdf exists the fix is a function name rather than an errand.
+// difference between an actionable error and a confusing one.
+//
+// Rendering a PDF is the pdf module's job rather than this one's, so the
+// message names the two calls that fix it rather than leaving "render this
+// first" as an errand. It names Batch and not Document because a rendered PDF
+// is a directory of pages: one call per page would be the caller reimplementing
+// the fan-out Batch already does.
 func rejectPdf(name string) error {
 	if !strings.EqualFold(path.Ext(name), ".pdf") {
 		return nil
 	}
 	return fmt.Errorf(
-		"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; call FromPdf instead, which rasterizes the pages first and returns a Document over them",
+		"source %q is a PDF: tesseract reads images through leptonica, which has no PDF support; render its pages with the pdf module — Document(source).Convert().WithDpi(300).Png() — and hand that directory to Batch",
 		name)
 }

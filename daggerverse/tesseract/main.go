@@ -12,9 +12,7 @@
 // reach the public internet has to be told about both. New's registry argument
 // moves the *image*; WithApkRepository, WithApkKey and WithApkAuth move the
 // *packages*, and are what an air-gapped run needs — a mirrored Alpine image
-// still runs `apk add` against dl-cdn.alpinelinux.org otherwise. Both `apk add`
-// this module performs, the toolchain's and the PDF rasterizer's, are
-// configured from the one place.
+// still runs `apk add` against dl-cdn.alpinelinux.org otherwise.
 //
 // The language set lives on the root object rather than on Document because on
 // Alpine each language is a separate apk package (`tesseract-ocr-data-<lang>`,
@@ -24,16 +22,14 @@
 // Alpine has no package for — a directory of `.traineddata` merged into the
 // image's datadir, and from there indistinguishable from a packaged language.
 //
-// PDF input is rasterized rather than read, because leptonica cannot read PDF
-// at all. That work happens in its own container — Alpine at the same pinned
-// tag, plus poppler-utils and a font — instead of on the toolchain image,
-// which is a decision about who pays for it. Unconditionally installing both
-// packages takes the toolchain image from 67.1MiB to 81.4MiB, a 21% tax on
-// every caller who only ever hands this module a PNG. Rasterizing separately
-// leaves that image untouched and costs a PDF caller a 35.0MiB container of
-// which the 8.0MiB Alpine base is already shared, so the extra bytes are paid
-// once, by the callers who asked for them, and the rasterization caches
-// separately from recognition on top of that.
+// PDF is not an input here at all, because leptonica cannot read it and this
+// module carries nothing that can. Rendering a document's pages is the pdf
+// module's job, and its page directory is what Batch takes — so the split is
+// also the fast path, one concurrent recognition per page rather than one
+// serial pass over all of them. That is why the toolchain image is tesseract
+// and its language data and nothing else: carrying poppler and a substitute
+// font for the callers who happened to have a PDF cost every other caller 21%
+// of the image.
 //
 // File map (all `package main`, surfaced as one Dagger module):
 //
@@ -47,8 +43,6 @@
 //     Document per image, WithConcurrency of them recognised at a time.
 //   - ci.go        — *Ci, a batch plus a confidence gate, for the repo that
 //     wants its whole document pipeline as one declarative call.
-//   - pdf.go       — FromPdf, the rasterizer that turns a PDF into pages a
-//     *Document can recognise.
 //   - training.go  — *Training, the other direction: images plus ground truth
 //     in, a fine-tuned model out.
 package main
@@ -202,36 +196,6 @@ const (
 	// is not a layer either.
 	apkNetrcPath = "/run/apk/netrc"
 	apkNetrcEnv  = "NETRC"
-
-	// popplerPkg carries pdftoppm, the rasterizer FromPdf drives. fontPkg is
-	// the substitute font family poppler draws with when a PDF names one of
-	// the base-14 fonts without embedding it; see rasterize for why it is not
-	// optional.
-	popplerPkg = "poppler-utils"
-	fontPkg    = "ttf-liberation"
-
-	// pdfSourcePath is where the PDF is mounted in the rasterizer. It sits
-	// outside workDir because the rasterizer is a different container from the
-	// one recognition runs in, and shares nothing with it but the page
-	// directory.
-	pdfSourcePath = "/pdf/source.pdf"
-
-	// pdfPagesDir holds the rasterized pages. The rasterizer writes them here
-	// and recognition mounts them back at the same path, which is what lets
-	// the page list name them by absolute path.
-	pdfPagesDir = workDir + "/pages"
-
-	// pdfPageBase is the OUTPUTBASE handed to pdftoppm, which appends a page
-	// number and the format's extension to it; pdfPageListPath is the file
-	// list recognition then takes as its FILE argument.
-	pdfPageBase     = pdfPagesDir + "/page"
-	pdfPageListPath = pdfPagesDir + "/pages.txt"
-
-	// defaultPdfDpi is the resolution pages are rasterized at. 300 is the
-	// long-standing recommendation for OCR input in tesseract's own quality
-	// documentation, and the resolution scanners are set to for the same
-	// reason.
-	defaultPdfDpi = 300
 
 	// ompThreadLimitEnv caps the OpenMP team size tesseract's recognition
 	// loops fan out to.
@@ -556,9 +520,9 @@ func (t *Tesseract) clone() *Tesseract {
 }
 
 // base is the module's Alpine image with package installation configured, and
-// is what every `apk add` in this module starts from — the toolchain's here,
-// the rasterizer's in pdf.go — so the two cannot drift into fetching packages
-// from different places.
+// is what the one `apk add` this module performs starts from. It stays a
+// separate step from that install so a second one added later cannot drift into
+// fetching its packages from somewhere else.
 func (t *Tesseract) base() *dagger.Container {
 	return t.withApkConfig(dag.Container().From(t.image()))
 }

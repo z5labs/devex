@@ -286,6 +286,15 @@ type ModuleSourceID string
 // A unique identifier for an object.
 type ObjectTypeDefID string
 
+// A unique identifier for an object.
+type PdfConvertID string
+
+// A unique identifier for an object.
+type PdfDocumentID string
+
+// A unique identifier for an object.
+type PdfID string
+
 // The platform config OS and architecture in a Container.
 //
 // The format is [os]/[platform]/[version] (e.g., "darwin/arm64/v7", "windows/amd64", "linux/arm64").
@@ -13230,6 +13239,36 @@ func (r *Query) LoadObjectTypeDefFromID(id ObjectTypeDefID) *ObjectTypeDef {
 	q = q.Arg("id", id)
 
 	return &ObjectTypeDef{
+		query: q,
+	}
+}
+
+// Load a PdfConvert from its ID.
+func (r *Query) LoadPdfConvertFromID(id PdfConvertID) *PdfConvert {
+	q := r.query.Select("loadPdfConvertFromID")
+	q = q.Arg("id", id)
+
+	return &PdfConvert{
+		query: q,
+	}
+}
+
+// Load a PdfDocument from its ID.
+func (r *Query) LoadPdfDocumentFromID(id PdfDocumentID) *PdfDocument {
+	q := r.query.Select("loadPdfDocumentFromID")
+	q = q.Arg("id", id)
+
+	return &PdfDocument{
+		query: q,
+	}
+}
+
+// Load a Pdf from its ID.
+func (r *Query) LoadPdfFromID(id PdfID) *Pdf {
+	q := r.query.Select("loadPdfFromID")
+	q = q.Arg("id", id)
+
+	return &Pdf{
 		query: q,
 	}
 }

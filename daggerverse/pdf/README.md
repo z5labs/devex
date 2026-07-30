@@ -920,9 +920,16 @@ about. Same posture as `tesseract`'s outputs and `kicad`.
 ## Follow-ups
 
 Cropping the render window and selecting odd or even pages (#272); the chained
-`Ci` builder (#273); linearize, encrypt and repair via qpdf (#274); removing
-`tesseract`'s `FromPdf` in favour of this module (#276); renderer fidelity and
-colour-profile options (#277).
+`Ci` builder (#273); linearize, encrypt and repair via qpdf (#274); renderer
+fidelity and colour-profile options (#277).
+
+`tesseract`'s `FromPdf` was removed in favour of this module (#276): that module
+carries no rasterizer at all now, so `Png()` feeds its `Batch` directly — which
+is why the page numbers this module writes are padded to a fixed width rather
+than to whatever `pdftoppm` chose. Render at `WithDpi(300)` for OCR and pass the
+same 300 to the batch; the resolution is not recoverable from the images. What
+comes back is one artifact per page, so `Merge` is the other end of that flow:
+it is what turns per-page searchable PDFs back into the document.
 
 Deliberately **not** planned: ghostscript or mupdf rendering backends, and
 `pdfattach`. A second rasterizer buys different rendering bugs rather than
