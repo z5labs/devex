@@ -311,6 +311,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ClientCertPassphraseUnlocksTheKey(&parent, ctx)
+		case "CsvDataDrivesOneRunPerRow":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CsvDataDrivesOneRunPerRow(&parent, ctx)
+		case "DataFileWithoutKnownExtensionIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DataFileWithoutKnownExtensionIsRejected(&parent, ctx)
 		case "DriftIgnoresHandWrittenTests":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +332,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).DriftIgnoresHandWrittenTests(&parent, ctx)
+		case "FailingIterationFailsRunAndIsNamedInTheReport":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FailingIterationFailsRunAndIsNamedInTheReport(&parent, ctx)
 		case "GenerateHonoursOpenCollectionFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -339,6 +360,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GenerateRejectsUnknownFormat(&parent, ctx)
+		case "JsonDataDrivesOneRunPerRow":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).JsonDataDrivesOneRunPerRow(&parent, ctx)
 		case "JsonEnvFileKeepsItsExtension":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

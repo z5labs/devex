@@ -28,7 +28,7 @@ func (r *Binding) AsBrunoCi() *BrunoCi { // bruno (../../../../../daggerverse/br
 }
 
 // Retrieve the binding value, as type BrunoCollection
-func (r *Binding) AsBrunoCollection() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
+func (r *Binding) AsBrunoCollection() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
 	q := r.query.Select("asBrunoCollection")
 
 	return &BrunoCollection{
@@ -66,7 +66,7 @@ func (r *Bruno) Ci(source *Directory) *BrunoCi { // bruno (../../../../../dagger
 }
 
 // Collection binds a Bruno collection directory to the toolchain.
-func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:148:1)
+func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:158:1)
 	assertNotNil("source", source)
 	q := r.query.Select("collection")
 	q = q.Arg("source", source)
@@ -580,7 +580,7 @@ func (r *BrunoCi) AsNode() Node {
 // The input is a directory, not a lone request file: bru exits 4 when invoked
 // outside a collection root, and resolves environments/ and .env relative to
 // it.
-type BrunoCollection struct { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
+type BrunoCollection struct { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
 	query *querybuilder.Selection
 
 	checkDrift *Void
@@ -759,7 +759,7 @@ func (r *BrunoCollection) Lint(ctx context.Context, opts ...BrunoCollectionLintO
 //
 // The run is recursive, matching Run's default, so the artifact describes the
 // whole collection.
-func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:334:1)
+func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:362:1)
 	q := r.query.Select("report")
 	q = q.Arg("format", format)
 
@@ -778,7 +778,7 @@ type BrunoCollectionRunOpts struct {
 	//
 	//
 	// Default: true
-	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:301:2)
+	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:329:2)
 }
 
 // Run executes the collection and returns bru's output.
@@ -792,7 +792,7 @@ type BrunoCollectionRunOpts struct {
 // A failing Run returns no output alongside its error: a Dagger function that
 // returns an error forfeits its value. Pair it with Report when the artifact
 // matters.
-func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:294:1)
+func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:322:1)
 	if r.run != nil {
 		return *r.run, nil
 	}
@@ -812,7 +812,7 @@ func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpt
 
 // WithBail stops the run at the first failing request, test or assertion
 // (`--bail`) instead of working through the rest of the collection.
-func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:267:1)
+func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:295:1)
 	q := r.query.Select("withBail")
 
 	return &BrunoCollection{
@@ -880,9 +880,31 @@ func (r *BrunoCollection) WithClientCert(host string, cert *File, key *Secret, o
 	}
 }
 
+// WithData runs the collection once per row of a data file — a CSV
+// (`--csv-file-path`) or a JSON array (`--json-file-path`) — with that row's
+// columns readable from every request as runtime variables.
+//
+// One collection then covers a matrix rather than a case: the tenants, regions
+// or payloads a suite would otherwise carry a copy of the same request for.
+// Each row is an iteration, and every reporter writes one entry per iteration.
+//
+// It takes a file rather than a flag and a path because the extension already
+// says which of the two bru wants: .csv or .json. Like the other builders it
+// has no error return, so a file that is neither is reported by the run that
+// would have read it.
+func (r *BrunoCollection) WithData(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:222:1)
+	assertNotNil("file", file)
+	q := r.query.Select("withData")
+	q = q.Arg("file", file)
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
 // WithDelay waits the given number of milliseconds between requests
 // (`--delay`), for a target that rate-limits.
-func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:275:1)
+func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:303:1)
 	q := r.query.Select("withDelay")
 	q = q.Arg("milliseconds", milliseconds)
 
@@ -894,7 +916,7 @@ func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // brun
 // WithEnvFile supplies an environment file (`--env-file`), a .bru or .json
 // file holding the variables for the run. It is mounted outside the
 // collection, so it never shadows a file the collection ships.
-func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:194:1)
+func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:204:1)
 	assertNotNil("file", file)
 	q := r.query.Select("withEnvFile")
 	q = q.Arg("file", file)
@@ -907,7 +929,7 @@ func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (.
 // WithEnvironment selects the environment bru resolves variables from
 // (`--env`), by the name of the file under environments/ without its
 // extension. An unknown name is bru's exit 6, reported as a usage error.
-func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:155:1)
+func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:165:1)
 	q := r.query.Select("withEnvironment")
 	q = q.Arg("name", name)
 
@@ -924,7 +946,7 @@ func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bru
 // CA: use WithCaCert for that, and WithClientCert to authenticate with a
 // certificate of the run's own. bru drops `--cacert` when `--insecure` is set,
 // so combining the two is rejected rather than quietly verifying nothing.
-func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:250:1)
+func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:278:1)
 	q := r.query.Select("withInsecure")
 
 	return &BrunoCollection{
@@ -941,7 +963,7 @@ func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../.
 // A collection that says nothing runs in "safe", matching both bru's default
 // and Collection's. Like WithVar, an unknown mode is reported by the run
 // rather than here.
-func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:236:1)
+func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:264:1)
 	q := r.query.Select("withSandbox")
 	q = q.Arg("mode", mode)
 
@@ -957,7 +979,7 @@ func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (
 // `--env-var` places its value on the process command line. A secret is bound
 // with WithSecretVariable instead, so it appears in neither argv nor any
 // diagnostic this module echoes back.
-func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:184:1)
+func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:194:1)
 	assertNotNil("value", value)
 	q := r.query.Select("withSecretVar")
 	q = q.Arg("name", name)
@@ -971,7 +993,7 @@ func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollec
 // WithService binds a service into the run's network under alias, so the
 // collection can reach it by that hostname. A collection is inert without a
 // target, which is why this exists at all.
-func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:220:1)
+func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:248:1)
 	assertNotNil("service", service)
 	q := r.query.Select("withService")
 	q = q.Arg("alias", alias)
@@ -984,7 +1006,7 @@ func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoColl
 
 // WithTags restricts the run to requests carrying any of these tags
 // (`--tags`).
-func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:202:1)
+func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:230:1)
 	q := r.query.Select("withTags")
 	q = q.Arg("tags", tags)
 
@@ -996,7 +1018,7 @@ func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (.
 // WithTestsOnly runs only the requests that carry a test or an active
 // assertion (`--tests-only`), skipping the ones that exist to set up state
 // for a human.
-func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:259:1)
+func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:287:1)
 	q := r.query.Select("withTestsOnly")
 
 	return &BrunoCollection{
@@ -1033,7 +1055,7 @@ func (r *BrunoCollection) WithUnredactedReport() *BrunoCollection { // bruno (..
 //
 // Validation is deferred to the run: builder methods have no error return, so
 // a bad name surfaces on the Run or Report that would have used it.
-func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:170:1)
+func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:180:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -1112,7 +1134,7 @@ func (r *BrunoCollection) WithoutResponseBody() *BrunoCollection { // bruno (../
 // WithoutTags excludes requests carrying any of these tags
 // (`--exclude-tags`). It composes with WithTags: a request matching both is
 // excluded.
-func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:211:1)
+func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:239:1)
 	q := r.query.Select("withoutTags")
 	q = q.Arg("tags", tags)
 
@@ -1168,7 +1190,7 @@ func (r *Env) WithBrunoCiOutput(name string, description string) *Env { // bruno
 }
 
 // Create or update a binding of type BrunoCollection in the environment
-func (r *Env) WithBrunoCollectionInput(name string, value *BrunoCollection, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
+func (r *Env) WithBrunoCollectionInput(name string, value *BrunoCollection, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withBrunoCollectionInput")
 	q = q.Arg("name", name)
@@ -1181,7 +1203,7 @@ func (r *Env) WithBrunoCollectionInput(name string, value *BrunoCollection, desc
 }
 
 // Declare a desired BrunoCollection output to be assigned in the environment
-func (r *Env) WithBrunoCollectionOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
+func (r *Env) WithBrunoCollectionOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
 	q := r.query.Select("withBrunoCollectionOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)

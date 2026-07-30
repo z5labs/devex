@@ -19,6 +19,14 @@ const (
 	// Bruno source and dies in the grammar.
 	envFilePathPrefix = "/tmp/bruno-env-file"
 
+	// dataFilePathPrefix is the stem WithData's file is mounted under, outside
+	// the collection for the same reason the environment file is. The caller's
+	// extension is preserved because it is what selects the flag: bru reads a
+	// data file as CSV or as JSON according to which of --csv-file-path and
+	// --json-file-path it arrived under, and reads nothing at all off the
+	// contents.
+	dataFilePathPrefix = "/tmp/bruno-data-file"
+
 	// reportPathPrefix is the stem every reporter artifact is written under.
 	// It lives in /tmp because the image runs as UID 1000 and the collection
 	// is mounted root-owned: bru could not write a report beside it.
@@ -100,6 +108,8 @@ type Collection struct {
 	SecretVarValues []*dagger.Secret
 	// +private
 	EnvFile *dagger.File
+	// +private
+	DataFile *dagger.File
 	// +private
 	Tags []string
 	// +private
@@ -194,6 +204,24 @@ func (c *Collection) WithSecretVar(name string, value *dagger.Secret) *Collectio
 func (c *Collection) WithEnvFile(file *dagger.File) *Collection {
 	out := c.clone()
 	out.EnvFile = file
+	return out
+}
+
+// WithData runs the collection once per row of a data file — a CSV
+// (`--csv-file-path`) or a JSON array (`--json-file-path`) — with that row's
+// columns readable from every request as runtime variables.
+//
+// One collection then covers a matrix rather than a case: the tenants, regions
+// or payloads a suite would otherwise carry a copy of the same request for.
+// Each row is an iteration, and every reporter writes one entry per iteration.
+//
+// It takes a file rather than a flag and a path because the extension already
+// says which of the two bru wants: .csv or .json. Like the other builders it
+// has no error return, so a file that is neither is reported by the run that
+// would have read it.
+func (c *Collection) WithData(file *dagger.File) *Collection {
+	out := c.clone()
+	out.DataFile = file
 	return out
 }
 
@@ -385,21 +413,46 @@ func (c *Collection) exec(ctx context.Context, recursive bool, reportFormats []s
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
-	envFile, err := c.envFilePath(ctx)
+	staged, err := c.stage(ctx)
 	if err != nil {
 		return nil, err
 	}
-	args, err := c.args(recursive, reportFormats, envFile)
+	args, err := c.args(recursive, reportFormats, staged)
 	if err != nil {
 		return nil, err
 	}
-	ctr, err := c.container(ctx, envFile)
+	ctr, err := c.container(ctx, staged)
 	if err != nil {
 		return nil, err
 	}
 	return ctr.WithExec(args, dagger.ContainerWithExecOpts{
 		Expect: dagger.ReturnTypeAny,
 	}), nil
+}
+
+// staged holds where the files that travel outside the collection are mounted,
+// resolved once so that the command line and the container cannot disagree
+// about them. Each path is empty when its file was never supplied.
+type stagedPaths struct {
+	envFile  string
+	dataFile string
+	// dataFlag is the flag dataFile is passed under, which is what makes it a
+	// CSV or a JSON data set as far as bru is concerned.
+	dataFlag string
+}
+
+// stage resolves those paths, which means reading the callers' file names —
+// hence the context, and hence this not being part of args.
+func (c *Collection) stage(ctx context.Context) (stagedPaths, error) {
+	envFile, err := c.envFilePath(ctx)
+	if err != nil {
+		return stagedPaths{}, err
+	}
+	dataFlag, dataFile, err := c.dataFilePath(ctx)
+	if err != nil {
+		return stagedPaths{}, err
+	}
+	return stagedPaths{envFile: envFile, dataFile: dataFile, dataFlag: dataFlag}, nil
 }
 
 // envFilePath is where WithEnvFile's file is mounted, keeping the extension it
@@ -425,12 +478,36 @@ func (c *Collection) envFilePath(ctx context.Context) (string, error) {
 	}
 }
 
+// dataFilePath is the flag WithData's file is passed under and where it is
+// mounted. bru splits its data files across two flags rather than sniffing the
+// contents, so the extension is what decides which one — and a file that is
+// neither is rejected here, naming both, rather than at bru's exit 10 or 11,
+// which report a file that is sitting right there as not found.
+func (c *Collection) dataFilePath(ctx context.Context) (string, string, error) {
+	if c.DataFile == nil {
+		return "", "", nil
+	}
+	name, err := c.DataFile.Name(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("WithData: read the file's name: %w", err)
+	}
+	switch ext := strings.ToLower(filepath.Ext(name)); ext {
+	case ".csv":
+		return "--csv-file-path", dataFilePathPrefix + ext, nil
+	case ".json":
+		return "--json-file-path", dataFilePathPrefix + ext, nil
+	default:
+		return "", "", fmt.Errorf(
+			"WithData: %q must be a .csv or .json file: bru reads a CSV data file with --csv-file-path and a JSON one with --json-file-path, and picks between them by extension", name)
+	}
+}
+
 // container mounts the collection at the image's own working directory and
 // wires up everything that is not a command-line flag: the bound services, the
 // secrets, which travel as environment variables precisely so they stay off
 // argv, and the TLS material the `--cacert` and `--client-cert-config` flags
 // point at.
-func (c *Collection) container(ctx context.Context, envFile string) (*dagger.Container, error) {
+func (c *Collection) container(ctx context.Context, paths stagedPaths) (*dagger.Container, error) {
 	ctr := c.Bruno.Container().
 		WithMountedDirectory(collectionDir, c.Source).
 		WithWorkdir(collectionDir).
@@ -442,13 +519,16 @@ func (c *Collection) container(ctx context.Context, envFile string) (*dagger.Con
 		ctr = ctr.WithSecretVariable(name, c.SecretVarValues[i])
 	}
 	if c.EnvFile != nil {
-		ctr = ctr.WithMountedFile(envFile, c.EnvFile)
+		ctr = ctr.WithMountedFile(paths.envFile, c.EnvFile)
+	}
+	if c.DataFile != nil {
+		ctr = ctr.WithMountedFile(paths.dataFile, c.DataFile)
 	}
 	return c.withTLS(ctx, ctr)
 }
 
 // args renders the `bru run` command line.
-func (c *Collection) args(recursive bool, reportFormats []string, envFile string) ([]string, error) {
+func (c *Collection) args(recursive bool, reportFormats []string, paths stagedPaths) ([]string, error) {
 	// The collection root is named explicitly rather than left implicit:
 	// `bru run` with no path descends into every folder whatever -r says, so
 	// without the "." the recursive parameter would only ever mean "true".
@@ -460,7 +540,10 @@ func (c *Collection) args(recursive bool, reportFormats []string, envFile string
 		args = append(args, "--env", c.Environment)
 	}
 	if c.EnvFile != nil {
-		args = append(args, "--env-file", envFile)
+		args = append(args, "--env-file", paths.envFile)
+	}
+	if c.DataFile != nil {
+		args = append(args, paths.dataFlag, paths.dataFile)
 	}
 	for i, name := range c.VarNames {
 		args = append(args, "--env-var", name+"="+c.VarValues[i])

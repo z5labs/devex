@@ -129,6 +129,7 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 		SecretVarNames    []string
 		SecretVarValues   []*dagger.Secret
 		EnvFile           *dagger.File
+		DataFile          *dagger.File
 		Tags              []string
 		ExcludedTags      []string
 		ServiceAliases    []string
@@ -159,6 +160,7 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 	concrete.SecretVarNames = r.SecretVarNames
 	concrete.SecretVarValues = r.SecretVarValues
 	concrete.EnvFile = r.EnvFile
+	concrete.DataFile = r.DataFile
 	concrete.Tags = r.Tags
 	concrete.ExcludedTags = r.ExcludedTags
 	concrete.ServiceAliases = r.ServiceAliases
@@ -193,6 +195,7 @@ func (r *Collection) UnmarshalJSON(bs []byte) error {
 		SecretVarNames    []string
 		SecretVarValues   []*dagger.Secret
 		EnvFile           *dagger.File
+		DataFile          *dagger.File
 		Tags              []string
 		ExcludedTags      []string
 		ServiceAliases    []string
@@ -227,6 +230,7 @@ func (r *Collection) UnmarshalJSON(bs []byte) error {
 	r.SecretVarNames = concrete.SecretVarNames
 	r.SecretVarValues = concrete.SecretVarValues
 	r.EnvFile = concrete.EnvFile
+	r.DataFile = concrete.DataFile
 	r.Tags = concrete.Tags
 	r.ExcludedTags = concrete.ExcludedTags
 	r.ServiceAliases = concrete.ServiceAliases
@@ -807,6 +811,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Collection).WithClientCert(&parent, host, cert, key, passphrase), nil
+		case "WithData":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var file *dagger.File
+			if inputArgs["file"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["file"]), &file)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg file", err))
+				}
+			}
+			return (*Collection).WithData(&parent, file), nil
 		case "WithDelay":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)
