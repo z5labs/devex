@@ -197,30 +197,32 @@ still share the package fetch. A negative value is rejected on `New` — libgomp
 reads an unparseable `OMP_THREAD_LIMIT` as absent and silently goes back to one
 thread per CPU, the opposite of what was asked for.
 
-**A batch already has more than one image.** `Batch.WithConcurrency` runs N of
-them at a time inside the one exec, and pairs itself with the bound rather than
-leaving two knobs to reconcile by hand. Eleven copies of the four-line test
-fixture through `Batch.Export`, four CPUs — the same fixture and CPU count as
-the oversubscription table above, not the full page the two before it use:
+**A batch already has more than one image, so it answers this itself.**
+`Batch.WithConcurrency` defaults to one recognition per CPU, and recognising
+more than one at a time also caps that batch's OpenMP at one thread per
+process. Eleven copies of the four-line fixture, four pinned CPUs, timed
+against tesseract directly rather than through the module — the same fixture
+and CPU count as the oversubscription table above, not the full page the two
+before it use:
 
-| `WithConcurrency` | `OMP_THREAD_LIMIT` | wall | CPU |
+| concurrent passes | `OMP_THREAD_LIMIT` | wall | CPU |
 | --- | --- | --- | --- |
-| unset — 1 | the image's, unset | 3.37s | 5.78s |
-| 4 | `1`, on the exec | 1.24s | 4.21s |
-| 8 | `1`, on the exec | 1.18s | 4.25s |
-| 11 | `1`, on the exec | **1.05s** | 4.12s |
-| 4 | the image's, unset | **3m36.8s** | 14m24s |
+| 1 | unset | 3.37s | 5.78s |
+| 4 | `1` | 1.24s | 4.21s |
+| 8 | `1` | 1.18s | 4.25s |
+| 11 | `1` | **1.05s** | 4.12s |
+| 4 | unset | **3m36.8s** | 14m24s |
 
-The last row is the whole reason concurrency implies the bound: it is the same
-four workers as the second row, inheriting an unbounded image, 174x apart. A
-caller who reaches for concurrency without having read anything about libgomp
-lands on the second row rather than the last. `WithConcurrency(11)` landing on
-the 1.06s the oversubscription table reports for eleven bare concurrent
-processes is the other half of it — the runner itself costs nothing.
+The last row is the whole reason concurrency implies the bound: same four
+passes as the second row, threads unbounded, 174x apart. A caller who reaches
+for concurrency without having read anything about libgomp would otherwise land
+there. (What `Batch` costs on top of these numbers is a separate question, and a
+separate measurement, in [One exec per image](#one-exec-per-image-fanned-out-from-go).)
 
-An `ompThreadLimit` named on `New` is left alone, because it was named. The
-automatic bound is a `WithEnvVariable` on that one batch's exec, so the image
-keeps whatever it had and every other caller's recognition is untouched.
+An `ompThreadLimit` named on `New` is left alone, because it was named.
+Otherwise the bound rides on a copy of the module the batch makes for itself, so
+the caller's image keeps whatever it had, every other caller's recognition is
+untouched, and both images still share the package fetch.
 
 ## Toolchain
 
@@ -360,7 +362,7 @@ fine-tuning.
 Tesseract.Batch(source *dagger.Directory) *Batch
 
 Batch.WithGlob(pattern string) *Batch          // default: the image extensions below
-Batch.WithConcurrency(concurrency int) *Batch  // default: 1
+Batch.WithConcurrency(concurrency int) *Batch  // default: one per CPU
 Batch.WithLanguage(lang string) *Batch         // …and the six other Document builders
 Batch.Files(ctx) ([]string, error)
 Batch.Export(ctx, formats []Format) (*dagger.Directory, error)
@@ -384,49 +386,69 @@ of all for PDF. (That behaviour is not useless — it is precisely what the page
 of one PDF want, and `FromPdf` below is built on it. It is just not what a
 folder of independent scans wants.)
 
-So the batch is one container **exec** rather than one tesseract **process**: the
-exec loops over a manifest, recognising each image onto its own output base. That
-collapses the part that actually costs anything in Dagger — a `WithExec`, its
-mounts and its cache lookup, per page — to one, while each page keeps its own
-artifacts. The loop reaches flags and configfiles through `"$@"` rather than
-string interpolation, so no value needs escaping.
+So a batch is its images recognised as **`Document`s** — one exec each, each
+mounting its own image, each rendering its own artifact set — and what runs
+several of them at a time is Go.
 
-### `WithConcurrency` — how many at once inside that exec
-
-Collapsing the exec was only half the cost. The recognitions themselves ran one
-after another, and recognition is where all the time is. `WithConcurrency`
-bounds how many of them run at the same time — still inside the one exec, still
-one artifact set per image.
+### One exec per image, fanned out from Go
 
 ```go
-tess.Batch(scans).WithConcurrency(4).Export(ctx, formats)
+tess.Batch(scans).WithConcurrency(8).Export(ctx, formats)   // default: one per CPU
 ```
 
-**The default is 1**, unchanged from before the knob existed, and a non-positive
-bound is refused at output time rather than quietly recognising nothing. Above 1
-it also caps OpenMP at one thread per process *for that exec* — see [OpenMP
-fan-out](#openmp-fan-out--ompthreadlimit) for the measured reason, which is that
-concurrency multiplied by threads is the one shape slower than doing nothing. An
-`ompThreadLimit` named on `New` wins; nothing is set on the image either way.
+`Batch.Export` resolves the glob, builds a `Document` per match, and runs them
+through a slot channel bounded by `WithConcurrency`. The bound, the scheduling,
+the fail-fast and the error message are all `batch.go` — nothing about running a
+batch is interpreted inside a container, so all of it is typed, reviewable and
+debuggable the same way the rest of the module is.
 
-Two things the serial loop got for free and the runner has to keep:
+That is a reversal. Until #298 the batch was **one** exec looping a
+tab-separated manifest in `sh`, on the argument that the exec — its mounts, its
+cache lookup — was the expensive part and should be paid once per directory
+rather than once per page. Measured end-to-end, it is not:
+
+| pages | one exec, `sh` loop | one exec per image, Go fan-out |
+| --- | --- | --- |
+| 11 | 5.5s | **2.8s** |
+| 50 | 17.5s | **5.0s** |
+| 50, one page edited | 17.5s | **2.5s** |
+
+`dagger call batch --source=… export --formats=TXT entries`, median of three,
+cold inputs each run, 32-CPU host; ~1.7s of every figure is CLI startup and
+module load. The one-exec column is the manifest loop recognising one image at a
+time, which is what it did, threads unbounded; the Go column is the default —
+one recognition per CPU, one OpenMP thread each.
+
+The last row is the one that does not close with more cores. The old exec
+mounted the whole source directory, so editing any page invalidated the mount
+and re-recognised **all fifty**; a per-image exec keys on that image, so the
+other forty-nine are cache hits. For a corpus that grows or gets corrected a
+page at a time, that is the difference between a re-run and a re-do.
+
+Three properties the serial loop had for free, which the fan-out has to keep:
 
 - **A page that cannot be read still fails the batch**, rather than going
-  missing from a thousand results. Each recognition's output is captured and
-  reported as one block naming its image — `xargs -P` would answer a failed
-  child with its own exit 123, which names nothing, and tesseract's own message
-  often cannot name it either: handed a file leptonica will not decode, it falls
-  back to reading it as a list of image paths and reports the *contents* of the
-  first line as the file it could not open. The first failure raises a stop flag
-  every worker checks, so the run does not recognise the remaining pages first.
-- **Output directories are created in one serial pass** before any recognition
-  starts. Several images share a directory, and two workers creating
-  `scans/deep` at the same moment is a race worth not having.
+  missing from a thousand results, and the error names the page — tesseract's
+  own message often cannot, because handed a file leptonica will not decode it
+  falls back to reading the file as a list of image paths and reports the
+  *contents* of the first line as the file it could not open.
+- **The first failure cancels the rest.** A batch that is going to fail has no
+  reason to recognise the remaining pages first.
+- **The artifacts are assembled in sorted order**, off execs that finished in
+  whatever order they finished in, so the returned directory does not depend on
+  the scheduling.
 
-Work is partitioned round-robin over the manifest, so a worker knows which
-records are its own without coordinating with anyone. Somewhere around the core
-count is the number to pass; past that each process is already single-threaded
-and there is little left to win.
+What it no longer has to do is protect a record format: file names with tabs or
+newlines in them were rejected when a manifest had to carry them, and are
+ordinary inputs now.
+
+Recognising more than one image at a time also caps OpenMP at one thread per
+process, unless an `ompThreadLimit` was named on `New` — see [OpenMP
+fan-out](#openmp-fan-out--ompthreadlimit) for the measured reason, which is that
+concurrency multiplied by threads is the one shape slower than doing nothing.
+The bound rides on a copy of the module rather than the caller's, so nothing
+else built from the same `Tesseract` sees it, and the two images still share the
+package fetch.
 
 ### Which files take part
 
@@ -718,7 +740,7 @@ letting tesseract fail in its own vocabulary.
 | a `Batch` glob matching nothing | an empty directory is indistinguishable from a batch that ran and found no text, so a typo would surface much later as missing output |
 | a `Batch` source holding no images | same, but the fix is `WithGlob` rather than the pattern, so the message names the default extension set |
 | two `Batch` inputs sharing an output base | `a.png` and `a.jpg` both render onto `a.txt`; the second silently overwrites the first and the run looks like it succeeded with a page missing |
-| a `Batch` file name containing a tab or newline | the manifest is tab-separated and newline-delimited, so the loop would recognise the wrong file |
+| a `Training` file name containing a tab or newline | its manifest is tab-separated and newline-delimited, so the sample-building loop would act on the wrong file. `Batch` needed this too until its manifest went away |
 | a `Training` image with no `.gt.txt`, or a `.gt.txt` with no image | training directories are assembled by script and fail off-by-one; "something is unpaired" sends the caller to diff two file listings, the file's name does not |
 | two `Training` images pairing with one `.gt.txt` | `a.png` and `a.jpg` would build two samples from one transcription, and only one `.box` |
 | a `Training` `.gt.txt` that is empty or holds several lines | the box claims the whole image renders exactly this text; against a two-line image that is false in a way training cannot recover from — the network is shown two lines of pixels and told they are one line of characters |
@@ -741,6 +763,13 @@ and there is no chained-method propagation problem to worry about. `Container`,
 `Version`, `Langs` and `Parameters` take `+cache="session"` per `kicad`, because
 a floating Alpine tag can resolve differently across sessions.
 
+What *is* worth knowing is the granularity underneath those functions. A `Batch`
+recognises each image in its own exec mounting only that image, so the engine
+caches per page: the second export of a fifty-page folder with one page edited
+re-recognises one page. `Training` is the opposite by nature — one exec for the
+whole run, one cache entry, see [One exec, one cache entry](#one-exec-one-cache-entry)
+— because a fine-tune is not separable into per-sample work.
+
 ## Follow-ups
 
 An `examples/go` cookbook (#224); evaluation against a held-out set (#231);
@@ -756,6 +785,12 @@ whole intake folder has no single answer for them. A caller who needs one is
 configuring a `Batch`, not a CI. `WithGlob` is absent for the same reason from
 the other direction: the default takes the images and leaves the manifests, which
 is what pointing this at an existing scan folder should do.
+
+`WithConcurrency` is not in that category — it changes how long the same run
+takes and nothing about how a scan is read — but `Ci` still does not forward it,
+because it inherits the default (one recognition per CPU) and narrowing that is
+a different request. #305 is the open question of whether it should, given `Run`
+makes two batch passes that may want different answers.
 
 Batch OCR over a directory (#220) and PDF-input rasterization (#221) both
 landed — see above. `Batch` still deliberately does not expose the concatenated

@@ -4,106 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"runtime"
 	"sort"
-	"strconv"
 	"strings"
+	"sync"
 
 	"dagger/tesseract/internal/dagger"
 )
-
-// batchArgv0 is the `$0` the batch loop runs under. Every recognition flag and
-// configfile reaches the loop as `"$@"` rather than being interpolated into the
-// script, which is what keeps a parameter value with a space or a quote in it
-// from needing any escaping at all.
-const batchArgv0 = "tesseract-batch"
-
-// batchScriptTemplate is the whole of the batch mechanism: one serial pass
-// creating every output directory, then N concurrent passes over the same
-// manifest, each recognising the records whose index it owns.
-//
-// The directories are created up front rather than in the recognition pass
-// because several images share one: two workers creating `scans/deep` at the
-// same moment is a race, and creating them all while nothing is running costs
-// one mkdir per record and removes it.
-//
-// Round-robin over record index is what partitions the work, so a worker knows
-// which records are its own without coordinating with the others — the manifest
-// is read once per worker and nothing is popped from a shared queue. `xargs -P`
-// would schedule better on records of uneven cost, but it answers a failed
-// child with its own exit 123 and names nothing, and naming the image that
-// failed is the whole of what the serial loop's `set -e` used to do for free.
-//
-// Each recognition's output is captured rather than streamed, so a failure
-// reports as one block naming its image instead of interleaving with whatever
-// the other workers are writing. tesseract's own message frequently cannot name
-// it: handed a file leptonica will not decode, tesseract falls back to reading
-// it as a list of image paths and reports the *contents* of the first line as
-// the file it could not open.
-//
-// The first failure touches the stop file, which every worker checks before its
-// next image, so a batch that is already going to fail stops within one image
-// per worker rather than recognising the remaining thousand pages first.
-//
-// IFS is a literal tab, so a file name with spaces survives the read;
-// checkManifestSafe rejects the tabs and newlines that would not. Every
-// recognition flag reaches the workers as `"$@"`, which is why the function
-// takes its slot as `$1` and shifts it off.
-const batchScriptTemplate = `set -e
-mkdir -p @FAILURES@
-
-while IFS="	" read -r src out dir; do
-	mkdir -p "$dir"
-done < @MANIFEST@
-
-recognise() {
-	slot=$1
-	shift
-	index=0
-	while IFS="	" read -r src out dir; do
-		if [ $((index % @WORKERS@)) -eq "$slot" ]; then
-			if [ -e @STOP@ ]; then
-				return 1
-			fi
-			if ! output=$(tesseract "$src" "$out" "$@" 2>&1); then
-				printf '%s:\n%s\n' "$src" "$output" >> "@FAILURES@/$slot"
-				: > @STOP@
-				return 1
-			fi
-		fi
-		index=$((index + 1))
-	done < @MANIFEST@
-}
-
-slot=0
-pids=""
-while [ "$slot" -lt @WORKERS@ ]; do
-	recognise "$slot" "$@" &
-	pids="$pids $!"
-	slot=$((slot + 1))
-done
-
-failed=0
-for pid in $pids; do
-	wait "$pid" || failed=1
-done
-
-if [ "$failed" -ne 0 ]; then
-	cat @FAILURES@/* >&2
-	exit 1
-fi`
-
-// batchScript renders the template for a given number of workers. The
-// substitutions are container paths this module owns and an integer it has
-// already validated, so none of them can carry anything the shell would have to
-// be protected from — unlike the recognition flags, which stay in `"$@"`.
-func batchScript(workers int) string {
-	return strings.NewReplacer(
-		"@MANIFEST@", batchManifestPath,
-		"@FAILURES@", batchFailureDir,
-		"@STOP@", batchStopFile,
-		"@WORKERS@", strconv.Itoa(workers),
-	).Replace(batchScriptTemplate)
-}
 
 // imageExtensions is what the default glob accepts, lower-cased for a
 // case-insensitive comparison. It is the set this image can actually decode:
@@ -121,6 +28,13 @@ var imageExtensions = []string{
 // Batch is a directory of images plus the recognition options that apply to
 // all of them. It carries the same options type Document does, so the two
 // cannot drift: every With* here forwards to the shared builder.
+//
+// It is also built out of Document rather than merely resembling one. Each
+// matched image is recognised as its own Document — its own exec, its own
+// mounts, its own cache entry — and what runs several of them at a time is Go,
+// not a runner inside a container. That is what keeps the scheduling, the
+// bound and the failure reporting in a language with types and a debugger,
+// instead of in a shell script mounted into an image.
 type Batch struct {
 	// +private
 	Tesseract *Tesseract
@@ -152,28 +66,25 @@ func (b *Batch) WithGlob(pattern string) *Batch {
 	return &out
 }
 
-// WithConcurrency bounds how many images the batch recognises at once. The
-// default is one, which is what a batch has always done.
+// WithConcurrency bounds how many images the batch recognises at once.
 //
-// Recognition is where a batch spends its time, and it is the one thing the
-// serial loop does not collapse: N independent images recognised one after
-// another. Processes are how tesseract parallelises well — eleven pages on four
-// CPUs take 3.37s one at a time and 1.05s eleven at a time, ~90% efficiency
-// where its own OpenMP manages 33%, because those regions sit inside the LSTM
-// inner loops and do not amortize.
+// It defaults to the number of CPUs the module can see, which is what a batch
+// wants: every image is its own exec, and recognising them one at a time would
+// pay that overhead N times for none of the parallelism it buys. Processes are
+// how tesseract parallelises well — eleven pages on four CPUs take 3.37s one at
+// a time and 1.05s eleven at a time, ~90% efficiency where its own OpenMP
+// manages 33%, because those regions sit inside the LSTM inner loops and do not
+// amortize.
 //
-// A bound above one therefore also caps OpenMP at one thread per process for
-// this batch's exec, unless the caller named an explicit ompThreadLimit on New,
-// which is left alone. Concurrency multiplied by per-process threads rather
-// than bounded by cores is the one shape that is slower than doing nothing:
-// those same four workers on an unbounded image take 3m36.8s against 1.24s
-// bounded, 174x. The bound is set on the exec rather than on the image, so
-// nothing else built from the same Tesseract sees it and two batches differing
-// only in concurrency still share the package fetch.
+// Recognising more than one at a time therefore also caps OpenMP at one thread
+// per process, unless the caller named an explicit ompThreadLimit on New, which
+// is left alone. Concurrency multiplied by per-process threads rather than
+// bounded by cores is the one shape that is slower than doing nothing: four
+// concurrent unbounded passes on four CPUs take 3m36.8s against 1.24s bounded,
+// 174x.
 //
-// Somewhere around the core count is the number to pass; more processes than
-// cores buys little once each is single-threaded. Non-positive is rejected at
-// output time.
+// Pass a number to take less of the machine than the default, or 1 to recognise
+// one image at a time. Non-positive is rejected at output time.
 func (b *Batch) WithConcurrency(
 	// Maximum number of images to recognise at the same time.
 	concurrency int,
@@ -227,8 +138,10 @@ func (b *Batch) WithUserPatterns(patterns *dagger.File) *Batch {
 }
 
 // Files lists the images the batch will recognise, as paths relative to the
-// source directory root, sorted — which is the order they are recognised in
-// until WithConcurrency deals them out to several workers at once.
+// source directory root, sorted. Sorted is not the order they are recognised
+// in — they run several at a time — but it is the order their artifacts are
+// assembled in, so the returned directory is the same whatever the scheduling
+// did.
 //
 // It answers the question a glob always raises — did that pattern pick up what
 // I meant? — without paying for the recognition, and it fails on an empty match
@@ -241,21 +154,24 @@ func (b *Batch) Files(ctx context.Context) ([]string, error) {
 // input layout, with one artifact per requested format per image: `scans/a.png`
 // becomes `scans/a.txt` alongside `scans/a.pdf`.
 //
-// The whole batch is one container exec. tesseract's own list-file mode — a
-// text file of image paths as the FILE argument — is not what does that here,
-// because it treats the list as one multi-page *document*: it renders a single
-// concatenated artifact set (one .txt with form-feed page breaks, one
-// multi-page PDF) and offers no way to get the per-image files this returns.
-// So the exec loops over the manifest instead, which keeps the expensive part
-// — a container exec, its mounts and its cache lookup, per page — collapsed to
-// one, while each image still gets its own output base. How many of those
-// recognitions run at once inside that one exec is WithConcurrency.
+// Each image is recognised on its own, as its own exec, WithConcurrency of them
+// at a time. tesseract's own list-file mode — a text file of image paths as the
+// FILE argument — is not what a batch wants, because it treats the list as one
+// multi-page *document*: it renders a single concatenated artifact set (one .txt
+// with form-feed page breaks, one multi-page PDF) and offers no way to get the
+// per-image files this returns.
+//
+// One exec per image is what makes the results cache per image too: an edited
+// page invalidates its own recognition and nothing else, which is the whole
+// difference for a corpus that grows a page at a time. It costs one exec's
+// overhead per page instead of per batch — see the README for what that is
+// worth measured — and it is the shape that lets the fan-out live in Go.
 func (b *Batch) Export(
 	ctx context.Context,
 	// Output formats to render for each image in the batch.
 	formats []Format,
 ) (*dagger.Directory, error) {
-	configs, err := selectFormats(formats)
+	selected, err := selectedFormats(formats)
 	if err != nil {
 		return nil, err
 	}
@@ -266,24 +182,119 @@ func (b *Batch) Export(
 	if err != nil {
 		return nil, err
 	}
+	// Validated once here rather than per image: the checks are the same for
+	// every recognition in the batch, and a bad option should be reported as
+	// itself instead of as a failure of whichever page happened to run first.
 	if err := b.Options.validate(ctx, b.Tesseract); err != nil {
 		return nil, err
 	}
-	manifest, err := batchManifest(sources)
-	if err != nil {
-		return nil, err
-	}
-	flags, err := b.Options.flags(b.Tesseract)
+
+	execs, err := b.recognise(ctx, sources, formatConfigs(selected))
 	if err != nil {
 		return nil, err
 	}
 
-	args := append([]string{"sh", "-c", batchScript(b.workers()), batchArgv0}, flags...)
-	exec, err := execTesseract(ctx, b.container(manifest), append(args, configs...))
-	if err != nil {
-		return nil, err
+	// Assembling the mirrored directory is pure graph-building — every
+	// recognition has already run — so it is one WithFile per artifact, in a
+	// fixed order, off the exec that produced it.
+	out := dag.Directory()
+	for i, source := range sources {
+		base := outputBaseFor(source)
+		for _, format := range selected {
+			ext := formatTable[format].ext
+			out = out.WithFile(base+ext, execs[i].File(outputBase+ext))
+		}
 	}
-	return exec.Directory(outputDir), nil
+	return out, nil
+}
+
+// recognise runs one exec per image, at most workers() of them at a time, and
+// returns the finished execs positionally.
+//
+// The bound is a slot channel rather than an unbounded fan-out because a
+// thousand pages is a thousand containers otherwise, and because recognition
+// that is already using every core gains nothing from being asked for more of
+// them at once.
+//
+// The first failure cancels the rest: a batch that is going to fail has no
+// reason to recognise the remaining pages first, and the error it reports names
+// the image. tesseract's own message usually cannot — handed a file leptonica
+// will not decode, it falls back to reading the file as a list of image paths
+// and reports the *contents* of its first line as the file it could not open.
+func (b *Batch) recognise(ctx context.Context, sources []string, configs []string) ([]*dagger.Container, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		first error
+	)
+	execs := make([]*dagger.Container, len(sources))
+	slots := make(chan struct{}, b.workers())
+
+	for i, source := range sources {
+		wg.Go(func() {
+			select {
+			case slots <- struct{}{}:
+				defer func() { <-slots }()
+			case <-ctx.Done():
+				return
+			}
+
+			exec, err := b.document(source).run(ctx, outputBase, configs...)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				// Formatted rather than %w-wrapped: the error crosses the
+				// module boundary, which unwraps a chain back to the inner
+				// error and would drop the image's name along with it.
+				if first == nil {
+					first = fmt.Errorf("Batch: %q: %v", source, err)
+					cancel()
+				}
+				return
+			}
+			execs[i] = exec
+		})
+	}
+	wg.Wait()
+
+	if first != nil {
+		return nil, first
+	}
+	return execs, nil
+}
+
+// document binds one matched image to the toolchain as the Document it is, so
+// the two units of work share their execution as well as their option set: a
+// batch is its images recognised as Documents, several at a time.
+func (b *Batch) document(source string) *Document {
+	return &Document{
+		Tesseract: b.toolchain(),
+		Source:    b.Source.File(source),
+		Options:   b.Options,
+	}
+}
+
+// toolchain is the module the batch's recognitions run on: the caller's, or a
+// copy bounded to one OpenMP thread when several of them run at once.
+//
+// Concurrency multiplied by per-process threads rather than bounded by cores is
+// the one shape slower than doing nothing (see WithConcurrency), and one thread
+// per process is the fast shape outright. The bound rides on a copy of the
+// module rather than on the caller's, so nothing else built from the same
+// Tesseract sees it; it is applied after `apk add`, so the two images still
+// share the package fetch. An ompThreadLimit the caller named on New is theirs
+// and is left alone.
+func (b *Batch) toolchain() *Tesseract {
+	if b.workers() <= minBatchConcurrency || b.Tesseract.OmpThreadLimit != hostCpuOmpThreadLimit {
+		return b.Tesseract
+	}
+	out := b.Tesseract.clone()
+	out.OmpThreadLimit = concurrentOmpThreadLimit
+	return out
 }
 
 // with returns a copy of the batch carrying a new option set, which is what
@@ -294,32 +305,21 @@ func (b *Batch) with(opts options) *Batch {
 	return &out
 }
 
-// container mounts the source directory and the manifest the exec loops over,
-// alongside whatever the options bring with them.
+// workers is how many recognitions run at once: whatever WithConcurrency asked
+// for, or one per CPU the module can see.
 //
-// A concurrent batch also bounds OpenMP here, on the exec rather than on the
-// image: concurrency multiplied by per-process threads is the shape that
-// collapses (see WithConcurrency), and one thread per process is the only one
-// worth running. An ompThreadLimit the caller named on New is theirs and is
-// left alone — it is already on the image, and overriding it would ignore the
-// one instruction on the subject this module was given.
-func (b *Batch) container(manifest *dagger.File) *dagger.Container {
-	ctr := b.Tesseract.Container().
-		WithMountedDirectory(batchSourceDir, b.Source).
-		WithMountedFile(batchManifestPath, manifest)
-	if b.workers() > 1 && b.Tesseract.OmpThreadLimit == hostCpuOmpThreadLimit {
-		ctr = ctr.WithEnvVariable(ompThreadLimitEnv, strconv.Itoa(concurrentOmpThreadLimit))
-	}
-	return b.Options.mount(ctr)
-}
-
-// workers is how many tesseract processes one Export runs at once: whatever
-// WithConcurrency asked for, or one.
+// The default is the core count rather than one because every image is its own
+// exec now: recognising them one at a time would pay that exec's overhead N
+// times over and spend none of the parallelism it bought. What makes the core
+// count safe is toolchain's OpenMP bound — see WithConcurrency.
 func (b *Batch) workers() int {
-	if !b.HasConcurrency {
-		return defaultBatchConcurrency
+	if b.HasConcurrency {
+		return b.Concurrency
 	}
-	return b.Concurrency
+	if cpus := runtime.NumCPU(); cpus > minBatchConcurrency {
+		return cpus
+	}
+	return minBatchConcurrency
 }
 
 // validateConcurrency rejects a bound that would run no images at all. It is
@@ -327,9 +327,9 @@ func (b *Batch) workers() int {
 // builder has no error return, which is the same reason WithDpi's check lives
 // away from WithDpi.
 func (b *Batch) validateConcurrency() error {
-	if b.HasConcurrency && b.Concurrency < defaultBatchConcurrency {
+	if b.HasConcurrency && b.Concurrency < minBatchConcurrency {
 		return fmt.Errorf(
-			"WithConcurrency: concurrency must be positive, got %d: pass 1 to recognise one image at a time, which is what leaving it unset does",
+			"WithConcurrency: concurrency must be positive, got %d: pass 1 to recognise one image at a time, or leave it unset for one per available CPU",
 			b.Concurrency)
 	}
 	return nil
@@ -365,9 +365,6 @@ func (b *Batch) matches(ctx context.Context) ([]string, error) {
 		}
 		if err := rejectPdf(p); err != nil {
 			return nil, fmt.Errorf("Batch: %w", err)
-		}
-		if err := checkManifestSafe(p); err != nil {
-			return nil, fmt.Errorf("Batch: %w: rename it, or recognise it on its own with Document", err)
 		}
 		sources = append(sources, p)
 	}
@@ -414,32 +411,6 @@ func checkOutputCollisions(sources []string) error {
 		seen[base] = p
 	}
 	return nil
-}
-
-// checkManifestSafe rejects a path the tab-separated manifest cannot carry
-// unambiguously. Spaces are fine — the loops split on tabs alone — but a tab or
-// a newline in a file name would be read as a field or record boundary and act
-// on the wrong file. Batch and Training share the manifest shape and therefore
-// share the check; each adds its own way out of it.
-func checkManifestSafe(p string) error {
-	if strings.ContainsAny(p, "\t\n") {
-		return fmt.Errorf("file name %q contains a tab or newline, which the manifest cannot represent", p)
-	}
-	return nil
-}
-
-// batchManifest renders the file the exec loops over: one record per image,
-// holding the source path, the output base and the directory to create for it.
-// All three are absolute container paths, resolved here rather than in the
-// shell so the loop needs no path arithmetic of its own.
-func batchManifest(sources []string) (*dagger.File, error) {
-	var sb strings.Builder
-	for _, p := range sources {
-		out := outputDir + "/" + outputBaseFor(p)
-		fmt.Fprintf(&sb, "%s\t%s\t%s\n", batchSourceDir+"/"+p, out, path.Dir(out))
-	}
-	name := path.Base(batchManifestPath)
-	return dag.Directory().WithNewFile(name, sb.String()).File(name), nil
 }
 
 // outputBaseFor maps an input path onto the output base that mirrors it, by

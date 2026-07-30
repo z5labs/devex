@@ -1261,13 +1261,13 @@ func (t *Tests) BatchRejectsAmbiguousInput(ctx context.Context) error {
 // images at a time produces exactly what the same batch produces one at a
 // time, and that a bound that would recognise nothing is refused.
 //
-// Byte equality is the whole promise of the knob: recognition of one image has
-// nothing to say about recognition of another, so concurrency is allowed to
-// change how long a batch takes and nothing else. The digest covers the layout
-// too, which is what pins the mirrored directories being created before the
-// parallel pass rather than raced for inside it — two images share `scans/` and
-// two share `scans/deep/`, so with four workers every directory here has two
-// candidates to create it.
+// Byte equality is the whole promise of the knob: concurrency is allowed to
+// change how long a batch takes and nothing else. What it pins now that the
+// fan-out is Go and each image is its own exec is the *assembly* — the artifacts
+// are collected in sorted order off execs that finished in whatever order they
+// finished in, so a directory that came out right only because the work
+// happened to be serial would fail here. The digest covers the mirrored layout
+// too, nested directories and all.
 func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 	source := dag.Directory().
 		WithFile("scans/page-1.png", fixture(sentencePng)).
@@ -1330,15 +1330,16 @@ func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 // fails the whole batch — recognised one at a time or four at a time — with a
 // message that names the page and carries tesseract's own complaint about it.
 //
-// Failing loudly is what the serial loop got from `set -e` for free, and it is
-// the half of a parallel rewrite that is easy to lose: a runner that reports
-// only its own exit status turns an unreadable page into a batch that
-// "succeeded" with one artifact quietly missing from a thousand.
+// Failing loudly is the half of a parallel rewrite that is easy to lose: a
+// runner that reports only its own exit status turns an unreadable page into a
+// batch that "succeeded" with one artifact quietly missing from a thousand.
 //
-// Naming the page has to be the runner's own doing. tesseract handed a file
+// Naming the page has to be the batch's own doing. tesseract handed a file
 // leptonica will not decode falls back to reading it as a list of image paths,
 // so its message names the file's first *line* rather than the file — here,
-// the words in the fake PNG.
+// the words in the fake PNG. Two of the good pages recognise fine either side
+// of it, so what is asserted is a failure that survives its siblings
+// succeeding.
 func (t *Tests) BatchConcurrencyReportsFailingImage(ctx context.Context) error {
 	source := dag.Directory().
 		WithFile("scans/page-1.png", fixture(sentencePng)).

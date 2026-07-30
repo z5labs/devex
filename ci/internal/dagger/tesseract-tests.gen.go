@@ -250,13 +250,13 @@ func (r *TesseractTests) AuthenticatedRepositoryIsRejectedWithoutApkAuth(ctx con
 // images at a time produces exactly what the same batch produces one at a
 // time, and that a bound that would recognise nothing is refused.
 //
-// Byte equality is the whole promise of the knob: recognition of one image has
-// nothing to say about recognition of another, so concurrency is allowed to
-// change how long a batch takes and nothing else. The digest covers the layout
-// too, which is what pins the mirrored directories being created before the
-// parallel pass rather than raced for inside it — two images share `scans/` and
-// two share `scans/deep/`, so with four workers every directory here has two
-// candidates to create it.
+// Byte equality is the whole promise of the knob: concurrency is allowed to
+// change how long a batch takes and nothing else. What it pins now that the
+// fan-out is Go and each image is its own exec is the *assembly* — the artifacts
+// are collected in sorted order off execs that finished in whatever order they
+// finished in, so a directory that came out right only because the work
+// happened to be serial would fail here. The digest covers the mirrored layout
+// too, nested directories and all.
 func (r *TesseractTests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1271:1)
 	if r.batchConcurrencyMatchesSerialOutput != nil {
 		return nil
@@ -270,16 +270,17 @@ func (r *TesseractTests) BatchConcurrencyMatchesSerialOutput(ctx context.Context
 // fails the whole batch — recognised one at a time or four at a time — with a
 // message that names the page and carries tesseract's own complaint about it.
 //
-// Failing loudly is what the serial loop got from `set -e` for free, and it is
-// the half of a parallel rewrite that is easy to lose: a runner that reports
-// only its own exit status turns an unreadable page into a batch that
-// "succeeded" with one artifact quietly missing from a thousand.
+// Failing loudly is the half of a parallel rewrite that is easy to lose: a
+// runner that reports only its own exit status turns an unreadable page into a
+// batch that "succeeded" with one artifact quietly missing from a thousand.
 //
-// Naming the page has to be the runner's own doing. tesseract handed a file
+// Naming the page has to be the batch's own doing. tesseract handed a file
 // leptonica will not decode falls back to reading it as a list of image paths,
 // so its message names the file's first *line* rather than the file — here,
-// the words in the fake PNG.
-func (r *TesseractTests) BatchConcurrencyReportsFailingImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1342:1)
+// the words in the fake PNG. Two of the good pages recognise fine either side
+// of it, so what is asserted is a failure that survives its siblings
+// succeeding.
+func (r *TesseractTests) BatchConcurrencyReportsFailingImage(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1343:1)
 	if r.batchConcurrencyReportsFailingImage != nil {
 		return nil
 	}
@@ -388,7 +389,7 @@ func (r *TesseractTests) BatchSharesDocumentOptions(ctx context.Context) error {
 // BoxReportsCharacterBoxes asserts the box renderer descends to the character
 // level, which is the level nothing else this module offers reaches: hOCR and
 // TSV stop at the word.
-func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1636:1)
+func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1637:1)
 	if r.boxReportsCharacterBoxes != nil {
 		return nil
 	}
@@ -406,7 +407,7 @@ func (r *TesseractTests) BoxReportsCharacterBoxes(ctx context.Context) error { /
 // and that makes "did it actually look?" the thing worth testing. A Check that
 // short-circuited when no threshold was set would be a green build over a
 // directory of files tesseract cannot read at all.
-func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1492:1)
+func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1493:1)
 	if r.ciCheckRunsTheGateWithoutArtifacts != nil {
 		return nil
 	}
@@ -424,7 +425,7 @@ func (r *TesseractTests) CiCheckRunsTheGateWithoutArtifacts(ctx context.Context)
 // for PDFs did not ask for a TSV beside every page, and would find one in the
 // archive they published. A caller who did ask for TSV keeps it, which is the
 // half that catches a filter written as "drop every TSV".
-func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1528:1)
+func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1529:1)
 	if r.ciGateKeepsItsTsvOutOfTheOutput != nil {
 		return nil
 	}
@@ -442,7 +443,7 @@ func (r *TesseractTests) CiGateKeepsItsTsvOutOfTheOutput(ctx context.Context) er
 // proves it, because the check that produces it lives on the shared option set
 // and could only fire if the value got there. It also fires before recognition,
 // so a wrong-language pipeline costs a message rather than a batch.
-func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1576:1)
+func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1577:1)
 	if r.ciLanguageReachesRecognition != nil {
 		return nil
 	}
@@ -464,7 +465,7 @@ func (r *TesseractTests) CiLanguageReachesRecognition(ctx context.Context) error
 // that has to be earned: one clean scan and one blank page under a threshold
 // only the blank page misses. A gate that failed the batch as a whole would be
 // telling the caller to go and diff a hundred TSVs.
-func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1436:1)
+func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1437:1)
 	if r.ciMinConfidenceGatesTheRun != nil {
 		return nil
 	}
@@ -484,7 +485,7 @@ func (r *TesseractTests) CiMinConfidenceGatesTheRun(ctx context.Context) error {
 // It is checked through Check rather than Run because that is where a
 // misconfiguration costs the most to discover late: Check is the call a PR gate
 // makes, and its whole answer is the error it returns.
-func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1614:1)
+func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1615:1)
 	if r.ciRejectsUnusableThreshold != nil {
 		return nil
 	}
@@ -500,7 +501,7 @@ func (r *TesseractTests) CiRejectsUnusableThreshold(ctx context.Context) error {
 // WithFormats was called would look like a broken directory rather than an
 // unconfigured one, so an unconfigured Ci renders plain text — the format
 // tesseract itself produces when no renderer is named.
-func (r *TesseractTests) CiRunProducesEnabledFormats(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1381:1)
+func (r *TesseractTests) CiRunProducesEnabledFormats(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1382:1)
 	if r.ciRunProducesEnabledFormats != nil {
 		return nil
 	}
@@ -692,7 +693,7 @@ func (r *TesseractTests) LstmEngineRecognizesFixture(ctx context.Context) error 
 // it, because that is what a sample is *for*: the file pairs the line's pixels
 // with the characters they are supposed to be, and a sample built against the
 // wrong text trains the model to be wrong without ever failing.
-func (r *TesseractTests) LstmTrainBuildsTrainingSample(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1692:1)
+func (r *TesseractTests) LstmTrainBuildsTrainingSample(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1693:1)
 	if r.lstmTrainBuildsTrainingSample != nil {
 		return nil
 	}
@@ -800,7 +801,7 @@ func (r *TesseractTests) PdfInputIsRejected(ctx context.Context) error { // tess
 // recognised comes back, and that it is the processed one rather than the
 // source: the fixture goes in as a PNG and this comes out as a TIFF, which is
 // the observable half of "this is a derivative, not your file".
-func (r *TesseractTests) ProcessedImagesReturnsThresholdedTiff(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1672:1)
+func (r *TesseractTests) ProcessedImagesReturnsThresholdedTiff(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1673:1)
 	if r.processedImagesReturnsThresholdedTiff != nil {
 		return nil
 	}
@@ -910,7 +911,7 @@ func (r *TesseractTests) TextRecognizesFixture(ctx context.Context) error { // t
 // off-by-one ones: the run stops one image short, or one transcription is
 // saved under the wrong stem. "Something is unpaired" sends the caller to diff
 // two file listings; "line-3.png has no ground truth" does not.
-func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1746:1)
+func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1747:1)
 	if r.trainingPairsImagesWithGroundTruth != nil {
 		return nil
 	}
@@ -933,7 +934,7 @@ func (r *TesseractTests) TrainingPairsImagesWithGroundTruth(ctx context.Context)
 // what that default is for is precisely this: a bound low enough that a
 // training run belongs in a test suite. If it ever stops being, this test is
 // where that shows up.
-func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1902:1)
+func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1903:1)
 	if r.trainingProducesUsableModel != nil {
 		return nil
 	}
@@ -948,7 +949,7 @@ func (r *TesseractTests) TrainingProducesUsableModel(ctx context.Context) error 
 // A training run is the most expensive thing this module does, so the cost of
 // finding out late is not a slow error message — it is minutes of a machine
 // arriving at a failure that was visible from the outside the whole time.
-func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1806:1)
+func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1807:1)
 	if r.trainingRejectsUnusableInput != nil {
 		return nil
 	}
@@ -966,7 +967,7 @@ func (r *TesseractTests) TrainingRejectsUnusableInput(ctx context.Context) error
 // loads, recognises, and lists as a language like any other — and lstmtraining
 // says only "eng.lstm is an integer (fast) model", which names neither the
 // float models nor how to get one onto the image.
-func (r *TesseractTests) TrainingRequiresFloatBaseModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1871:1)
+func (r *TesseractTests) TrainingRequiresFloatBaseModel(ctx context.Context) error { // tesseract-tests (../../../daggerverse/tesseract/tests/main.go:1872:1)
 	if r.trainingRequiresFloatBaseModel != nil {
 		return nil
 	}

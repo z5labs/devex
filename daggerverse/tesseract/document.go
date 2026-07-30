@@ -293,10 +293,11 @@ func (d *Document) renderSpec(ctx context.Context, spec formatSpec) (*dagger.Fil
 	return exec.File(outputBase + spec.ext), nil
 }
 
-// selectFormats validates the requested set and returns the CONFIGFILE words
-// in a fixed order, de-duplicated so the same format twice does not render
-// twice.
-func selectFormats(formats []Format) ([]string, error) {
+// selectedFormats validates the requested set and returns it in a fixed order,
+// de-duplicated so the same format twice does not render twice. Batch takes the
+// formats themselves, because it names each artifact after the image that
+// produced it and therefore needs the extensions as well as the configfiles.
+func selectedFormats(formats []Format) ([]Format, error) {
 	if len(formats) == 0 {
 		return nil, fmt.Errorf("Export: at least one format is required: must be one of %s", formatNames())
 	}
@@ -307,13 +308,33 @@ func selectFormats(formats []Format) ([]string, error) {
 		}
 		want[f] = struct{}{}
 	}
-	configs := make([]string, 0, len(want))
+	selected := make([]Format, 0, len(want))
 	for _, f := range formatOrder {
 		if _, ok := want[f]; ok {
-			configs = append(configs, formatTable[f].config)
+			selected = append(selected, f)
 		}
 	}
-	return configs, nil
+	return selected, nil
+}
+
+// formatConfigs is the CONFIGFILE word each format is selected by, which is
+// what recognition takes as its trailing arguments.
+func formatConfigs(formats []Format) []string {
+	configs := make([]string, 0, len(formats))
+	for _, f := range formats {
+		configs = append(configs, formatTable[f].config)
+	}
+	return configs
+}
+
+// selectFormats validates the requested set and returns the CONFIGFILE words
+// in a fixed order.
+func selectFormats(formats []Format) ([]string, error) {
+	selected, err := selectedFormats(formats)
+	if err != nil {
+		return nil, err
+	}
+	return formatConfigs(selected), nil
 }
 
 // with returns a copy of the document carrying a new option set, which is what
@@ -372,6 +393,11 @@ func execTool(ctx context.Context, ctr *dagger.Container, args []string, tool st
 // A rasterized PDF mounts its whole page directory, at the path the page list
 // names its entries by — the list holds absolute paths, so this mount and the
 // one the rasterizer wrote them under have to agree.
+//
+// The output directory arrives as an empty directory rather than as a `mkdir`
+// exec. tesseract will not create it and the difference is one exec per
+// recognition — invisible on one document, and doubled work on a batch, which
+// runs one of these per image.
 func (d *Document) container(source string) *dagger.Container {
 	ctr := d.Tesseract.Container()
 	if d.Pages != nil {
@@ -379,7 +405,7 @@ func (d *Document) container(source string) *dagger.Container {
 	} else {
 		ctr = ctr.WithMountedFile(source, d.Source)
 	}
-	return d.Options.mount(ctr.WithExec([]string{"mkdir", "-p", outputDir}))
+	return d.Options.mount(ctr.WithDirectory(outputDir, dag.Directory()))
 }
 
 // validate reports every deferred builder check and returns the path the
