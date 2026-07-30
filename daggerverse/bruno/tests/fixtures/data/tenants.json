@@ -1,0 +1,14 @@
+[
+  {
+    "tenant": "alpha",
+    "expectedEcho": "alpha"
+  },
+  {
+    "tenant": "beta",
+    "expectedEcho": "beta"
+  },
+  {
+    "tenant": "gamma",
+    "expectedEcho": "gamma"
+  }
+]

@@ -126,6 +126,52 @@ from the CLI.
 or workspace not found, or an unparseable collection file), 12 and 13 (global
 environment problems), and 255 for everything else.
 
+## Data-driven runs
+
+Running a collection once against one set of values covers one case.
+`WithData(file)` runs it once per row of a data file instead, with that row's
+columns readable from every request as `{{variables}}` — so one collection
+covers the tenants, regions or payloads a suite would otherwise carry a copy of
+the same request for.
+
+```go
+collection.WithData(rows).Run(ctx)   // rows.csv → --csv-file-path
+                                     // rows.json → --json-file-path
+```
+
+```
+tenant,expectedEcho          [{"tenant": "alpha", "expectedEcho": "alpha"},
+alpha,alpha                   {"tenant": "beta",  "expectedEcho": "beta"}]
+beta,beta
+```
+
+It takes a file and not a flag plus a path because the extension already says
+which of the two `bru` wants. Nothing is read off the contents — a JSON array
+handed to `--csv-file-path` is a parse error, not a document `bru` recognises —
+so a file that is neither `.csv` nor `.json` is rejected by the run, naming
+both. `bru`'s own answer would be exit 10 or 11, which report a file that is
+sitting right there as *not found*, and only after the collection has run.
+
+Every row is an iteration, and the run is a gate over all of them: `Run` fails
+when any iteration does, and its summary is a table with a row per iteration.
+The JSON report is an array of iterations rather than a flat list of results —
+that is its shape for a plain run too, which is why the helpers in
+`tests/main.go` read it that way — and each entry carries the `iterationIndex`
+that maps it back onto a row of the data file:
+
+```json
+[{"iterationIndex": 0, "results": [...], "summary": {...}},
+ {"iterationIndex": 1, "results": [...], "summary": {...}}]
+```
+
+As of 3.4.2 the JUnit and HTML reporters write one `testsuite` per iteration but
+do not number them, so a matrix whose failure has to be attributed to a row
+wants the JSON report.
+
+`--iteration-count` and `--parallel`, which repeat a data set and run its
+iterations concurrently, are not wrapped; they stay reachable through
+`Container()`.
+
 ## Linting
 
 Bruno ships no linter, and the failure modes that leaves open are the expensive
@@ -553,6 +599,7 @@ tail.
 | `Collection.WithVar(name, value)` | `--env-var name=value`. A pair, not a map. |
 | `Collection.WithSecretVar(name, secret)` | The same override as a secret environment variable — never argv. |
 | `Collection.WithEnvFile(file)` | `--env-file`, staged outside the collection under its own `.bru`/`.json` extension. |
+| `Collection.WithData(file)` | `--csv-file-path`/`--json-file-path`, by extension; one iteration per row. |
 | `Collection.WithTags(tags)` | `--tags`; run only requests carrying one of them. |
 | `Collection.WithoutTags(tags)` | `--exclude-tags`; skip requests carrying one of them. |
 | `Collection.WithService(alias, service)` | Put a Dagger service on the run's network under `alias`. |
@@ -651,6 +698,17 @@ the default: if the two ever stop disagreeing, upstream has widened its
 redaction and this module's default has less work to do than its documentation
 claims. Every redaction test sets `WithUnredactedReport` first, so that what the
 report holds is the doing of the control under test and not of the secret.
+
+`fixtures/tenants/` is the data-driven collection, and the four files under
+`fixtures/data/` are what drive it: the same three rows as a `.csv` and as a
+`.json`, a `.txt` copy for the rejection, and a two-row set whose second row
+expects the wrong value. The rows differ from one another on purpose — a run
+that iterated the same row three times would satisfy a request count — and the
+request echoes its own row back through the responder, so a run whose variables
+never resolved fails instead of passing with a literal `{{tenant}}` in the URL.
+`FailingIterationFailsRunAndIsNamedInTheReport` swaps only the data file, which
+is what makes the failure the row's and not the collection's: the first
+iteration of that very run passes.
 
 The TLS tests get a second responder. `tests/tlsresponder.go` serves the same
 recording handler over HTTPS on 8443 — presenting a leaf signed by a CA minted

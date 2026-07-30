@@ -28,6 +28,10 @@ const (
 	// specOperations is how many operations fixtures/petstore.yaml declares,
 	// and therefore how many requests a collection generated from it makes.
 	specOperations = 4
+
+	// dataRows is how many rows fixtures/data/tenants.csv and tenants.json each
+	// carry, and therefore how many times a collection driven by either runs.
+	dataRows = 3
 )
 
 type Tests struct{}
@@ -72,6 +76,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ClientCertMaterialStaysOutOfTheCollection", t.ClientCertMaterialStaysOutOfTheCollection)
 	jobs = jobs.WithJob("CiReachesMtlsServiceBehindPrivateCa", t.CiReachesMtlsServiceBehindPrivateCa)
 	jobs = jobs.WithJob("JsonEnvFileKeepsItsExtension", t.JsonEnvFileKeepsItsExtension)
+	jobs = jobs.WithJob("CsvDataDrivesOneRunPerRow", t.CsvDataDrivesOneRunPerRow)
+	jobs = jobs.WithJob("JsonDataDrivesOneRunPerRow", t.JsonDataDrivesOneRunPerRow)
+	jobs = jobs.WithJob("FailingIterationFailsRunAndIsNamedInTheReport", t.FailingIterationFailsRunAndIsNamedInTheReport)
+	jobs = jobs.WithJob("DataFileWithoutKnownExtensionIsRejected", t.DataFileWithoutKnownExtensionIsRejected)
 	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
 	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
 	jobs = jobs.WithJob("GenerateRejectsUnknownFormat", t.GenerateRejectsUnknownFormat)
@@ -738,6 +746,130 @@ func (t *Tests) JsonEnvFileKeepsItsExtension(ctx context.Context) error {
 	}
 	if got.Count != 1 {
 		return fmt.Errorf("expected the JSON environment to resolve baseUrl and reach the service, served %d requests", got.Count)
+	}
+	return nil
+}
+
+// CsvDataDrivesOneRunPerRow checks the point of WithData: one collection, one
+// request, and a run per row of the data file.
+//
+// The count at the service is what says the rows drove iterations rather than
+// bru having accepted a flag and ignored it — a data file that was never read
+// leaves a collection that runs exactly once and passes. And the last request's
+// path is read back, because a run that iterated three times over the same row
+// would count the same.
+//
+// The tenants fixture asserts on the row as well: it echoes {{tenant}} back
+// through the responder and compares it against the row's own expectedEcho, so
+// a run whose variables did not resolve fails rather than passing with the
+// literal {{tenant}} in the URL.
+func (t *Tests) CsvDataDrivesOneRunPerRow(ctx context.Context) error {
+	return dataDrivesOneRunPerRow(ctx, "csv", fixtureFile("data/tenants.csv"))
+}
+
+// JsonDataDrivesOneRunPerRow checks the other half of WithData's one argument:
+// the same collection, the same rows and the same result, off a JSON array
+// rather than a CSV.
+//
+// It is a separate test rather than a second case in the first because the two
+// travel under different flags — bru reads nothing off the contents — so the
+// extension is the only thing standing between a JSON data file and
+// `--csv-file-path`, which would report it as not found.
+func (t *Tests) JsonDataDrivesOneRunPerRow(ctx context.Context) error {
+	return dataDrivesOneRunPerRow(ctx, "json", fixtureFile("data/tenants.json"))
+}
+
+// FailingIterationFailsRunAndIsNamedInTheReport checks the half of a
+// data-driven run that matters when the matrix is not uniform: one row out of
+// several behaving differently.
+//
+// A run over N rows is N runs of the same requests, so a gate that only looked
+// at the last of them — or at the first — would pass a suite in which one
+// tenant is broken. Run has to fail on the collection as a whole, and the report
+// has to say which row it was, or the caller is left re-running rows by hand to
+// find out.
+//
+// The fixture is the same collection the passing tests drive, with only the data
+// file swapped for one whose second row expects the wrong echo. That is what
+// makes the failure the row's and not the collection's: the first iteration of
+// this very run passes.
+func (t *Tests) FailingIterationFailsRunAndIsNamedInTheReport(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	collection := dag.Bruno().
+		Collection(fixture("tenants")).
+		WithEnvironment("local").
+		WithData(fixtureFile("data/one-bad-row.csv")).
+		WithService(responderAlias, rsp.Svc)
+
+	_, err = collection.Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a failing iteration to fail the whole run")
+	}
+	for _, want := range []string{"expected 'beta' to equal 'not-beta'", "Iteration"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to carry bru's per-iteration summary and mention %q, got:\n%s",
+				want, head(err.Error()))
+		}
+	}
+
+	contents, err := exportContents(ctx, collection.Report("json"), "data-one-bad-row.json")
+	if err != nil {
+		return fmt.Errorf("report: %w", err)
+	}
+	report, err := iterations(contents)
+	if err != nil {
+		return err
+	}
+	if len(report) != 2 {
+		return fmt.Errorf("expected the report to describe 2 iterations, got %d:\n%s", len(report), head(contents))
+	}
+	// Which iteration failed is the assertion. A report that marked both rows
+	// failed, or marked the run failed without saying where, would leave the
+	// caller running rows by hand — so the passing row is checked too.
+	if got := report[0].failures(); len(got) != 0 {
+		return fmt.Errorf("expected iteration %d to pass, got %v", report[0].Index, got)
+	}
+	failures := report[1].failures()
+	if len(failures) != 1 {
+		return fmt.Errorf("expected iteration %d to carry 1 failed assertion, got %v", report[1].Index, failures)
+	}
+	if want := "expected 'beta' to equal 'not-beta'"; failures[0] != want {
+		return fmt.Errorf("expected the failure to be %q, got %q", want, failures[0])
+	}
+	// The index is bru's own, read off the report rather than inferred from the
+	// array's order: it is what the caller maps back onto a row of their file.
+	if report[1].Index != 1 {
+		return fmt.Errorf("expected the second iteration to report index 1, got %d", report[1].Index)
+	}
+	return nil
+}
+
+// DataFileWithoutKnownExtensionIsRejected checks that a data file bru has no
+// reader for is refused by name, and that the message names both extensions.
+//
+// The extension is the whole interface: WithData takes one file and picks
+// `--csv-file-path` or `--json-file-path` off it, so a caller holding a data
+// file with the wrong suffix has no other way to be told which two are meant.
+// bru's own answer is exit 10 or 11 — "the CSV data file was not found" for a
+// file that is sitting right there — after the collection has already been run.
+func (t *Tests) DataFileWithoutKnownExtensionIsRejected(ctx context.Context) error {
+	_, err := dag.Bruno().
+		Collection(fixture("tenants")).
+		WithEnvironment("local").
+		WithData(fixtureFile("data/tenants.txt")).
+		Run(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a data file with an unreadable extension to be an error")
+	}
+	for _, want := range []string{"tenants.txt", ".csv", ".json"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the error to mention %q, got:\n%s", want, head(err.Error()))
+		}
 	}
 	return nil
 }
@@ -2090,6 +2222,42 @@ func redactedReport(
 	return got, nil
 }
 
+// dataDrivesOneRunPerRow runs the tenants collection over one of the data
+// fixtures and checks that every row became an iteration. label distinguishes
+// the CSV pass from the JSON one; both fixtures carry the same rows, so what is
+// asserted is identical and only the flag the module picked differs.
+func dataDrivesOneRunPerRow(ctx context.Context, label string, data *dagger.File) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	if _, err := dag.Bruno().
+		Collection(fixture("tenants")).
+		WithEnvironment("local").
+		WithData(data).
+		WithService(responderAlias, rsp.Svc).
+		Run(ctx); err != nil {
+		return fmt.Errorf("%s run: %w", label, err)
+	}
+
+	got, err := rsp.stats(ctx, "after-"+label+"-data")
+	if err != nil {
+		return err
+	}
+	if got.Count != dataRows {
+		return fmt.Errorf("expected the %s data file to drive %d iterations, but the service served %d request(s)",
+			label, dataRows, got.Count)
+	}
+	// The rows are distinguishable by design: a run that iterated the same row
+	// three times would satisfy the count.
+	if want := "/tenants/gamma"; got.Path != want {
+		return fmt.Errorf("expected the last %s iteration to request %q, got %q", label, want, got.Path)
+	}
+	return nil
+}
+
 // header looks a reported header up case-insensitively. bru writes each name
 // back the way the collection spelled it, so an exact-key lookup would be
 // asserting the fixture's capitalisation rather than what was reported.
@@ -2102,11 +2270,41 @@ func header(headers map[string]string, name string) (string, bool) {
 	return "", false
 }
 
-// reportResult is the part of one entry in bru's JSON report that the
-// redaction tests read: what the request carried and what came back.
+// reportIteration is one entry of bru's JSON report. The document is an array
+// of them: a plain run reports one, and a data-driven run one per row of the
+// data file, each carrying the index the caller maps back onto that row.
+type reportIteration struct {
+	Index   int            `json:"iterationIndex"`
+	Results []reportResult `json:"results"`
+}
+
+// failures lists the assertion errors in one iteration, which is how a report
+// says a row failed and what about it.
+func (it reportIteration) failures() []string {
+	var out []string
+	for _, result := range it.Results {
+		for _, assertion := range result.Assertions {
+			if assertion.Status != "pass" {
+				out = append(out, assertion.Error)
+			}
+		}
+	}
+	return out
+}
+
+// reportResult is the part of one entry in bru's JSON report that these tests
+// read: what the request carried, what came back, and how the assertions went.
 type reportResult struct {
-	Request  reportMessage `json:"request"`
-	Response reportMessage `json:"response"`
+	Request    reportMessage     `json:"request"`
+	Response   reportMessage     `json:"response"`
+	Assertions []reportAssertion `json:"assertionResults"`
+}
+
+// reportAssertion is one reported assertion. Error is populated only on a
+// failure, and is bru's own account of it.
+type reportAssertion struct {
+	Status string `json:"status"`
+	Error  string `json:"error"`
 }
 
 // reportMessage is one side of a reported exchange.
@@ -2121,21 +2319,25 @@ type reportMessage struct {
 	Status  int               `json:"status"`
 }
 
-// oneResult reads the single reported exchange out of a JSON report.
-//
-// The document is an array of iterations, each holding its own results, because
-// bru reports a data-driven run as one iteration per row. Every collection here
-// makes one request, so anything else means the run was not the one the test
-// set up.
-func oneResult(contents string) (reportResult, error) {
-	var iterations []struct {
-		Results []reportResult `json:"results"`
+// iterations reads a JSON report's array of iterations.
+func iterations(contents string) ([]reportIteration, error) {
+	var out []reportIteration
+	if err := json.Unmarshal([]byte(contents), &out); err != nil {
+		return nil, fmt.Errorf("parse the json report: %w\n%s", err, head(contents))
 	}
-	if err := json.Unmarshal([]byte(contents), &iterations); err != nil {
-		return reportResult{}, fmt.Errorf("parse the json report: %w\n%s", err, head(contents))
+	return out, nil
+}
+
+// oneResult reads the single reported exchange out of a JSON report. Every
+// collection outside the data tests makes one request and is driven by no data
+// file, so anything else means the run was not the one the test set up.
+func oneResult(contents string) (reportResult, error) {
+	report, err := iterations(contents)
+	if err != nil {
+		return reportResult{}, err
 	}
 	var results []reportResult
-	for _, iteration := range iterations {
+	for _, iteration := range report {
 		results = append(results, iteration.Results...)
 	}
 	if len(results) != 1 {

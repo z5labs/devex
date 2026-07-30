@@ -1,0 +1,20 @@
+meta {
+  name: echo
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/tenants/{{tenant}}
+  body: none
+  auth: none
+}
+
+headers {
+  X-Custom: {{tenant}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.echo: eq {{expectedEcho}}
+}
