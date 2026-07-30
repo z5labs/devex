@@ -130,6 +130,18 @@ type Collection struct {
 	Bail bool
 	// +private
 	Delay int
+	// +private
+	SkipHeaders []string
+	// +private
+	SkipAllHeaders bool
+	// +private
+	SkipRequestBody bool
+	// +private
+	SkipResponseBody bool
+	// +private
+	SkipBodies bool
+	// +private
+	Unredacted bool
 }
 
 // Collection binds a Bruno collection directory to the toolchain.
@@ -356,6 +368,7 @@ func (c *Collection) clone() *Collection {
 	out.ClientCerts = append([]*dagger.File(nil), c.ClientCerts...)
 	out.ClientKeys = append([]*dagger.Secret(nil), c.ClientKeys...)
 	out.ClientPassphrases = append([]*dagger.Secret(nil), c.ClientPassphrases...)
+	out.SkipHeaders = append([]string(nil), c.SkipHeaders...)
 	return &out
 }
 
@@ -481,6 +494,12 @@ func (c *Collection) args(recursive bool, reportFormats []string, envFile string
 		}
 		args = append(args, "--reporter-"+format, path)
 	}
+	// The redaction flags describe what a reporter writes, so they go on the
+	// command line only when one was asked for. A plain Run publishes no
+	// artifact and there is nothing for them to trim out of it.
+	if len(reportFormats) > 0 {
+		args = append(args, c.redactArgs()...)
+	}
 	return args, nil
 }
 
@@ -516,6 +535,9 @@ func (c *Collection) validate() error {
 	}
 	if c.Delay < 0 {
 		return fmt.Errorf("WithDelay: delay %d must not be negative", c.Delay)
+	}
+	if err := c.validateRedaction(); err != nil {
+		return err
 	}
 	return c.validateTLS()
 }

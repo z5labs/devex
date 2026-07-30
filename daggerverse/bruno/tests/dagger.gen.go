@@ -248,6 +248,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiReachesMtlsServiceBehindPrivateCa(&parent, ctx)
+		case "CiRedactsSecretVarFromItsReports":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiRedactsSecretVarFromItsReports(&parent, ctx)
 		case "CiRejectsUnknownReportFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -423,6 +430,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ReportShouldNotBeCached(&parent, ctx)
+		case "ReportWithoutAllHeadersOmitsEveryHeader":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReportWithoutAllHeadersOmitsEveryHeader(&parent, ctx)
+		case "ReportWithoutBodiesOmitsBothBodies":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReportWithoutBodiesOmitsBothBodies(&parent, ctx)
+		case "ReportWithoutNamedHeaderKeepsTheOthers":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReportWithoutNamedHeaderKeepsTheOthers(&parent, ctx)
 		case "RunFailsOnAssertionFailure":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -451,6 +479,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SecretVarIsNotOnArgv(&parent, ctx)
+		case "SecretVarIsRedactedFromReportsByDefault":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SecretVarIsRedactedFromReportsByDefault(&parent, ctx)
 		case "TlsControlsAreValidated":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -479,6 +514,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).WithVarOverridesEnvironmentValue(&parent, ctx)
+		case "WithoutHeadersRejectsBlankName":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).WithoutHeadersRejectsBlankName(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

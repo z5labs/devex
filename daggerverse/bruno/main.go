@@ -79,8 +79,8 @@ func New(
 }
 
 // Container returns the bare Bruno CLI image. This is the escape hatch for
-// every flag this module does not wrap — `bru`'s long tail of proxy, cookie
-// and reporter-redaction options stays reachable via `container with-exec`.
+// every flag this module does not wrap — `bru`'s long tail of proxy and cookie
+// options stays reachable via `container with-exec`.
 //
 // +cache="session"
 func (b *Bruno) Container() *dagger.Container {

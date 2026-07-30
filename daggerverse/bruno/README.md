@@ -403,11 +403,63 @@ headers {
 collection.WithSecretVar("API_TOKEN", token).Run(ctx)
 ```
 
-Note what this does *not* cover: `bru`'s reporters record the resolved request,
-so a secret that ends up in a URL or an echoed header lands in the JSON, JUnit
-or HTML artifact. Keep secrets in headers you do not report on, or treat the
-artifact as sensitive. Reporter redaction (`--reporter-skip-headers` and
-friends) is reachable through `Container()`.
+Keeping a secret off argv is not the same as keeping it out of the artifact,
+which is what the next section is about.
+
+## Reporter redaction
+
+`bru`'s JSON reporter records each exchange in full — request headers, request
+body, response headers, response body — and that file is what a CI system
+archives. A collection that authenticates therefore publishes its credential,
+to whoever can read build artifacts, for as long as they are kept.
+
+```go
+collection.
+    WithoutHeaders([]string{"authorization"}).  // --reporter-skip-headers
+    WithoutAllHeaders().                        // --reporter-skip-all-headers
+    WithoutRequestBody().                       // --reporter-skip-request-body
+    WithoutResponseBody().                      // --reporter-skip-response-body
+    WithoutBodies().                            // --reporter-skip-body
+    Report(ctx, "json")
+```
+
+`WithoutHeaders` matches case-insensitively and drops the header from **both**
+sides of the exchange; the names accumulate across calls. All five are on `Ci`
+as well, since `Ci.Run` is the terminal that writes the archived file.
+
+**A collection holding a `WithSecretVar` secret redacts all headers and both
+bodies by default.** `WithUnredactedReport()` is the way back.
+
+That default is as broad as it is because nothing narrower would be honest.
+`bru` already masks header values by name — a value under `Authorization` is
+written out as `Bearer ********` without anyone asking — but that is a list of
+names, so the same secret under `X-Custom`, in the request body, or echoed back
+in the response body is written out verbatim. The module has been told which
+value is sensitive and knows nothing about where the collection interpolated it,
+so redacting only the place it is most often found would be a promise it cannot
+keep, and a report that *looks* redacted is worse than one that obviously is
+not. The safe choice is the one the caller gets without asking for it: the
+caller who would have thought to ask was never the one at risk.
+
+The default triggers on `WithSecretVar` alone. `WithClientCert`'s key and
+passphrase are secrets too, but they are consumed by the handshake and never
+reach a header or a body, so a collection that only authenticates with a
+certificate reports in full.
+
+Two limits worth knowing:
+
+- **Only the JSON reporter carries any of this.** As of 3.4.2 the JUnit
+  document holds test names, assertion expressions and failure messages, and the
+  HTML page holds the same — neither reports a header or a body at all, passing
+  or failing. So these controls change the JSON artifact and leave the other two
+  as they were.
+- **No flag reaches the request URL**, which every reporter records in full. A
+  secret interpolated into a path or a query string is in the report whatever is
+  set here, and `bru` offers nothing that would remove it. Put credentials in
+  headers.
+
+The flags are rendered only when a reporter was asked for: a plain `Run`
+publishes no artifact and there is nothing for them to trim out of it.
 
 ## Sandbox
 
@@ -509,6 +561,12 @@ tail.
 | `Collection.WithCaCert(cert)` | `--cacert`; verify peers against a private CA as well as the default truststore. |
 | `Collection.WithoutTruststore()` | `--ignore-truststore`; verify against the `WithCaCert` CA alone. |
 | `Collection.WithClientCert(host, cert, key, passphrase)` | `--client-cert-config`; present a client certificate to hosts matching `host`. |
+| `Collection.WithoutHeaders(names)` | `--reporter-skip-headers`; omit named headers from the report, both sides. |
+| `Collection.WithoutAllHeaders()` | `--reporter-skip-all-headers`; omit every header from the report. |
+| `Collection.WithoutRequestBody()` | `--reporter-skip-request-body`. |
+| `Collection.WithoutResponseBody()` | `--reporter-skip-response-body`. |
+| `Collection.WithoutBodies()` | `--reporter-skip-body`; omit both. |
+| `Collection.WithUnredactedReport()` | Cancel the redaction a `WithSecretVar` secret applies by default. |
 | `Collection.WithTestsOnly()` | `--tests-only`; skip requests with no test or assertion. |
 | `Collection.WithBail()` | `--bail`; stop at the first failure. |
 | `Collection.WithDelay(milliseconds)` | `--delay`; wait between requests. |
@@ -524,6 +582,12 @@ tail.
 | `Ci.WithCaCert(cert)` | `--cacert` for the pipeline; verify peers against a private CA. |
 | `Ci.WithoutTruststore()` | `--ignore-truststore` for the pipeline; verify against that CA alone. |
 | `Ci.WithClientCert(host, cert, key, passphrase)` | `--client-cert-config` for the pipeline; authenticate to an mTLS endpoint. |
+| `Ci.WithoutHeaders(names)` | `--reporter-skip-headers` for the pipeline's reports. |
+| `Ci.WithoutAllHeaders()` | `--reporter-skip-all-headers` for the pipeline's reports. |
+| `Ci.WithoutRequestBody()` | `--reporter-skip-request-body` for the pipeline's reports. |
+| `Ci.WithoutResponseBody()` | `--reporter-skip-response-body` for the pipeline's reports. |
+| `Ci.WithoutBodies()` | `--reporter-skip-body` for the pipeline's reports. |
+| `Ci.WithUnredactedReport()` | Cancel the redaction a `WithSecretVar` secret applies by default. |
 | `Ci.WithLint(failOnWarnings)` | Add the lint stage, ahead of the collection. |
 | `Ci.WithReport(format)` | Add a reporter format to the set `Ci.Run` returns. |
 | `Ci.Check()` | The pipeline as a gate: lint, then the collection. Produces nothing. |
@@ -576,6 +640,17 @@ pipeline builder wraps no sandbox switch.
 `ClientCertMaterialStaysOutOfTheCollection` uses the same trick for the same
 reason, and adds a `readdirSync` of the working directory, because the collection
 bru sees is the mount and not the caller's directory.
+
+`fixtures/redact/` puts the same secret in three places one request can leak it
+from: an `Authorization` header, an `X-Custom` header, and a JSON request body.
+The responder echoes `X-Custom` back, so it is in the response body too. Both
+header names are load-bearing — `Authorization` is on `bru`'s own mask list and
+`X-Custom` is not, which is what
+`SecretVarIsRedactedFromReportsByDefault` pins before asserting anything about
+the default: if the two ever stop disagreeing, upstream has widened its
+redaction and this module's default has less work to do than its documentation
+claims. Every redaction test sets `WithUnredactedReport` first, so that what the
+report holds is the doing of the control under test and not of the secret.
 
 The TLS tests get a second responder. `tests/tlsresponder.go` serves the same
 recording handler over HTTPS on 8443 — presenting a leaf signed by a CA minted
