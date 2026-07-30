@@ -28,6 +28,12 @@ const (
 // statsPath answers 200 with a small JSON body, bumps a counter and remembers
 // what the request carried; statsPath hands that record back.
 //
+// That body echoes the request's X-Custom header back, which is what puts a
+// caller's own value in a *response* body. The redaction tests need one there:
+// a login route answering with the token it was given is the case
+// WithoutResponseBody exists for, and a responder that only ever said "ok"
+// could not stand in for it.
+//
 // It runs on the Bruno CLI image itself rather than a second image: that image
 // is node:22-alpine, so `node -e` needs nothing pulled that the module under
 // test has not already pulled.
@@ -57,7 +63,7 @@ http.createServer((req, res) => {
     argv: req.headers['x-argv'] || '',
   };
   res.writeHead(200, { 'content-type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', count }));
+  res.end(JSON.stringify({ status: 'ok', count, echo: req.headers['x-custom'] || '' }));
 }).listen(%d, '0.0.0.0');
 `, id, statsPath, responderPort)
 }

@@ -144,6 +144,12 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 		TestsOnly         bool
 		Bail              bool
 		Delay             int
+		SkipHeaders       []string
+		SkipAllHeaders    bool
+		SkipRequestBody   bool
+		SkipResponseBody  bool
+		SkipBodies        bool
+		Unredacted        bool
 	}
 	concrete.Bruno = r.Bruno
 	concrete.Source = r.Source
@@ -168,6 +174,12 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 	concrete.TestsOnly = r.TestsOnly
 	concrete.Bail = r.Bail
 	concrete.Delay = r.Delay
+	concrete.SkipHeaders = r.SkipHeaders
+	concrete.SkipAllHeaders = r.SkipAllHeaders
+	concrete.SkipRequestBody = r.SkipRequestBody
+	concrete.SkipResponseBody = r.SkipResponseBody
+	concrete.SkipBodies = r.SkipBodies
+	concrete.Unredacted = r.Unredacted
 	return json.Marshal(&concrete)
 }
 
@@ -196,6 +208,12 @@ func (r *Collection) UnmarshalJSON(bs []byte) error {
 		TestsOnly         bool
 		Bail              bool
 		Delay             int
+		SkipHeaders       []string
+		SkipAllHeaders    bool
+		SkipRequestBody   bool
+		SkipResponseBody  bool
+		SkipBodies        bool
+		Unredacted        bool
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -224,6 +242,12 @@ func (r *Collection) UnmarshalJSON(bs []byte) error {
 	r.TestsOnly = concrete.TestsOnly
 	r.Bail = concrete.Bail
 	r.Delay = concrete.Delay
+	r.SkipHeaders = concrete.SkipHeaders
+	r.SkipAllHeaders = concrete.SkipAllHeaders
+	r.SkipRequestBody = concrete.SkipRequestBody
+	r.SkipResponseBody = concrete.SkipResponseBody
+	r.SkipBodies = concrete.SkipBodies
+	r.Unredacted = concrete.Unredacted
 	return nil
 }
 
@@ -596,6 +620,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Ci).WithService(&parent, alias, service), nil
+		case "WithUnredactedReport":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithUnredactedReport(&parent), nil
+		case "WithoutAllHeaders":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutAllHeaders(&parent), nil
+		case "WithoutBodies":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutBodies(&parent), nil
+		case "WithoutHeaders":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var names []string
+			if inputArgs["names"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["names"]), &names)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg names", err))
+				}
+			}
+			return (*Ci).WithoutHeaders(&parent, names), nil
+		case "WithoutRequestBody":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutRequestBody(&parent), nil
+		case "WithoutResponseBody":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutResponseBody(&parent), nil
 		case "WithoutTruststore":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -860,6 +933,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Collection).WithTestsOnly(&parent), nil
+		case "WithUnredactedReport":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithUnredactedReport(&parent), nil
 		case "WithVar":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)
@@ -881,6 +961,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Collection).WithVar(&parent, name, value), nil
+		case "WithoutAllHeaders":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithoutAllHeaders(&parent), nil
+		case "WithoutBodies":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithoutBodies(&parent), nil
+		case "WithoutHeaders":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var names []string
+			if inputArgs["names"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["names"]), &names)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg names", err))
+				}
+			}
+			return (*Collection).WithoutHeaders(&parent, names), nil
+		case "WithoutRequestBody":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithoutRequestBody(&parent), nil
+		case "WithoutResponseBody":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithoutResponseBody(&parent), nil
 		case "WithoutTags":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)

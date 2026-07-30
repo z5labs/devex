@@ -167,6 +167,62 @@ func (c *Ci) WithReport(
 	return &out
 }
 
+// WithoutHeaders omits the named headers from the reports Run returns. See
+// Collection.WithoutHeaders.
+func (c *Ci) WithoutHeaders(
+	// Header names to omit, matched case-insensitively.
+	names []string,
+) *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutHeaders(names)
+	return &out
+}
+
+// WithoutAllHeaders omits every header from the reports Run returns. See
+// Collection.WithoutAllHeaders.
+func (c *Ci) WithoutAllHeaders() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutAllHeaders()
+	return &out
+}
+
+// WithoutRequestBody omits every request body from the reports Run returns. See
+// Collection.WithoutRequestBody.
+func (c *Ci) WithoutRequestBody() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutRequestBody()
+	return &out
+}
+
+// WithoutResponseBody omits every response body from the reports Run returns.
+// See Collection.WithoutResponseBody.
+func (c *Ci) WithoutResponseBody() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutResponseBody()
+	return &out
+}
+
+// WithoutBodies omits both request and response bodies from the reports Run
+// returns. See Collection.WithoutBodies.
+func (c *Ci) WithoutBodies() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutBodies()
+	return &out
+}
+
+// WithUnredactedReport reports every header and both bodies, cancelling the
+// redaction a WithSecretVar secret otherwise applies. See
+// Collection.WithUnredactedReport.
+//
+// This is the builder where the default matters most and where cancelling it
+// deserves the most thought: what Run produces is the artifact a CI system
+// archives, and an archived report outlives the run that wrote it.
+func (c *Ci) WithUnredactedReport() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithUnredactedReport()
+	return &out
+}
+
 // Check runs the pipeline as a gate and produces nothing, for the PR that wants
 // to know whether the API is behaving.
 //

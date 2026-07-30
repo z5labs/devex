@@ -66,7 +66,7 @@ func (r *Bruno) Ci(source *Directory) *BrunoCi { // bruno (../../../../../dagger
 }
 
 // Collection binds a Bruno collection directory to the toolchain.
-func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:136:1)
+func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:148:1)
 	assertNotNil("source", source)
 	q := r.query.Select("collection")
 	q = q.Arg("source", source)
@@ -77,8 +77,8 @@ func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../..
 }
 
 // Container returns the bare Bruno CLI image. This is the escape hatch for
-// every flag this module does not wrap — `bru`'s long tail of proxy, cookie
-// and reporter-redaction options stays reachable via `container with-exec`.
+// every flag this module does not wrap — `bru`'s long tail of proxy and cookie
+// options stays reachable via `container with-exec`.
 func (r *Bruno) Container() *Container { // bruno (../../../../../daggerverse/bruno/main.go:86:1)
 	q := r.query.Select("container")
 
@@ -268,7 +268,7 @@ func (r *BrunoCi) WithGraphQLQuery(q *querybuilder.Selection) *BrunoCi {
 // No report is produced, because a gate that returns nothing can gate: see Run
 // for why the terminal that hands back artifacts cannot also be the one that
 // fails.
-func (r *BrunoCi) Check(ctx context.Context) error { // bruno (../../../../../daggerverse/bruno/ci.go:185:1)
+func (r *BrunoCi) Check(ctx context.Context) error { // bruno (../../../../../daggerverse/bruno/ci.go:241:1)
 	if r.check != nil {
 		return nil
 	}
@@ -338,7 +338,7 @@ func (r *BrunoCi) UnmarshalJSON(bs []byte) error {
 //
 // A lint error is still an error here, because then the collection never ran
 // and there is no report to return. So is a usage error, for the same reason.
-func (r *BrunoCi) Run() *Directory { // bruno (../../../../../daggerverse/bruno/ci.go:210:1)
+func (r *BrunoCi) Run() *Directory { // bruno (../../../../../daggerverse/bruno/ci.go:266:1)
 	q := r.query.Select("run")
 
 	return &Directory{
@@ -483,6 +483,72 @@ func (r *BrunoCi) WithService(alias string, service *Service) *BrunoCi { // brun
 	q := r.query.Select("withService")
 	q = q.Arg("alias", alias)
 	q = q.Arg("service", service)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithUnredactedReport reports every header and both bodies, cancelling the
+// redaction a WithSecretVar secret otherwise applies. See
+// Collection.WithUnredactedReport.
+//
+// This is the builder where the default matters most and where cancelling it
+// deserves the most thought: what Run produces is the artifact a CI system
+// archives, and an archived report outlives the run that wrote it.
+func (r *BrunoCi) WithUnredactedReport() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:220:1)
+	q := r.query.Select("withUnredactedReport")
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutAllHeaders omits every header from the reports Run returns. See
+// Collection.WithoutAllHeaders.
+func (r *BrunoCi) WithoutAllHeaders() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:183:1)
+	q := r.query.Select("withoutAllHeaders")
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutBodies omits both request and response bodies from the reports Run
+// returns. See Collection.WithoutBodies.
+func (r *BrunoCi) WithoutBodies() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:207:1)
+	q := r.query.Select("withoutBodies")
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutHeaders omits the named headers from the reports Run returns. See
+// Collection.WithoutHeaders.
+func (r *BrunoCi) WithoutHeaders(names []string) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:172:1)
+	q := r.query.Select("withoutHeaders")
+	q = q.Arg("names", names)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutRequestBody omits every request body from the reports Run returns. See
+// Collection.WithoutRequestBody.
+func (r *BrunoCi) WithoutRequestBody() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:191:1)
+	q := r.query.Select("withoutRequestBody")
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutResponseBody omits every response body from the reports Run returns.
+// See Collection.WithoutResponseBody.
+func (r *BrunoCi) WithoutResponseBody() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:199:1)
+	q := r.query.Select("withoutResponseBody")
 
 	return &BrunoCi{
 		query: q,
@@ -693,7 +759,7 @@ func (r *BrunoCollection) Lint(ctx context.Context, opts ...BrunoCollectionLintO
 //
 // The run is recursive, matching Run's default, so the artifact describes the
 // whole collection.
-func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:322:1)
+func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:334:1)
 	q := r.query.Select("report")
 	q = q.Arg("format", format)
 
@@ -712,7 +778,7 @@ type BrunoCollectionRunOpts struct {
 	//
 	//
 	// Default: true
-	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:289:2)
+	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:301:2)
 }
 
 // Run executes the collection and returns bru's output.
@@ -726,7 +792,7 @@ type BrunoCollectionRunOpts struct {
 // A failing Run returns no output alongside its error: a Dagger function that
 // returns an error forfeits its value. Pair it with Report when the artifact
 // matters.
-func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:282:1)
+func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:294:1)
 	if r.run != nil {
 		return *r.run, nil
 	}
@@ -746,7 +812,7 @@ func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpt
 
 // WithBail stops the run at the first failing request, test or assertion
 // (`--bail`) instead of working through the rest of the collection.
-func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:255:1)
+func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:267:1)
 	q := r.query.Select("withBail")
 
 	return &BrunoCollection{
@@ -816,7 +882,7 @@ func (r *BrunoCollection) WithClientCert(host string, cert *File, key *Secret, o
 
 // WithDelay waits the given number of milliseconds between requests
 // (`--delay`), for a target that rate-limits.
-func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:263:1)
+func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:275:1)
 	q := r.query.Select("withDelay")
 	q = q.Arg("milliseconds", milliseconds)
 
@@ -828,7 +894,7 @@ func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // brun
 // WithEnvFile supplies an environment file (`--env-file`), a .bru or .json
 // file holding the variables for the run. It is mounted outside the
 // collection, so it never shadows a file the collection ships.
-func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:182:1)
+func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:194:1)
 	assertNotNil("file", file)
 	q := r.query.Select("withEnvFile")
 	q = q.Arg("file", file)
@@ -841,7 +907,7 @@ func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (.
 // WithEnvironment selects the environment bru resolves variables from
 // (`--env`), by the name of the file under environments/ without its
 // extension. An unknown name is bru's exit 6, reported as a usage error.
-func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:143:1)
+func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:155:1)
 	q := r.query.Select("withEnvironment")
 	q = q.Arg("name", name)
 
@@ -858,7 +924,7 @@ func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bru
 // CA: use WithCaCert for that, and WithClientCert to authenticate with a
 // certificate of the run's own. bru drops `--cacert` when `--insecure` is set,
 // so combining the two is rejected rather than quietly verifying nothing.
-func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:238:1)
+func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:250:1)
 	q := r.query.Select("withInsecure")
 
 	return &BrunoCollection{
@@ -875,7 +941,7 @@ func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../.
 // A collection that says nothing runs in "safe", matching both bru's default
 // and Collection's. Like WithVar, an unknown mode is reported by the run
 // rather than here.
-func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:224:1)
+func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:236:1)
 	q := r.query.Select("withSandbox")
 	q = q.Arg("mode", mode)
 
@@ -891,7 +957,7 @@ func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (
 // `--env-var` places its value on the process command line. A secret is bound
 // with WithSecretVariable instead, so it appears in neither argv nor any
 // diagnostic this module echoes back.
-func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:172:1)
+func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:184:1)
 	assertNotNil("value", value)
 	q := r.query.Select("withSecretVar")
 	q = q.Arg("name", name)
@@ -905,7 +971,7 @@ func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollec
 // WithService binds a service into the run's network under alias, so the
 // collection can reach it by that hostname. A collection is inert without a
 // target, which is why this exists at all.
-func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:208:1)
+func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:220:1)
 	assertNotNil("service", service)
 	q := r.query.Select("withService")
 	q = q.Arg("alias", alias)
@@ -918,7 +984,7 @@ func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoColl
 
 // WithTags restricts the run to requests carrying any of these tags
 // (`--tags`).
-func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:190:1)
+func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:202:1)
 	q := r.query.Select("withTags")
 	q = q.Arg("tags", tags)
 
@@ -930,8 +996,28 @@ func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (.
 // WithTestsOnly runs only the requests that carry a test or an active
 // assertion (`--tests-only`), skipping the ones that exist to set up state
 // for a human.
-func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:247:1)
+func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:259:1)
 	q := r.query.Select("withTestsOnly")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithUnredactedReport reports every header and both bodies, cancelling the
+// redaction that a WithSecretVar secret otherwise applies.
+//
+// A collection that was handed a secret redacts its reports by default: see
+// redactArgs for why that is the default rather than the option. This is the
+// way back for a pipeline that wants the whole exchange in its artifact and has
+// decided the artifact is somewhere that can hold it.
+//
+// It does not undo the five Without* controls above; it only cancels what the
+// secret added. So a pipeline that wants the bodies in its artifact and none of
+// the headers sets this alongside WithoutAllHeaders, and gets exactly that
+// rather than the default's both.
+func (r *BrunoCollection) WithUnredactedReport() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:105:1)
+	q := r.query.Select("withUnredactedReport")
 
 	return &BrunoCollection{
 		query: q,
@@ -947,7 +1033,7 @@ func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../
 //
 // Validation is deferred to the run: builder methods have no error return, so
 // a bad name surfaces on the Run or Report that would have used it.
-func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:158:1)
+func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:170:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -957,10 +1043,76 @@ func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { 
 	}
 }
 
+// WithoutAllHeaders omits every header from the reporter output
+// (`--reporter-skip-all-headers`), on both sides of each exchange.
+//
+// This is the choice to make when the collection's headers are not enumerable
+// from where the pipeline is written — a header set by a script, or an auth
+// scheme that adds one. WithoutHeaders keeps the rest of them.
+func (r *BrunoCollection) WithoutAllHeaders() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:60:1)
+	q := r.query.Select("withoutAllHeaders")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithoutBodies omits both request and response bodies from the reporter output
+// (`--reporter-skip-body`).
+func (r *BrunoCollection) WithoutBodies() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:87:1)
+	q := r.query.Select("withoutBodies")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithoutHeaders omits the named headers from the reporter output
+// (`--reporter-skip-headers`), on both sides of each exchange.
+//
+// Matching is case-insensitive and the header is dropped rather than blanked,
+// so "authorization" removes an Authorization that was sent and one that came
+// back. Call it once with every name, or more than once — the names accumulate.
+//
+// Use it to keep a report that is still worth reading: everything the run
+// carried survives except the headers named here. WithoutAllHeaders is the
+// blunter instrument for when the set of sensitive names is not known.
+func (r *BrunoCollection) WithoutHeaders(names []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:45:1)
+	q := r.query.Select("withoutHeaders")
+	q = q.Arg("names", names)
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithoutRequestBody omits every request body from the reporter output
+// (`--reporter-skip-request-body`), for the collection that posts credentials
+// rather than sending them in a header.
+func (r *BrunoCollection) WithoutRequestBody() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:69:1)
+	q := r.query.Select("withoutRequestBody")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithoutResponseBody omits every response body from the reporter output
+// (`--reporter-skip-response-body`), for the endpoint that answers with a token
+// — a login route being the obvious one, and the one whose report is most
+// worth reading and least safe to keep.
+func (r *BrunoCollection) WithoutResponseBody() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/redact.go:79:1)
+	q := r.query.Select("withoutResponseBody")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
 // WithoutTags excludes requests carrying any of these tags
 // (`--exclude-tags`). It composes with WithTags: a request matching both is
 // excluded.
-func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:199:1)
+func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:211:1)
 	q := r.query.Select("withoutTags")
 	q = q.Arg("tags", tags)
 

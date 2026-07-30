@@ -57,6 +57,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ReportEmitsJunitForFailingRun", t.ReportEmitsJunitForFailingRun)
 	jobs = jobs.WithJob("ReportRejectsUnknownFormat", t.ReportRejectsUnknownFormat)
 	jobs = jobs.WithJob("ReportShouldNotBeCached", t.ReportShouldNotBeCached)
+	jobs = jobs.WithJob("SecretVarIsRedactedFromReportsByDefault", t.SecretVarIsRedactedFromReportsByDefault)
+	jobs = jobs.WithJob("ReportWithoutAllHeadersOmitsEveryHeader", t.ReportWithoutAllHeadersOmitsEveryHeader)
+	jobs = jobs.WithJob("ReportWithoutNamedHeaderKeepsTheOthers", t.ReportWithoutNamedHeaderKeepsTheOthers)
+	jobs = jobs.WithJob("ReportWithoutBodiesOmitsBothBodies", t.ReportWithoutBodiesOmitsBothBodies)
+	jobs = jobs.WithJob("WithoutHeadersRejectsBlankName", t.WithoutHeadersRejectsBlankName)
 	jobs = jobs.WithJob("WithVarOverridesEnvironmentValue", t.WithVarOverridesEnvironmentValue)
 	jobs = jobs.WithJob("SecretVarIsNotOnArgv", t.SecretVarIsNotOnArgv)
 	jobs = jobs.WithJob("PassThroughFlagsAreAccepted", t.PassThroughFlagsAreAccepted)
@@ -87,6 +92,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiRunStillReportsWhenTheCollectionFails", t.CiRunStillReportsWhenTheCollectionFails)
 	jobs = jobs.WithJob("CiShouldNotBeCached", t.CiShouldNotBeCached)
 	jobs = jobs.WithJob("CiSecretVarReachesTheCollection", t.CiSecretVarReachesTheCollection)
+	jobs = jobs.WithJob("CiRedactsSecretVarFromItsReports", t.CiRedactsSecretVarFromItsReports)
 
 	return jobs.Run(ctx)
 }
@@ -346,6 +352,230 @@ func (t *Tests) ReportShouldNotBeCached(ctx context.Context) error {
 		if got.Count != i {
 			return fmt.Errorf("expected %d request(s) at the service after %d report(s), got %d", i, i, got.Count)
 		}
+	}
+	return nil
+}
+
+// SecretVarIsRedactedFromReportsByDefault checks the module's answer to the
+// question the redaction story poses: what a report contains when the caller
+// has said nothing about redaction and the collection was handed a secret.
+//
+// The first pass is the control, and it is what makes the second one mean
+// something. bru masks header values by name — Authorization comes back as
+// "Bearer ********" without anyone having asked — so a default asserted on its
+// own could be passing on the strength of upstream's list rather than on
+// anything this module did. The control pins how far that list reaches: the
+// same secret in a header the list has never heard of, in the request body, and
+// echoed back in the response body is written out verbatim.
+//
+// That is why the default is all headers and both bodies rather than something
+// narrower. The module knows the value is sensitive; it does not know where the
+// collection interpolated it, and a partial redaction would be a promise it
+// cannot keep.
+func (t *Tests) SecretVarIsRedactedFromReportsByDefault(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	value, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("mint the test token: %w", err)
+	}
+	collection := dag.Bruno().
+		Collection(fixture("redact")).
+		WithEnvironment("local").
+		WithSecretVar("API_TOKEN", dag.SetSecret("bruno-redact-default-token", value)).
+		WithService(responderAlias, rsp.Svc)
+
+	loud, err := exportContents(ctx,
+		collection.WithUnredactedReport().Report("json"), "redact-unredacted.json")
+	if err != nil {
+		return fmt.Errorf("unredacted report: %w", err)
+	}
+	control, err := oneResult(loud)
+	if err != nil {
+		return fmt.Errorf("unredacted report: %w", err)
+	}
+	masked, ok := header(control.Request.Headers, "authorization")
+	if !ok {
+		return fmt.Errorf("expected an unredacted report to carry the Authorization header, got %v",
+			control.Request.Headers)
+	}
+	if strings.Contains(masked, value) {
+		return fmt.Errorf("expected bru to mask the Authorization header on its own, got %q", masked)
+	}
+	// Every place the secret survives upstream's masking. If one of these ever
+	// stops holding, bru has widened its own redaction and this module's
+	// default has less work to do than its documentation claims.
+	custom, _ := header(control.Request.Headers, "x-custom")
+	for _, leak := range []struct {
+		where string
+		got   string
+	}{
+		{"the X-Custom request header", custom},
+		{"the request body", string(control.Request.Data)},
+		{"the response body", string(control.Response.Data)},
+	} {
+		if !strings.Contains(leak.got, value) {
+			return fmt.Errorf(
+				"expected an unredacted report to carry the secret in %s, got %q", leak.where, leak.got)
+		}
+	}
+
+	quiet, err := exportContents(ctx, collection.Report("json"), "redact-default.json")
+	if err != nil {
+		return fmt.Errorf("default report: %w", err)
+	}
+	if strings.Contains(quiet, value) {
+		return fmt.Errorf("the secret is in the report the default produced:\n%s", head(quiet))
+	}
+	// Asserted against a report of a run that happened: a request bru never
+	// issued carries no secret either, and would satisfy the line above.
+	got, err := oneResult(quiet)
+	if err != nil {
+		return fmt.Errorf("default report: %w", err)
+	}
+	if len(got.Request.Headers) != 0 {
+		return fmt.Errorf("expected no request headers under the default, got %v", got.Request.Headers)
+	}
+	if len(got.Response.Headers) != 0 {
+		return fmt.Errorf("expected no response headers under the default, got %v", got.Response.Headers)
+	}
+	if got.Request.Data != nil || got.Response.Data != nil {
+		return fmt.Errorf("expected neither body under the default, got request %q and response %q",
+			got.Request.Data, got.Response.Data)
+	}
+	if got.Response.Status != 200 {
+		return fmt.Errorf("expected the redacted report to describe a request that was served, got status %d",
+			got.Response.Status)
+	}
+	return nil
+}
+
+// ReportWithoutAllHeadersOmitsEveryHeader checks the blunt control: nothing
+// that was sent or came back as a header survives into the report, on either
+// side of the exchange.
+//
+// Every redaction test here sets WithUnredactedReport first. The collection
+// carries a secret — that is what makes it worth redacting — and a secret is
+// enough to redact the report on its own, so without the opt-out these tests
+// would pass whether or not the flag under test was rendered at all.
+func (t *Tests) ReportWithoutAllHeadersOmitsEveryHeader(ctx context.Context) error {
+	got, err := redactedReport(ctx, "all-headers", func(c *dagger.BrunoCollection) *dagger.BrunoCollection {
+		return c.WithoutAllHeaders()
+	})
+	if err != nil {
+		return err
+	}
+	if len(got.Request.Headers) != 0 {
+		return fmt.Errorf("expected no request headers, got %v", got.Request.Headers)
+	}
+	if len(got.Response.Headers) != 0 {
+		return fmt.Errorf("expected no response headers, got %v", got.Response.Headers)
+	}
+	// The bodies are the control: this flag is about headers, and one that
+	// took the whole exchange with it would satisfy the two checks above.
+	if got.Request.Data == nil || got.Response.Data == nil {
+		return fmt.Errorf("expected both bodies to survive a header-only redaction, got request %q and response %q",
+			got.Request.Data, got.Response.Data)
+	}
+	return nil
+}
+
+// ReportWithoutNamedHeaderKeepsTheOthers checks the narrow control, which is
+// the one worth having: the credential goes and the report is still a report.
+//
+// The name is given in lower case against a header the collection spells
+// Authorization, because bru matches case-insensitively and a caller should not
+// have to know how the collection capitalised it.
+func (t *Tests) ReportWithoutNamedHeaderKeepsTheOthers(ctx context.Context) error {
+	got, err := redactedReport(ctx, "named-header", func(c *dagger.BrunoCollection) *dagger.BrunoCollection {
+		return c.WithoutHeaders([]string{"authorization"})
+	})
+	if err != nil {
+		return err
+	}
+	if value, ok := header(got.Request.Headers, "authorization"); ok {
+		return fmt.Errorf("expected the Authorization header to be omitted, got %q", value)
+	}
+	for _, name := range []string{"X-Trace-Id", "X-Custom"} {
+		if _, ok := header(got.Request.Headers, name); !ok {
+			return fmt.Errorf("expected the %s header to survive, got %v", name, got.Request.Headers)
+		}
+	}
+	if len(got.Response.Headers) == 0 {
+		return fmt.Errorf("expected the response headers to survive, got none")
+	}
+	return nil
+}
+
+// ReportWithoutBodiesOmitsBothBodies checks the three body controls together,
+// because what each one has to establish is which bodies it left alone.
+//
+// A flag that dropped both would satisfy the request-only case on its own, so
+// the assertion in every pass is the pair: what went, and what stayed.
+func (t *Tests) ReportWithoutBodiesOmitsBothBodies(ctx context.Context) error {
+	for _, tc := range []struct {
+		label   string
+		apply   func(*dagger.BrunoCollection) *dagger.BrunoCollection
+		request bool
+		response bool
+	}{
+		{
+			label:   "request-body",
+			apply:   func(c *dagger.BrunoCollection) *dagger.BrunoCollection { return c.WithoutRequestBody() },
+			request: false, response: true,
+		},
+		{
+			label:   "response-body",
+			apply:   func(c *dagger.BrunoCollection) *dagger.BrunoCollection { return c.WithoutResponseBody() },
+			request: true, response: false,
+		},
+		{
+			label:   "bodies",
+			apply:   func(c *dagger.BrunoCollection) *dagger.BrunoCollection { return c.WithoutBodies() },
+			request: false, response: false,
+		},
+	} {
+		got, err := redactedReport(ctx, tc.label, tc.apply)
+		if err != nil {
+			return err
+		}
+		if (got.Request.Data != nil) != tc.request {
+			return fmt.Errorf("%s: expected request body present=%t, got %q", tc.label, tc.request, got.Request.Data)
+		}
+		if (got.Response.Data != nil) != tc.response {
+			return fmt.Errorf("%s: expected response body present=%t, got %q", tc.label, tc.response, got.Response.Data)
+		}
+		// Headers are the control here for the same reason the bodies were one
+		// above: a flag that emptied the whole exchange would pass otherwise.
+		if len(got.Request.Headers) == 0 {
+			return fmt.Errorf("%s: expected the request headers to survive a body redaction, got none", tc.label)
+		}
+	}
+	return nil
+}
+
+// WithoutHeadersRejectsBlankName checks that a name bru could not act on is
+// refused. The builders have no error return, so the finding belongs to the
+// run — and a blank name renders a flag that consumes whatever follows it,
+// which is a redaction that silently applies to nothing.
+func (t *Tests) WithoutHeadersRejectsBlankName(ctx context.Context) error {
+	// Like every other deferred finding, it surfaces on the read: Report is
+	// lazy, so its error travels with the file rather than with the call.
+	_, err := dag.Bruno().
+		Collection(fixture("redact")).
+		WithEnvironment("local").
+		WithoutHeaders([]string{"authorization", " "}).
+		Report("json").
+		Contents(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a blank header name to be rejected")
+	}
+	if !strings.Contains(err.Error(), "WithoutHeaders: header name is required") {
+		return fmt.Errorf("expected the error to name the builder, got: %v", err)
 	}
 	return nil
 }
@@ -1277,6 +1507,68 @@ func (t *Tests) CiSecretVarReachesTheCollection(ctx context.Context) error {
 	return nil
 }
 
+// CiRedactsSecretVarFromItsReports checks the redaction where it matters most.
+// Run is the terminal that writes the file a CI system archives, and an
+// archived report outlives the run that produced it.
+//
+// Both directions are exercised, because a builder that dropped the delegation
+// entirely would look identical to one that redacts: a report with no headers
+// is what the default produces and also what a pipeline that never passed the
+// controls along would produce if the collection redacted on its own account.
+// The unredacted pass is what tells the two apart — the secret has to come back
+// when the pipeline asks for it.
+func (t *Tests) CiRedactsSecretVarFromItsReports(ctx context.Context) error {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	value, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("mint the test token: %w", err)
+	}
+	ci := dag.Bruno().Ci(fixture("redact")).
+		WithEnvironment("local").
+		WithSecretVar("API_TOKEN", dag.SetSecret("bruno-ci-redact-token", value)).
+		WithService(responderAlias, rsp.Svc).
+		WithReport("json")
+
+	for _, tc := range []struct {
+		label     string
+		pipeline  *dagger.BrunoCi
+		wantValue bool
+	}{
+		{"default", ci, false},
+		{"unredacted", ci.WithUnredactedReport(), true},
+	} {
+		// Ci.Run is +cache="never", so the directory is resolved once before
+		// anything is selected out of it. Two selections would be two runs.
+		reports, err := pin(ctx, tc.pipeline.Run())
+		if err != nil {
+			return fmt.Errorf("%s run: %w", tc.label, err)
+		}
+		contents, err := exportContents(ctx,
+			reports.File("report.json"), "ci-redact-"+tc.label+".json")
+		if err != nil {
+			return fmt.Errorf("%s report: %w", tc.label, err)
+		}
+		if strings.Contains(contents, value) != tc.wantValue {
+			return fmt.Errorf("%s: expected the secret in the report=%t:\n%s",
+				tc.label, tc.wantValue, head(contents))
+		}
+		got, err := oneResult(contents)
+		if err != nil {
+			return fmt.Errorf("%s report: %w", tc.label, err)
+		}
+		if got.Response.Status != 200 {
+			return fmt.Errorf("%s: expected a report of a request that was served, got status %d",
+				tc.label, got.Response.Status)
+		}
+	}
+	return nil
+}
+
 // TlsControlsAreValidated checks the two TLS combinations that cannot mean what
 // they say, both of which bru accepts and then quietly does something else with.
 //
@@ -1756,6 +2048,100 @@ func exportContents(ctx context.Context, f *dagger.File, name string) (string, e
 		return "", fmt.Errorf("read exported %s: %w", name, err)
 	}
 	return contents, nil
+}
+
+// redactedReport runs the redact fixture under one explicit redaction control
+// and hands back the single exchange its JSON report describes.
+//
+// The collection is handed a secret, because a report worth redacting is one of
+// a run that carried something — and then WithUnredactedReport turns the
+// default off, so that what the report holds is the doing of the control under
+// test and not of the secret.
+func redactedReport(
+	ctx context.Context,
+	label string,
+	apply func(*dagger.BrunoCollection) *dagger.BrunoCollection,
+) (reportResult, error) {
+	rsp, err := newResponder(ctx)
+	if err != nil {
+		return reportResult{}, err
+	}
+	defer rsp.stop(ctx)
+
+	value, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return reportResult{}, fmt.Errorf("mint the test token: %w", err)
+	}
+	collection := dag.Bruno().
+		Collection(fixture("redact")).
+		WithEnvironment("local").
+		WithSecretVar("API_TOKEN", dag.SetSecret("bruno-redact-"+label+"-token", value)).
+		WithService(responderAlias, rsp.Svc).
+		WithUnredactedReport()
+
+	contents, err := exportContents(ctx, apply(collection).Report("json"), "redact-"+label+".json")
+	if err != nil {
+		return reportResult{}, fmt.Errorf("%s report: %w", label, err)
+	}
+	got, err := oneResult(contents)
+	if err != nil {
+		return reportResult{}, fmt.Errorf("%s report: %w", label, err)
+	}
+	return got, nil
+}
+
+// header looks a reported header up case-insensitively. bru writes each name
+// back the way the collection spelled it, so an exact-key lookup would be
+// asserting the fixture's capitalisation rather than what was reported.
+func header(headers map[string]string, name string) (string, bool) {
+	for key, value := range headers {
+		if strings.EqualFold(key, name) {
+			return value, true
+		}
+	}
+	return "", false
+}
+
+// reportResult is the part of one entry in bru's JSON report that the
+// redaction tests read: what the request carried and what came back.
+type reportResult struct {
+	Request  reportMessage `json:"request"`
+	Response reportMessage `json:"response"`
+}
+
+// reportMessage is one side of a reported exchange.
+//
+// Data is held raw because the two sides do not agree on its type — a request
+// body is reported as the string that was sent, a response body as the parsed
+// document — and because what the body flags do is remove the field rather than
+// blank it, so nil is the assertion those tests make.
+type reportMessage struct {
+	Headers map[string]string `json:"headers"`
+	Data    json.RawMessage   `json:"data"`
+	Status  int               `json:"status"`
+}
+
+// oneResult reads the single reported exchange out of a JSON report.
+//
+// The document is an array of iterations, each holding its own results, because
+// bru reports a data-driven run as one iteration per row. Every collection here
+// makes one request, so anything else means the run was not the one the test
+// set up.
+func oneResult(contents string) (reportResult, error) {
+	var iterations []struct {
+		Results []reportResult `json:"results"`
+	}
+	if err := json.Unmarshal([]byte(contents), &iterations); err != nil {
+		return reportResult{}, fmt.Errorf("parse the json report: %w\n%s", err, head(contents))
+	}
+	var results []reportResult
+	for _, iteration := range iterations {
+		results = append(results, iteration.Results...)
+	}
+	if len(results) != 1 {
+		return reportResult{}, fmt.Errorf("expected 1 reported request, got %d:\n%s", len(results), head(contents))
+	}
+	return results[0], nil
 }
 
 // generatedRequests lists the request files in a generated collection.
