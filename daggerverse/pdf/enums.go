@@ -113,6 +113,60 @@ var (
 	formatTiff = rasterFormat{flag: "-tiff", ext: "tif"}
 )
 
+// pageFormat is an output written one file per page, by one invocation per
+// page. It is not a Dagger enum for the same reason rasterFormat is not: Svg,
+// Eps and Html are named functions, so a caller never spells a format.
+//
+// One invocation per page is not an implementation preference, it is what these
+// tools do. `pdftocairo -eps` refuses a multi-page document outright, and
+// `pdftocairo -svg` writes every page into one file wrapped in the SVG 1.2
+// `pageSet` elements that essentially no renderer implements — so the pages are
+// present in the file and absent from anything that draws it. Driving the page
+// loop here is what makes both of them honour the page-naming contract.
+type pageFormat struct {
+	// tool is the poppler binary that writes this format.
+	tool string
+	// flags select the format, and are everything the tool needs that is not
+	// the page bounds, the document or the output name.
+	flags []string
+	// ext is the extension a page of this format carries.
+	ext string
+	// namesExtension is whether the tool is handed the output path with the
+	// extension already on it. pdftocairo writes exactly the file it is named;
+	// pdftohtml is handed a base and appends `.html` to it itself.
+	namesExtension bool
+	// takesResolution is whether the tool accepts `-r`. It is pdftocairo's, and
+	// governs the rasterized regions a vector output can still contain; pdftohtml
+	// has no resolution option at all.
+	takesResolution bool
+}
+
+var (
+	formatSvg = pageFormat{
+		tool: "pdftocairo", flags: []string{"-svg"}, ext: "svg",
+		namesExtension: true, takesResolution: true,
+	}
+	formatEps = pageFormat{
+		tool: "pdftocairo", flags: []string{"-eps"}, ext: "eps",
+		namesExtension: true, takesResolution: true,
+	}
+	// -noframes is what makes pdftohtml write one self-contained page instead of
+	// the three-file frameset it emits by default: a frameset, an index and the
+	// content, of which only the last carries anything.
+	formatHtml = pageFormat{
+		tool: "pdftohtml", flags: []string{"-noframes"}, ext: "html",
+	}
+
+	// formatPs is the odd one out and is not driven by the page loop: PostScript
+	// holds a whole document, so Ps writes one file in one invocation. It is
+	// spelled as a pageFormat anyway so the resolution flag is assembled the same
+	// way for all three pdftocairo outputs.
+	formatPs = pageFormat{
+		tool: "pdftocairo", flags: []string{"-ps"}, ext: "ps",
+		namesExtension: true, takesResolution: true,
+	}
+)
+
 // colorNames lists every legal ColorMode, for the message a rejection carries.
 func colorNames() string {
 	names := make([]string, 0, len(colorOrder))

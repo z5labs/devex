@@ -34,13 +34,20 @@
 // out here: a `+key="value"` in doc-comment prose is stripped as a directive
 // and mangles the generated description.)
 //
+// Three renderers sit behind the outputs, chosen per format rather than
+// uniformly. The raster family stays on pdftoppm because it alone offers -mono
+// and -gray, which is what the OCR path wants. The vector family — SVG, EPS and
+// PostScript — is pdftocairo's, that being the only one of the two that emits
+// them. HTML is pdftohtml's, which is not a renderer at all so much as a
+// re-layout, and shares no options with either.
+//
 // File map (all `package main`, surfaced as one Dagger module):
 //
 //   - enums.go    — ColorMode and LayoutMode plus the tables mapping them onto
-//     poppler's flags, and the internal raster-format table.
+//     poppler's flags, and the internal raster- and per-page-format tables.
 //   - document.go — *Document, one bound PDF: its passwords, its page range,
 //     and what pdfinfo reports about it.
-//   - convert.go  — *Convert, the render options and the five outputs that
+//   - convert.go  — *Convert, the render options and the nine outputs that
 //     read them.
 package main
 
@@ -66,8 +73,8 @@ const (
 	defaultAlpineTag = "3.24"
 
 	// popplerPkg carries all thirteen pdf* binaries this module reaches
-	// through Container, of which three are wrapped: pdftotext, pdftoppm and
-	// pdfinfo.
+	// through Container, of which five are wrapped: pdftotext, pdftoppm,
+	// pdfinfo, pdftocairo and pdftohtml.
 	popplerPkg = "poppler-utils"
 
 	// fontPkg is the substitute font family poppler draws with when a PDF
@@ -112,10 +119,11 @@ const (
 	sourcePath = workDir + "/source.pdf"
 	outputDir  = "/out"
 
-	// textOutputPath is the file Convert.Txt writes, and pageBase the
-	// OUTPUTBASE handed to pdftoppm — which appends a page number and the
-	// format's extension to it.
+	// textOutputPath is the file Convert.Txt writes, psOutputPath the one
+	// Convert.Ps writes, and pageBase the OUTPUTBASE handed to pdftoppm — which
+	// appends a page number and the format's extension to it.
 	textOutputPath = outputDir + "/document.txt"
+	psOutputPath   = outputDir + "/document.ps"
 	pageBase       = outputDir + "/page"
 
 	// pageNamePrefix is the leading part of a rendered page's file name, and
@@ -299,8 +307,8 @@ func (p *Pdf) WithFonts(
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and three of them are wrapped here, so pdfimages, pdfseparate,
-// pdfunite, pdfsig, pdffonts, pdftocairo and the rest stay reachable via
+// binaries and five of them are wrapped here, so pdfimages, pdfseparate,
+// pdfunite, pdfsig, pdffonts and the rest stay reachable via
 // `container with-exec`.
 func (p *Pdf) Container() *dagger.Container {
 	ctr := p.base().WithExec([]string{"apk", "add", "--no-cache", popplerPkg, fontPkg})

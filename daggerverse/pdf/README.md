@@ -4,9 +4,11 @@ Daggerverse module that reads and renders PDFs with
 [poppler](https://poppler.freedesktop.org/) as a `dagger call`. Bind a PDF and
 get back its text — exactly, in reading order, physical layout or content-stream
 order — or its pages as PNG, JPEG or TIFF images, at a resolution or a pixel
-size you choose, in colour, grayscale or bilevel. Ask it what the document is
-and it tells you: page count, page size, PDF version, whether it is encrypted
-and under which algorithm.
+size you choose, in colour, grayscale or bilevel. Keep the type outlines instead
+and it gives you SVG, EPS or PostScript; ask for markup and it gives you HTML
+with the page's images beside it. Ask it what the document is and it tells you:
+page count, page size, PDF version, whether it is encrypted and under which
+algorithm.
 
 **There is no official poppler container image**, so this module assembles its
 own the way `tesseract` and `qemu` do rather than pinning a vendor image the way
@@ -227,7 +229,7 @@ document with no text in it.
 | `WithPageRange(20, 0)` on 12 pages | `first (20) is past the end of the document, which has 12 pages` |
 | `WithPageRange(1, 13)` on 12 pages | `last (13) is past the end …` |
 
-## Convert — the render options and the five outputs
+## Convert — the render options and the nine outputs
 
 ```go
 Document.Convert() *Convert
@@ -242,17 +244,41 @@ Convert.Txt(ctx, layout LayoutMode, disablePageBreaks bool) (*dagger.File, error
 Convert.Png(ctx) (*dagger.Directory, error)
 Convert.Jpeg(ctx) (*dagger.Directory, error)
 Convert.Tiff(ctx) (*dagger.Directory, error)
+Convert.Svg(ctx) (*dagger.Directory, error)
+Convert.Eps(ctx) (*dagger.Directory, error)
+Convert.Ps(ctx) (*dagger.File, error)
+Convert.Html(ctx) (*dagger.Directory, error)
 ```
 
 The render options live on `Convert` rather than on `Document` because the three
 raster outputs share them and because they describe a *conversion* rather than
 the document being converted — `WithDpi` says nothing about the PDF.
 
-They are **documented no-ops** for `Text` and `Txt` rather than rejections.
-Unlike a page bound past the end of the document, which is always a mistake, a
-DPI set before asking for text is inapplicable rather than wrong — the natural
-shape of "render this at 300 and also give me the text" should not have to
-un-set an option to ask the second question.
+Which options an output actually reads depends on the renderer behind it:
+
+| output | renderer | reads |
+| --- | --- | --- |
+| `Text`, `Txt` | `pdftotext` | `layout`, `disablePageBreaks` |
+| `Png`, `Jpeg`, `Tiff` | `pdftoppm` | `WithDpi`, `WithColorMode`, `WithScaleTo`, `WithoutAnnotations` |
+| `Svg`, `Eps`, `Ps` | `pdftocairo` | `WithDpi` |
+| `Html` | `pdftohtml` | — |
+
+Everything an output does not read is a **documented no-op** rather than a
+rejection. Unlike a page bound past the end of the document, which is always a
+mistake, a DPI set before asking for text is inapplicable rather than wrong — the
+natural shape of "render this at 300 and also give me the text" should not have
+to un-set an option to ask the second question.
+
+> For the `pdftocairo` outputs that is a decision with teeth, because **poppler
+> does not ignore those flags — it refuses**: `-mono may only be used with the
+> -png, -jpeg, or -tiff output options`, exit 99, nothing written. And
+> `-hide-annotations` is not a `pdftocairo` option at all. So the flags are
+> dropped here rather than forwarded, and "render this as PNG for OCR and as SVG
+> for the web view" works off one `Convert`.
+
+`WithDpi` still reaches `pdftocairo`, where it governs the **rasterized regions**
+a vector output can still contain — an embedded photograph has no vector form to
+keep — and a non-positive value is still rejected by name.
 
 `Convert` is immutable too, so one configuration fans out into several formats:
 
@@ -341,19 +367,92 @@ Both reject a non-positive value by naming the argument (`WithDpi: dpi must be
 positive, got 0`). Left to poppler these arrive much later as a complaint about
 `-r` or `-scale-to`, which names a flag the caller never wrote.
 
+### `Svg`, `Eps` and `Ps` — keeping the outlines
+
+`Png` gives you pixels of the type. These give you the type: paths a browser, a
+plotter or a vector editor can scale, restyle and re-flow.
+
+Text arrives as **glyph outlines, not `<text>`** — poppler converts every glyph
+to a `<path>` and places it with `<use>` — so the page is faithful and is not
+searchable. `Text` is what to reach for when the words are what is wanted.
+
+**One SVG per page is this module's doing, and it matters.** `pdftocairo -svg`
+run once over a twelve-page document writes a single file holding all twelve,
+wrapped in the SVG 1.2 `<pageSet>`/`<page>` elements — which no browser, librsvg
+or Inkscape implements. The pages are in the file and invisible to everything
+that draws it. Rendering each page on its own invocation is what makes them
+reachable, and `SvgWritesOneVectorFilePerPage` asserts the absence of a
+`<pageSet>` for exactly that reason.
+
+**EPS refuses multi-page outright.** `pdftocairo -eps` handed a document with a
+second page writes nothing and exits 99 with `EPS files can only contain one
+page.` The per-page loop is what turns that refusal into the whole document.
+Note that an EPS's bounding box is the page's **ink**, not its media box —
+poppler crops to what is drawn, so a US Letter page with one line of text on it
+comes out a few inches wide. That is EPS's own convention (a figure carries its
+extent so the placing document can size it) and the one place these files
+disagree with the geometry `Png` reports.
+
+**`Ps` returns a `*dagger.File`, not a directory**, because PostScript is a
+multi-page format: one document with a `%%Pages:` count and a `%%Page:` marker
+per page. A directory of one-page fragments would look tidier beside `Svg` and
+`Eps` and be individually invalid.
+
+### `Html` — markup with the images beside it
+
+`Html` returns a directory of `page-0001.html`, `page-0002.html`, … **plus each
+page's extracted images**, which are the only entries in this module that do not
+follow the page contract:
+
+```
+page-0001.html
+page-0001-1_1.png   ← referenced from page-0001.html as src="page-0001-1_1.png"
+page-0002.html
+```
+
+Those image names are `pdftohtml`'s, and they are left alone precisely because
+they are written *into* the markup — renaming them to a contract would mean
+rewriting the HTML to match. **A consumer walking this directory should select
+`page-*.html` rather than assume every entry is a page.**
+
+The conversion runs with the output directory as its **working directory**, and
+that is load-bearing: `pdftohtml` writes the output name it was given straight
+into every `img src`, so an absolute output base — the obvious way to write into
+a staging directory — produces markup whose images resolve only on the machine
+that rendered them, while still passing every assertion about entry names.
+`HtmlCarriesPageMarkupAndItsImages` checks the `src` for that reason.
+
+`-noframes` is passed unconditionally. `pdftohtml`'s default is a three-file
+frameset — a frameset, an index and the content — of which only the last carries
+anything.
+
 ## Page naming — `page-0001.png`
 
-`Png`, `Jpeg` and `Tiff` return a directory of `page-0001.<ext>`,
-`page-0002.<ext>`, … zero-padded to at least four digits and uniform within a
-document. The extensions are **poppler's** spellings, not this module's:
+`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps` and `Html` return a directory of
+`page-0001.<ext>`, `page-0002.<ext>`, … zero-padded to at least four digits and
+uniform within a document. The extensions are **poppler's** spellings, not this
+module's:
 
 | output | extension |
 | --- | --- |
 | `Png` | `page-0001.png` |
 | `Jpeg` | `page-0001.jpg` |
 | `Tiff` | `page-0001.tif` |
+| `Svg` | `page-0001.svg` |
+| `Eps` | `page-0001.eps` |
+| `Html` | `page-0001.html` (+ its images, see above) |
 
-**This is a normalization, not `pdftoppm`'s own behaviour.** `pdftoppm` pads a
+The raster family and the per-page family reach that contract from opposite
+directions. `pdftoppm` names the files and this module **renames** them; for
+`Svg`, `Eps` and `Html` the module drives the page loop itself and **names them
+outright**, one invocation per page, because neither `pdftocairo` nor
+`pdftohtml` will produce a usable page-per-file set on its own. The upper bound
+of that loop — a `WithPageRange` open-ended `last`, or no range at all — is
+resolved from `pdfinfo` **inside the same exec** that renders, so the whole
+conversion stays one exec either way.
+
+For the raster family in particular, **this is a normalization, not
+`pdftoppm`'s own behaviour.** `pdftoppm` pads a
 page number to the width of the *document's* page count, so a 9-page document
 yields `page-1.png` and a 10-page one `page-01.png` — and a 9-page *range* of a
 12-page document yields `page-01.png` too, because the width follows the
@@ -375,19 +474,24 @@ Page numbers are the **source document's**, not positions within a range, so
 `WithPageRange(4, 6)` yields `page-0004`…`page-0006`. That keeps a rendered page
 traceable back to the page it came from.
 
-`-forcenum` is passed unconditionally. On poppler 25.12 — what the pinned tag
-ships — it changes nothing, because a page number is always appended. It is
-there for a caller who overrode `alpineTag` onto an older release, where a
+`-forcenum` is passed unconditionally to `pdftoppm`. On poppler 25.12 — what the
+pinned tag ships — it changes nothing, because a page number is always appended.
+It is there for a caller who overrode `alpineTag` onto an older release, where a
 single-page render was named `page.png` with no number at all, breaking the
-contract for exactly the documents most likely to be one page.
+contract for exactly the documents most likely to be one page. The per-page
+family needs no equivalent, naming its own output.
 
-### Why `pdftoppm` and not `pdftocairo`
+### Why `pdftoppm` for raster and `pdftocairo` for vector
 
-Both render PNG, JPEG and TIFF. Only `pdftoppm` offers `-mono` and `-gray`, and
-binarized or grayscale input is exactly what OCR preprocessing wants. A
-`pdftocairo` backend would be a second renderer with different fidelity
-characteristics rather than a drop-in, which is why it is a follow-up (#277)
-rather than an implementation detail.
+Both render PNG, JPEG and TIFF, and both are now in this module — but for
+disjoint formats, not as alternatives.
+
+Only `pdftoppm` offers `-mono` and `-gray`, and binarized or grayscale input is
+exactly what OCR preprocessing wants, so the raster family is its. Only
+`pdftocairo` emits SVG, EPS and PostScript, so the vector family is its. Neither
+is a drop-in for the other: they are separate rasterizers with different fidelity
+characteristics, which is why *choosing* between them for a format both can
+produce is still a follow-up (#277) rather than something this module does.
 
 ## Caching
 
@@ -398,8 +502,7 @@ about. Same posture as `tesseract`'s outputs and `kicad`.
 
 ## Follow-ups
 
-Other renderers — SVG, PostScript, HTML via `pdftocairo`/`pdftops`/`pdftohtml`
-(#267); reporting a document's fonts, metadata and signatures (#268);
+Reporting a document's fonts, metadata and signatures (#268);
 text-layer geometry as bbox HTML and TSV (#269); splitting and merging pages
 (#270); extracting embedded images and attachments (#271); cropping the render
 window and selecting odd or even pages (#272); the chained `Ci` builder (#273);

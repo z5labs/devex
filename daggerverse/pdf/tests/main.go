@@ -169,9 +169,363 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ColorModesProduceDifferentPixels", t.ColorModesProduceDifferentPixels)
 	jobs = jobs.WithJob("WithoutAnnotationsRemovesTheAnnotationLayer", t.WithoutAnnotationsRemovesTheAnnotationLayer)
 
+	jobs = jobs.WithJob("SvgWritesOneVectorFilePerPage", t.SvgWritesOneVectorFilePerPage)
+	jobs = jobs.WithJob("EpsWritesEveryPageOfTheDocument", t.EpsWritesEveryPageOfTheDocument)
+	jobs = jobs.WithJob("PsHoldsEveryPageInOneFile", t.PsHoldsEveryPageInOneFile)
+	jobs = jobs.WithJob("HtmlCarriesPageMarkupAndItsImages", t.HtmlCarriesPageMarkupAndItsImages)
+	jobs = jobs.WithJob("PageRangeNarrowsEveryPerPageFormat", t.PageRangeNarrowsEveryPerPageFormat)
+	jobs = jobs.WithJob("VectorFormatsIgnoreRasterOnlySettings", t.VectorFormatsIgnoreRasterOnlySettings)
+
 	jobs = jobs.WithJob("EncryptedDocumentNeedsThePassword", t.EncryptedDocumentNeedsThePassword)
 
 	return jobs.Run(ctx)
+}
+
+// SvgWritesOneVectorFilePerPage asserts Svg renders a multi-page document to one
+// SVG per page, named to the page contract, carrying vector geometry.
+//
+// The per-page invocation is the whole point. `pdftocairo -svg` run once over a
+// twelve-page document writes a single file — no page is dropped, but they are
+// wrapped in the SVG 1.2 `<pageSet>`/`<page>` elements that essentially no
+// renderer implements, so a browser, Inkscape or librsvg shows page one and
+// silently discards the other eleven. The `<pageSet>` assertion is what would
+// catch a return to the single invocation: it passes an entry-count check and
+// fails here.
+//
+// Vectorness is asserted as drawing operators present and no raster image
+// anywhere. Poppler converts text to glyph outlines rather than to `<text>`, so
+// the marker words are not in the file at all — a Contains check for one would
+// fail on a perfectly good SVG.
+func (t *Tests) SvgWritesOneVectorFilePerPage(ctx context.Context) error {
+	dir := pdf().Document(fixture(ledgerPdf)).Convert().Svg()
+
+	entries, err := dir.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Svg: %w", err)
+	}
+	if err := assertPageNames(entries, pageNames("svg", 1, ledgerPages)); err != nil {
+		return err
+	}
+
+	for _, page := range []int{1, ledgerPages} {
+		name := fmt.Sprintf("page-%04d.svg", page)
+		got, err := dir.File(name).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if !strings.Contains(got, "<path") {
+			return fmt.Errorf("expected %s to carry vector path data, got:\n%s", name, head(got))
+		}
+		if strings.Contains(got, "<image") {
+			return fmt.Errorf("expected %s to carry no embedded raster image, got:\n%s", name, head(got))
+		}
+		if strings.Contains(got, "<pageSet") {
+			return fmt.Errorf("expected %s to be a single-page SVG, got a pageSet:\n%s", name, head(got))
+		}
+	}
+	return nil
+}
+
+// EpsWritesEveryPageOfTheDocument asserts Eps turns a twelve-page
+// document into twelve EPS files rather than into a failure.
+//
+// This is the criterion that a multi-page source never silently loses pages, and
+// for EPS the failure it guards is not silent at all: `pdftocairo -eps` handed a
+// multi-page document writes nothing and exits 99 with `EPS files can only
+// contain one page.` A single invocation would make Eps unusable for every
+// document with a second page in it, so the page count here is the assertion
+// that the per-page loop is what runs.
+//
+// Each file is then checked to be an EPS in its own right — the EPSF version
+// header, and exactly one page in it — because a loop that wrote twelve copies
+// of page one would satisfy the names alone.
+func (t *Tests) EpsWritesEveryPageOfTheDocument(ctx context.Context) error {
+	dir := pdf().Document(fixture(ledgerPdf)).Convert().Eps()
+
+	entries, err := dir.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Eps: %w", err)
+	}
+	if err := assertPageNames(entries, pageNames("eps", 1, ledgerPages)); err != nil {
+		return err
+	}
+
+	for _, page := range []int{1, ledgerPages} {
+		name := fmt.Sprintf("page-%04d.eps", page)
+		got, err := dir.File(name).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if !strings.HasPrefix(got, "%!PS-Adobe-3.0 EPSF-3.0") {
+			return fmt.Errorf("expected %s to open with an EPSF header, got:\n%s", name, head(got))
+		}
+		if n := strings.Count(got, "\n%%Page: "); n != 1 {
+			return fmt.Errorf("expected %s to hold exactly one page, got %d", name, n)
+		}
+	}
+
+	// The pages differ from one another, which is what says the loop advanced
+	// rather than rendering the same page twelve times under twelve names.
+	first, err := dir.File("page-0001.eps").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read page-0001.eps: %w", err)
+	}
+	last, err := dir.File(fmt.Sprintf("page-%04d.eps", ledgerPages)).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the last page: %w", err)
+	}
+	if first == last {
+		return fmt.Errorf("expected the first and last page to differ, got identical EPS")
+	}
+	return nil
+}
+
+// PsHoldsEveryPageInOneFile asserts Ps returns one PostScript document carrying
+// every page, and that the page range narrows it.
+//
+// The return type is the claim under test. PostScript is a multi-page format
+// with a document-level `%%Pages:` count and a `%%Page:` marker per page, so a
+// directory of one-page fragments would be the wrong answer even though it would
+// look tidier beside Svg and Eps. Counting the markers is what says the pages
+// reached the file rather than only the header saying they did.
+func (t *Tests) PsHoldsEveryPageInOneFile(ctx context.Context) error {
+	doc := pdf().Document(fixture(ledgerPdf))
+
+	whole, err := doc.Convert().Ps().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Ps: %w", err)
+	}
+	if !strings.HasPrefix(whole, "%!PS-Adobe-") {
+		return fmt.Errorf("expected a PostScript header, got:\n%s", head(whole))
+	}
+	if want := fmt.Sprintf("%%%%Pages: %d", ledgerPages); !strings.Contains(whole, want) {
+		return fmt.Errorf("expected %q in the document header, got:\n%s", want, head(whole))
+	}
+	if got := strings.Count(whole, "\n%%Page: "); got != ledgerPages {
+		return fmt.Errorf("expected %d page markers, got %d", ledgerPages, got)
+	}
+
+	const first, last = 4, 6
+	narrowed, err := doc.WithPageRange(first, last).Convert().Ps().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Ps for pages %d-%d: %w", first, last, err)
+	}
+	if got := strings.Count(narrowed, "\n%%Page: "); got != last-first+1 {
+		return fmt.Errorf("expected %d page markers for pages %d-%d, got %d",
+			last-first+1, first, last, got)
+	}
+	return nil
+}
+
+// HtmlCarriesPageMarkupAndItsImages asserts both halves of what Html promises:
+// the page's text as markup, and the images the page carries extracted beside it
+// and referenced by a path that resolves.
+//
+// The relative reference is the half that is easy to get wrong and impossible to
+// notice. pdftohtml writes the output name it was given straight into every `img
+// src`, so an absolute output base — the obvious way to write into a staging
+// directory — produces markup whose images resolve only on the machine that
+// rendered them, and which still passes every assertion about entry names. The
+// conversion runs with the output directory as its working directory for exactly
+// this reason, and the `src` check here is what holds it there.
+//
+// Two fixtures are needed because no one page is both: ledger.pdf is text and no
+// images, scan.pdf is one image and no text.
+func (t *Tests) HtmlCarriesPageMarkupAndItsImages(ctx context.Context) error {
+	const page = 3
+
+	text := pdf().Document(fixture(ledgerPdf)).Convert().HTML()
+	entries, err := text.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Html: %w", err)
+	}
+	// A document with no images produces the pages and nothing else, so this is
+	// the fixture the page-naming contract is asserted on.
+	if err := assertPageNames(entries, pageNames("html", 1, ledgerPages)); err != nil {
+		return err
+	}
+
+	markup, err := text.File(fmt.Sprintf("page-%04d.html", page)).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read page %d: %w", page, err)
+	}
+	for _, want := range []string{
+		"<html", fmt.Sprintf("Page %d of the ledger.", page), ledgerMarkers[page-1],
+	} {
+		if !strings.Contains(markup, want) {
+			return fmt.Errorf("expected page %d's markup to contain %q, got:\n%s", page, want, head(markup))
+		}
+	}
+	// The pages are separate documents, so page 3 carries page 3 and nothing
+	// from its neighbours.
+	if other := ledgerMarkers[page]; strings.Contains(markup, other) {
+		return fmt.Errorf("expected page %d's markup to carry only its own page, found %q", page, other)
+	}
+
+	scan := pdf().Document(fixture(scanPdf)).Convert().HTML()
+	scanEntries, err := scan.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Html of a scan: %w", err)
+	}
+	if !slices.Contains(scanEntries, "page-0001.html") {
+		return fmt.Errorf("expected page-0001.html, got %v", scanEntries)
+	}
+	images := imageEntries(scanEntries)
+	if len(images) == 0 {
+		return fmt.Errorf("expected the page's image to be extracted beside it, got %v", scanEntries)
+	}
+
+	scanMarkup, err := scan.File("page-0001.html").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read the scan's markup: %w", err)
+	}
+	for _, img := range images {
+		want := `src="` + img + `"`
+		if !strings.Contains(scanMarkup, want) {
+			return fmt.Errorf("expected the markup to reference %s relatively as %s, got:\n%s",
+				img, want, head(scanMarkup))
+		}
+	}
+	// An absolute reference is the failure this test exists for: it resolves on
+	// the machine that rendered the page and nowhere else.
+	if strings.Contains(scanMarkup, `src="/`) {
+		return fmt.Errorf("expected no absolute image path in the markup, got:\n%s", head(scanMarkup))
+	}
+	return nil
+}
+
+// PageRangeNarrowsEveryPerPageFormat asserts the page bounds reach Svg, Eps and
+// Html, in all three of the shapes a range comes in.
+//
+// The per-page loop resolves the bounds itself rather than handing poppler `-f`
+// and `-l`, so none of this follows from the raster path already honouring them.
+// The open-ended case is the one that exercises the resolution: a zero last is
+// the document's page count read inside the same exec that renders, and a loop
+// that mishandled it would render nothing at all and return an empty directory
+// rather than fail.
+//
+// The numbers are the source document's page numbers and not positions within
+// the range, which is why pages 4 through 6 come out `page-0004` through
+// `page-0006` — the same promise the raster contract makes, so a page stays
+// traceable to the page it came from whichever format it was rendered to.
+func (t *Tests) PageRangeNarrowsEveryPerPageFormat(ctx context.Context) error {
+	doc := pdf().Document(fixture(ledgerPdf))
+
+	for _, rng := range []struct {
+		name        string
+		first, last int
+		wantFirst   int
+		wantLast    int
+	}{
+		{"a span", 4, 6, 4, 6},
+		{"one page", 2, 2, 2, 2},
+		{"open ended", 10, 0, 10, ledgerPages},
+	} {
+		conv := doc.WithPageRange(rng.first, rng.last).Convert()
+
+		for _, format := range []struct {
+			name string
+			ext  string
+			dir  *dagger.Directory
+		}{
+			{"Svg", "svg", conv.Svg()},
+			{"Eps", "eps", conv.Eps()},
+			{"Html", "html", conv.HTML()},
+		} {
+			got, err := format.dir.Entries(ctx)
+			if err != nil {
+				return fmt.Errorf("%s: %s: %w", rng.name, format.name, err)
+			}
+			want := pageNames(format.ext, rng.wantFirst, rng.wantLast)
+			if err := assertPageNames(got, want); err != nil {
+				return fmt.Errorf("%s: %s: %s", rng.name, format.name, err.Error())
+			}
+		}
+	}
+	return nil
+}
+
+// VectorFormatsIgnoreRasterOnlySettings asserts a conversion configured for the
+// raster outputs still converts when it is asked for a vector one.
+//
+// Forwarding those flags is not a no-op, which is what makes this worth an
+// assertion of its own: pdftocairo rejects both of the ones it recognises —
+// `-mono may only be used with the -png, -jpeg, or -tiff output options` — and
+// exits 99 having written nothing, and `-hide-annotations` is not a pdftocairo
+// option at all. So the natural shape of "render this document as PNG for OCR
+// and as SVG for the web view" would fail on its second half unless the module
+// drops what it cannot honour.
+//
+// WithDpi is the one setting that does reach pdftocairo, and it is set here too
+// so this is not accidentally asserting that no flags are passed at all.
+func (t *Tests) VectorFormatsIgnoreRasterOnlySettings(ctx context.Context) error {
+	conv := pdf().Document(fixture(annotatedPdf)).
+		Convert().
+		WithDpi(300).
+		WithColorMode(dagger.PdfColorModeMono).
+		WithScaleTo(500).
+		WithoutAnnotations()
+
+	for _, format := range []struct {
+		name string
+		ext  string
+		dir  *dagger.Directory
+	}{
+		{"Svg", "svg", conv.Svg()},
+		{"Eps", "eps", conv.Eps()},
+		{"Html", "html", conv.HTML()},
+	} {
+		got, err := format.dir.Entries(ctx)
+		if err != nil {
+			return fmt.Errorf("%s with raster-only settings: %w", format.name, err)
+		}
+		if !slices.Contains(got, "page-0001."+format.ext) {
+			return fmt.Errorf("%s: expected page-0001.%s, got %v", format.name, format.ext, got)
+		}
+	}
+
+	if _, err := conv.Ps().Contents(ctx); err != nil {
+		return fmt.Errorf("Ps with raster-only settings: %w", err)
+	}
+
+	// A resolution that cannot mean anything is still refused, because that one
+	// does reach the tool. Left to poppler it arrives as a complaint about `-r`,
+	// which names a flag the caller never wrote.
+	if _, err := conv.WithDpi(0).Svg().Entries(ctx); err == nil {
+		return fmt.Errorf("expected Svg to reject a zero dpi")
+	} else {
+		for _, want := range []string{"WithDpi", "dpi", "positive"} {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected the rejection to mention %q, got: %v", want, err)
+			}
+		}
+	}
+	return nil
+}
+
+// imageEntries picks the extracted images out of an Html directory's listing.
+//
+// They are everything that is not a page, and they keep pdftohtml's own names
+// rather than the page contract's: the names are written into the markup that
+// references them, so renaming them would mean rewriting the markup.
+func imageEntries(entries []string) []string {
+	var images []string
+	for _, e := range entries {
+		if !strings.HasSuffix(e, ".html") {
+			images = append(images, e)
+		}
+	}
+	return images
+}
+
+// head is the first part of a file, for an error message that has to quote what
+// it read without pasting a whole rendered page into the log.
+func head(s string) string {
+	const limit = 400
+	if len(s) <= limit {
+		return s
+	}
+	return s[:limit] + "…"
 }
 
 // VersionReportsPopplerRelease asserts Version reports the poppler release the
@@ -894,6 +1248,22 @@ func (t *Tests) EncryptedDocumentNeedsThePassword(ctx context.Context) error {
 	for _, want := range []string{"encrypted", "no password was supplied", "WithUserPassword"} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+		}
+	}
+
+	// The per-page formats reach poppler by a different route than PageCount
+	// does — they resolve the document's page count inside the same exec that
+	// renders, from a shell rather than from Go — and an encrypted document has
+	// to be refused just as clearly along it. Without this the whole per-page
+	// family's encryption behaviour would rest on the raster path's assertion,
+	// which does not exercise that shell at all.
+	_, err = pdf().Document(encrypted).Convert().Svg().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Svg on an encrypted document to be refused without a password")
+	}
+	for _, want := range []string{"encrypted", "no password was supplied"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected Svg's refusal to mention %q, got: %v", want, err)
 		}
 	}
 
