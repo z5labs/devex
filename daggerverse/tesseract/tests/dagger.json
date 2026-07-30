@@ -8,6 +8,10 @@
     {
       "name": "tesseract",
       "source": ".."
+    },
+    {
+      "name": "pdf",
+      "source": "../../pdf"
     }
   ],
   "codegen": {
