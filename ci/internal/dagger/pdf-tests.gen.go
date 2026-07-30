@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type PdfTests
-func (r *Binding) AsPdfTests() *PdfTests { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:6)
+func (r *Binding) AsPdfTests() *PdfTests { // pdf-tests (../../../daggerverse/pdf/tests/main.go:151:6)
 	q := r.query.Select("asPdfTests")
 
 	return &PdfTests{
@@ -19,7 +19,7 @@ func (r *Binding) AsPdfTests() *PdfTests { // pdf-tests (../../../daggerverse/pd
 }
 
 // Create or update a binding of type PdfTests in the environment
-func (r *Env) WithPdfTestsInput(name string, value *PdfTests, description string) *Env { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:6)
+func (r *Env) WithPdfTestsInput(name string, value *PdfTests, description string) *Env { // pdf-tests (../../../daggerverse/pdf/tests/main.go:151:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPdfTestsInput")
 	q = q.Arg("name", name)
@@ -32,7 +32,7 @@ func (r *Env) WithPdfTestsInput(name string, value *PdfTests, description string
 }
 
 // Declare a desired PdfTests output to be assigned in the environment
-func (r *Env) WithPdfTestsOutput(name string, description string) *Env { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:6)
+func (r *Env) WithPdfTestsOutput(name string, description string) *Env { // pdf-tests (../../../daggerverse/pdf/tests/main.go:151:6)
 	q := r.query.Select("withPdfTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -42,7 +42,7 @@ func (r *Env) WithPdfTestsOutput(name string, description string) *Env { // pdf-
 	}
 }
 
-type PdfTests struct { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:6)
+type PdfTests struct { // pdf-tests (../../../daggerverse/pdf/tests/main.go:151:6)
 	query *querybuilder.Selection
 
 	all                                                 *Void
@@ -59,6 +59,8 @@ type PdfTests struct { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:
 	infoReportsPageCountAndSize                         *Void
 	jpegAndTiffFollowTheSameContract                    *Void
 	layoutModesProduceDifferentOrderings                *Void
+	mergePreservesTheOrderOfItsSources                  *Void
+	mergeRejectsWhatItCannotMerge                       *Void
 	metadataReturnsTheXmpPacketOrSaysThereIsNone        *Void
 	pageRangeNarrowsEveryPerPageFormat                  *Void
 	pageRangeNarrowsText                                *Void
@@ -72,6 +74,10 @@ type PdfTests struct { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:
 	reportsOpenAnEncryptedDocumentWithThePassword       *Void
 	scaleToOverridesDpi                                 *Void
 	signaturesReportsAnUnsignedDocumentInsteadOfFailing *Void
+	splitAndMergeCannotOpenAnEncryptedDocument          *Void
+	splitNarrowsToThePageRange                          *Void
+	splitThenMergeRoundTripsTheDocument                 *Void
+	splitWritesOnePdfPerPage                            *Void
 	svgWritesOneVectorFilePerPage                       *Void
 	textOnImageOnlyPdfReturnsNothing                    *Void
 	textReproducesTextLayerExactly                      *Void
@@ -93,7 +99,7 @@ type PdfTestsAllOpts struct {
 	//
 	// Maximum number of tests to run concurrently. Zero fans out unbounded.
 	//
-	Parallel int // pdf-tests (../../../daggerverse/pdf/tests/main.go:166:2)
+	Parallel int // pdf-tests (../../../daggerverse/pdf/tests/main.go:167:2)
 }
 
 // All runs every pdf-module test in parallel.
@@ -104,7 +110,7 @@ type PdfTestsAllOpts struct {
 // are single-threaded: twenty of them contend for cores the way any other
 // oversubscribed workload does. The cap stays available for a host that wants a
 // narrower slice.
-func (r *PdfTests) All(ctx context.Context, opts ...PdfTestsAllOpts) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:162:1)
+func (r *PdfTests) All(ctx context.Context, opts ...PdfTestsAllOpts) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:163:1)
 	if r.all != nil {
 		return nil
 	}
@@ -131,7 +137,7 @@ func (r *PdfTests) All(ctx context.Context, opts ...PdfTestsAllOpts) error { // 
 // The three properties are mutually exclusive by construction: colour keeps
 // chroma, grey drops chroma but keeps mid-tones, and mono drops both — flat tones
 // are dithered into black and white rather than averaged into grey.
-func (r *PdfTests) ColorModesProduceDifferentPixels(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1419:1)
+func (r *PdfTests) ColorModesProduceDifferentPixels(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1427:1)
 	if r.colorModesProduceDifferentPixels != nil {
 		return nil
 	}
@@ -148,7 +154,7 @@ func (r *PdfTests) ColorModesProduceDifferentPixels(ctx context.Context) error {
 // nothing to substitute for a PDF that names a base-14 face without embedding
 // it, and renders the page blank while exiting 0 — a silent wrong answer, which
 // is the failure mode this assertion exists to keep out.
-func (r *PdfTests) ContainerCarriesEveryPopplerBinaryAndTheFont(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:601:1)
+func (r *PdfTests) ContainerCarriesEveryPopplerBinaryAndTheFont(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:609:1)
 	if r.containerCarriesEveryPopplerBinaryAndTheFont != nil {
 		return nil
 	}
@@ -164,7 +170,7 @@ func (r *PdfTests) ContainerCarriesEveryPopplerBinaryAndTheFont(ctx context.Cont
 // defaulting to true because a `Go SDK — the zero value is dropped before it reaches the API — so the
 // affirmative spelling would have produced an option no caller could turn off.
 // That makes the second half of this test the one that would have caught it.
-func (r *PdfTests) DisablePageBreaksControlsFormFeeds(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1136:1)
+func (r *PdfTests) DisablePageBreaksControlsFormFeeds(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1144:1)
 	if r.disablePageBreaksControlsFormFeeds != nil {
 		return nil
 	}
@@ -180,7 +186,7 @@ func (r *PdfTests) DisablePageBreaksControlsFormFeeds(ctx context.Context) error
 // remembered pixel count, so the assertion says "150 dpi of a US Letter page"
 // rather than "1275 by 1650" — which is the claim the documentation actually
 // makes.
-func (r *PdfTests) DpiDefaultsToOneFiftyAndScalesWithTheSetting(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1318:1)
+func (r *PdfTests) DpiDefaultsToOneFiftyAndScalesWithTheSetting(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1326:1)
 	if r.dpiDefaultsToOneFiftyAndScalesWithTheSetting != nil {
 		return nil
 	}
@@ -204,7 +210,7 @@ func (r *PdfTests) DpiDefaultsToOneFiftyAndScalesWithTheSetting(ctx context.Cont
 // poppler alike through the environment rather than argv: a password in argv is
 // visible in every Dagger trace, which is exactly what the module's own posture
 // avoids.
-func (r *PdfTests) EncryptedDocumentNeedsThePassword(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1544:1)
+func (r *PdfTests) EncryptedDocumentNeedsThePassword(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1852:1)
 	if r.encryptedDocumentNeedsThePassword != nil {
 		return nil
 	}
@@ -226,7 +232,7 @@ func (r *PdfTests) EncryptedDocumentNeedsThePassword(ctx context.Context) error 
 // Each file is then checked to be an EPS in its own right — the EPSF version
 // header, and exactly one page in it — because a loop that wrote twelve copies
 // of page one would satisfy the names alone.
-func (r *PdfTests) EpsWritesEveryPageOfTheDocument(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:277:1)
+func (r *PdfTests) EpsWritesEveryPageOfTheDocument(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:285:1)
 	if r.epsWritesEveryPageOfTheDocument != nil {
 		return nil
 	}
@@ -245,7 +251,7 @@ func (r *PdfTests) EpsWritesEveryPageOfTheDocument(ctx context.Context) error { 
 // it, its two pages naming different faces, because narrowing a report of
 // ledgerPdf — every page of which names the same Helvetica — changes nothing at
 // all and would pass against a module that ignored the bounds entirely.
-func (r *PdfTests) FontsNarrowsToThePageRange(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:761:1)
+func (r *PdfTests) FontsNarrowsToThePageRange(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:769:1)
 	if r.fontsNarrowsToThePageRange != nil {
 		return nil
 	}
@@ -268,7 +274,7 @@ func (r *PdfTests) FontsNarrowsToThePageRange(ctx context.Context) error { // pd
 // construction, so the report has to read `yes` for it; without that contrast
 // the assertion would pass just as well on a report that said `no` about
 // everything, including one produced by a module that had hardcoded the answer.
-func (r *PdfTests) FontsReportsWhetherEachFaceIsEmbedded(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:706:1)
+func (r *PdfTests) FontsReportsWhetherEachFaceIsEmbedded(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:714:1)
 	if r.fontsReportsWhetherEachFaceIsEmbedded != nil {
 		return nil
 	}
@@ -291,7 +297,7 @@ func (r *PdfTests) FontsReportsWhetherEachFaceIsEmbedded(ctx context.Context) er
 //
 // Two fixtures are needed because no one page is both: ledger.pdf is text and no
 // images, scan.pdf is one image and no text.
-func (r *PdfTests) HTMLCarriesPageMarkupAndItsImages(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:369:1)
+func (r *PdfTests) HTMLCarriesPageMarkupAndItsImages(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:377:1)
 	if r.htmlCarriesPageMarkupAndItsImages != nil {
 		return nil
 	}
@@ -356,7 +362,7 @@ func (r *PdfTests) UnmarshalJSON(bs []byte) error {
 // first: PageCount parses Info's `Pages:` line, so a change to how Info is
 // captured that broke the parse would otherwise show up only in whatever used
 // PageCount next.
-func (r *PdfTests) InfoReportsPageCountAndSize(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:665:1)
+func (r *PdfTests) InfoReportsPageCountAndSize(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:673:1)
 	if r.infoReportsPageCountAndSize != nil {
 		return nil
 	}
@@ -372,7 +378,7 @@ func (r *PdfTests) InfoReportsPageCountAndSize(ctx context.Context) error { // p
 // `-jpeg` writes `.jpg` and `-tiff` writes `.tif`, which are poppler's spellings
 // and not this module's: a caller building a path from the function's name would
 // get them wrong, so they are part of the documented contract.
-func (r *PdfTests) JpegAndTiffFollowTheSameContract(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1494:1)
+func (r *PdfTests) JpegAndTiffFollowTheSameContract(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1502:1)
 	if r.jpegAndTiffFollowTheSameContract != nil {
 		return nil
 	}
@@ -392,11 +398,50 @@ func (r *PdfTests) JpegAndTiffFollowTheSameContract(ctx context.Context) error {
 // physical layout puts the two columns side by side on one output line. A fixture
 // whose stream order matched its reading order would let two of these three pass
 // on the same output.
-func (r *PdfTests) LayoutModesProduceDifferentOrderings(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1173:1)
+func (r *PdfTests) LayoutModesProduceDifferentOrderings(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1181:1)
 	if r.layoutModesProduceDifferentOrderings != nil {
 		return nil
 	}
 	q := r.query.Select("layoutModesProduceDifferentOrderings")
+
+	return q.Execute(ctx)
+}
+
+// MergePreservesTheOrderOfItsSources asserts the merged document's pages come
+// out in the order the slice named them, which is the whole reason Merge takes
+// an ordered slice rather than a directory.
+//
+// The sources are deliberately handed over out of page order — 3, 1, 2 — because
+// any order-preserving implementation and any order-losing one agree on a slice
+// that was already sorted. Reading the text back is what says the pages landed
+// where they were put: the page count alone would pass on a merge that shuffled
+// them.
+func (r *PdfTests) MergePreservesTheOrderOfItsSources(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1639:1)
+	if r.mergePreservesTheOrderOfItsSources != nil {
+		return nil
+	}
+	q := r.query.Select("mergePreservesTheOrderOfItsSources")
+
+	return q.Execute(ctx)
+}
+
+// MergeRejectsWhatItCannotMerge asserts the two ways a merge goes wrong are
+// reported by naming the argument that was wrong.
+//
+// The empty slice is a caller error with no useful answer — there is no document
+// to return and no empty PDF worth inventing — and pdfunite's own answer to it is
+// its usage text, which describes a command line the caller never wrote. The
+// module refuses it before the container starts, for that reason.
+//
+// The unreadable source is the case the mount legend exists for. pdfunite names
+// the file it could not read, and the name it uses is this module's mount path,
+// so without the legend the one piece of information identifying which argument
+// was at fault is a path the caller has never seen.
+func (r *PdfTests) MergeRejectsWhatItCannotMerge(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1691:1)
+	if r.mergeRejectsWhatItCannotMerge != nil {
+		return nil
+	}
+	q := r.query.Select("mergeRejectsWhatItCannotMerge")
 
 	return q.Execute(ctx)
 }
@@ -416,7 +461,7 @@ func (r *PdfTests) LayoutModesProduceDifferentOrderings(ctx context.Context) err
 // indistinguishable from a function that did not run, so the module answers with
 // a line naming the absence and pointing at the report that does carry the
 // document's metadata.
-func (r *PdfTests) MetadataReturnsTheXmpPacketOrSaysThereIsNone(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:823:1)
+func (r *PdfTests) MetadataReturnsTheXmpPacketOrSaysThereIsNone(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:831:1)
 	if r.metadataReturnsTheXmpPacketOrSaysThereIsNone != nil {
 		return nil
 	}
@@ -439,7 +484,7 @@ func (r *PdfTests) MetadataReturnsTheXmpPacketOrSaysThereIsNone(ctx context.Cont
 // the range, which is why pages 4 through 6 come out `page-0004` through
 // `page-0006` — the same promise the raster contract makes, so a page stays
 // traceable to the page it came from whichever format it was rendered to.
-func (r *PdfTests) PageRangeNarrowsEveryPerPageFormat(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:446:1)
+func (r *PdfTests) PageRangeNarrowsEveryPerPageFormat(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:454:1)
 	if r.pageRangeNarrowsEveryPerPageFormat != nil {
 		return nil
 	}
@@ -451,7 +496,7 @@ func (r *PdfTests) PageRangeNarrowsEveryPerPageFormat(ctx context.Context) error
 // PageRangeNarrowsText asserts WithPageRange narrows extraction to the pages it
 // names, and that the bounds are the 1-based inclusive ones poppler uses rather
 // than an offset and a length.
-func (r *PdfTests) PageRangeNarrowsText(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1058:1)
+func (r *PdfTests) PageRangeNarrowsText(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1066:1)
 	if r.pageRangeNarrowsText != nil {
 		return nil
 	}
@@ -463,7 +508,7 @@ func (r *PdfTests) PageRangeNarrowsText(ctx context.Context) error { // pdf-test
 // PageRangeOpenEndedRunsToTheLastPage asserts a zero last means "to the end",
 // which is the only way to name an open-ended range without first asking how
 // many pages the document has.
-func (r *PdfTests) PageRangeOpenEndedRunsToTheLastPage(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1077:1)
+func (r *PdfTests) PageRangeOpenEndedRunsToTheLastPage(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1085:1)
 	if r.pageRangeOpenEndedRunsToTheLastPage != nil {
 		return nil
 	}
@@ -479,7 +524,7 @@ func (r *PdfTests) PageRangeOpenEndedRunsToTheLastPage(ctx context.Context) erro
 // renders nothing for them and exits 0, so a caller who asked for page 20 of a
 // 12-page document would otherwise get an empty result indistinguishable from a
 // document with no text in it.
-func (r *PdfTests) PageRangeRejectsInvalidBounds(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1100:1)
+func (r *PdfTests) PageRangeRejectsInvalidBounds(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1108:1)
 	if r.pageRangeRejectsInvalidBounds != nil {
 		return nil
 	}
@@ -499,7 +544,7 @@ func (r *PdfTests) PageRangeRejectsInvalidBounds(ctx context.Context) error { //
 // has no way to know which width it is holding. Asserting the full ordered list
 // covers both halves of the promise: the names, and that lexicographic order is
 // page order.
-func (r *PdfTests) PngNamesEveryPageWithFourDigits(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1245:1)
+func (r *PdfTests) PngNamesEveryPageWithFourDigits(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1253:1)
 	if r.pngNamesEveryPageWithFourDigits != nil {
 		return nil
 	}
@@ -519,7 +564,7 @@ func (r *PdfTests) PngNamesEveryPageWithFourDigits(ctx context.Context) error { 
 // The numbers are the source document's page numbers and not positions within
 // the range, which is why the second case starts at `page-0004.png`. That keeps a
 // rendered page traceable back to the page it came from.
-func (r *PdfTests) PngNarrowedRangeKeepsFourDigitNames(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1264:1)
+func (r *PdfTests) PngNarrowedRangeKeepsFourDigitNames(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1272:1)
 	if r.pngNarrowedRangeKeepsFourDigitNames != nil {
 		return nil
 	}
@@ -537,7 +582,7 @@ func (r *PdfTests) PngNarrowedRangeKeepsFourDigitNames(ctx context.Context) erro
 // document keeps the longer document's width. A consumer globbing for
 // `page-*.png` finds nothing in the first case and a caller indexing by name
 // finds the wrong file in the second.
-func (r *PdfTests) PngSinglePageIsStillNumbered(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1291:1)
+func (r *PdfTests) PngSinglePageIsStillNumbered(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1299:1)
 	if r.pngSinglePageIsStillNumbered != nil {
 		return nil
 	}
@@ -554,7 +599,7 @@ func (r *PdfTests) PngSinglePageIsStillNumbered(ctx context.Context) error { // 
 // directory of one-page fragments would be the wrong answer even though it would
 // look tidier beside Svg and Eps. Counting the markers is what says the pages
 // reached the file rather than only the header saying they did.
-func (r *PdfTests) PsHoldsEveryPageInOneFile(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:326:1)
+func (r *PdfTests) PsHoldsEveryPageInOneFile(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:334:1)
 	if r.psHoldsEveryPageInOneFile != nil {
 		return nil
 	}
@@ -568,7 +613,7 @@ func (r *PdfTests) PsHoldsEveryPageInOneFile(ctx context.Context) error { // pdf
 //
 // Left to poppler these arrive much later as a complaint about `-r` or
 // `-scale-to`, which names a flag the caller never wrote.
-func (r *PdfTests) RenderSettingsRejectNonPositiveValues(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1381:1)
+func (r *PdfTests) RenderSettingsRejectNonPositiveValues(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1389:1)
 	if r.renderSettingsRejectNonPositiveValues != nil {
 		return nil
 	}
@@ -589,7 +634,7 @@ func (r *PdfTests) RenderSettingsRejectNonPositiveValues(ctx context.Context) er
 // reports every wrong password as `Incorrect password` whether one was supplied
 // or not, so the message has to distinguish what the module knows and poppler
 // does not.
-func (r *PdfTests) ReportsOpenAnEncryptedDocumentWithThePassword(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:899:1)
+func (r *PdfTests) ReportsOpenAnEncryptedDocumentWithThePassword(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:907:1)
 	if r.reportsOpenAnEncryptedDocumentWithThePassword != nil {
 		return nil
 	}
@@ -605,7 +650,7 @@ func (r *PdfTests) ReportsOpenAnEncryptedDocumentWithThePassword(ctx context.Con
 // resolution flag off the command line rather than by relying on poppler's own
 // precedence, so this is the assertion that would catch the two being emitted
 // together and whichever poppler happened to prefer winning silently.
-func (r *PdfTests) ScaleToOverridesDpi(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1350:1)
+func (r *PdfTests) ScaleToOverridesDpi(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1358:1)
 	if r.scaleToOverridesDpi != nil {
 		return nil
 	}
@@ -628,11 +673,95 @@ func (r *PdfTests) ScaleToOverridesDpi(ctx context.Context) error { // pdf-tests
 // an image carrying no certificate database, which is every image this module
 // builds, and a report assembled from both streams would carry that line into
 // every caller's output as though it were something the document said.
-func (r *PdfTests) SignaturesReportsAnUnsignedDocumentInsteadOfFailing(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:873:1)
+func (r *PdfTests) SignaturesReportsAnUnsignedDocumentInsteadOfFailing(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:881:1)
 	if r.signaturesReportsAnUnsignedDocumentInsteadOfFailing != nil {
 		return nil
 	}
 	q := r.query.Select("signaturesReportsAnUnsignedDocumentInsteadOfFailing")
+
+	return q.Execute(ctx)
+}
+
+// SplitAndMergeCannotOpenAnEncryptedDocument asserts the limitation these two
+// carry that nothing else in the module does, and asserts it is reported as that
+// rather than as a wrong password.
+//
+// pdfseparate and pdfunite take no `-upw` and no `-opw` — passing one is a usage
+// error, not a wrong password — so an encrypted document is one they cannot be
+// made to open. What poppler says about it is `Incorrect password`, the same
+// sentence every other tool in the suite produces for a password that did not
+// work, and the module's usual reading of that line names WithUserPassword. Here
+// that would send a caller to a builder that changes nothing, which is why the
+// password case is asserted alongside the passwordless one: both have to arrive
+// at the same message.
+func (r *PdfTests) SplitAndMergeCannotOpenAnEncryptedDocument(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1789:1)
+	if r.splitAndMergeCannotOpenAnEncryptedDocument != nil {
+		return nil
+	}
+	q := r.query.Select("splitAndMergeCannotOpenAnEncryptedDocument")
+
+	return q.Execute(ctx)
+}
+
+// SplitNarrowsToThePageRange asserts the page bounds reach pdfseparate in all
+// three of the shapes a range comes in, and that a range it cannot honour is
+// refused before it runs.
+//
+// The refusal is the half worth asserting. Left to pdfseparate, a last bound past
+// the end of the document is not caught up front at all: it separates every page
+// it can and *then* fails with `Internal Error: Illegal pageNo: 13(12)`, so the
+// caller gets a message about poppler's internals attached to a directory that
+// was half written. Checking the bounds against the document first is what turns
+// that into a sentence naming the builder and the page count.
+func (r *PdfTests) SplitNarrowsToThePageRange(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1594:1)
+	if r.splitNarrowsToThePageRange != nil {
+		return nil
+	}
+	q := r.query.Select("splitNarrowsToThePageRange")
+
+	return q.Execute(ctx)
+}
+
+// SplitThenMergeRoundTripsTheDocument asserts the two halves of this pair
+// compose back into the document they started from.
+//
+// It is the assertion that says these are structural operations rather than
+// conversions. Each one alone could pass its own tests while quietly dropping
+// what it does not understand — a page's annotations, its size, the text layer
+// under it — and the round trip is where that shows up: twelve separated pages
+// put back together have to extract to the same text, in the same order, on
+// pages of the same size.
+//
+// The names the split wrote are what the merge is driven by, in page order, which
+// is also the practical shape of the pair: split, do something to the pages,
+// merge the ones that survived.
+func (r *PdfTests) SplitThenMergeRoundTripsTheDocument(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1735:1)
+	if r.splitThenMergeRoundTripsTheDocument != nil {
+		return nil
+	}
+	q := r.query.Select("splitThenMergeRoundTripsTheDocument")
+
+	return q.Execute(ctx)
+}
+
+// SplitWritesOnePdfPerPage asserts Split turns a twelve-page document into
+// twelve one-page PDFs named to the same contract every render family member
+// honours.
+//
+// The names alone would pass against a splitter that wrote twelve copies of page
+// one, so each file is opened and read: one page in it, and that page's own
+// marker in the text. ledgerPdf's markers are what make that check possible —
+// twelve pages of identical text would extract the same however they were
+// shuffled.
+//
+// pdfseparate numbers with the width the caller's pattern asks for rather than
+// with the document's page count, so the four-digit contract here is this
+// module's and not a coincidence of the fixture's length.
+func (r *PdfTests) SplitWritesOnePdfPerPage(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1550:1)
+	if r.splitWritesOnePdfPerPage != nil {
+		return nil
+	}
+	q := r.query.Select("splitWritesOnePdfPerPage")
 
 	return q.Execute(ctx)
 }
@@ -652,7 +781,7 @@ func (r *PdfTests) SignaturesReportsAnUnsignedDocumentInsteadOfFailing(ctx conte
 // anywhere. Poppler converts text to glyph outlines rather than to `<text>`, so
 // the marker words are not in the file at all — a Contains check for one would
 // fail on a perfectly good SVG.
-func (r *PdfTests) SvgWritesOneVectorFilePerPage(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:234:1)
+func (r *PdfTests) SvgWritesOneVectorFilePerPage(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:242:1)
 	if r.svgWritesOneVectorFilePerPage != nil {
 		return nil
 	}
@@ -671,7 +800,7 @@ func (r *PdfTests) SvgWritesOneVectorFilePerPage(ctx context.Context) error { //
 // a caller gets that this document needs rasterizing and handing to OCR. A
 // module that failed here instead would make the two paths impossible to choose
 // between programmatically.
-func (r *PdfTests) TextOnImageOnlyPdfReturnsNothing(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1008:1)
+func (r *PdfTests) TextOnImageOnlyPdfReturnsNothing(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1016:1)
 	if r.textOnImageOnlyPdfReturnsNothing != nil {
 		return nil
 	}
@@ -689,7 +818,7 @@ func (r *PdfTests) TextOnImageOnlyPdfReturnsNothing(ctx context.Context) error {
 // leading newline, pages in the wrong order — is a defect and not a recognition
 // error. A fixture whose content streams are readable is what makes an exact
 // expectation writable at all.
-func (r *PdfTests) TextReproducesTextLayerExactly(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:987:1)
+func (r *PdfTests) TextReproducesTextLayerExactly(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:995:1)
 	if r.textReproducesTextLayerExactly != nil {
 		return nil
 	}
@@ -705,7 +834,7 @@ func (r *PdfTests) TextReproducesTextLayerExactly(ctx context.Context) error { /
 // straight off the handle: the point of Txt is that the bytes reach a filesystem
 // intact, and File.Contents would confirm the engine's copy while saying nothing
 // about the export a real consumer performs.
-func (r *PdfTests) TxtMatchesText(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1031:1)
+func (r *PdfTests) TxtMatchesText(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1039:1)
 	if r.txtMatchesText != nil {
 		return nil
 	}
@@ -727,7 +856,7 @@ func (r *PdfTests) TxtMatchesText(ctx context.Context) error { // pdf-tests (../
 //
 // WithDpi is the one setting that does reach pdftocairo, and it is set here too
 // so this is not accidentally asserting that no flags are passed at all.
-func (r *PdfTests) VectorFormatsIgnoreRasterOnlySettings(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:496:1)
+func (r *PdfTests) VectorFormatsIgnoreRasterOnlySettings(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:504:1)
 	if r.vectorFormatsIgnoreRasterOnlySettings != nil {
 		return nil
 	}
@@ -745,7 +874,7 @@ func (r *PdfTests) VectorFormatsIgnoreRasterOnlySettings(ctx context.Context) er
 // exact patch: Alpine may rebuild poppler-utils within the v3.24 branch, and a
 // test that pins the patch level would fail on a change this module has no
 // opinion about.
-func (r *PdfTests) VersionReportsPopplerRelease(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:575:1)
+func (r *PdfTests) VersionReportsPopplerRelease(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:583:1)
 	if r.versionReportsPopplerRelease != nil {
 		return nil
 	}
@@ -763,7 +892,7 @@ func (r *PdfTests) VersionReportsPopplerRelease(ctx context.Context) error { // 
 // module installs, so the negative control is real — the plain image genuinely
 // cannot see it, and the assertion is not passing on something the base image
 // already had.
-func (r *PdfTests) WithFontsPutsFaceWhereFontconfigFindsIt(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:635:1)
+func (r *PdfTests) WithFontsPutsFaceWhereFontconfigFindsIt(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:643:1)
 	if r.withFontsPutsFaceWhereFontconfigFindsIt != nil {
 		return nil
 	}
@@ -779,7 +908,7 @@ func (r *PdfTests) WithFontsPutsFaceWhereFontconfigFindsIt(ctx context.Context) 
 // a render of it is the annotation's appearance stream and nothing else. Without
 // that separation the assertion could not tell an annotation that was not drawn
 // from one that was drawn somewhere else on the page.
-func (r *PdfTests) WithoutAnnotationsRemovesTheAnnotationLayer(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1461:1)
+func (r *PdfTests) WithoutAnnotationsRemovesTheAnnotationLayer(ctx context.Context) error { // pdf-tests (../../../daggerverse/pdf/tests/main.go:1469:1)
 	if r.withoutAnnotationsRemovesTheAnnotationLayer != nil {
 		return nil
 	}
@@ -804,7 +933,7 @@ func (r *PdfTests) AsNode() Node {
 // streams are uncompressed, so the text a page is supposed to render is readable
 // in the fixture itself and an assertion about it can be checked against the
 // PDF rather than against another tool's opinion of the PDF.
-func (r *Query) PdfTests() *PdfTests { // pdf-tests (../../../daggerverse/pdf/tests/main.go:150:6)
+func (r *Query) PdfTests() *PdfTests { // pdf-tests (../../../daggerverse/pdf/tests/main.go:151:6)
 	q := r.query.Select("pdfTests")
 
 	return &PdfTests{

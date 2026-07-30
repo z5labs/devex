@@ -270,7 +270,7 @@ func isSignatureReport(out string) bool {
 	return strings.Contains(out, noSignaturesMarker) || strings.Contains(out, signatureInfoMarker)
 }
 
-// Convert opens the conversion namespace: the render options, and the five
+// Convert opens the conversion namespace: the render options, and the nine
 // outputs that read them.
 //
 // It is a separate object rather than more methods on Document because the
@@ -441,7 +441,14 @@ func (d *Document) runScript(ctx context.Context, label string, script string, a
 // output is still readable; without it the exit code is the error and poppler's
 // own message about the document is lost inside Dagger's.
 func (d *Document) capture(ctx context.Context, script string, args ...string) (*popplerResult, int, error) {
-	exec := d.container().WithExec(
+	return capture(ctx, d.container(), script, args...)
+}
+
+// capture is the same for a container that carries no bound document, which is
+// what Merge runs in: its sources are several files and none of them is "the"
+// document, so there is nothing for Document to be.
+func capture(ctx context.Context, ctr *dagger.Container, script string, args ...string) (*popplerResult, int, error) {
+	exec := ctr.WithExec(
 		append([]string{"sh", "-c", script}, args...),
 		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 

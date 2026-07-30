@@ -9,7 +9,9 @@ and it gives you SVG, EPS or PostScript; ask for markup and it gives you HTML
 with the page's images beside it. Ask it what the document is and it tells you:
 page count, page size, PDF version, whether it is encrypted and under which
 algorithm, which fonts it needs and whether they are embedded, what its XMP
-metadata says, and whether its signatures check out.
+metadata says, and whether its signatures check out. Or leave it a PDF and change
+its page structure instead: `Split` takes a document apart a page per file,
+`Merge` puts several back together in the order you name them.
 
 **There is no official poppler container image**, so this module assembles its
 own the way `tesseract` and `qemu` do rather than pinning a vendor image the way
@@ -135,13 +137,14 @@ dag.Pdf().
 New(registry="docker.io", alpineTag="3.24") (*Pdf, error)
 Pdf.Container() *dagger.Container
 Pdf.Version(ctx) (string, error)
+Pdf.Merge(ctx, sources []*dagger.File) (*dagger.File, error)
 ```
 
 `Container` is the escape hatch. poppler-utils ships **thirteen** binaries and
-this module wraps seven of them — `pdftotext`, `pdftoppm`, `pdfinfo`,
-`pdftocairo`, `pdftohtml`, `pdffonts` and `pdfsig` — so `pdfimages`,
-`pdfseparate`, `pdfunite`, `pdftops`, `pdfattach` and `pdfdetach` stay reachable
-via `container with-exec` until they get wrapped too (see
+this module wraps nine of them — `pdftotext`, `pdftoppm`, `pdfinfo`,
+`pdftocairo`, `pdftohtml`, `pdffonts`, `pdfsig`, `pdfseparate` and `pdfunite` —
+so `pdfimages`, `pdftops`, `pdfattach` and `pdfdetach` stay reachable via
+`container with-exec` until they get wrapped too (see
 [Follow-ups](#follow-ups)). So do the flags of a wrapped tool that this module
 does not surface, `pdffonts -subst` among them.
 
@@ -162,6 +165,7 @@ Document.PageCount(ctx) (int, error)
 Document.Fonts(ctx) (string, error)
 Document.Metadata(ctx) (string, error)
 Document.Signatures(ctx) (string, error)
+Document.Split(ctx) (*dagger.Directory, error)
 Document.Convert() *Convert
 ```
 
@@ -217,7 +221,7 @@ Bounds are **1-based and inclusive**, matching poppler's own `-f`/`-l`, so
 the first page alone. A zero `last` means "to the last page", which is the only
 way to spell an open-ended range without first asking how many pages there are.
 
-It narrows the text outputs and the raster outputs alike.
+It narrows the text outputs, the raster outputs and `Split` alike.
 
 Bounds are checked against the document and rejected by naming the bound, at the
 point of use rather than in the builder — the check needs the page count, which
@@ -524,9 +528,81 @@ that rendered them, while still passing every assertion about entry names.
 frameset — a frameset, an index and the content — of which only the last carries
 anything.
 
+## `Split` and `Merge` — page structure, not pixels
+
+```go
+Document.Split(ctx) (*dagger.Directory, error)
+Pdf.Merge(ctx, sources []*dagger.File) (*dagger.File, error)
+```
+
+These two are the other half of "working with PDFs", and they need no rendering
+at all. `Split` is `pdfseparate`: one PDF per page, named to the same
+[page-naming contract](#page-naming--page-0001png) the render family honours,
+`page-0001.pdf` onwards. `Merge` is `pdfunite`: several PDFs concatenated into
+one.
+
+They are **lossless** in a way no conversion is. Each split page carries the
+original page's own objects across — its text layer, its fonts, its annotations,
+its size — so a split page is still a searchable PDF and a round trip gives back
+the document it started from:
+
+```go
+pages := dag.Pdf().Document(source).Split()
+
+var keep []*dagger.File
+for _, name := range wanted {          // page-0004.pdf, page-0007.pdf, …
+    keep = append(keep, pages.File(name))
+}
+excerpt := dag.Pdf().Merge(keep)
+```
+
+`Merge` hangs off the **root** rather than off `Document` because it takes
+several sources and no single one of them is "the" document — a bound document
+carries passwords and a page range, and neither means anything for a merge. It
+takes an ordered `[]*dagger.File` rather than a directory and a glob because
+**merge order is meaning**: a directory has no order of its own, so a caller
+would be relying on whatever file names it happens to carry, and that is a
+contract nobody wrote down. The slice is where the caller states what the result
+should read like.
+
+One source is legal and produces that source's document, so a caller merging a
+computed list does not have to special-case its length. An empty slice is not:
+there is no document to return and no empty PDF worth inventing, and
+`pdfunite`'s own answer to it is its usage text — a description of a command
+line the caller never wrote. The module refuses it before the container starts,
+naming what to pass instead.
+
+`Merge` mounts its sources at `/in/source-0001.pdf`, `/in/source-0002.pdf`, … in
+slice order, and a failure carries a legend saying so, because the only thing
+`pdfunite` tells you about a source it could not read is that path:
+
+```
+Merge failed (exit 255):
+Syntax Warning: May not be a PDF file (continuing anyway)
+…
+Syntax Error: Could not merge damaged documents ('/in/source-0002.pdf')
+any /in/source-NNNN.pdf above is this module's mount for the NNNNth of the 2
+sources, numbered from 1 in the order they were passed
+```
+
+> **Neither tool takes a password.** There is no `-upw` and no `-opw` on
+> `pdfseparate` or on `pdfunite` — passing one is a *usage* error, not a wrong
+> password — so an encrypted document is one these two cannot be made to open,
+> and `WithUserPassword` does not change that. What poppler says about it is
+> `Incorrect password`, the same sentence a genuinely wrong password produces
+> everywhere else in this module, so `Split` and `Merge` report it as the
+> limitation it is and point at decrypting the document first (`qpdf --decrypt`;
+> wrapping qpdf is #274). This is the one place a password reaches some of the
+> module's functions and not others.
+
+Whole documents go in whole. `Merge` narrows nothing — `Split` is what produces
+single pages to merge — and the pages keep their own size, so merging US Letter
+with A4 yields a document whose pages differ in size, which is what a
+concatenation should do.
+
 ## Page naming — `page-0001.png`
 
-`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps` and `Html` return a directory of
+`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps`, `Html` and `Split` return a directory of
 `page-0001.<ext>`, `page-0002.<ext>`, … zero-padded to at least four digits and
 uniform within a document. The extensions are **poppler's** spellings, not this
 module's:
@@ -539,15 +615,22 @@ module's:
 | `Svg` | `page-0001.svg` |
 | `Eps` | `page-0001.eps` |
 | `Html` | `page-0001.html` (+ its images, see above) |
+| `Split` | `page-0001.pdf` |
 
-The raster family and the per-page family reach that contract from opposite
-directions. `pdftoppm` names the files and this module **renames** them; for
-`Svg`, `Eps` and `Html` the module drives the page loop itself and **names them
-outright**, one invocation per page, because neither `pdftocairo` nor
-`pdftohtml` will produce a usable page-per-file set on its own. The upper bound
-of that loop — a `WithPageRange` open-ended `last`, or no range at all — is
-resolved from `pdfinfo` **inside the same exec** that renders, so the whole
-conversion stays one exec either way.
+The families reach that contract from opposite directions. `pdftoppm` and
+`pdfseparate` name the files and this module **renames** them; for `Svg`, `Eps`
+and `Html` the module drives the page loop itself and **names them outright**,
+one invocation per page, because neither `pdftocairo` nor `pdftohtml` will
+produce a usable page-per-file set on its own. The upper bound of that loop — a
+`WithPageRange` open-ended `last`, or no range at all — is resolved from
+`pdfinfo` **inside the same exec** that renders, so the whole conversion stays
+one exec either way.
+
+`pdfseparate` is the one that would honour a padded name if it were asked:
+handed a `page-%04d.pdf` destination pattern it zero-pads for you. It goes
+through the rename pass anyway, because a fixed width in the pattern is a width
+and not a *floor* — a document with more than 9999 pages would come out numbered
+to two widths, which is the exact ambiguity the contract exists to remove.
 
 For the raster family in particular, **this is a normalization, not
 `pdftoppm`'s own behaviour.** `pdftoppm` pads a
@@ -564,9 +647,9 @@ makes the shape a contract instead of a consequence, and that is what lets this
 directory be handed to another module at all.
 
 A rename pass runs **in the same exec** as the render, so the directory never
-existed under the other names. The width is the greater of four and whatever
-`pdftoppm` chose, so a document longer than four digits can express stays
-uniform rather than being truncated into ambiguity.
+existed under the other names. The width is the greater of four and whatever the
+tool chose, so a document longer than four digits can express stays uniform
+rather than being truncated into ambiguity.
 
 Page numbers are the **source document's**, not positions within a range, so
 `WithPageRange(4, 6)` yields `page-0004`…`page-0006`. That keeps a rendered page
@@ -600,8 +683,8 @@ about. Same posture as `tesseract`'s outputs and `kicad`.
 
 ## Follow-ups
 
-Text-layer geometry as bbox HTML and TSV (#269); splitting and merging pages
-(#270); extracting embedded images and attachments (#271); cropping the render
+Text-layer geometry as bbox HTML and TSV (#269);
+extracting embedded images and attachments (#271); cropping the render
 window and selecting odd or even pages (#272); the chained `Ci` builder (#273);
 linearize, encrypt and repair via qpdf (#274); testing package assembly off a
 private apk mirror (#275); removing `tesseract`'s `FromPdf` in favour of this

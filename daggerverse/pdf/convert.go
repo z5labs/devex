@@ -14,9 +14,10 @@ import (
 // text.
 const rasterArgv0 = "pdf-raster"
 
-// normalizeScript renames every page pdftoppm just wrote so its number is
+// normalizeScript renames every page the tool just wrote so its number is
 // zero-padded to a fixed width, and is the reason this directory can be handed
-// to another module at all.
+// to another module at all. It is the raster renders' pass and Split's alike:
+// both write a page per file, and both leave the number unpadded for it.
 //
 // pdftoppm pads a page number to the width of the document's page count, so a
 // 9-page document yields `page-1.png` and a 10-page one `page-01.png`.
