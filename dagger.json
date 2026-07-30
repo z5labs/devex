@@ -86,6 +86,10 @@
       "source": "daggerverse/valkey/tests"
     },
     {
+      "name": "workspace-ci-tests",
+      "source": "daggerverse/workspace-ci/tests"
+    },
+    {
       "name": "z5labs-tests",
       "source": "daggerverse/z5labs/tests"
     },

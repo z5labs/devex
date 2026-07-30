@@ -33,6 +33,7 @@ dagger install github.com/z5labs/devex/daggerverse/<module>
 | [`postgres`](daggerverse/postgres) | Spin up a single-node PostgreSQL 17 primary. |
 | [`qemu`](daggerverse/qemu) | Boot guest systems under [QEMU](https://www.qemu.org/). |
 | [`random`](daggerverse/random) | Generate random values. |
+| [`workspace-ci`](daggerverse/workspace-ci) | Plan change-aware, memoized CI for a workspace of Dagger modules. |
 | [`z5labs`](daggerverse/z5labs) | Scaffold project archetypes (GoApp / GoLib). |
 | [`zig`](daggerverse/zig) | Wrap the [Zig](https://ziglang.org/) toolchain. |
 
