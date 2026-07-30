@@ -62,6 +62,7 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 func (r WorkspaceCi) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		GlobalPaths    []string
+		SplitModules   []string
 		Timeouts       string
 		DefaultTimeout int
 		MemoToken      *dagger.Secret
@@ -70,6 +71,7 @@ func (r WorkspaceCi) MarshalJSON() ([]byte, error) {
 		MemoTTL        int
 	}
 	concrete.GlobalPaths = r.GlobalPaths
+	concrete.SplitModules = r.SplitModules
 	concrete.Timeouts = r.Timeouts
 	concrete.DefaultTimeout = r.DefaultTimeout
 	concrete.MemoToken = r.MemoToken
@@ -82,6 +84,7 @@ func (r WorkspaceCi) MarshalJSON() ([]byte, error) {
 func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
 		GlobalPaths    []string
+		SplitModules   []string
 		Timeouts       string
 		DefaultTimeout int
 		MemoToken      *dagger.Secret
@@ -94,6 +97,7 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 		return err
 	}
 	r.GlobalPaths = concrete.GlobalPaths
+	r.SplitModules = concrete.SplitModules
 	r.Timeouts = concrete.Timeouts
 	r.DefaultTimeout = concrete.DefaultTimeout
 	r.MemoToken = concrete.MemoToken
@@ -400,6 +404,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg globalPaths", err))
 				}
 			}
+			var splitModules []string
+			if inputArgs["splitModules"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["splitModules"]), &splitModules)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg splitModules", err))
+				}
+			}
 			var timeouts string
 			if inputArgs["timeouts"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["timeouts"]), &timeouts)
@@ -442,7 +453,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoTTL", err))
 				}
 			}
-			return New(globalPaths, timeouts, defaultTimeout, memoToken, memoRepo, memoRefs, memoTtl)
+			return New(globalPaths, splitModules, timeouts, defaultTimeout, memoToken, memoRepo, memoRefs, memoTtl)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

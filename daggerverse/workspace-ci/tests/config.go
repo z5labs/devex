@@ -133,6 +133,46 @@ func (t *Tests) PlanAppliesTimeoutOverrides(ctx context.Context) error {
 	return nil
 }
 
+// PlanSplitsNamedModulesOnTheRunEverythingPath proves the escape hatch for a
+// module whose checks must not share a leg: named modules are enumerated even when
+// everything runs, and every other module still gets one coarse leg and is still
+// never loaded.
+func (t *Tests) PlanSplitsNamedModulesOnTheRunEverythingPath(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	ci := dag.WorkspaceCi(dagger.WorkspaceCiOpts{SplitModules: []string{fxA}})
+	got, err := explain(ctx, ci, fx, cTouchFlow, "")
+	if err != nil {
+		return err
+	}
+	if !got.Full {
+		return fmt.Errorf("a workflow change did not run everything: %v", names(got.Plan))
+	}
+	if err := wantLegs(got, fxRoot, fxGlobal, "mods/a:ok", fxB, fxC, fxDirty); err != nil {
+		return err
+	}
+	split, err := find(got, "mods/a:ok")
+	if err != nil {
+		return err
+	}
+	if split.Filter != "a:ok" {
+		return fmt.Errorf("split leg %+v does not carry its own check pattern", split)
+	}
+	coarse, err := find(got, fxB)
+	if err != nil {
+		return err
+	}
+	if coarse.Filter != "" {
+		return fmt.Errorf("leg %q carries the filter %q; only the named modules are split", coarse.Name, coarse.Filter)
+	}
+	if !slices.Equal(got.LoadedModules, []string{fxA}) {
+		return fmt.Errorf("loaded %v; splitting one module must load exactly that module", got.LoadedModules)
+	}
+	return nil
+}
+
 // NewRejectsMalformedTimeouts proves a timeout table that cannot be read is an
 // error. A typo'd key already fails quietly — the default applies — so the one
 // thing left to catch loudly is a table nothing could be read from.

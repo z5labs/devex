@@ -32,6 +32,8 @@ type WorkspaceCi struct {
 	// +private
 	GlobalPaths []string
 	// +private
+	SplitModules []string
+	// +private
 	Timeouts string
 	// +private
 	DefaultTimeout int
@@ -54,6 +56,15 @@ func New(
 	//
 	// +optional
 	globalPaths []string,
+	// Repo-relative directories of modules whose checks must each get their own leg
+	// even when everything runs. The run-everything path otherwise emits one leg per
+	// module, which is right when a module's checks share their containers and wrong
+	// when each one boots a stack of its own: those land in a single engine on a
+	// single runner. Splitting a module costs loading it — the one thing that path
+	// exists to avoid — so name only the modules that need it.
+	//
+	// +optional
+	splitModules []string,
 	// Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's
 	// display name or by a module directory (which covers every leg of that
 	// module). It is JSON because Dagger function parameters cannot be Go maps.
@@ -99,6 +110,7 @@ func New(
 	}
 	return &WorkspaceCi{
 		GlobalPaths:    globalPaths,
+		SplitModules:   splitModules,
 		Timeouts:       timeouts,
 		DefaultTimeout: defaultTimeout,
 		MemoToken:      memoToken,
@@ -285,10 +297,13 @@ func (m *WorkspaceCi) plan(
 
 	if full {
 		// One leg per module rather than one per check: the plan never loads a
-		// module, and fewer, coarser legs mean fewer simultaneous engine boots.
-		for _, dir := range affected {
+		// module, and fewer, coarser legs mean fewer simultaneous engine boots. The
+		// modules the caller named as splits are the exception, and pay a load each.
+		coarse, split := ws.partitionSplits(affected)
+		for _, dir := range coarse {
 			out.Plan = append(out.Plan, planner.ModuleEntry(dir))
 		}
+		out.Plan = append(out.Plan, ws.legs(ctx, split)...)
 	} else {
 		out.Plan = ws.legs(ctx, affected)
 	}

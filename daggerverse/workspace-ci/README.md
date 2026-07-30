@@ -85,6 +85,26 @@ run-everything path emits one leg per module rather than one per check, so it
 loads none at all. Fewer, coarser legs there also means fewer simultaneous engine
 boots.
 
+### When one coarse leg is too coarse
+
+A coarse leg runs a module's whole suite in one engine on one runner. That is free
+when a module's checks share their containers — 13 checks of a Grafana stack land
+in ~1m30s — and it is wrong when each check boots a stack of its own. A Kafka
+suite whose five checks bring up five different distributions puts **87** brokers,
+controllers and registries into a single engine, where a slow start becomes a
+failed one.
+
+`--split-modules` is the escape hatch: the modules it names are enumerated even
+when everything runs, so their checks get a leg each.
+
+```sh
+dagger -m … call --split-modules=daggerverse/kafka/tests plan --base=… --head=…
+```
+
+Each named module costs one load, which is the thing this path exists to avoid —
+so name the ones that need it, not every module with more than one check. A name
+that matches no module in the plan is reported on stderr rather than ignored.
+
 **It will not return an empty plan.** A workspace it cannot read is an error: an
 empty matrix skips the run job and passes the gate having run nothing. Everything
 else fails safe towards running too much.
