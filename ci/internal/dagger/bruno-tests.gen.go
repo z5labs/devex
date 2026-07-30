@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type BrunoTests
-func (r *Binding) AsBrunoTests() *BrunoTests { // bruno-tests (../../../daggerverse/bruno/tests/main.go:32:6)
+func (r *Binding) AsBrunoTests() *BrunoTests { // bruno-tests (../../../daggerverse/bruno/tests/main.go:33:6)
 	q := r.query.Select("asBrunoTests")
 
 	return &BrunoTests{
@@ -18,11 +18,13 @@ func (r *Binding) AsBrunoTests() *BrunoTests { // bruno-tests (../../../daggerve
 	}
 }
 
-type BrunoTests struct { // bruno-tests (../../../daggerverse/bruno/tests/main.go:32:6)
+type BrunoTests struct { // bruno-tests (../../../daggerverse/bruno/tests/main.go:33:6)
 	query *querybuilder.Selection
 
 	all                                       *Void
 	caCertReachesPrivateCaService             *Void
+	checkDriftFailsOnAnEndpointAddedToTheSpec *Void
+	checkDriftFailsOnBothSidesOfTheRequestSet *Void
 	ciCheckGatesOnFailingAssertion            *Void
 	ciLintFailsBeforeAnyRequest               *Void
 	ciReachesMtlsServiceBehindPrivateCa       *Void
@@ -34,6 +36,7 @@ type BrunoTests struct { // bruno-tests (../../../daggerverse/bruno/tests/main.g
 	clientCertAuthenticatesToMtlsService      *Void
 	clientCertMaterialStaysOutOfTheCollection *Void
 	clientCertPassphraseUnlocksTheKey         *Void
+	driftIgnoresHandWrittenTests              *Void
 	generateHonoursOpenCollectionFormat       *Void
 	generateProducesRunnableCollection        *Void
 	generateRejectsUnknownFormat              *Void
@@ -69,11 +72,11 @@ func (r *BrunoTests) WithGraphQLQuery(q *querybuilder.Selection) *BrunoTests {
 
 // BrunoTestsAllOpts contains options for BrunoTests.All
 type BrunoTestsAllOpts struct {
-	Parallel int // bruno-tests (../../../daggerverse/bruno/tests/main.go:41:2)
+	Parallel int // bruno-tests (../../../daggerverse/bruno/tests/main.go:42:2)
 }
 
 // All runs every bruno-module test in parallel.
-func (r *BrunoTests) All(ctx context.Context, opts ...BrunoTestsAllOpts) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:38:1)
+func (r *BrunoTests) All(ctx context.Context, opts ...BrunoTestsAllOpts) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:39:1)
 	if r.all != nil {
 		return nil
 	}
@@ -101,11 +104,44 @@ func (r *BrunoTests) All(ctx context.Context, opts ...BrunoTestsAllOpts) error {
 // alone. It has to still pass: the flag is a no-op that is easy to render into a
 // run that was going to pass anyway, and easy to get wrong in a way that severs
 // the connection.
-func (r *BrunoTests) CaCertReachesPrivateCaService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1186:1)
+func (r *BrunoTests) CaCertReachesPrivateCaService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1339:1)
 	if r.caCertReachesPrivateCaService != nil {
 		return nil
 	}
 	q := r.query.Select("caCertReachesPrivateCaService")
+
+	return q.Execute(ctx)
+}
+
+// CheckDriftFailsOnAnEndpointAddedToTheSpec checks the case the whole story
+// exists for: the document grew an operation and nobody added a request for it,
+// so the endpoint is untested and nothing says so.
+//
+// The failure has to name the missing request rather than only report that
+// something differs — an endpoint nobody noticed is not made findable by being
+// told a count changed.
+func (r *BrunoTests) CheckDriftFailsOnAnEndpointAddedToTheSpec(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:710:1)
+	if r.checkDriftFailsOnAnEndpointAddedToTheSpec != nil {
+		return nil
+	}
+	q := r.query.Select("checkDriftFailsOnAnEndpointAddedToTheSpec")
+
+	return q.Execute(ctx)
+}
+
+// CheckDriftFailsOnBothSidesOfTheRequestSet checks the other direction, and
+// that the two are distinguished.
+//
+// A request deleted from the collection leaves an endpoint the document declares
+// with nothing testing it. A request the document has no operation for is the
+// opposite problem — an endpoint that was renamed or retired upstream, still
+// being exercised — and it has to read as its own thing rather than as the same
+// finding, because the fix is the opposite one.
+func (r *BrunoTests) CheckDriftFailsOnBothSidesOfTheRequestSet(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:754:1)
+	if r.checkDriftFailsOnBothSidesOfTheRequestSet != nil {
+		return nil
+	}
+	q := r.query.Select("checkDriftFailsOnBothSidesOfTheRequestSet")
 
 	return q.Execute(ctx)
 }
@@ -116,7 +152,7 @@ func (r *BrunoTests) CaCertReachesPrivateCaService(ctx context.Context) error { 
 //
 // The lint stage is enabled deliberately, so the failure has to be the
 // assertion and not the linter having an opinion about the fixture.
-func (r *BrunoTests) CiCheckGatesOnFailingAssertion(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:888:1)
+func (r *BrunoTests) CiCheckGatesOnFailingAssertion(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1041:1)
 	if r.ciCheckGatesOnFailingAssertion != nil {
 		return nil
 	}
@@ -135,7 +171,7 @@ func (r *BrunoTests) CiCheckGatesOnFailingAssertion(ctx context.Context) error {
 // is checked afterwards and passes, so a request count of zero on the first
 // pass is the lint stage short-circuiting rather than the collection being
 // unrunnable.
-func (r *BrunoTests) CiLintFailsBeforeAnyRequest(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:838:1)
+func (r *BrunoTests) CiLintFailsBeforeAnyRequest(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:991:1)
 	if r.ciLintFailsBeforeAnyRequest != nil {
 		return nil
 	}
@@ -158,7 +194,7 @@ func (r *BrunoTests) CiLintFailsBeforeAnyRequest(ctx context.Context) error { //
 // Both terminals are exercised, since a report of a run that never connected is
 // the failure this would otherwise hide, and the lint stage is enabled so the
 // TLS material has to survive being validated ahead of the run.
-func (r *BrunoTests) CiReachesMtlsServiceBehindPrivateCa(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1492:1)
+func (r *BrunoTests) CiReachesMtlsServiceBehindPrivateCa(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1645:1)
 	if r.ciReachesMtlsServiceBehindPrivateCa != nil {
 		return nil
 	}
@@ -172,7 +208,7 @@ func (r *BrunoTests) CiReachesMtlsServiceBehindPrivateCa(ctx context.Context) er
 // the finding belongs to the terminal — and it belongs to Check as much as to
 // Run, because a pipeline whose declared artifact cannot be produced is broken
 // whichever terminal is invoked first.
-func (r *BrunoTests) CiRejectsUnknownReportFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:798:1)
+func (r *BrunoTests) CiRejectsUnknownReportFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:951:1)
 	if r.ciRejectsUnknownReportFormat != nil {
 		return nil
 	}
@@ -189,7 +225,7 @@ func (r *BrunoTests) CiRejectsUnknownReportFormat(ctx context.Context) error { /
 // two-format Run is a pipeline that ran the collection once — and therefore two
 // reports describing the same set of responses, rather than two runs of the same
 // collection reporting on different ones.
-func (r *BrunoTests) CiRunProducesEveryRequestedReport(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:927:1)
+func (r *BrunoTests) CiRunProducesEveryRequestedReport(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1080:1)
 	if r.ciRunProducesEveryRequestedReport != nil {
 		return nil
 	}
@@ -207,7 +243,7 @@ func (r *BrunoTests) CiRunProducesEveryRequestedReport(ctx context.Context) erro
 // on exactly the runs whose report a pipeline needs — the JUnit file a CI system
 // turns into a test report names which assertion failed, and it is worthless if
 // it only arrives when nothing did.
-func (r *BrunoTests) CiRunStillReportsWhenTheCollectionFails(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:997:1)
+func (r *BrunoTests) CiRunStillReportsWhenTheCollectionFails(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1150:1)
 	if r.ciRunStillReportsWhenTheCollectionFails != nil {
 		return nil
 	}
@@ -230,7 +266,7 @@ func (r *BrunoTests) CiRunStillReportsWhenTheCollectionFails(ctx context.Context
 // and reading process.argv needs the developer sandbox. The pipeline builder
 // wraps no sandbox switch — a collection needing one is assembled through
 // Collection — so it gets the same request without the script.
-func (r *BrunoTests) CiSecretVarReachesTheCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1094:1)
+func (r *BrunoTests) CiSecretVarReachesTheCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1247:1)
 	if r.ciSecretVarReachesTheCollection != nil {
 		return nil
 	}
@@ -246,7 +282,7 @@ func (r *BrunoTests) CiSecretVarReachesTheCollection(ctx context.Context) error 
 //
 // Counted at the service rather than read out of bru's summary: a replayed run
 // prints a perfectly convincing "1 request, 1 passed".
-func (r *BrunoTests) CiShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1038:1)
+func (r *BrunoTests) CiShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1191:1)
 	if r.ciShouldNotBeCached != nil {
 		return nil
 	}
@@ -267,7 +303,7 @@ func (r *BrunoTests) CiShouldNotBeCached(ctx context.Context) error { // bruno-t
 // The first pass is the control: the same collection, verifying the same server,
 // with no client certificate configured. It has to fail, or the second pass says
 // nothing about the certificate having been needed.
-func (r *BrunoTests) ClientCertAuthenticatesToMtlsService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1255:1)
+func (r *BrunoTests) ClientCertAuthenticatesToMtlsService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1408:1)
 	if r.clientCertAuthenticatesToMtlsService != nil {
 		return nil
 	}
@@ -290,7 +326,7 @@ func (r *BrunoTests) ClientCertAuthenticatesToMtlsService(ctx context.Context) e
 // The responder demands the certificate, so this is not a run that skipped the
 // key: it reports the peer's Common Name back, and the key was necessary to
 // produce it.
-func (r *BrunoTests) ClientCertMaterialStaysOutOfTheCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1341:1)
+func (r *BrunoTests) ClientCertMaterialStaysOutOfTheCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1494:1)
 	if r.clientCertMaterialStaysOutOfTheCollection != nil {
 		return nil
 	}
@@ -310,11 +346,28 @@ func (r *BrunoTests) ClientCertMaterialStaysOutOfTheCollection(ctx context.Conte
 // So the same encrypted key is run twice. Without the passphrase the key cannot
 // be loaded and the run fails; with it, the run authenticates to the mTLS
 // endpoint and the responder reports the certificate back.
-func (r *BrunoTests) ClientCertPassphraseUnlocksTheKey(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1418:1)
+func (r *BrunoTests) ClientCertPassphraseUnlocksTheKey(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1571:1)
 	if r.clientCertPassphraseUnlocksTheKey != nil {
 		return nil
 	}
 	q := r.query.Select("clientCertPassphraseUnlocksTheKey")
+
+	return q.Execute(ctx)
+}
+
+// DriftIgnoresHandWrittenTests checks the scoping the comparison exists for. A
+// collection generated from the spec matches it — and still matches once one of
+// its requests carries a test the document never described.
+//
+// The second half is the whole reason the comparison is not a tree diff: a
+// generated request is where anyone would put the assertions that make the
+// collection worth running, and a check that called that drift would be a check
+// nobody could leave switched on.
+func (r *BrunoTests) DriftIgnoresHandWrittenTests(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:652:1)
+	if r.driftIgnoresHandWrittenTests != nil {
+		return nil
+	}
+	q := r.query.Select("driftIgnoresHandWrittenTests")
 
 	return q.Execute(ctx)
 }
@@ -326,7 +379,7 @@ func (r *BrunoTests) ClientCertPassphraseUnlocksTheKey(ctx context.Context) erro
 // It also pins the reason the default diverges from upstream's. The
 // opencollection shape carries no bruno.json, so it is not something Collection
 // could run — which is why this module defaults to the other one.
-func (r *BrunoTests) GenerateHonoursOpenCollectionFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:602:1)
+func (r *BrunoTests) GenerateHonoursOpenCollectionFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:606:1)
 	if r.generateHonoursOpenCollectionFormat != nil {
 		return nil
 	}
@@ -348,7 +401,7 @@ func (r *BrunoTests) GenerateHonoursOpenCollectionFormat(ctx context.Context) er
 // The environment's name is read off the generated tree rather than hardcoded:
 // bru derives it from the server's description, which is the spec's business
 // and not this module's.
-func (r *BrunoTests) GenerateProducesRunnableCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:524:1)
+func (r *BrunoTests) GenerateProducesRunnableCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:528:1)
 	if r.generateProducesRunnableCollection != nil {
 		return nil
 	}
@@ -361,7 +414,7 @@ func (r *BrunoTests) GenerateProducesRunnableCollection(ctx context.Context) err
 // is refused by name. bru refuses one too, but by printing its whole help text
 // with the actual complaint on the last line — and only after a container has
 // been started to find out.
-func (r *BrunoTests) GenerateRejectsUnknownFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:622:1)
+func (r *BrunoTests) GenerateRejectsUnknownFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:626:1)
 	if r.generateRejectsUnknownFormat != nil {
 		return nil
 	}
@@ -424,7 +477,7 @@ func (r *BrunoTests) UnmarshalJSON(bs []byte) error {
 // that extension and not from the contents, so a JSON environment staged as
 // .bru dies inside the Bruno grammar — with a Node stack trace, several layers
 // away from anything the caller did.
-func (r *BrunoTests) JSONEnvFileKeepsItsExtension(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:486:1)
+func (r *BrunoTests) JSONEnvFileKeepsItsExtension(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:490:1)
 	if r.jsonEnvFileKeepsItsExtension != nil {
 		return nil
 	}
@@ -440,7 +493,7 @@ func (r *BrunoTests) JSONEnvFileKeepsItsExtension(ctx context.Context) error { /
 //
 // It is checked under failOnWarnings=true as well, so the fixture has to be
 // free of warnings and not merely free of errors.
-func (r *BrunoTests) LintAcceptsValidCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:647:1)
+func (r *BrunoTests) LintAcceptsValidCollection(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:800:1)
 	if r.lintAcceptsValidCollection != nil {
 		return nil
 	}
@@ -452,7 +505,7 @@ func (r *BrunoTests) LintAcceptsValidCollection(ctx context.Context) error { // 
 // LintRejectsDuplicateSequence checks that two requests claiming the same seq
 // in one folder is a finding, and that the same seq in a different folder is
 // not — seq orders a folder's requests, so it is only ambiguous within one.
-func (r *BrunoTests) LintRejectsDuplicateSequence(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:754:1)
+func (r *BrunoTests) LintRejectsDuplicateSequence(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:907:1)
 	if r.lintRejectsDuplicateSequence != nil {
 		return nil
 	}
@@ -464,7 +517,7 @@ func (r *BrunoTests) LintRejectsDuplicateSequence(ctx context.Context) error { /
 // LintRejectsMissingBrunoJson checks the finding that stands in for bru's exit
 // 4. bru reports that one as "not a collection root", from inside a container,
 // without naming the file it wanted.
-func (r *BrunoTests) LintRejectsMissingBrunoJSON(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:666:1)
+func (r *BrunoTests) LintRejectsMissingBrunoJSON(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:819:1)
 	if r.lintRejectsMissingBrunoJson != nil {
 		return nil
 	}
@@ -480,7 +533,7 @@ func (r *BrunoTests) LintRejectsMissingBrunoJSON(ctx context.Context) error { //
 // The fixture holds two controls beside the violation — a token whose value is
 // a {{process.env.*}} interpolation, and a name declared in a vars:secret
 // block — so this also pins that the rule accepts the shape it is asking for.
-func (r *BrunoTests) LintRejectsPlaintextSecret(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:730:1)
+func (r *BrunoTests) LintRejectsPlaintextSecret(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:883:1)
 	if r.lintRejectsPlaintextSecret != nil {
 		return nil
 	}
@@ -492,7 +545,7 @@ func (r *BrunoTests) LintRejectsPlaintextSecret(ctx context.Context) error { // 
 // LintRejectsUnknownEnvironment checks that a mistyped --env name is caught
 // here rather than as bru's exit 6, and that the finding lists the names the
 // collection does ship.
-func (r *BrunoTests) LintRejectsUnknownEnvironment(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:682:1)
+func (r *BrunoTests) LintRejectsUnknownEnvironment(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:835:1)
 	if r.lintRejectsUnknownEnvironment != nil {
 		return nil
 	}
@@ -508,7 +561,7 @@ func (r *BrunoTests) LintRejectsUnknownEnvironment(ctx context.Context) error { 
 // The fixture also references two undeclared variables from its docs block,
 // which bru never interpolates — so this pins that prose is not linted as
 // though it were a request.
-func (r *BrunoTests) LintRejectsUnresolvedVariable(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:702:1)
+func (r *BrunoTests) LintRejectsUnresolvedVariable(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:855:1)
 	if r.lintRejectsUnresolvedVariable != nil {
 		return nil
 	}
@@ -523,7 +576,7 @@ func (r *BrunoTests) LintRejectsUnresolvedVariable(ctx context.Context) error { 
 //
 // The fixture's only assertion is disabled, which is the same as not having
 // written it — so this also pins that a commented-out assert does not count.
-func (r *BrunoTests) LintWarnsOnRequestWithoutTests(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:776:1)
+func (r *BrunoTests) LintWarnsOnRequestWithoutTests(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:929:1)
 	if r.lintWarnsOnRequestWithoutTests != nil {
 		return nil
 	}
@@ -541,7 +594,7 @@ func (r *BrunoTests) LintWarnsOnRequestWithoutTests(ctx context.Context) error {
 // The api fixture tags its root request and leaves the nested one untagged, so
 // the tag filters also have to have selected the right request rather than
 // merely been tolerated.
-func (r *BrunoTests) PassThroughFlagsAreAccepted(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:447:1)
+func (r *BrunoTests) PassThroughFlagsAreAccepted(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:451:1)
 	if r.passThroughFlagsAreAccepted != nil {
 		return nil
 	}
@@ -559,7 +612,7 @@ func (r *BrunoTests) PassThroughFlagsAreAccepted(ctx context.Context) error { //
 // and the default wins — so `Recursive: false` would silently assert the
 // default all over again. It is reachable from the CLI as
 // `run --recursive=false`.
-func (r *BrunoTests) RecursiveDefaultReachesSubfolders(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:234:1)
+func (r *BrunoTests) RecursiveDefaultReachesSubfolders(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:238:1)
 	if r.recursiveDefaultReachesSubfolders != nil {
 		return nil
 	}
@@ -573,7 +626,7 @@ func (r *BrunoTests) RecursiveDefaultReachesSubfolders(ctx context.Context) erro
 // artifact, and the artifact says what failed. Run would have raised an error
 // here, and an error forfeits the value — which is why the two are separate
 // functions rather than one.
-func (r *BrunoTests) ReportEmitsJunitForFailingRun(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:267:1)
+func (r *BrunoTests) ReportEmitsJunitForFailingRun(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:271:1)
 	if r.reportEmitsJunitForFailingRun != nil {
 		return nil
 	}
@@ -585,7 +638,7 @@ func (r *BrunoTests) ReportEmitsJunitForFailingRun(ctx context.Context) error { 
 // ReportRejectsUnknownFormat checks that a format bru does not write is
 // refused by name, before a live collection has been run against a live
 // service to find out.
-func (r *BrunoTests) ReportRejectsUnknownFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:294:1)
+func (r *BrunoTests) ReportRejectsUnknownFormat(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:298:1)
 	if r.reportRejectsUnknownFormat != nil {
 		return nil
 	}
@@ -597,7 +650,7 @@ func (r *BrunoTests) ReportRejectsUnknownFormat(ctx context.Context) error { // 
 // ReportShouldNotBeCached checks that two identical Reports each reach the
 // service. A report of a run that never happened describes an API nobody
 // asked about.
-func (r *BrunoTests) ReportShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:316:1)
+func (r *BrunoTests) ReportShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:320:1)
 	if r.reportShouldNotBeCached != nil {
 		return nil
 	}
@@ -609,7 +662,7 @@ func (r *BrunoTests) ReportShouldNotBeCached(ctx context.Context) error { // bru
 // RunFailsOnAssertionFailure checks that exit 1 — a failing request, test or
 // assertion — is an error, and that the error carries bru's own account of
 // what failed rather than just the exit code.
-func (r *BrunoTests) RunFailsOnAssertionFailure(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:141:1)
+func (r *BrunoTests) RunFailsOnAssertionFailure(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:145:1)
 	if r.runFailsOnAssertionFailure != nil {
 		return nil
 	}
@@ -620,7 +673,7 @@ func (r *BrunoTests) RunFailsOnAssertionFailure(ctx context.Context) error { // 
 
 // RunPassesAgainstBoundService checks the whole point of the module: a
 // collection whose environment names a bound service reaches it and passes.
-func (r *BrunoTests) RunPassesAgainstBoundService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:109:1)
+func (r *BrunoTests) RunPassesAgainstBoundService(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:113:1)
 	if r.runPassesAgainstBoundService != nil {
 		return nil
 	}
@@ -632,7 +685,7 @@ func (r *BrunoTests) RunPassesAgainstBoundService(ctx context.Context) error { /
 // RunShouldNotBeCached checks that two identical Runs each reach the service.
 // A collection run hits a live API, so a cached pass would report a
 // now-broken API as green.
-func (r *BrunoTests) RunShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:197:1)
+func (r *BrunoTests) RunShouldNotBeCached(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:201:1)
 	if r.runShouldNotBeCached != nil {
 		return nil
 	}
@@ -654,7 +707,7 @@ func (r *BrunoTests) RunShouldNotBeCached(ctx context.Context) error { // bruno-
 // command line" can actually be checked. That script needs the developer
 // sandbox — the safe one has no process — which is what makes WithSandbox
 // part of this test.
-func (r *BrunoTests) SecretVarIsNotOnArgv(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:393:1)
+func (r *BrunoTests) SecretVarIsNotOnArgv(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:397:1)
 	if r.secretVarIsNotOnArgv != nil {
 		return nil
 	}
@@ -671,7 +724,7 @@ func (r *BrunoTests) SecretVarIsNotOnArgv(ctx context.Context) error { // bruno-
 // against a named CA. `--ignore-truststore` is evaluated in combination with
 // `--cacert` only, so on its own it is a flag that does nothing. Neither is a
 // non-zero exit, which is why they are the module's to catch.
-func (r *BrunoTests) TLSControlsAreValidated(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1135:1)
+func (r *BrunoTests) TLSControlsAreValidated(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:1288:1)
 	if r.tlsControlsAreValidated != nil {
 		return nil
 	}
@@ -684,7 +737,7 @@ func (r *BrunoTests) TLSControlsAreValidated(ctx context.Context) error { // bru
 // bru exits 6 when the named environment does not exist; conflating that with
 // exit 1 would make "you typo'd the environment name" read as "your API is
 // broken".
-func (r *BrunoTests) UnknownEnvironmentIsRejected(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:171:1)
+func (r *BrunoTests) UnknownEnvironmentIsRejected(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:175:1)
 	if r.unknownEnvironmentIsRejected != nil {
 		return nil
 	}
@@ -697,7 +750,7 @@ func (r *BrunoTests) UnknownEnvironmentIsRejected(ctx context.Context) error { /
 // release the module pins. The Debian variant is not cosmetic — it is the
 // escape hatch for the Alpine image's musl/OpenSSL TLS failures — so it has
 // to be a tag that exists and ships the same CLI.
-func (r *BrunoTests) VersionReportsPinnedRelease(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:94:1)
+func (r *BrunoTests) VersionReportsPinnedRelease(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:98:1)
 	if r.versionReportsPinnedRelease != nil {
 		return nil
 	}
@@ -710,7 +763,7 @@ func (r *BrunoTests) VersionReportsPinnedRelease(ctx context.Context) error { //
 // selected environment declares. The fixture puts the variable in the request
 // path, so the responder records which of the two won rather than the module
 // having to trust bru's summary.
-func (r *BrunoTests) WithVarOverridesEnvironmentValue(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:353:1)
+func (r *BrunoTests) WithVarOverridesEnvironmentValue(ctx context.Context) error { // bruno-tests (../../../daggerverse/bruno/tests/main.go:357:1)
 	if r.withVarOverridesEnvironmentValue != nil {
 		return nil
 	}
@@ -728,7 +781,7 @@ func (r *BrunoTests) AsNode() Node {
 }
 
 // Create or update a binding of type BrunoTests in the environment
-func (r *Env) WithBrunoTestsInput(name string, value *BrunoTests, description string) *Env { // bruno-tests (../../../daggerverse/bruno/tests/main.go:32:6)
+func (r *Env) WithBrunoTestsInput(name string, value *BrunoTests, description string) *Env { // bruno-tests (../../../daggerverse/bruno/tests/main.go:33:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withBrunoTestsInput")
 	q = q.Arg("name", name)
@@ -741,7 +794,7 @@ func (r *Env) WithBrunoTestsInput(name string, value *BrunoTests, description st
 }
 
 // Declare a desired BrunoTests output to be assigned in the environment
-func (r *Env) WithBrunoTestsOutput(name string, description string) *Env { // bruno-tests (../../../daggerverse/bruno/tests/main.go:32:6)
+func (r *Env) WithBrunoTestsOutput(name string, description string) *Env { // bruno-tests (../../../daggerverse/bruno/tests/main.go:33:6)
 	q := r.query.Select("withBrunoTestsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -755,7 +808,7 @@ func (r *Env) WithBrunoTestsOutput(name string, description string) *Env { // br
 // test is exposed as a standalone dagger function so it can be invoked
 // individually during TDD; All wires them up for parallel execution under
 // `dagger call all`.
-func (r *Query) BrunoTests() *BrunoTests { // bruno-tests (../../../daggerverse/bruno/tests/main.go:32:6)
+func (r *Query) BrunoTests() *BrunoTests { // bruno-tests (../../../daggerverse/bruno/tests/main.go:33:6)
 	q := r.query.Select("brunoTests")
 
 	return &BrunoTests{

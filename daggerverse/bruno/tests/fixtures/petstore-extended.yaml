@@ -1,0 +1,123 @@
+# fixtures/petstore.yaml plus one operation, for the drift tests.
+#
+# The addition is a new path carrying a path parameter — GET /pets/{petId}/toys
+# — so a collection generated from petstore.yaml is one request short of this
+# document, and the request it is short of is one whose parameter has to survive
+# normalisation to be named in the report.
+#
+# Everything else is copied verbatim: a spec that dropped the schemas would make
+# every other request read as drifted too, and the test would pass for the wrong
+# reason.
+openapi: 3.0.3
+info:
+  title: Petstore
+  description: A very small store, for a test that has to run what it generates.
+  version: 1.0.0
+servers:
+  - url: http://api:8080
+    description: recording responder
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags:
+        - status
+      summary: Report service health
+      responses:
+        "200":
+          description: The service is up.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+  /pets:
+    get:
+      operationId: listPets
+      tags:
+        - pets
+      summary: List every pet
+      responses:
+        "200":
+          description: A list of pets.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Pet"
+    post:
+      operationId: createPet
+      tags:
+        - pets
+      summary: Add a pet to the store
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Pet"
+      responses:
+        "200":
+          description: The pet that was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}:
+    get:
+      operationId: showPetById
+      tags:
+        - pets
+      summary: Fetch one pet
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The pet's identifier.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The requested pet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Pet"
+  /pets/{petId}/toys:
+    get:
+      operationId: listPetToys
+      tags:
+        - pets
+      summary: List one pet's toys
+      parameters:
+        - name: petId
+          in: path
+          required: true
+          description: The pet's identifier.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The pet's toys.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+components:
+  schemas:
+    Pet:
+      type: object
+      required:
+        - name
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        tag:
+          type: string

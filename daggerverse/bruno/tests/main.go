@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -69,6 +70,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
 	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
 	jobs = jobs.WithJob("GenerateRejectsUnknownFormat", t.GenerateRejectsUnknownFormat)
+	jobs = jobs.WithJob("DriftIgnoresHandWrittenTests", t.DriftIgnoresHandWrittenTests)
+	jobs = jobs.WithJob("CheckDriftFailsOnAnEndpointAddedToTheSpec", t.CheckDriftFailsOnAnEndpointAddedToTheSpec)
+	jobs = jobs.WithJob("CheckDriftFailsOnBothSidesOfTheRequestSet", t.CheckDriftFailsOnBothSidesOfTheRequestSet)
 	jobs = jobs.WithJob("LintAcceptsValidCollection", t.LintAcceptsValidCollection)
 	jobs = jobs.WithJob("LintRejectsMissingBrunoJson", t.LintRejectsMissingBrunoJson)
 	jobs = jobs.WithJob("LintRejectsUnknownEnvironment", t.LintRejectsUnknownEnvironment)
@@ -632,6 +636,155 @@ func (t *Tests) GenerateRejectsUnknownFormat(ctx context.Context) error {
 	for _, want := range []string{"postman", "bru", "opencollection"} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the error to mention %q, got: %s", want, err.Error())
+		}
+	}
+	return nil
+}
+
+// DriftIgnoresHandWrittenTests checks the scoping the comparison exists for. A
+// collection generated from the spec matches it — and still matches once one of
+// its requests carries a test the document never described.
+//
+// The second half is the whole reason the comparison is not a tree diff: a
+// generated request is where anyone would put the assertions that make the
+// collection worth running, and a check that called that drift would be a check
+// nobody could leave switched on.
+func (t *Tests) DriftIgnoresHandWrittenTests(ctx context.Context) error {
+	spec := fixtureFile("petstore.yaml")
+	generated, err := pin(ctx, dag.Bruno().Generate(spec, dagger.BrunoGenerateOpts{Name: "petstore"}))
+	if err != nil {
+		return fmt.Errorf("generate: %w", err)
+	}
+
+	// The test is appended to a request the spec does describe, so the request
+	// set is untouched and only the file's bytes move.
+	const request = "pets/List every pet.bru"
+	body, err := generated.File(request).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read %q from the generated collection: %w", request, err)
+	}
+	edited := generated.WithNewFile(request, body+`
+tests {
+  test("responds", function() {
+    expect(res.getStatus()).to.equal(200);
+  });
+}
+`)
+
+	for _, tc := range []struct {
+		name       string
+		collection *dagger.Directory
+	}{
+		{"as generated", generated},
+		{"with a hand-written test", edited},
+	} {
+		collection := dag.Bruno().Collection(tc.collection)
+
+		report, err := collection.Drift(ctx, spec)
+		if err != nil {
+			return fmt.Errorf("drift (%s): %w", tc.name, err)
+		}
+		if !strings.Contains(report, "matches") {
+			return fmt.Errorf("expected drift (%s) to report a match, got:\n%s", tc.name, head(report))
+		}
+		// The count is the claim that the comparison read the requests at all:
+		// a report of zero requests would "match" any spec.
+		if !strings.Contains(report, fmt.Sprintf("%d requests", specOperations)) {
+			return fmt.Errorf("expected drift (%s) to account for %d requests, got:\n%s",
+				tc.name, specOperations, head(report))
+		}
+		if err := collection.CheckDrift(ctx, spec); err != nil {
+			return fmt.Errorf("expected the collection (%s) to gate clean against its own spec: %w", tc.name, err)
+		}
+	}
+	return nil
+}
+
+// CheckDriftFailsOnAnEndpointAddedToTheSpec checks the case the whole story
+// exists for: the document grew an operation and nobody added a request for it,
+// so the endpoint is untested and nothing says so.
+//
+// The failure has to name the missing request rather than only report that
+// something differs — an endpoint nobody noticed is not made findable by being
+// told a count changed.
+func (t *Tests) CheckDriftFailsOnAnEndpointAddedToTheSpec(ctx context.Context) error {
+	collection := dag.Bruno().Collection(
+		dag.Bruno().Generate(fixtureFile("petstore.yaml"), dagger.BrunoGenerateOpts{Name: "petstore"}))
+	extended := fixtureFile("petstore-extended.yaml")
+
+	err := collection.CheckDrift(ctx, extended)
+	if err == nil {
+		return fmt.Errorf("expected an endpoint added to the spec to fail the drift check")
+	}
+	// The route is spelled with Bruno's `:petId`, not the document's {petId}:
+	// the two are the same segment, and the report is read beside the
+	// collection.
+	if !hasReportLine(err.Error(), "+GET /pets/:petId/toys") {
+		return fmt.Errorf("expected the error to name the missing request, got:\n%s", head(err.Error()))
+	}
+	// The requests that did not change must not be reported as differences, or
+	// the report buries the one endpoint that needs adding.
+	for _, unchanged := range []string{"+GET /health", "+GET /pets", "+POST /pets", "+GET /pets/:petId", "-GET /pets"} {
+		if hasReportLine(err.Error(), unchanged) {
+			return fmt.Errorf("expected only the added endpoint to be reported, but the report carries %q:\n%s",
+				unchanged, head(err.Error()))
+		}
+	}
+
+	// Drift describes the same difference without failing on it, so the report
+	// is reachable from a step that is not the gate.
+	report, err := collection.Drift(ctx, extended)
+	if err != nil {
+		return fmt.Errorf("drift: %w", err)
+	}
+	if !strings.Contains(report, "+GET /pets/:petId/toys") {
+		return fmt.Errorf("expected drift to report the missing request without failing, got:\n%s", head(report))
+	}
+	return nil
+}
+
+// CheckDriftFailsOnBothSidesOfTheRequestSet checks the other direction, and
+// that the two are distinguished.
+//
+// A request deleted from the collection leaves an endpoint the document declares
+// with nothing testing it. A request the document has no operation for is the
+// opposite problem — an endpoint that was renamed or retired upstream, still
+// being exercised — and it has to read as its own thing rather than as the same
+// finding, because the fix is the opposite one.
+func (t *Tests) CheckDriftFailsOnBothSidesOfTheRequestSet(ctx context.Context) error {
+	spec := fixtureFile("petstore.yaml")
+	generated, err := pin(ctx, dag.Bruno().Generate(spec, dagger.BrunoGenerateOpts{Name: "petstore"}))
+	if err != nil {
+		return fmt.Errorf("generate: %w", err)
+	}
+
+	edited := generated.
+		WithoutFile("pets/Fetch one pet.bru").
+		WithNewFile("pets/Retire a pet.bru", `meta {
+  name: Retire a pet
+  type: http
+  seq: 4
+}
+
+delete {
+  url: {{baseUrl}}/pets/:petId/retire
+  body: none
+  auth: inherit
+}
+`)
+
+	err = dag.Bruno().Collection(edited).CheckDrift(ctx, spec)
+	if err == nil {
+		return fmt.Errorf("expected a collection missing one request and carrying an undeclared one to fail the drift check")
+	}
+	for _, want := range []string{
+		// The document declares it; the collection no longer has it.
+		"+GET /pets/:petId",
+		// The collection has it; the document declares no such operation.
+		"-DELETE /pets/:petId/retire",
+	} {
+		if !hasReportLine(err.Error(), want) {
+			return fmt.Errorf("expected the error to carry %q, got:\n%s", want, head(err.Error()))
 		}
 	}
 	return nil
@@ -1636,6 +1789,26 @@ func generatedRequests(ctx context.Context, collection *dagger.Directory) ([]str
 func fixtureFile(path string) *dagger.File {
 	return dag.CurrentModule().Source().File("fixtures/" + path)
 }
+
+// hasReportLine reports whether a drift report carries a line exactly.
+//
+// The comparison is per line rather than a substring match because every line of
+// the patch is prefixed with a space, a + or a -, and one route is a prefix of
+// another: "+GET /pets/:petId" would otherwise be satisfied by
+// "+GET /pets/:petId/toys", which is the difference between the check naming the
+// endpoint that drifted and naming a longer one.
+//
+// The traceparent comes off first. Dagger appends one to the end of a module
+// error's message, so the report's last line — which for a patch is a route —
+// arrives carrying a span id that is nothing to do with what drifted.
+func hasReportLine(report string, line string) bool {
+	report = traceparentSuffix.ReplaceAllString(report, "")
+	return slices.Contains(strings.Split(report, "\n"), line)
+}
+
+// traceparentSuffix matches the span id Dagger appends to a module error's
+// message.
+var traceparentSuffix = regexp.MustCompile(`\s*\[traceparent:[0-9a-f-]+\]\s*$`)
 
 // head trims a long output down to something readable in a failure message.
 func head(s string) string {

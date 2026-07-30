@@ -608,6 +608,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Collection":
 		switch fnName {
+		case "CheckDrift":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var spec *dagger.File
+			if inputArgs["spec"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spec"]), &spec)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spec", err))
+				}
+			}
+			return nil, (*Collection).CheckDrift(&parent, ctx, spec)
+		case "Drift":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var spec *dagger.File
+			if inputArgs["spec"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["spec"]), &spec)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg spec", err))
+				}
+			}
+			return (*Collection).Drift(&parent, ctx, spec)
 		case "Lint":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)

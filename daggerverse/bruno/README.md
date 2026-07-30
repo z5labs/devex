@@ -236,6 +236,79 @@ of the document and touches no live service.
 `--group-by path` (the alternative to grouping by tag) and `bru import wsdl`
 are not wrapped; both are reachable through `Container()`.
 
+## Gating drift against the spec
+
+Generating a collection is the easy half. Once it is committed and someone has
+written the assertions that make it worth running, the interesting question is
+whether it still matches the document. An operation added to the spec that
+nobody added a request for is a silently untested endpoint: nothing fails,
+because nothing asks.
+
+`Drift` regenerates the collection from the document and reports the difference;
+`CheckDrift` is the same comparison as a gate.
+
+```go
+report, err := dag.Bruno().Collection(source).Drift(ctx, spec)   // tells you
+err = dag.Bruno().Collection(source).CheckDrift(ctx, spec)       // fails on it
+```
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/bruno call \
+  collection --source=./api-tests \
+  check-drift --spec=./openapi.yaml
+```
+
+```
+bru drift: the collection does not match the OpenAPI document.
+  a/requests is the request set the collection commits; b/requests is the one the document declares.
+  + is an operation the document declares that the collection has no request for;
+  - is a request the collection commits that the document does not declare.
+
+diff --git a/requests b/requests
+--- a/requests
++++ b/requests
+@@ -2,3 +2,4 @@ GET /health
+ GET /pets
+ POST /pets
+ GET /pets/:petId
++GET /pets/:petId/toys
+```
+
+**The comparison is scoped to the request set — each request's method and path —
+and not to the two trees.** A generated request carries detail the document
+never described: the tests and assertions somebody added, the ordering, the
+scripts. A byte-for-byte tree diff would call every one of those drift, which
+would make the check useless on any collection anyone has actually worked on —
+and a check nobody can leave switched on catches nothing.
+
+So the listing each side is reduced to drops what the document has no opinion
+about:
+
+| | |
+|---|---|
+| The server | `{{baseUrl}}/pets` and `https://api.example.com/pets` are both `/pets`. Which host the collection points at is the environment's business. |
+| The query string | OpenAPI describes query parameters beside the path, and `bru import` writes them into a `params:query` block, so a url carrying one was hand-edited and is still the same endpoint. |
+| Path-parameter spelling | The document's `{petId}` and Bruno's `:petId` are the same segment; both normalise onto `:petId`, which is how the report spells it. |
+| Duplicate requests | A collection may hold two requests against one endpoint, the second asserting what the first set up. Neither the document nor this comparison has anything to say about how many there are. |
+
+The expected set comes from `bru import` rather than from a second reading of
+the document. Drift means "what `bru` would generate from this spec versus what
+is committed", and an independent OpenAPI parser here could disagree with `bru`
+about a document and report a difference nobody could act on.
+
+The diff itself is `Directory.Changes` and the `Changeset` it returns —
+`IsEmpty` is the verdict, `AsPatch` is the report — so nothing about it is
+hand-rolled. What this module owns is only the normalisation above, which is why
+the patch names a synthetic `requests` file rather than any file on disk.
+
+`Drift` never fails on drift and `CheckDrift` carries the report inside its
+error, for the same reason `Report` does not gate and `Lint` folds its findings
+into one: Dagger drops a function's value when it also returns an error, so a
+gating `Drift` could not hand back the report that says what to fix.
+
+Unlike `Lint`, this one runs a container — regenerating means running `bru
+import` — so it is not the free check that `Lint` is.
+
 ## The Ci pipeline
 
 Lint, run and report are three calls plus the glue that decides what fails the
@@ -347,8 +420,8 @@ module or touch the filesystem needs `WithSandbox("developer")` — and fails at
 
 `Run`, `Report`, `Ci.Check` and `Ci.Run` carry `+cache="never"`: a collection
 run hits a live service, so a cached pass would report a now-broken API as
-green. `Container`, `Version`, `Generate` and `Lint` stay `+cache="session"` —
-those are pure.
+green. `Container`, `Version`, `Generate`, `Lint`, `Drift` and `CheckDrift` stay
+`+cache="session"` — those are pure functions of a document and a tree.
 
 That directive governs the *function* result; the `WithExec` layer underneath
 is still content-addressed, so every terminal stamps a per-call nonce onto the
@@ -440,6 +513,8 @@ tail.
 | `Collection.WithBail()` | `--bail`; stop at the first failure. |
 | `Collection.WithDelay(milliseconds)` | `--delay`; wait between requests. |
 | `Collection.Lint(failOnWarnings)` | Check the collection's structure in pure Go, issuing no requests. |
+| `Collection.Drift(spec)` | Report how the committed request set differs from the OpenAPI document. |
+| `Collection.CheckDrift(spec)` | The same comparison as a gate; the report travels in the error. |
 | `Collection.Run(recursive)` | Run the collection; bru's output, failing on exit 1. |
 | `Collection.Report(format)` | Run it and return the `json`, `junit` or `html` artifact, failing only on usage errors. |
 | `Ci(source)` | Bind a collection to the standardized pipeline builder. |
