@@ -33,16 +33,38 @@ env:
   MEMO_TTL_SECONDS: "86400"
 
   # Per-leg check-step budgets in minutes; anything unlisted gets the planner's
-  # default of 6, which fits every leg that runs one module's suite.
+  # default of 6.
   #
-  # The root module is the exception (#184): its `generated` check runs codegen
-  # for every module in the workspace, so it pays in one leg the module-build
-  # cost the other legs spread across themselves — measured at ~5m of engine work
-  # on a cold engine. The "." key covers every root leg, including the single
-  # coarse one the run-everything path emits, which runs all three root checks
-  # back to back; the two per-check keys tighten the ones that do no such sweep,
-  # so a stuck telemetry drain there still fails fast.
-  CHECK_TIMEOUTS: '{".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2}'
+  # 6 fits a leg that runs a single check, and — because a module's checks run
+  # concurrently and share their container builds — it also fits most of the
+  # coarse one-leg-per-module legs the run-everything path emits: 13 grafana-stack
+  # checks land in ~1m30s of step time, 9 valkey checks in ~2m. The exceptions are
+  # modules whose checks share nothing, and they are budgeted by module key below.
+  # A module key covers that module's coarse leg AND its per-check legs, since the
+  # coarse leg's name *is* the module directory; the per-check legs are then bound
+  # more loosely than they need, which only delays fast-failing a stuck telemetry
+  # drain on those few legs.
+  #
+  #   .                        the root module's `generated` runs codegen for
+  #                            every module in the workspace, paying in one leg
+  #                            the module-build cost the others spread across
+  #                            themselves (#184) — ~5m on a cold engine. Its two
+  #                            per-check keys tighten the checks that do no such
+  #                            sweep.
+  #   daggerverse/workspace-ci declares that same whole-workspace `generated` as
+  #                            its own check, so its coarse leg repeats the sweep.
+  #   daggerverse/kafka/tests  five suites that boot five *different* Kafka
+  #                            distributions, sharing no containers. Measured as
+  #                            separate legs on main: 1m50s + 2m07s + 1m51s +
+  #                            1m24s + 3m46s = 10m57s serial. Concurrency inside
+  #                            one leg beats that, but on a 2-core runner not by
+  #                            much — the leg that overran the default and failed
+  #                            the first run of #290 had reached schema-registry
+  #                            (the 3m46s one) at the 6m cut, putting the real
+  #                            figure near 9m.
+  CHECK_TIMEOUTS: >-
+    {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
+    "daggerverse/workspace-ci": 15, "daggerverse/kafka/tests": 15}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
