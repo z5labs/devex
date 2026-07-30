@@ -221,6 +221,13 @@ func (t *Tests) All(
 
 	jobs = jobs.WithJob("EncryptedDocumentNeedsThePassword", t.EncryptedDocumentNeedsThePassword)
 
+	jobs = jobs.WithJob("ApkRepositoryAssemblesWorkingToolchainFromMirror", t.ApkRepositoryAssemblesWorkingToolchainFromMirror)
+	jobs = jobs.WithJob("ApkRepositoryReplacesImageDefaults", t.ApkRepositoryReplacesImageDefaults)
+	jobs = jobs.WithJob("UntrustedIndexIsRejectedWithoutApkKey", t.UntrustedIndexIsRejectedWithoutApkKey)
+	jobs = jobs.WithJob("ApkAuthInstallsFromAuthenticatedRepository", t.ApkAuthInstallsFromAuthenticatedRepository)
+	jobs = jobs.WithJob("AuthenticatedRepositoryIsRejectedWithoutApkAuth", t.AuthenticatedRepositoryIsRejectedWithoutApkAuth)
+	jobs = jobs.WithJob("DefaultApkConfigurationIsUntouched", t.DefaultApkConfigurationIsUntouched)
+
 	return jobs.Run(ctx)
 }
 
@@ -2056,12 +2063,18 @@ func firstPageConfig(ctx context.Context, dir *dagger.Directory, prefix string) 
 	return cfg, nil
 }
 
-// pixelStats is what a colour-mode assertion measures: whether any pixel carries
-// colour, and whether any carries a tone that is neither black nor white.
+// pixelStats is what a rendered page is measured by: how much of it carries
+// colour, how much carries a tone that is neither black nor white, and how much
+// carries anything at all.
+//
+// The last of those is the one that says a page was drawn. Poppler renders a PDF
+// naming a font it cannot substitute as an empty sheet and exits 0, so a page
+// with no ink on it is a successful render of nothing.
 type pixelStats struct {
 	total   int
 	chroma  int
 	midtone int
+	ink     int
 }
 
 // firstPagePixels decodes the first page of a rendered directory and summarises
@@ -2097,6 +2110,9 @@ func firstPagePixels(ctx context.Context, dir *dagger.Directory, prefix string) 
 			// the 8-bit value poppler actually wrote.
 			r8, g8, b8 := r>>8, g>>8, b>>8
 			stats.total++
+			if r8 != 0xff || g8 != 0xff || b8 != 0xff {
+				stats.ink++
+			}
 			switch {
 			case r8 != g8 || g8 != b8:
 				stats.chroma++
