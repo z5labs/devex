@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Pdf
-func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
+func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:209:6)
 	q := r.query.Select("asPdf")
 
 	return &Pdf{
@@ -20,7 +20,7 @@ func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:
 }
 
 // Retrieve the binding value, as type PdfConvert
-func (r *Binding) AsPdfConvert() *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:75:6)
+func (r *Binding) AsPdfConvert() *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:76:6)
 	q := r.query.Select("asPdfConvert")
 
 	return &PdfConvert{
@@ -38,7 +38,7 @@ func (r *Binding) AsPdfDocument() *PdfDocument { // pdf (../../../../../daggerve
 }
 
 // Create or update a binding of type PdfConvert in the environment
-func (r *Env) WithPdfConvertInput(name string, value *PdfConvert, description string) *Env { // pdf (../../../../../daggerverse/pdf/convert.go:75:6)
+func (r *Env) WithPdfConvertInput(name string, value *PdfConvert, description string) *Env { // pdf (../../../../../daggerverse/pdf/convert.go:76:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPdfConvertInput")
 	q = q.Arg("name", name)
@@ -51,7 +51,7 @@ func (r *Env) WithPdfConvertInput(name string, value *PdfConvert, description st
 }
 
 // Declare a desired PdfConvert output to be assigned in the environment
-func (r *Env) WithPdfConvertOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/convert.go:75:6)
+func (r *Env) WithPdfConvertOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/convert.go:76:6)
 	q := r.query.Select("withPdfConvertOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -86,7 +86,7 @@ func (r *Env) WithPdfDocumentOutput(name string, description string) *Env { // p
 }
 
 // Create or update a binding of type Pdf in the environment
-func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
+func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:209:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPdfInput")
 	q = q.Arg("name", name)
@@ -99,7 +99,7 @@ func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { /
 }
 
 // Declare a desired Pdf output to be assigned in the environment
-func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
+func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:209:6)
 	q := r.query.Select("withPdfOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -113,7 +113,7 @@ func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../.
 // carries the image coordinates and the fonts the image is built with;
 // Document hangs off it so the generated SDK surfaces conversion under
 // `dag.Pdf().Document(...)`.
-type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
+type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:209:6)
 	query *querybuilder.Selection
 
 	id      *ID
@@ -136,11 +136,11 @@ func (r *Pdf) WithGraphQLQuery(q *querybuilder.Selection) *Pdf {
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and seven of them are wrapped here, so pdfimages, pdfseparate,
-// pdfunite, pdfattach, pdfdetach and pdftops stay reachable via
-// `container with-exec` — as do the flags of a wrapped tool that this module
-// does not surface, `pdffonts -subst` among them.
-func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:343:1)
+// binaries and nine of them are wrapped here, so pdfimages, pdfattach,
+// pdfdetach and pdftops stay reachable via `container with-exec` — as do the
+// flags of a wrapped tool that this module does not surface, `pdffonts -subst`
+// among them.
+func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:355:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -153,7 +153,7 @@ func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/ma
 // The boundary input is a *dagger.File rather than a *dagger.Directory: a PDF
 // resolves nothing relative to its own location, so one file is the whole unit
 // of work however many pages it carries.
-func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:376:1)
+func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:388:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -212,9 +212,44 @@ func (r *Pdf) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// Merge concatenates several PDFs into one, in the order they are given, and
+// returns the result.
+//
+// It hangs off the root rather than off Document because it takes several
+// sources and no single one of them is "the" document: a bound document carries
+// passwords and a page range, and neither has any meaning for a merge.
+//
+// The sources are an ordered slice rather than a directory and a glob because
+// merge order is meaning. A directory has no order of its own — a caller would
+// be relying on the file names it happens to carry, which is a contract nobody
+// wrote down — so the slice is where the caller states what the result should
+// read like.
+//
+// One source is legal and produces that source's document, so a caller merging a
+// computed list does not have to special-case its length. An empty slice is not:
+// there is no document to return and no sensible empty PDF to invent, and
+// pdfunite handed no sources answers with its own usage text.
+//
+// Nothing else about the sources is narrowed or transformed. Whole documents go
+// in whole — Split is what produces single pages to merge — and the pages keep
+// their own size, so merging US Letter with A4 yields a document whose pages
+// differ in size, which is what a concatenation should do.
+//
+// Encrypted sources are the one shape this cannot take: pdfunite has no password
+// option, so there is no argument that would let it read one. See the message a
+// run against one carries.
+func (r *Pdf) Merge(sources []*File) *File { // pdf (../../../../../daggerverse/pdf/pages.go:113:1)
+	q := r.query.Select("merge")
+	q = q.Arg("sources", sources)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Version returns the poppler release the assembled image ships, as the bare
 // version number reported by `pdftotext -v`.
-func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:356:1)
+func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:368:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -240,7 +275,7 @@ func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../..
 // why the credentials are not simply userinfo in the WithApkRepository URL,
 // which would put them in /etc/apk/repositories and in every apk error
 // message that quotes it.
-func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:304:1)
+func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:316:1)
 	assertNotNil("credentials", credentials)
 	q := r.query.Select("withApkAuth")
 	q = q.Arg("credentials", credentials)
@@ -263,7 +298,7 @@ func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../dag
 // Repeatable, for a mirror set signed by more than one key. It is a *File
 // rather than a *Secret because a public key is not a credential: it is meant
 // to be in the image, and WithApkAuth is the option for the part that is not.
-func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:281:1)
+func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:293:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withApkKey")
 	q = q.Arg("key", key)
@@ -293,7 +328,7 @@ func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pd
 // call per component. A repository's index is signed, so pair this with
 // WithApkKey unless the mirror is signed by a key the base image already
 // trusts.
-func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:253:1)
+func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:265:1)
 	q := r.query.Select("withApkRepository")
 	q = q.Arg("url", url)
 
@@ -317,7 +352,7 @@ func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../dagger
 // /etc/fonts/fonts.conf tells fontconfig to scan, so the faces in it are
 // indistinguishable from packaged ones as far as poppler is concerned. It is
 // mounted rather than copied so a large family does not become an image layer.
-func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:328:1)
+func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:340:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withFonts")
 	q = q.Arg("dir", dir)
@@ -348,7 +383,7 @@ func (r *Pdf) AsNode() Node {
 // documented no-ops there rather than rejections: a DPI set before asking for
 // text is inapplicable rather than wrong, unlike a bound past the end of the
 // document, which is always a mistake.
-type PdfConvert struct { // pdf (../../../../../daggerverse/pdf/convert.go:75:6)
+type PdfConvert struct { // pdf (../../../../../daggerverse/pdf/convert.go:76:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -387,7 +422,7 @@ func (r *PdfConvert) WithGraphQLQuery(q *querybuilder.Selection) *PdfConvert {
 //
 // WithDpi governs rasterized regions; WithColorMode, WithScaleTo and
 // WithoutAnnotations are ignored: see the note on Ps.
-func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:319:1)
+func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:320:1)
 	q := r.query.Select("eps")
 
 	return &Directory{
@@ -414,7 +449,7 @@ func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/c
 //
 // Every render option is ignored, pdftohtml having no resolution, colour or
 // annotation switch of any kind. WithPageRange narrows it like everything else.
-func (r *PdfConvert) HTML() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:381:1)
+func (r *PdfConvert) HTML() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:382:1)
 	q := r.query.Select("html")
 
 	return &Directory{
@@ -478,7 +513,7 @@ func (r *PdfConvert) UnmarshalJSON(bs []byte) error {
 // Lossy, so it is the format for a preview a human looks at rather than for
 // input another program measures: the artefacts a flat page compresses into sit
 // exactly where thin strokes are, which is where OCR reads.
-func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:262:1)
+func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:263:1)
 	q := r.query.Select("jpeg")
 
 	return &Directory{
@@ -492,7 +527,7 @@ func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/
 // PNG is the format to hand another module: it is lossless, so nothing
 // downstream is reading compression artefacts as page content, and it is what
 // every image library reads without a codec question.
-func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:251:1)
+func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:252:1)
 	q := r.query.Select("png")
 
 	return &Directory{
@@ -516,7 +551,7 @@ func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/c
 // are dropped rather than forwarded because poppler does not ignore them — it
 // exits non-zero with `-mono may only be used with the -png, -jpeg, or -tiff
 // output options`, and `-hide-annotations` is not a pdftocairo option at all.
-func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert.go:339:1)
+func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert.go:340:1)
 	q := r.query.Select("ps")
 
 	return &File{
@@ -544,7 +579,7 @@ func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert
 // WithDpi governs the rasterized regions a page can still contain — an embedded
 // photograph has no vector form to keep. WithColorMode, WithScaleTo and
 // WithoutAnnotations are ignored: see the note on Ps.
-func (r *PdfConvert) Svg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:297:1)
+func (r *PdfConvert) Svg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:298:1)
 	q := r.query.Select("svg")
 
 	return &Directory{
@@ -558,11 +593,11 @@ type PdfConvertTextOpts struct {
 	// How much of the page's physical arrangement survives into the text.
 	// Defaults to reading order.
 	//
-	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:192:2)
+	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:193:2)
 	//
 	// Emit no form feed between pages.
 	//
-	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:195:2)
+	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:196:2)
 }
 
 // Text returns the document's text layer as a string.
@@ -577,7 +612,7 @@ type PdfConvertTextOpts struct {
 // Pages are separated by a form feed (U+000C), including after the last one,
 // which is pdftotext's own convention. Pass disablePageBreaks to drop them, for
 // a consumer that wants one flat stream of text.
-func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (string, error) { // pdf (../../../../../daggerverse/pdf/convert.go:187:1)
+func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (string, error) { // pdf (../../../../../daggerverse/pdf/convert.go:188:1)
 	if r.text != nil {
 		return *r.text, nil
 	}
@@ -606,7 +641,7 @@ func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (stri
 // It is the format the document-imaging world already speaks, and the one to
 // pair with MONO: a bilevel TIFF is what a scanner emits and what an archive
 // expects.
-func (r *PdfConvert) Tiff() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:273:1)
+func (r *PdfConvert) Tiff() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:274:1)
 	q := r.query.Select("tiff")
 
 	return &Directory{
@@ -620,11 +655,11 @@ type PdfConvertTxtOpts struct {
 	// How much of the page's physical arrangement survives into the text.
 	// Defaults to reading order.
 	//
-	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:222:2)
+	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:223:2)
 	//
 	// Emit no form feed between pages.
 	//
-	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:225:2)
+	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:226:2)
 }
 
 // Txt returns the same text Text returns, as a file rather than a string.
@@ -632,7 +667,7 @@ type PdfConvertTxtOpts struct {
 // Which of the two to reach for is plumbing and nothing more: a file composes
 // with whatever consumes files — another module, an export, a directory being
 // assembled — without the bytes passing through the caller.
-func (r *PdfConvert) Txt(opts ...PdfConvertTxtOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:217:1)
+func (r *PdfConvert) Txt(opts ...PdfConvertTxtOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:218:1)
 	q := r.query.Select("txt")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `layout` optional argument
@@ -658,7 +693,7 @@ func (r *PdfConvert) Txt(opts ...PdfConvertTxtOpts) *File { // pdf (../../../../
 // threshold a colour image itself.
 //
 // Ignored by Text and Txt.
-func (r *PdfConvert) WithColorMode(mode PdfColorMode) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:123:1)
+func (r *PdfConvert) WithColorMode(mode PdfColorMode) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:124:1)
 	q := r.query.Select("withColorMode")
 	q = q.Arg("mode", mode)
 
@@ -680,7 +715,7 @@ func (r *PdfConvert) WithColorMode(mode PdfColorMode) *PdfConvert { // pdf (../.
 // Ignored by Text and Txt, which read a text layer rather than rendering
 // anything. Overridden by WithScaleTo, which fixes the output's pixel
 // dimensions directly.
-func (r *PdfConvert) WithDpi(dpi int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:105:1)
+func (r *PdfConvert) WithDpi(dpi int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:106:1)
 	q := r.query.Select("withDpi")
 	q = q.Arg("dpi", dpi)
 
@@ -703,7 +738,7 @@ func (r *PdfConvert) WithDpi(dpi int) *PdfConvert { // pdf (../../../../../dagge
 // is on the page, which is every OCR and measurement case.
 //
 // Ignored by Text and Txt.
-func (r *PdfConvert) WithScaleTo(pixels int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:146:1)
+func (r *PdfConvert) WithScaleTo(pixels int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:147:1)
 	q := r.query.Select("withScaleTo")
 	q = q.Arg("pixels", pixels)
 
@@ -724,7 +759,7 @@ func (r *PdfConvert) WithScaleTo(pixels int) *PdfConvert { // pdf (../../../../.
 // could ever turn annotations off.
 //
 // Ignored by Text and Txt.
-func (r *PdfConvert) WithoutAnnotations() *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:169:1)
+func (r *PdfConvert) WithoutAnnotations() *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:170:1)
 	q := r.query.Select("withoutAnnotations")
 
 	return &PdfConvert{
@@ -771,7 +806,7 @@ func (r *PdfDocument) WithGraphQLQuery(q *querybuilder.Selection) *PdfDocument {
 	}
 }
 
-// Convert opens the conversion namespace: the render options, and the five
+// Convert opens the conversion namespace: the render options, and the nine
 // outputs that read them.
 //
 // It is a separate object rather than more methods on Document because the
@@ -981,6 +1016,33 @@ func (r *PdfDocument) Signatures(ctx context.Context) (string, error) { // pdf (
 	return response, q.Execute(ctx)
 }
 
+// Split writes each page of the document to its own PDF and returns the
+// directory holding them, named `page-0001.pdf`, `page-0002.pdf`, and so on.
+//
+// This is page extraction and not rendering: each file carries the original
+// page's objects — its text layer, its fonts, its annotations — so a split page
+// is still a PDF a reader can search, and splitting is lossless in a way that
+// rendering to PNG is not.
+//
+// The names are the same contract the render family honours, and for the same
+// reason: a consumer that sorts this directory has to get page order. They are
+// this module's and not the tool's — pdfseparate numbers to whatever width the
+// destination pattern asks for, so the four digits are a promise rather than a
+// consequence of the document's length. The numbers are the source document's
+// page numbers, so pages 4 through 6 come out `page-0004.pdf` through
+// `page-0006.pdf` and stay traceable to the page they came from.
+//
+// WithPageRange narrows it. The passwords do not reach it: pdfseparate has no
+// password option at all, so an encrypted document is one it cannot open however
+// the document was bound — see the message a run against one carries.
+func (r *PdfDocument) Split() *Directory { // pdf (../../../../../daggerverse/pdf/pages.go:59:1)
+	q := r.query.Select("split")
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // WithOwnerPassword supplies the document's owner password, which opens an
 // encrypted document as fully as the user password does and additionally
 // clears the permission bits poppler otherwise honours.
@@ -1077,18 +1139,18 @@ type PdfOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // pdf (../../../../../daggerverse/pdf/main.go:219:2)
+	Registry string // pdf (../../../../../daggerverse/pdf/main.go:231:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:222:2)
+	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:234:2)
 }
 
 // New returns a Pdf module backed by <registry>/library/alpine:<tag> with
 // poppler-utils and a substitute font family installed.
-func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:214:1)
+func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:226:1)
 	q := r.query.Select("pdf")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument

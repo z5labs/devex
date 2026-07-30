@@ -48,6 +48,13 @@
 // wide, and a caller who wants one field can read it out of these lines more
 // cheaply than this module can model all of them.
 //
+// Two functions change the document's page structure rather than reading it or
+// drawing it: Split takes it apart a page per file, Merge concatenates several
+// into one. They are lossless where every conversion is not — the pages carry
+// their own objects across — and they are the pair with a limitation nothing
+// else here has: pdfseparate and pdfunite accept no password, so an encrypted
+// document has to be decrypted before either will touch it.
+//
 // File map (all `package main`, surfaced as one Dagger module):
 //
 //   - enums.go    — ColorMode and LayoutMode plus the tables mapping them onto
@@ -57,6 +64,10 @@
 //     its XMP metadata, and its signatures.
 //   - convert.go  — *Convert, the render options and the nine outputs that
 //     read them.
+//   - pages.go    — Split and Merge, the two page-structure operations. They
+//     sit together rather than with their receivers because they are one
+//     story: the page-naming contract one writes is the order the other
+//     reads.
 package main
 
 import (
@@ -81,8 +92,9 @@ const (
 	defaultAlpineTag = "3.24"
 
 	// popplerPkg carries all thirteen pdf* binaries this module reaches
-	// through Container, of which seven are wrapped: pdftotext, pdftoppm,
-	// pdfinfo, pdftocairo, pdftohtml, pdffonts and pdfsig.
+	// through Container, of which nine are wrapped: pdftotext, pdftoppm,
+	// pdfinfo, pdftocairo, pdftohtml, pdffonts, pdfsig, pdfseparate and
+	// pdfunite.
 	popplerPkg = "poppler-utils"
 
 	// fontPkg is the substitute font family poppler draws with when a PDF
@@ -336,10 +348,10 @@ func (p *Pdf) WithFonts(
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and seven of them are wrapped here, so pdfimages, pdfseparate,
-// pdfunite, pdfattach, pdfdetach and pdftops stay reachable via
-// `container with-exec` — as do the flags of a wrapped tool that this module
-// does not surface, `pdffonts -subst` among them.
+// binaries and nine of them are wrapped here, so pdfimages, pdfattach,
+// pdfdetach and pdftops stay reachable via `container with-exec` — as do the
+// flags of a wrapped tool that this module does not surface, `pdffonts -subst`
+// among them.
 func (p *Pdf) Container() *dagger.Container {
 	ctr := p.base().WithExec([]string{"apk", "add", "--no-cache", popplerPkg, fontPkg})
 	// Mounted after the install because the install is what brings

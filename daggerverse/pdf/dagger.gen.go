@@ -593,6 +593,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Document).Signatures(&parent, ctx)
+		case "Split":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Document).Split(&parent, ctx)
 		case "WithOwnerPassword":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)
@@ -668,6 +675,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pdf).Document(&parent, source), nil
+		case "Merge":
+			var parent Pdf
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var sources []*dagger.File
+			if inputArgs["sources"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["sources"]), &sources)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg sources", err))
+				}
+			}
+			return (*Pdf).Merge(&parent, ctx, sources)
 		case "Version":
 			var parent Pdf
 			err = json.Unmarshal(parentJSON, &parent)

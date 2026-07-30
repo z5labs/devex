@@ -290,6 +290,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).LayoutModesProduceDifferentOrderings(&parent, ctx)
+		case "MergePreservesTheOrderOfItsSources":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MergePreservesTheOrderOfItsSources(&parent, ctx)
+		case "MergeRejectsWhatItCannotMerge":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MergeRejectsWhatItCannotMerge(&parent, ctx)
 		case "MetadataReturnsTheXmpPacketOrSaysThereIsNone":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -381,6 +395,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SignaturesReportsAnUnsignedDocumentInsteadOfFailing(&parent, ctx)
+		case "SplitAndMergeCannotOpenAnEncryptedDocument":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SplitAndMergeCannotOpenAnEncryptedDocument(&parent, ctx)
+		case "SplitNarrowsToThePageRange":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SplitNarrowsToThePageRange(&parent, ctx)
+		case "SplitThenMergeRoundTripsTheDocument":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SplitThenMergeRoundTripsTheDocument(&parent, ctx)
+		case "SplitWritesOnePdfPerPage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SplitWritesOnePdfPerPage(&parent, ctx)
 		case "SvgWritesOneVectorFilePerPage":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

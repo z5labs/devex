@@ -138,9 +138,10 @@ var ledgerMarkers = []string{
 }
 
 // popplerBinaries is every executable poppler-utils installs. Container's
-// promise is that all of them are reachable, not just the seven this module
+// promise is that all of them are reachable, not just the nine this module
 // wraps: the module wraps pdftotext, pdftoppm, pdfinfo, pdftocairo, pdftohtml,
-// pdffonts and pdfsig, and the escape hatch is the whole point of the other six.
+// pdffonts, pdfsig, pdfseparate and pdfunite, and the escape hatch is the whole
+// point of the other four.
 var popplerBinaries = []string{
 	"pdfattach", "pdfdetach", "pdffonts", "pdfimages", "pdfinfo",
 	"pdfseparate", "pdfsig", "pdftocairo", "pdftohtml", "pdftoppm",
@@ -210,6 +211,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("HtmlCarriesPageMarkupAndItsImages", t.HtmlCarriesPageMarkupAndItsImages)
 	jobs = jobs.WithJob("PageRangeNarrowsEveryPerPageFormat", t.PageRangeNarrowsEveryPerPageFormat)
 	jobs = jobs.WithJob("VectorFormatsIgnoreRasterOnlySettings", t.VectorFormatsIgnoreRasterOnlySettings)
+
+	jobs = jobs.WithJob("SplitWritesOnePdfPerPage", t.SplitWritesOnePdfPerPage)
+	jobs = jobs.WithJob("SplitNarrowsToThePageRange", t.SplitNarrowsToThePageRange)
+	jobs = jobs.WithJob("MergePreservesTheOrderOfItsSources", t.MergePreservesTheOrderOfItsSources)
+	jobs = jobs.WithJob("MergeRejectsWhatItCannotMerge", t.MergeRejectsWhatItCannotMerge)
+	jobs = jobs.WithJob("SplitThenMergeRoundTripsTheDocument", t.SplitThenMergeRoundTripsTheDocument)
+	jobs = jobs.WithJob("SplitAndMergeCannotOpenAnEncryptedDocument", t.SplitAndMergeCannotOpenAnEncryptedDocument)
 
 	jobs = jobs.WithJob("EncryptedDocumentNeedsThePassword", t.EncryptedDocumentNeedsThePassword)
 
@@ -1522,6 +1530,306 @@ func (t *Tests) JpegAndTiffFollowTheSameContract(ctx context.Context) error {
 	wantW, wantH := pixelsAt(defaultDpi)
 	if cfg.Width != wantW || cfg.Height != wantH {
 		return fmt.Errorf("expected %dx%d, got %dx%d", wantW, wantH, cfg.Width, cfg.Height)
+	}
+	return nil
+}
+
+// SplitWritesOnePdfPerPage asserts Split turns a twelve-page document into
+// twelve one-page PDFs named to the same contract every render family member
+// honours.
+//
+// The names alone would pass against a splitter that wrote twelve copies of page
+// one, so each file is opened and read: one page in it, and that page's own
+// marker in the text. ledgerPdf's markers are what make that check possible —
+// twelve pages of identical text would extract the same however they were
+// shuffled.
+//
+// pdfseparate numbers with the width the caller's pattern asks for rather than
+// with the document's page count, so the four-digit contract here is this
+// module's and not a coincidence of the fixture's length.
+func (t *Tests) SplitWritesOnePdfPerPage(ctx context.Context) error {
+	dir := pdf().Document(fixture(ledgerPdf)).Split()
+
+	entries, err := dir.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Split: %w", err)
+	}
+	if err := assertPageNames(entries, pageNames("pdf", 1, ledgerPages)); err != nil {
+		return err
+	}
+
+	for _, page := range []int{1, 7, ledgerPages} {
+		name := fmt.Sprintf("page-%04d.pdf", page)
+		one := pdf().Document(dir.File(name))
+
+		count, err := one.PageCount(ctx)
+		if err != nil {
+			return fmt.Errorf("PageCount of %s: %w", name, err)
+		}
+		if count != 1 {
+			return fmt.Errorf("expected %s to hold exactly one page, got %d", name, count)
+		}
+
+		got, err := one.Convert().Text(ctx)
+		if err != nil {
+			return fmt.Errorf("Text of %s: %w", name, err)
+		}
+		if want := ledgerText(page, page); got != want {
+			return fmt.Errorf("expected %s to carry page %d:\n%q\ngot:\n%q", name, page, want, got)
+		}
+	}
+	return nil
+}
+
+// SplitNarrowsToThePageRange asserts the page bounds reach pdfseparate in all
+// three of the shapes a range comes in, and that a range it cannot honour is
+// refused before it runs.
+//
+// The refusal is the half worth asserting. Left to pdfseparate, a last bound past
+// the end of the document is not caught up front at all: it separates every page
+// it can and *then* fails with `Internal Error: Illegal pageNo: 13(12)`, so the
+// caller gets a message about poppler's internals attached to a directory that
+// was half written. Checking the bounds against the document first is what turns
+// that into a sentence naming the builder and the page count.
+func (t *Tests) SplitNarrowsToThePageRange(ctx context.Context) error {
+	doc := pdf().Document(fixture(ledgerPdf))
+
+	for _, tc := range []struct {
+		name        string
+		first, last int
+		wantFirst   int
+		wantLast    int
+	}{
+		{"a span", 4, 6, 4, 6},
+		// A one-page range is where pdfseparate writes a single-digit number, so
+		// this is also the case the padding contract has to survive.
+		{"one page", 2, 2, 2, 2},
+		{"open ended", 10, 0, 10, ledgerPages},
+	} {
+		got, err := doc.WithPageRange(tc.first, tc.last).Split().Entries(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: Split: %w", tc.name, err)
+		}
+		if err := assertPageNames(got, pageNames("pdf", tc.wantFirst, tc.wantLast)); err != nil {
+			return fmt.Errorf("%s: %s", tc.name, err.Error())
+		}
+	}
+
+	if _, err := doc.WithPageRange(1, ledgerPages+1).Split().Entries(ctx); err == nil {
+		return fmt.Errorf("expected a range past the end of the document to be rejected")
+	} else {
+		for _, want := range []string{"last (13)", "12 pages"} {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected the rejection to mention %q, got: %v", want, err)
+			}
+		}
+	}
+	return nil
+}
+
+// MergePreservesTheOrderOfItsSources asserts the merged document's pages come
+// out in the order the slice named them, which is the whole reason Merge takes
+// an ordered slice rather than a directory.
+//
+// The sources are deliberately handed over out of page order — 3, 1, 2 — because
+// any order-preserving implementation and any order-losing one agree on a slice
+// that was already sorted. Reading the text back is what says the pages landed
+// where they were put: the page count alone would pass on a merge that shuffled
+// them.
+func (t *Tests) MergePreservesTheOrderOfItsSources(ctx context.Context) error {
+	pages := pdf().Document(fixture(ledgerPdf)).WithPageRange(1, 3).Split()
+
+	order := []int{3, 1, 2}
+	sources := make([]*dagger.File, 0, len(order))
+	var want strings.Builder
+	for _, page := range order {
+		sources = append(sources, pages.File(fmt.Sprintf("page-%04d.pdf", page)))
+		want.WriteString(ledgerText(page, page))
+	}
+
+	merged := pdf().Document(pdf().Merge(sources))
+	count, err := merged.PageCount(ctx)
+	if err != nil {
+		return fmt.Errorf("PageCount of the merged document: %w", err)
+	}
+	if count != len(order) {
+		return fmt.Errorf("expected %d pages, got %d", len(order), count)
+	}
+	got, err := merged.Convert().Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text of the merged document: %w", err)
+	}
+	if got != want.String() {
+		return fmt.Errorf("expected the pages in the order given:\n%q\ngot:\n%q", want.String(), got)
+	}
+
+	// One source is a legal merge and produces that source's document, so a
+	// caller merging a computed list does not have to special-case its length.
+	one := pdf().Document(pdf().Merge([]*dagger.File{pages.File("page-0002.pdf")}))
+	got, err = one.Convert().Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text of a one-source merge: %w", err)
+	}
+	if want := ledgerText(2, 2); got != want {
+		return fmt.Errorf("expected a one-source merge to carry page 2:\n%q\ngot:\n%q", want, got)
+	}
+	return nil
+}
+
+// MergeRejectsWhatItCannotMerge asserts the two ways a merge goes wrong are
+// reported by naming the argument that was wrong.
+//
+// The empty slice is a caller error with no useful answer — there is no document
+// to return and no empty PDF worth inventing — and pdfunite's own answer to it is
+// its usage text, which describes a command line the caller never wrote. The
+// module refuses it before the container starts, for that reason.
+//
+// The unreadable source is the case the mount legend exists for. pdfunite names
+// the file it could not read, and the name it uses is this module's mount path,
+// so without the legend the one piece of information identifying which argument
+// was at fault is a path the caller has never seen.
+func (t *Tests) MergeRejectsWhatItCannotMerge(ctx context.Context) error {
+	_, err := pdf().Merge(nil).Contents(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a merge of no sources to be rejected")
+	}
+	for _, want := range []string{"Merge", "at least one PDF", "order"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the rejection to mention %q, got: %v", want, err)
+		}
+	}
+	// pdfunite answers an empty command line with its usage text, which is a
+	// description of a command line the caller did not write.
+	if strings.Contains(err.Error(), "Usage: pdfunite") {
+		return fmt.Errorf("expected the module's own rejection rather than poppler's usage text, got: %v", err)
+	}
+
+	notPdf := dag.Directory().WithNewFile("notes.txt", "this is not a PDF").File("notes.txt")
+	page := pdf().Document(fixture(ledgerPdf)).WithPageRange(1, 1).Split().File("page-0001.pdf")
+
+	_, err = pdf().Merge([]*dagger.File{page, notPdf}).Contents(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a merge of an unreadable source to be rejected")
+	}
+	for _, want := range []string{"Merge", "source-0002", "numbered from 1"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the failure to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// SplitThenMergeRoundTripsTheDocument asserts the two halves of this pair
+// compose back into the document they started from.
+//
+// It is the assertion that says these are structural operations rather than
+// conversions. Each one alone could pass its own tests while quietly dropping
+// what it does not understand — a page's annotations, its size, the text layer
+// under it — and the round trip is where that shows up: twelve separated pages
+// put back together have to extract to the same text, in the same order, on
+// pages of the same size.
+//
+// The names the split wrote are what the merge is driven by, in page order, which
+// is also the practical shape of the pair: split, do something to the pages,
+// merge the ones that survived.
+func (t *Tests) SplitThenMergeRoundTripsTheDocument(ctx context.Context) error {
+	original := pdf().Document(fixture(ledgerPdf))
+	pages := original.Split()
+
+	sources := make([]*dagger.File, 0, ledgerPages)
+	for page := 1; page <= ledgerPages; page++ {
+		sources = append(sources, pages.File(fmt.Sprintf("page-%04d.pdf", page)))
+	}
+	rebuilt := pdf().Document(pdf().Merge(sources))
+
+	count, err := rebuilt.PageCount(ctx)
+	if err != nil {
+		return fmt.Errorf("PageCount of the rebuilt document: %w", err)
+	}
+	if count != ledgerPages {
+		return fmt.Errorf("expected %d pages after the round trip, got %d", ledgerPages, count)
+	}
+
+	got, err := rebuilt.Convert().Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text of the rebuilt document: %w", err)
+	}
+	want, err := original.Convert().Text(ctx)
+	if err != nil {
+		return fmt.Errorf("Text of the original: %w", err)
+	}
+	if got != want {
+		return fmt.Errorf("expected the round trip to preserve the text:\n%q\ngot:\n%q", want, got)
+	}
+
+	// The pages keep their geometry, which is the property a re-render would lose
+	// while still extracting to the same text.
+	info, err := rebuilt.Info(ctx)
+	if err != nil {
+		return fmt.Errorf("Info of the rebuilt document: %w", err)
+	}
+	if wantSize := fmt.Sprintf("%d x %d pts", ledgerPageWidth, ledgerPageHeight); !strings.Contains(info, wantSize) {
+		return fmt.Errorf("expected the pages to keep their size %q, got:\n%s", wantSize, info)
+	}
+	return nil
+}
+
+// SplitAndMergeCannotOpenAnEncryptedDocument asserts the limitation these two
+// carry that nothing else in the module does, and asserts it is reported as that
+// rather than as a wrong password.
+//
+// pdfseparate and pdfunite take no `-upw` and no `-opw` — passing one is a usage
+// error, not a wrong password — so an encrypted document is one they cannot be
+// made to open. What poppler says about it is `Incorrect password`, the same
+// sentence every other tool in the suite produces for a password that did not
+// work, and the module's usual reading of that line names WithUserPassword. Here
+// that would send a caller to a builder that changes nothing, which is why the
+// password case is asserted alongside the passwordless one: both have to arrive
+// at the same message.
+func (t *Tests) SplitAndMergeCannotOpenAnEncryptedDocument(ctx context.Context) error {
+	userPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the user password: %w", err)
+	}
+	ownerPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the owner password: %w", err)
+	}
+	user := dag.SetSecret("pdf-tests-pages-user-password", userPw)
+	owner := dag.SetSecret("pdf-tests-pages-owner-password", ownerPw)
+	encrypted := encryptedLedger(user, owner)
+
+	for _, tc := range []struct {
+		name string
+		doc  *dagger.PdfDocument
+	}{
+		{"without a password", pdf().Document(encrypted)},
+		{"with the password", pdf().Document(encrypted).WithUserPassword(user)},
+	} {
+		_, err := tc.doc.Split().Entries(ctx)
+		if err == nil {
+			return fmt.Errorf("%s: expected Split of an encrypted document to be refused", tc.name)
+		}
+		for _, want := range []string{
+			"Split", "encrypted", "pdfseparate has no password option", "qpdf --decrypt",
+		} {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("%s: expected the refusal to mention %q, got: %v", tc.name, want, err)
+			}
+		}
+	}
+
+	page := pdf().Document(fixture(ledgerPdf)).WithPageRange(1, 1).Split().File("page-0001.pdf")
+	_, err = pdf().Merge([]*dagger.File{page, encrypted}).Contents(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a merge with an encrypted source to be refused")
+	}
+	for _, want := range []string{
+		"Merge", "encrypted", "pdfunite has no password option", "source-0002",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+		}
 	}
 	return nil
 }
