@@ -58,6 +58,10 @@
       "source": "daggerverse/otel/tests"
     },
     {
+      "name": "pdf-tests",
+      "source": "daggerverse/pdf/tests"
+    },
+    {
       "name": "postgres-tests",
       "source": "daggerverse/postgres/tests"
     },

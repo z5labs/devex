@@ -1,0 +1,13 @@
+{
+  "name": "pdf",
+  "engineVersion": "v0.21.7",
+  "sdk": {
+    "source": "go"
+  },
+  "include": [
+    "!README.md"
+  ],
+  "codegen": {
+    "automaticGitignore": false
+  }
+}
