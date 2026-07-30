@@ -1,0 +1,72 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 6 0 R >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<<  /Length 76 >>
+stream
+BT
+/F1 18 Tf
+72 700 Td
+(Invoice INV-0042.) Tj
+0 -24 Td
+(Marker PAPA.) Tj
+ET
+endstream
+endobj
+6 0 obj
+<< /Names [(invoice.xml) 7 0 R (terms.txt) 9 0 R] >>
+endobj
+7 0 obj
+<< /Type /Filespec /F (invoice.xml) /UF (invoice.xml) /Desc (Machine-readable invoice) /EF << /F 8 0 R >> >>
+endobj
+8 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fxml /Params << /Size 200 >> /Length 200 >>
+stream
+<?xml version="1.0" encoding="UTF-8"?>
+<Invoice>
+  <ID>INV-0042</ID>
+  <IssueDate>2026-07-30</IssueDate>
+  <PayableAmount currencyID="EUR">1312.00</PayableAmount>
+  <Marker>QUEBEC</Marker>
+</Invoice>
+endstream
+endobj
+9 0 obj
+<< /Type /Filespec /F (terms.txt) /UF (terms.txt) /Desc (Payment terms) /EF << /F 10 0 R >> >>
+endobj
+10 0 obj
+<< /Type /EmbeddedFile /Subtype /text#2Fplain /Params << /Size 39 >> /Length 39 >>
+stream
+Payment terms: net 30.
+Marker: SIERRA.
+endstream
+endobj
+xref
+0 11
+0000000000 65535 f 
+0000000015 00000 n 
+0000000098 00000 n 
+0000000155 00000 n 
+0000000281 00000 n 
+0000000351 00000 n 
+0000000477 00000 n 
+0000000545 00000 n 
+0000000669 00000 n 
+0000000984 00000 n 
+0000001094 00000 n 
+trailer
+<< /Size 11 /Root 1 0 R >>
+startxref
+1249
+%%EOF

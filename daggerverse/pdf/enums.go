@@ -94,6 +94,71 @@ func (m LayoutMode) flags() ([]string, bool) {
 	return f, ok
 }
 
+// ImageFormat is the encoding EmbeddedImages writes an extracted image in, and
+// maps onto pdfimages' format flags.
+//
+// Unlike the render formats, this one *is* a Dagger enum, because here the
+// format is a genuine question rather than a choice of function. An embedded
+// image already has an encoding, so every member either keeps it or replaces it,
+// and which of those a caller wants depends on what reads the result: ORIGINAL
+// hands on the bytes the document carries, and PNG hands on something every
+// image library opens without a codec question.
+//
+// Note on rendered names: the Dagger Go SDK derives each GraphQL enum member
+// from the *constant identifier* in SCREAMING_SNAKE_CASE, so these surface as
+// `PNG`, `TIFF`, `ORIGINAL` and `ALL`.
+type ImageFormat string
+
+const (
+	// ImageFormatPng re-encodes every image as PNG. Lossless, so the
+	// re-encoding costs image quality nothing — it costs only the original
+	// encoding, which for a JPEG-encoded scan usually means a larger file.
+	ImageFormatPng ImageFormat = "PNG"
+	// ImageFormatTiff re-encodes every image as TIFF, which is the format the
+	// document-imaging world already speaks.
+	ImageFormatTiff ImageFormat = "TIFF"
+	// ImageFormatOriginal writes the encoded stream out unchanged wherever
+	// poppler can — JPEG, JPEG 2000, JBIG2 and CCITT G4 — and falls back to
+	// netpbm for an image encoded in none of them. It is the member for a caller
+	// who wants the document's own bytes, and the one whose fallback is worth
+	// reading about: see EmbeddedImages.
+	ImageFormatOriginal ImageFormat = "ORIGINAL"
+	// ImageFormatAll is ORIGINAL with a better fallback: an image with no
+	// natively writable encoding becomes PNG, or TIFF where PNG cannot represent
+	// it. It is the member to reach for when a document's images are of mixed
+	// encodings and every one of them has to be readable.
+	ImageFormatAll ImageFormat = "ALL"
+)
+
+// imageFormatFlags maps each format onto the pdfimages flags that select it.
+//
+// None of the values is empty, which is what makes this table different from
+// colorFlags: pdfimages' own default is netpbm, and no member of this enum
+// spells that. Asking for the module's four formats is always asking for a flag.
+var imageFormatFlags = map[ImageFormat][]string{
+	ImageFormatPng:  {"-png"},
+	ImageFormatTiff: {"-tiff"},
+	// The four together are what "keep the encoding" means: each one names an
+	// encoding poppler will copy through instead of decoding.
+	ImageFormatOriginal: {"-j", "-jp2", "-jbig2", "-ccitt"},
+	// -all is poppler's own spelling of the same four plus -png and -tiff, and
+	// is passed as itself rather than expanded so the flag the tool documents is
+	// the flag the trace shows.
+	ImageFormatAll: {"-all"},
+}
+
+// imageFormatOrder fixes the order formats are listed in a rejection message.
+var imageFormatOrder = []ImageFormat{
+	ImageFormatPng, ImageFormatTiff, ImageFormatOriginal, ImageFormatAll,
+}
+
+// flags returns the pdfimages flags for this format, and whether the format is
+// one this module knows.
+func (f ImageFormat) flags() ([]string, bool) {
+	flags, ok := imageFormatFlags[f]
+	return flags, ok
+}
+
 // rasterFormat is the image format a render produces. It is deliberately not a
 // Dagger enum: Png, Jpeg and Tiff are three named functions, so a caller never
 // spells a format at all and an enum would only add a way to spell it wrongly.
@@ -182,6 +247,16 @@ func layoutNames() string {
 	names := make([]string, 0, len(layoutOrder))
 	for _, m := range layoutOrder {
 		names = append(names, string(m))
+	}
+	return strings.Join(names, ", ")
+}
+
+// imageFormatNames lists every legal ImageFormat, for the message a rejection
+// carries.
+func imageFormatNames() string {
+	names := make([]string, 0, len(imageFormatOrder))
+	for _, f := range imageFormatOrder {
+		names = append(names, string(f))
 	}
 	return strings.Join(names, ", ")
 }
