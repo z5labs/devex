@@ -213,6 +213,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CaCertReachesPrivateCaService(&parent, ctx)
+		case "CheckDriftFailsOnAnEndpointAddedToTheSpec":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CheckDriftFailsOnAnEndpointAddedToTheSpec(&parent, ctx)
+		case "CheckDriftFailsOnBothSidesOfTheRequestSet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CheckDriftFailsOnBothSidesOfTheRequestSet(&parent, ctx)
 		case "CiCheckGatesOnFailingAssertion":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -290,6 +304,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ClientCertPassphraseUnlocksTheKey(&parent, ctx)
+		case "DriftIgnoresHandWrittenTests":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DriftIgnoresHandWrittenTests(&parent, ctx)
 		case "GenerateHonoursOpenCollectionFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

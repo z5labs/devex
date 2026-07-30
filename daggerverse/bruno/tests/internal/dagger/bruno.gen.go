@@ -517,9 +517,11 @@ func (r *BrunoCi) AsNode() Node {
 type BrunoCollection struct { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
 	query *querybuilder.Selection
 
-	id   *ID
-	lint *Void
-	run  *string
+	checkDrift *Void
+	drift      *string
+	id         *ID
+	lint       *Void
+	run        *string
 }
 type WithBrunoCollectionFunc func(r *BrunoCollection) *BrunoCollection
 
@@ -534,6 +536,58 @@ func (r *BrunoCollection) WithGraphQLQuery(q *querybuilder.Selection) *BrunoColl
 	return &BrunoCollection{
 		query: q,
 	}
+}
+
+// CheckDrift fails when the committed collection no longer matches the OpenAPI
+// document it was generated from, so a pipeline can hang a check on the two
+// staying in step.
+//
+// The report travels in the error rather than alongside it, following Lint: a
+// Dagger function that returns an error forfeits its value, so a (report, error)
+// signature would hide the report on the one path that needs it.
+func (r *BrunoCollection) CheckDrift(ctx context.Context, spec *File) error { // bruno (../../../../../daggerverse/bruno/drift.go:98:1)
+	assertNotNil("spec", spec)
+	if r.checkDrift != nil {
+		return nil
+	}
+	q := r.query.Select("checkDrift")
+	q = q.Arg("spec", spec)
+
+	return q.Execute(ctx)
+}
+
+// Drift reports how the committed collection differs from the OpenAPI document
+// it was generated from.
+//
+// A new operation in the spec that nobody added to the collection is a silently
+// untested endpoint: nothing fails, because nothing asks. This is the check that
+// notices — it regenerates the collection from the document and compares the
+// result against what is committed.
+//
+// The comparison is scoped to the request set — each request's method and path,
+// deduplicated and sorted — rather than being a diff of the two trees. A
+// generated request carries detail the document never described (the tests and
+// assertions that make the collection worth running, the ordering, the scripts),
+// and a byte-for-byte comparison would call every one of those drift. Query
+// strings are dropped and path parameters are normalised onto Bruno's `:name`
+// spelling, so the same endpoint written either way reads as the same endpoint.
+//
+// It returns the difference rather than failing on it, and never fails on drift
+// alone: Dagger drops a function's value when it also returns an error, so a
+// gating Drift could not hand back the report that says what drifted. CheckDrift
+// is the gate; this is the one that tells you what to fix.
+func (r *BrunoCollection) Drift(ctx context.Context, spec *File) (string, error) { // bruno (../../../../../daggerverse/bruno/drift.go:76:1)
+	assertNotNil("spec", spec)
+	if r.drift != nil {
+		return *r.drift, nil
+	}
+	q := r.query.Select("drift")
+	q = q.Arg("spec", spec)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this BrunoCollection.

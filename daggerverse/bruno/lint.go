@@ -105,7 +105,7 @@ func (c *Collection) Lint(
 	if err := c.validate(); err != nil {
 		return err
 	}
-	parsed, err := c.loadTree(ctx)
+	parsed, err := c.loadTree(ctx, "Lint")
 	if err != nil {
 		return err
 	}
@@ -376,31 +376,35 @@ type tree struct {
 // loadTree reads the collection out of the engine. Reads are one file at a
 // time rather than through a container: a lint that needed the CLI image
 // pulled would cost more than the check it performs.
-func (c *Collection) loadTree(ctx context.Context) (*tree, error) {
+//
+// fn names the caller in the diagnostics, because more than one function reads
+// a collection this way and "read bruno.json" is not much of a message without
+// saying which call wanted it.
+func (c *Collection) loadTree(ctx context.Context, fn string) (*tree, error) {
 	out := &tree{}
 
 	found, err := c.Source.Exists(ctx, manifestFile)
 	if err != nil {
-		return nil, fmt.Errorf("Lint: look for %s in the collection: %v", manifestFile, err)
+		return nil, fmt.Errorf(fn+": look for %s in the collection: %v", manifestFile, err)
 	}
 	out.ManifestFound = found
 	if found {
 		contents, err := c.Source.File(manifestFile).Contents(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("Lint: read %s: %v", manifestFile, err)
+			return nil, fmt.Errorf(fn+": read %s: %v", manifestFile, err)
 		}
 		out.Manifest = contents
 	}
 
 	paths, err := c.Source.Glob(ctx, "**/*.bru")
 	if err != nil {
-		return nil, fmt.Errorf("Lint: list the collection's .bru files: %v", err)
+		return nil, fmt.Errorf(fn+": list the collection's .bru files: %v", err)
 	}
 	sort.Strings(paths)
 	for _, p := range paths {
 		contents, err := c.Source.File(p).Contents(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("Lint: read %s: %v", p, err)
+			return nil, fmt.Errorf(fn+": read %s: %v", p, err)
 		}
 		file := &bruFile{Path: p, Source: contents, Blocks: parseBru(contents)}
 		switch {
@@ -416,7 +420,7 @@ func (c *Collection) loadTree(ctx context.Context) (*tree, error) {
 	}
 
 	if c.EnvFile != nil {
-		supplied, err := suppliedVarNames(ctx, c.EnvFile)
+		supplied, err := suppliedVarNames(ctx, fn, c.EnvFile)
 		if err != nil {
 			return nil, err
 		}
@@ -429,14 +433,14 @@ func (c *Collection) loadTree(ctx context.Context) (*tree, error) {
 // picks its environment parser from the extension, so this does too — the two
 // shapes are not interchangeable, which is the same reason WithEnvFile mounts
 // the file under the extension it arrived with.
-func suppliedVarNames(ctx context.Context, file *dagger.File) ([]string, error) {
+func suppliedVarNames(ctx context.Context, fn string, file *dagger.File) ([]string, error) {
 	name, err := file.Name(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("Lint: read the environment file's name: %v", err)
+		return nil, fmt.Errorf(fn+": read the environment file's name: %v", err)
 	}
 	contents, err := file.Contents(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("Lint: read the environment file %q: %v", name, err)
+		return nil, fmt.Errorf(fn+": read the environment file %q: %v", name, err)
 	}
 	if strings.EqualFold(path.Ext(name), ".json") {
 		return jsonEnvVarNames(contents), nil
