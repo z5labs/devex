@@ -206,6 +206,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
+		case "CaCertReachesPrivateCaService":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CaCertReachesPrivateCaService(&parent, ctx)
 		case "CiCheckGatesOnFailingAssertion":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -220,6 +227,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiLintFailsBeforeAnyRequest(&parent, ctx)
+		case "CiReachesMtlsServiceBehindPrivateCa":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiReachesMtlsServiceBehindPrivateCa(&parent, ctx)
 		case "CiRejectsUnknownReportFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -255,6 +269,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiShouldNotBeCached(&parent, ctx)
+		case "ClientCertAuthenticatesToMtlsService":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClientCertAuthenticatesToMtlsService(&parent, ctx)
+		case "ClientCertMaterialStaysOutOfTheCollection":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClientCertMaterialStaysOutOfTheCollection(&parent, ctx)
+		case "ClientCertPassphraseUnlocksTheKey":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClientCertPassphraseUnlocksTheKey(&parent, ctx)
 		case "GenerateHonoursOpenCollectionFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -395,6 +430,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).SecretVarIsNotOnArgv(&parent, ctx)
+		case "TlsControlsAreValidated":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TlsControlsAreValidated(&parent, ctx)
 		case "UnknownEnvironmentIsRejected":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

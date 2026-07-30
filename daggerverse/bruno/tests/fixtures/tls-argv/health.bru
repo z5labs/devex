@@ -1,0 +1,26 @@
+meta {
+  name: health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/health
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  // The responder records both of these, which is the only vantage point from
+  // which "the key never reached argv" and "the config was never written into
+  // the collection" can actually be checked: nothing outside the container can
+  // read a finished process's command line, and the collection bru sees is the
+  // mount and not the caller's directory.
+  const fs = require("fs");
+  req.setHeader("x-argv", process.argv.join(" "));
+  req.setHeader("x-collection", fs.readdirSync(process.cwd()).sort().join(","));
+}
+
+assert {
+  res.status: eq 200
+}

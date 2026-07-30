@@ -113,6 +113,18 @@ type Collection struct {
 	// +private
 	Insecure bool
 	// +private
+	CaCert *dagger.File
+	// +private
+	IgnoreTruststore bool
+	// +private
+	ClientCertHosts []string
+	// +private
+	ClientCerts []*dagger.File
+	// +private
+	ClientKeys []*dagger.Secret
+	// +private
+	ClientPassphrases []*dagger.Secret
+	// +private
 	TestsOnly bool
 	// +private
 	Bail bool
@@ -217,8 +229,12 @@ func (c *Collection) WithSandbox(mode string) *Collection {
 
 // WithInsecure accepts TLS certificates the run cannot verify
 // (`--insecure`) — a self-signed certificate on a service that only exists
-// for the length of the pipeline, typically. Custom CA and client
-// certificates are not wrapped yet.
+// for the length of the pipeline, typically.
+//
+// It verifies nothing, which is the wrong tool for a target behind a private
+// CA: use WithCaCert for that, and WithClientCert to authenticate with a
+// certificate of the run's own. bru drops `--cacert` when `--insecure` is set,
+// so combining the two is rejected rather than quietly verifying nothing.
 func (c *Collection) WithInsecure() *Collection {
 	out := c.clone()
 	out.Insecure = true
@@ -336,6 +352,10 @@ func (c *Collection) clone() *Collection {
 	out.ExcludedTags = append([]string(nil), c.ExcludedTags...)
 	out.ServiceAliases = append([]string(nil), c.ServiceAliases...)
 	out.Services = append([]*dagger.Service(nil), c.Services...)
+	out.ClientCertHosts = append([]string(nil), c.ClientCertHosts...)
+	out.ClientCerts = append([]*dagger.File(nil), c.ClientCerts...)
+	out.ClientKeys = append([]*dagger.Secret(nil), c.ClientKeys...)
+	out.ClientPassphrases = append([]*dagger.Secret(nil), c.ClientPassphrases...)
 	return &out
 }
 
@@ -360,7 +380,11 @@ func (c *Collection) exec(ctx context.Context, recursive bool, reportFormats []s
 	if err != nil {
 		return nil, err
 	}
-	return c.container(envFile).WithExec(args, dagger.ContainerWithExecOpts{
+	ctr, err := c.container(ctx, envFile)
+	if err != nil {
+		return nil, err
+	}
+	return ctr.WithExec(args, dagger.ContainerWithExecOpts{
 		Expect: dagger.ReturnTypeAny,
 	}), nil
 }
@@ -389,10 +413,11 @@ func (c *Collection) envFilePath(ctx context.Context) (string, error) {
 }
 
 // container mounts the collection at the image's own working directory and
-// wires up everything that is not a command-line flag: the bound services and
-// the secrets, which travel as environment variables precisely so they stay
-// off argv.
-func (c *Collection) container(envFile string) *dagger.Container {
+// wires up everything that is not a command-line flag: the bound services, the
+// secrets, which travel as environment variables precisely so they stay off
+// argv, and the TLS material the `--cacert` and `--client-cert-config` flags
+// point at.
+func (c *Collection) container(ctx context.Context, envFile string) (*dagger.Container, error) {
 	ctr := c.Bruno.Container().
 		WithMountedDirectory(collectionDir, c.Source).
 		WithWorkdir(collectionDir).
@@ -406,7 +431,7 @@ func (c *Collection) container(envFile string) *dagger.Container {
 	if c.EnvFile != nil {
 		ctr = ctr.WithMountedFile(envFile, c.EnvFile)
 	}
-	return ctr
+	return c.withTLS(ctx, ctr)
 }
 
 // args renders the `bru run` command line.
@@ -439,6 +464,7 @@ func (c *Collection) args(recursive bool, reportFormats []string, envFile string
 	if c.Insecure {
 		args = append(args, "--insecure")
 	}
+	args = append(args, c.tlsArgs()...)
 	if c.TestsOnly {
 		args = append(args, "--tests-only")
 	}
@@ -491,7 +517,7 @@ func (c *Collection) validate() error {
 	if c.Delay < 0 {
 		return fmt.Errorf("WithDelay: delay %d must not be negative", c.Delay)
 	}
-	return nil
+	return c.validateTLS()
 }
 
 func checkVarName(fn string, name string) error {

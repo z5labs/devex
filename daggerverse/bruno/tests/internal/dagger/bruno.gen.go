@@ -66,7 +66,7 @@ func (r *Bruno) Ci(source *Directory) *BrunoCi { // bruno (../../../../../dagger
 }
 
 // Collection binds a Bruno collection directory to the toolchain.
-func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:124:1)
+func (r *Bruno) Collection(source *Directory) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:136:1)
 	assertNotNil("source", source)
 	q := r.query.Select("collection")
 	q = q.Arg("source", source)
@@ -268,7 +268,7 @@ func (r *BrunoCi) WithGraphQLQuery(q *querybuilder.Selection) *BrunoCi {
 // No report is produced, because a gate that returns nothing can gate: see Run
 // for why the terminal that hands back artifacts cannot also be the one that
 // fails.
-func (r *BrunoCi) Check(ctx context.Context) error { // bruno (../../../../../daggerverse/bruno/ci.go:142:1)
+func (r *BrunoCi) Check(ctx context.Context) error { // bruno (../../../../../daggerverse/bruno/ci.go:185:1)
 	if r.check != nil {
 		return nil
 	}
@@ -338,10 +338,57 @@ func (r *BrunoCi) UnmarshalJSON(bs []byte) error {
 //
 // A lint error is still an error here, because then the collection never ran
 // and there is no report to return. So is a usage error, for the same reason.
-func (r *BrunoCi) Run() *Directory { // bruno (../../../../../daggerverse/bruno/ci.go:167:1)
+func (r *BrunoCi) Run() *Directory { // bruno (../../../../../daggerverse/bruno/ci.go:210:1)
 	q := r.query.Select("run")
 
 	return &Directory{
+		query: q,
+	}
+}
+
+// WithCaCert verifies peers against a custom CA certificate, for a pipeline
+// whose target presents a certificate signed by a private CA. See
+// Collection.WithCaCert.
+//
+// This is the case the pipeline builder exists for as much as any: an internal
+// endpoint is exactly the kind a repo hangs a CI check on, and the alternative
+// is `--insecure`, which verifies nothing.
+func (r *BrunoCi) WithCaCert(cert *File) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:97:1)
+	assertNotNil("cert", cert)
+	q := r.query.Select("withCaCert")
+	q = q.Arg("cert", cert)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// BrunoCiWithClientCertOpts contains options for BrunoCi.WithClientCert
+type BrunoCiWithClientCertOpts struct {
+	//
+	// Passphrase the private key is encrypted with, if it is.
+	//
+	Passphrase *Secret // bruno (../../../../../daggerverse/bruno/ci.go:126:2)
+}
+
+// WithClientCert presents a client certificate to hosts matching host, for a
+// pipeline that has to authenticate to an mTLS endpoint. Call it more than once
+// for more than one host. See Collection.WithClientCert.
+func (r *BrunoCi) WithClientCert(host string, cert *File, key *Secret, opts ...BrunoCiWithClientCertOpts) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:115:1)
+	assertNotNil("cert", cert)
+	assertNotNil("key", key)
+	q := r.query.Select("withClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `passphrase` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Passphrase) {
+			q = q.Arg("passphrase", opts[i].Passphrase)
+		}
+	}
+	q = q.Arg("host", host)
+	q = q.Arg("cert", cert)
+	q = q.Arg("key", key)
+
+	return &BrunoCi{
 		query: q,
 	}
 }
@@ -366,7 +413,7 @@ type BrunoCiWithLintOpts struct {
 	//
 	// Treat lint warnings as failures.
 	//
-	FailOnWarnings bool // bruno (../../../../../daggerverse/bruno/ci.go:100:2)
+	FailOnWarnings bool // bruno (../../../../../daggerverse/bruno/ci.go:143:2)
 }
 
 // WithLint adds the lint stage, which runs before the collection and fails the
@@ -376,7 +423,7 @@ type BrunoCiWithLintOpts struct {
 // It is opt-in rather than always-on because linting is an opinion about how a
 // collection is written, and a pipeline should not start failing on one the day
 // it adopts the builder.
-func (r *BrunoCi) WithLint(opts ...BrunoCiWithLintOpts) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:97:1)
+func (r *BrunoCi) WithLint(opts ...BrunoCiWithLintOpts) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:140:1)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `failOnWarnings` optional argument
@@ -400,7 +447,7 @@ func (r *BrunoCi) WithLint(opts ...BrunoCiWithLintOpts) *BrunoCi { // bruno (../
 //
 // Like the rest of the builder it has no error return, so an unknown format is
 // reported by the terminal that would have written it.
-func (r *BrunoCi) WithReport(format string) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:118:1)
+func (r *BrunoCi) WithReport(format string) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:161:1)
 	q := r.query.Select("withReport")
 	q = q.Arg("format", format)
 
@@ -436,6 +483,17 @@ func (r *BrunoCi) WithService(alias string, service *Service) *BrunoCi { // brun
 	q := r.query.Select("withService")
 	q = q.Arg("alias", alias)
 	q = q.Arg("service", service)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithoutTruststore verifies peers against the WithCaCert certificate alone,
+// ignoring the CAs the image ships. It means nothing without WithCaCert, and on
+// its own is rejected by the terminal. See Collection.WithoutTruststore.
+func (r *BrunoCi) WithoutTruststore() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:106:1)
+	q := r.query.Select("withoutTruststore")
 
 	return &BrunoCi{
 		query: q,
@@ -581,7 +639,7 @@ func (r *BrunoCollection) Lint(ctx context.Context, opts ...BrunoCollectionLintO
 //
 // The run is recursive, matching Run's default, so the artifact describes the
 // whole collection.
-func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:306:1)
+func (r *BrunoCollection) Report(format string) *File { // bruno (../../../../../daggerverse/bruno/collection.go:322:1)
 	q := r.query.Select("report")
 	q = q.Arg("format", format)
 
@@ -600,7 +658,7 @@ type BrunoCollectionRunOpts struct {
 	//
 	//
 	// Default: true
-	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:273:2)
+	Recursive bool // bruno (../../../../../daggerverse/bruno/collection.go:289:2)
 }
 
 // Run executes the collection and returns bru's output.
@@ -614,7 +672,7 @@ type BrunoCollectionRunOpts struct {
 // A failing Run returns no output alongside its error: a Dagger function that
 // returns an error forfeits its value. Pair it with Report when the artifact
 // matters.
-func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:266:1)
+func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpts) (string, error) { // bruno (../../../../../daggerverse/bruno/collection.go:282:1)
 	if r.run != nil {
 		return *r.run, nil
 	}
@@ -634,8 +692,68 @@ func (r *BrunoCollection) Run(ctx context.Context, opts ...BrunoCollectionRunOpt
 
 // WithBail stops the run at the first failing request, test or assertion
 // (`--bail`) instead of working through the rest of the collection.
-func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:239:1)
+func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:255:1)
 	q := r.query.Select("withBail")
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithCaCert verifies peers against a custom CA certificate (`--cacert`), for
+// the collection whose target presents a certificate signed by a private CA —
+// an internal endpoint, or a service stood up for the length of the pipeline.
+//
+// bru adds the certificate to the default truststore rather than replacing it,
+// so a collection that also reaches a public endpoint keeps working. Use
+// WithoutTruststore for the private CA exclusively.
+//
+// This is the control WithInsecure is not: the run still verifies, it just
+// verifies against the CA the caller named.
+func (r *BrunoCollection) WithCaCert(cert *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/tls.go:90:1)
+	assertNotNil("cert", cert)
+	q := r.query.Select("withCaCert")
+	q = q.Arg("cert", cert)
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// BrunoCollectionWithClientCertOpts contains options for BrunoCollection.WithClientCert
+type BrunoCollectionWithClientCertOpts struct {
+	//
+	// Passphrase the private key is encrypted with, if it is.
+	//
+	Passphrase *Secret // bruno (../../../../../daggerverse/bruno/tls.go:132:2)
+}
+
+// WithClientCert presents a client certificate to hosts matching host
+// (`--client-cert-config`), for the collection that has to authenticate to an
+// mTLS endpoint. Call it more than once for more than one host.
+//
+// The key is a *dagger.Secret and not a *dagger.File: it is key material, and a
+// file's contents are content-addressed into the build cache and readable from
+// a trace. It is mounted as a secret, outside the collection, and named only
+// from the rendered config — so it reaches neither argv nor the collection tree.
+//
+// bru takes this as a JSON document referring to the certificate and key by
+// path. That document is rendered at run time against the paths this module
+// mounts them under, because a caller writing it by hand would have to name
+// paths inside a container they cannot see.
+func (r *BrunoCollection) WithClientCert(host string, cert *File, key *Secret, opts ...BrunoCollectionWithClientCertOpts) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/tls.go:121:1)
+	assertNotNil("cert", cert)
+	assertNotNil("key", key)
+	q := r.query.Select("withClientCert")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `passphrase` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Passphrase) {
+			q = q.Arg("passphrase", opts[i].Passphrase)
+		}
+	}
+	q = q.Arg("host", host)
+	q = q.Arg("cert", cert)
+	q = q.Arg("key", key)
 
 	return &BrunoCollection{
 		query: q,
@@ -644,7 +762,7 @@ func (r *BrunoCollection) WithBail() *BrunoCollection { // bruno (../../../../..
 
 // WithDelay waits the given number of milliseconds between requests
 // (`--delay`), for a target that rate-limits.
-func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:247:1)
+func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:263:1)
 	q := r.query.Select("withDelay")
 	q = q.Arg("milliseconds", milliseconds)
 
@@ -656,7 +774,7 @@ func (r *BrunoCollection) WithDelay(milliseconds int) *BrunoCollection { // brun
 // WithEnvFile supplies an environment file (`--env-file`), a .bru or .json
 // file holding the variables for the run. It is mounted outside the
 // collection, so it never shadows a file the collection ships.
-func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:170:1)
+func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:182:1)
 	assertNotNil("file", file)
 	q := r.query.Select("withEnvFile")
 	q = q.Arg("file", file)
@@ -669,7 +787,7 @@ func (r *BrunoCollection) WithEnvFile(file *File) *BrunoCollection { // bruno (.
 // WithEnvironment selects the environment bru resolves variables from
 // (`--env`), by the name of the file under environments/ without its
 // extension. An unknown name is bru's exit 6, reported as a usage error.
-func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:131:1)
+func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:143:1)
 	q := r.query.Select("withEnvironment")
 	q = q.Arg("name", name)
 
@@ -680,9 +798,13 @@ func (r *BrunoCollection) WithEnvironment(name string) *BrunoCollection { // bru
 
 // WithInsecure accepts TLS certificates the run cannot verify
 // (`--insecure`) — a self-signed certificate on a service that only exists
-// for the length of the pipeline, typically. Custom CA and client
-// certificates are not wrapped yet.
-func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:222:1)
+// for the length of the pipeline, typically.
+//
+// It verifies nothing, which is the wrong tool for a target behind a private
+// CA: use WithCaCert for that, and WithClientCert to authenticate with a
+// certificate of the run's own. bru drops `--cacert` when `--insecure` is set,
+// so combining the two is rejected rather than quietly verifying nothing.
+func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:238:1)
 	q := r.query.Select("withInsecure")
 
 	return &BrunoCollection{
@@ -699,7 +821,7 @@ func (r *BrunoCollection) WithInsecure() *BrunoCollection { // bruno (../../../.
 // A collection that says nothing runs in "safe", matching both bru's default
 // and Collection's. Like WithVar, an unknown mode is reported by the run
 // rather than here.
-func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:212:1)
+func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:224:1)
 	q := r.query.Select("withSandbox")
 	q = q.Arg("mode", mode)
 
@@ -715,7 +837,7 @@ func (r *BrunoCollection) WithSandbox(mode string) *BrunoCollection { // bruno (
 // `--env-var` places its value on the process command line. A secret is bound
 // with WithSecretVariable instead, so it appears in neither argv nor any
 // diagnostic this module echoes back.
-func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:160:1)
+func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:172:1)
 	assertNotNil("value", value)
 	q := r.query.Select("withSecretVar")
 	q = q.Arg("name", name)
@@ -729,7 +851,7 @@ func (r *BrunoCollection) WithSecretVar(name string, value *Secret) *BrunoCollec
 // WithService binds a service into the run's network under alias, so the
 // collection can reach it by that hostname. A collection is inert without a
 // target, which is why this exists at all.
-func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:196:1)
+func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:208:1)
 	assertNotNil("service", service)
 	q := r.query.Select("withService")
 	q = q.Arg("alias", alias)
@@ -742,7 +864,7 @@ func (r *BrunoCollection) WithService(alias string, service *Service) *BrunoColl
 
 // WithTags restricts the run to requests carrying any of these tags
 // (`--tags`).
-func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:178:1)
+func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:190:1)
 	q := r.query.Select("withTags")
 	q = q.Arg("tags", tags)
 
@@ -754,7 +876,7 @@ func (r *BrunoCollection) WithTags(tags []string) *BrunoCollection { // bruno (.
 // WithTestsOnly runs only the requests that carry a test or an active
 // assertion (`--tests-only`), skipping the ones that exist to set up state
 // for a human.
-func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:231:1)
+func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:247:1)
 	q := r.query.Select("withTestsOnly")
 
 	return &BrunoCollection{
@@ -771,7 +893,7 @@ func (r *BrunoCollection) WithTestsOnly() *BrunoCollection { // bruno (../../../
 //
 // Validation is deferred to the run: builder methods have no error return, so
 // a bad name surfaces on the Run or Report that would have used it.
-func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:146:1)
+func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:158:1)
 	q := r.query.Select("withVar")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -784,9 +906,23 @@ func (r *BrunoCollection) WithVar(name string, value string) *BrunoCollection { 
 // WithoutTags excludes requests carrying any of these tags
 // (`--exclude-tags`). It composes with WithTags: a request matching both is
 // excluded.
-func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:187:1)
+func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:199:1)
 	q := r.query.Select("withoutTags")
 	q = q.Arg("tags", tags)
+
+	return &BrunoCollection{
+		query: q,
+	}
+}
+
+// WithoutTruststore verifies peers against the WithCaCert certificate alone
+// (`--ignore-truststore`), ignoring the CAs the image ships.
+//
+// It only means anything alongside WithCaCert — bru evaluates the flag in
+// combination with `--cacert` only — so on its own it is rejected by the run
+// rather than silently doing nothing.
+func (r *BrunoCollection) WithoutTruststore() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/tls.go:102:1)
+	q := r.query.Select("withoutTruststore")
 
 	return &BrunoCollection{
 		query: q,

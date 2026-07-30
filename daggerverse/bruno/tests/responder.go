@@ -64,11 +64,17 @@ http.createServer((req, res) => {
 
 // stats is what the responder recorded: how many requests it served, and the
 // path, X-Token header and X-Argv header of the most recent one.
+//
+// Peer and Collection are only ever set by the TLS responder: the Common Name of
+// the client certificate the request arrived under, and the X-Collection header a
+// fixture reports the mounted collection's contents in.
 type stats struct {
-	Count int    `json:"count"`
-	Path  string `json:"path"`
-	Token string `json:"token"`
-	Argv  string `json:"argv"`
+	Count      int    `json:"count"`
+	Path       string `json:"path"`
+	Token      string `json:"token"`
+	Argv       string `json:"argv"`
+	Peer       string `json:"peer"`
+	Collection string `json:"collection"`
 	// Boot identifies the service instance that answered. Two reads that
 	// disagree about it were talking to two different responders, which is
 	// what a request count that refuses to add up usually means.

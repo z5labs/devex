@@ -121,23 +121,29 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 
 func (r Collection) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Bruno           *Bruno
-		Source          *dagger.Directory
-		Environment     string
-		VarNames        []string
-		VarValues       []string
-		SecretVarNames  []string
-		SecretVarValues []*dagger.Secret
-		EnvFile         *dagger.File
-		Tags            []string
-		ExcludedTags    []string
-		ServiceAliases  []string
-		Services        []*dagger.Service
-		Sandbox         string
-		Insecure        bool
-		TestsOnly       bool
-		Bail            bool
-		Delay           int
+		Bruno             *Bruno
+		Source            *dagger.Directory
+		Environment       string
+		VarNames          []string
+		VarValues         []string
+		SecretVarNames    []string
+		SecretVarValues   []*dagger.Secret
+		EnvFile           *dagger.File
+		Tags              []string
+		ExcludedTags      []string
+		ServiceAliases    []string
+		Services          []*dagger.Service
+		Sandbox           string
+		Insecure          bool
+		CaCert            *dagger.File
+		IgnoreTruststore  bool
+		ClientCertHosts   []string
+		ClientCerts       []*dagger.File
+		ClientKeys        []*dagger.Secret
+		ClientPassphrases []*dagger.Secret
+		TestsOnly         bool
+		Bail              bool
+		Delay             int
 	}
 	concrete.Bruno = r.Bruno
 	concrete.Source = r.Source
@@ -153,6 +159,12 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 	concrete.Services = r.Services
 	concrete.Sandbox = r.Sandbox
 	concrete.Insecure = r.Insecure
+	concrete.CaCert = r.CaCert
+	concrete.IgnoreTruststore = r.IgnoreTruststore
+	concrete.ClientCertHosts = r.ClientCertHosts
+	concrete.ClientCerts = r.ClientCerts
+	concrete.ClientKeys = r.ClientKeys
+	concrete.ClientPassphrases = r.ClientPassphrases
 	concrete.TestsOnly = r.TestsOnly
 	concrete.Bail = r.Bail
 	concrete.Delay = r.Delay
@@ -161,23 +173,29 @@ func (r Collection) MarshalJSON() ([]byte, error) {
 
 func (r *Collection) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Bruno           *Bruno
-		Source          *dagger.Directory
-		Environment     string
-		VarNames        []string
-		VarValues       []string
-		SecretVarNames  []string
-		SecretVarValues []*dagger.Secret
-		EnvFile         *dagger.File
-		Tags            []string
-		ExcludedTags    []string
-		ServiceAliases  []string
-		Services        []*dagger.Service
-		Sandbox         string
-		Insecure        bool
-		TestsOnly       bool
-		Bail            bool
-		Delay           int
+		Bruno             *Bruno
+		Source            *dagger.Directory
+		Environment       string
+		VarNames          []string
+		VarValues         []string
+		SecretVarNames    []string
+		SecretVarValues   []*dagger.Secret
+		EnvFile           *dagger.File
+		Tags              []string
+		ExcludedTags      []string
+		ServiceAliases    []string
+		Services          []*dagger.Service
+		Sandbox           string
+		Insecure          bool
+		CaCert            *dagger.File
+		IgnoreTruststore  bool
+		ClientCertHosts   []string
+		ClientCerts       []*dagger.File
+		ClientKeys        []*dagger.Secret
+		ClientPassphrases []*dagger.Secret
+		TestsOnly         bool
+		Bail              bool
+		Delay             int
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -197,6 +215,12 @@ func (r *Collection) UnmarshalJSON(bs []byte) error {
 	r.Services = concrete.Services
 	r.Sandbox = concrete.Sandbox
 	r.Insecure = concrete.Insecure
+	r.CaCert = concrete.CaCert
+	r.IgnoreTruststore = concrete.IgnoreTruststore
+	r.ClientCertHosts = concrete.ClientCertHosts
+	r.ClientCerts = concrete.ClientCerts
+	r.ClientKeys = concrete.ClientKeys
+	r.ClientPassphrases = concrete.ClientPassphrases
 	r.TestsOnly = concrete.TestsOnly
 	r.Bail = concrete.Bail
 	r.Delay = concrete.Delay
@@ -439,6 +463,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Ci).Run(&parent, ctx)
+		case "WithCaCert":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			return (*Ci).WithCaCert(&parent, cert), nil
+		case "WithClientCert":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var host string
+			if inputArgs["host"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["host"]), &host)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg host", err))
+				}
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			var key *dagger.Secret
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			var passphrase *dagger.Secret
+			if inputArgs["passphrase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["passphrase"]), &passphrase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg passphrase", err))
+				}
+			}
+			return (*Ci).WithClientCert(&parent, host, cert, key, passphrase), nil
 		case "WithEnvironment":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -523,6 +596,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Ci).WithService(&parent, alias, service), nil
+		case "WithoutTruststore":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutTruststore(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -577,6 +657,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Collection).WithBail(&parent), nil
+		case "WithCaCert":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			return (*Collection).WithCaCert(&parent, cert), nil
+		case "WithClientCert":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var host string
+			if inputArgs["host"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["host"]), &host)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg host", err))
+				}
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			var key *dagger.Secret
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			var passphrase *dagger.Secret
+			if inputArgs["passphrase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["passphrase"]), &passphrase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg passphrase", err))
+				}
+			}
+			return (*Collection).WithClientCert(&parent, host, cert, key, passphrase), nil
 		case "WithDelay":
 			var parent Collection
 			err = json.Unmarshal(parentJSON, &parent)
@@ -738,6 +867,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Collection).WithoutTags(&parent, tags), nil
+		case "WithoutTruststore":
+			var parent Collection
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Collection).WithoutTruststore(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
