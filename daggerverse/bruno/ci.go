@@ -87,6 +87,49 @@ func (c *Ci) WithSecretVar(name string, value *dagger.Secret) *Ci {
 	return &out
 }
 
+// WithCaCert verifies peers against a custom CA certificate, for a pipeline
+// whose target presents a certificate signed by a private CA. See
+// Collection.WithCaCert.
+//
+// This is the case the pipeline builder exists for as much as any: an internal
+// endpoint is exactly the kind a repo hangs a CI check on, and the alternative
+// is `--insecure`, which verifies nothing.
+func (c *Ci) WithCaCert(cert *dagger.File) *Ci {
+	out := *c
+	out.Collection = c.Collection.WithCaCert(cert)
+	return &out
+}
+
+// WithoutTruststore verifies peers against the WithCaCert certificate alone,
+// ignoring the CAs the image ships. It means nothing without WithCaCert, and on
+// its own is rejected by the terminal. See Collection.WithoutTruststore.
+func (c *Ci) WithoutTruststore() *Ci {
+	out := *c
+	out.Collection = c.Collection.WithoutTruststore()
+	return &out
+}
+
+// WithClientCert presents a client certificate to hosts matching host, for a
+// pipeline that has to authenticate to an mTLS endpoint. Call it more than once
+// for more than one host. See Collection.WithClientCert.
+func (c *Ci) WithClientCert(
+	// Hostname pattern the certificate applies to, matched against the request
+	// URL: "api.internal" for one host, "*.internal" for a wildcard. bru uses
+	// the first configured host that matches.
+	host string,
+	// PEM certificate to present.
+	cert *dagger.File,
+	// PEM private key for the certificate.
+	key *dagger.Secret,
+	// Passphrase the private key is encrypted with, if it is.
+	// +optional
+	passphrase *dagger.Secret,
+) *Ci {
+	out := *c
+	out.Collection = c.Collection.WithClientCert(host, cert, key, passphrase)
+	return &out
+}
+
 // WithLint adds the lint stage, which runs before the collection and fails the
 // pipeline on a structural error without issuing a request. See
 // Collection.Lint for the rules.

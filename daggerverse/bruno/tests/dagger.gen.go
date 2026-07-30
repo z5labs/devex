@@ -227,6 +227,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiLintFailsBeforeAnyRequest(&parent, ctx)
+		case "CiReachesMtlsServiceBehindPrivateCa":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiReachesMtlsServiceBehindPrivateCa(&parent, ctx)
 		case "CiRejectsUnknownReportFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

@@ -463,6 +463,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Ci).Run(&parent, ctx)
+		case "WithCaCert":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			return (*Ci).WithCaCert(&parent, cert), nil
+		case "WithClientCert":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var host string
+			if inputArgs["host"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["host"]), &host)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg host", err))
+				}
+			}
+			var cert *dagger.File
+			if inputArgs["cert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["cert"]), &cert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg cert", err))
+				}
+			}
+			var key *dagger.Secret
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			var passphrase *dagger.Secret
+			if inputArgs["passphrase"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["passphrase"]), &passphrase)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg passphrase", err))
+				}
+			}
+			return (*Ci).WithClientCert(&parent, host, cert, key, passphrase), nil
 		case "WithEnvironment":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -547,6 +596,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Ci).WithService(&parent, alias, service), nil
+		case "WithoutTruststore":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithoutTruststore(&parent), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

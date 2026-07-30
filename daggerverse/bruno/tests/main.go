@@ -64,6 +64,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ClientCertAuthenticatesToMtlsService", t.ClientCertAuthenticatesToMtlsService)
 	jobs = jobs.WithJob("ClientCertPassphraseUnlocksTheKey", t.ClientCertPassphraseUnlocksTheKey)
 	jobs = jobs.WithJob("ClientCertMaterialStaysOutOfTheCollection", t.ClientCertMaterialStaysOutOfTheCollection)
+	jobs = jobs.WithJob("CiReachesMtlsServiceBehindPrivateCa", t.CiReachesMtlsServiceBehindPrivateCa)
 	jobs = jobs.WithJob("JsonEnvFileKeepsItsExtension", t.JsonEnvFileKeepsItsExtension)
 	jobs = jobs.WithJob("GenerateProducesRunnableCollection", t.GenerateProducesRunnableCollection)
 	jobs = jobs.WithJob("GenerateHonoursOpenCollectionFormat", t.GenerateHonoursOpenCollectionFormat)
@@ -1470,6 +1471,82 @@ func (t *Tests) ClientCertPassphraseUnlocksTheKey(ctx context.Context) error {
 	}
 	if got.Peer != clientCn {
 		return fmt.Errorf("expected the request to arrive under the client certificate %q, got %q", clientCn, got.Peer)
+	}
+	return nil
+}
+
+// CiReachesMtlsServiceBehindPrivateCa checks that the pipeline builder's TLS
+// controls delegate, against the case they exist for: an internal endpoint
+// behind a private CA that wants a client certificate, which is exactly the kind
+// of target a repo hangs a CI check on.
+//
+// A pipeline that reaches it at all is a pipeline that delegated both. bru
+// rejects a private-CA peer without the CA, and the responder rejects a client
+// without the certificate — so the gate passing is the assertion, and the
+// reported Common Name says it was the certificate rather than the handshake
+// alone.
+//
+// Both terminals are exercised, since a report of a run that never connected is
+// the failure this would otherwise hide, and the lint stage is enabled so the
+// TLS material has to survive being validated ahead of the run.
+func (t *Tests) CiReachesMtlsServiceBehindPrivateCa(ctx context.Context) error {
+	const clientCn = "bruno-ci-client"
+
+	assets, err := newTlsAssets(ctx, "ci", responderAlias, clientCn)
+	if err != nil {
+		return err
+	}
+	rsp, err := newTlsResponder(ctx, assets, true)
+	if err != nil {
+		return err
+	}
+	defer rsp.stop(ctx)
+
+	ci := dag.Bruno().Ci(fixture("tls")).
+		WithEnvironment("local").
+		WithService(responderAlias, rsp.Svc).
+		WithCaCert(assets.CaCert).
+		WithoutTruststore().
+		WithClientCert(responderAlias, assets.ClientCert, assets.ClientKey).
+		WithLint().
+		WithReport("junit")
+
+	if err := ci.Check(ctx); err != nil {
+		return fmt.Errorf("check: %w", err)
+	}
+	got, err := rsp.stats(ctx, "after-ci-check")
+	if err != nil {
+		return err
+	}
+	if got.Count != 1 {
+		return fmt.Errorf("expected the gate to issue 1 request, got %d", got.Count)
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the request to arrive under the client certificate %q, got %q", clientCn, got.Peer)
+	}
+
+	reports, err := pin(ctx, ci.Run())
+	if err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+	report, err := exportContents(ctx, reports.File("report.xml"), "ci-mtls-report.xml")
+	if err != nil {
+		return err
+	}
+	for _, want := range []string{"<testsuite", "health"} {
+		if !strings.Contains(report, want) {
+			return fmt.Errorf("expected the junit report to contain %q, got:\n%s", want, head(report))
+		}
+	}
+	got, err = rsp.stats(ctx, "after-ci-run")
+	if err != nil {
+		return err
+	}
+	if got.Count != 2 {
+		return fmt.Errorf("expected the artifact terminal to issue a 2nd request, got %d", got.Count)
+	}
+	if got.Peer != clientCn {
+		return fmt.Errorf("expected the reported run to have authenticated as %q, got %q", clientCn, got.Peer)
 	}
 	return nil
 }

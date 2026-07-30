@@ -300,10 +300,13 @@ adopts the builder.
 The pipeline deliberately wraps a subset of `Collection`'s surface: secrets but
 not plain `WithVar` overrides (a value passed into CI by hand is usually a
 credential, and `--env-var` would put it on the command line), and no sandbox,
-tag, bail or delay switches. The TLS controls are not wrapped either — a pipeline
-whose target sits behind a private CA is assembled through `Collection`, and
-loses the bundled lint stage and reports in the process. A collection that needs
-any of those is assembled through `Collection` directly.
+tag, bail or delay switches. A collection that needs those is assembled through
+`Collection` directly.
+
+The TLS controls are the exception, and they are wrapped for the same reason
+secrets are: an internal endpoint behind a private CA is exactly the kind of
+target a repo hangs a CI check on, and a pipeline that had to drop to
+`Collection` to reach one would lose the bundled lint stage and the reports.
 
 Both terminals are `+cache="never"`, and the suite proves the second `Check` in
 one session really re-runs by counting requests at the service.
@@ -404,6 +407,10 @@ outside the collection — the tree a caller lints and commits — and handed to
 image's non-root user, since a secret mount is root-owned `0400` by default and
 `certificate-management` writes its PEM files `0600`.
 
+All three are on `Ci` as well, delegating to the same builder — see the pipeline
+section for why they are the one part of `Collection`'s surface it wraps beyond
+secrets.
+
 The one client-certificate shape not wrapped is `bru`'s `"pfx"` entry: a PKCS#12
 archive is a single file, so it would not need the key to travel separately. It
 stays reachable through `Container()`, along with the rest of `bru`'s TLS long
@@ -439,6 +446,9 @@ tail.
 | `Ci.WithEnvironment(name)` | `--env`, and the environment lint resolves against. |
 | `Ci.WithService(alias, service)` | Put a Dagger service on the pipeline's network. |
 | `Ci.WithSecretVar(name, secret)` | A credential readable as `{{process.env.NAME}}`. |
+| `Ci.WithCaCert(cert)` | `--cacert` for the pipeline; verify peers against a private CA. |
+| `Ci.WithoutTruststore()` | `--ignore-truststore` for the pipeline; verify against that CA alone. |
+| `Ci.WithClientCert(host, cert, key, passphrase)` | `--client-cert-config` for the pipeline; authenticate to an mTLS endpoint. |
 | `Ci.WithLint(failOnWarnings)` | Add the lint stage, ahead of the collection. |
 | `Ci.WithReport(format)` | Add a reporter format to the set `Ci.Run` returns. |
 | `Ci.Check()` | The pipeline as a gate: lint, then the collection. Produces nothing. |
