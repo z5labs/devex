@@ -272,7 +272,7 @@ func (c *Collection) Run(
 	// +default=true
 	recursive bool,
 ) (string, error) {
-	exec, err := c.exec(ctx, recursive, "")
+	exec, err := c.exec(ctx, recursive, nil)
 	if err != nil {
 		return "", err
 	}
@@ -308,12 +308,11 @@ func (c *Collection) Report(
 	// Reporter format: json, junit or html.
 	format string,
 ) (*dagger.File, error) {
-	ext, err := reportExtension(format)
+	path, err := reportPath(format)
 	if err != nil {
 		return nil, err
 	}
-	path := reportPathPrefix + "." + ext
-	exec, err := c.exec(ctx, true, format)
+	exec, err := c.exec(ctx, true, []string{format})
 	if err != nil {
 		return nil, err
 	}
@@ -340,13 +339,16 @@ func (c *Collection) clone() *Collection {
 	return &out
 }
 
-// exec assembles the container and stages the `bru run`. reportFormat is empty
-// for a plain run.
+// exec assembles the container and stages the `bru run`. reportFormats is empty
+// for a plain run, and may name more than one reporter: bru accepts every
+// `--reporter-*` flag at once, so a pipeline that wants both a JUnit file and an
+// HTML page gets them out of the same pass rather than out of two runs that
+// describe two different sets of responses.
 //
 // Expect=ReturnTypeAny keeps a non-zero exit on the value path: both terminals
 // have to read the exit code and the output to say anything useful about it,
 // and Report has to reach the artifact of a run that failed.
-func (c *Collection) exec(ctx context.Context, recursive bool, reportFormat string) (*dagger.Container, error) {
+func (c *Collection) exec(ctx context.Context, recursive bool, reportFormats []string) (*dagger.Container, error) {
 	if err := c.validate(); err != nil {
 		return nil, err
 	}
@@ -354,7 +356,7 @@ func (c *Collection) exec(ctx context.Context, recursive bool, reportFormat stri
 	if err != nil {
 		return nil, err
 	}
-	args, err := c.args(recursive, reportFormat, envFile)
+	args, err := c.args(recursive, reportFormats, envFile)
 	if err != nil {
 		return nil, err
 	}
@@ -408,7 +410,7 @@ func (c *Collection) container(envFile string) *dagger.Container {
 }
 
 // args renders the `bru run` command line.
-func (c *Collection) args(recursive bool, reportFormat string, envFile string) ([]string, error) {
+func (c *Collection) args(recursive bool, reportFormats []string, envFile string) ([]string, error) {
 	// The collection root is named explicitly rather than left implicit:
 	// `bru run` with no path descends into every folder whatever -r says, so
 	// without the "." the recursive parameter would only ever mean "true".
@@ -446,12 +448,12 @@ func (c *Collection) args(recursive bool, reportFormat string, envFile string) (
 	if c.Delay > 0 {
 		args = append(args, "--delay", strconv.Itoa(c.Delay))
 	}
-	if reportFormat != "" {
-		ext, err := reportExtension(reportFormat)
+	for _, format := range reportFormats {
+		path, err := reportPath(format)
 		if err != nil {
 			return nil, err
 		}
-		args = append(args, "--reporter-"+reportFormat, reportPathPrefix+"."+ext)
+		args = append(args, "--reporter-"+format, path)
 	}
 	return args, nil
 }
@@ -515,6 +517,17 @@ func reportExtension(format string) (string, error) {
 		return "", fmt.Errorf("invalid format %q: must be one of %s, %s, %s",
 			format, formatJSON, formatJUnit, formatHTML)
 	}
+}
+
+// reportPath is where a reporter writes its artifact inside the container. One
+// path per format, so every reporter can be asked for in the same pass without
+// two of them writing over each other.
+func reportPath(format string) (string, error) {
+	ext, err := reportExtension(format)
+	if err != nil {
+		return "", err
+	}
+	return reportPathPrefix + "." + ext, nil
 }
 
 // usageError turns one of bru's non-1 exits into an error that says what the

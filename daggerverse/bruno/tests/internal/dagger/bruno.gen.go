@@ -18,6 +18,15 @@ func (r *Binding) AsBruno() *Bruno { // bruno (../../../../../daggerverse/bruno/
 	}
 }
 
+// Retrieve the binding value, as type BrunoCi
+func (r *Binding) AsBrunoCi() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
+	q := r.query.Select("asBrunoCi")
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
 // Retrieve the binding value, as type BrunoCollection
 func (r *Binding) AsBrunoCollection() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:86:6)
 	q := r.query.Select("asBrunoCollection")
@@ -39,6 +48,19 @@ type Bruno struct { // bruno (../../../../../daggerverse/bruno/main.go:47:6)
 
 func (r *Bruno) WithGraphQLQuery(q *querybuilder.Selection) *Bruno {
 	return &Bruno{
+		query: q,
+	}
+}
+
+// Ci returns a new pipeline builder bound to the supplied collection source.
+// The input is the collection root, exactly as a bare Collection(source) call
+// would take it.
+func (r *Bruno) Ci(source *Directory) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:51:1)
+	assertNotNil("source", source)
+	q := r.query.Select("ci")
+	q = q.Arg("source", source)
+
+	return &BrunoCi{
 		query: q,
 	}
 }
@@ -186,6 +208,243 @@ func (r *Bruno) Version(ctx context.Context) (string, error) { // bruno (../../.
 // AsNode returns this Bruno as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *Bruno) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
+// Ci is a chained builder for a standardized Bruno CI pipeline: a collection
+// in, a gate and the reports out.
+//
+// Lint, run and report are three calls plus the glue that decides what fails
+// the build, which is the shape every API repo ends up hand-rolling. This
+// bundles them so that CI is one declarative `dagger call`.
+//
+// It composes Collection without adding capability of its own — every stage is
+// a call the caller could make by hand. What it adds is the ordering: lint runs
+// before the collection, so a {{baseUrl}} that resolves nowhere or a
+// credential committed in plaintext is reported without spending a request on
+// discovering it, and a collection that could never have passed does not start
+// a container's worth of work to say so.
+//
+// The two terminals split the way Collection's own Run and Report do, and for
+// the same reason. Check is the gate: it fails on a lint error, on a failing
+// request, test or assertion, and on any of bru's usage errors. Run is the
+// artifact: it returns the reports directory, and does not fail a run whose
+// requests failed — Dagger drops a function's value when it also returns an
+// error, so a gating Run could never hand back the report describing the
+// failure, which is exactly when the report matters. CI pairs them.
+type BrunoCi struct { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
+	query *querybuilder.Selection
+
+	check *Void
+	id    *ID
+}
+type WithBrunoCiFunc func(r *BrunoCi) *BrunoCi
+
+// With calls the provided function with current BrunoCi.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *BrunoCi) With(f WithBrunoCiFunc) *BrunoCi {
+	return f(r)
+}
+
+func (r *BrunoCi) WithGraphQLQuery(q *querybuilder.Selection) *BrunoCi {
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// Check runs the pipeline as a gate and produces nothing, for the PR that wants
+// to know whether the API is behaving.
+//
+// The stages are the enabled lint followed by the collection itself. Lint comes
+// first so that a structural error costs no request: a collection whose
+// variables resolve nowhere fails here rather than against a live service,
+// naming the file instead of the response. The collection then fails on bru's
+// exit 1 — a failing request, test or assertion — and reports every other
+// non-zero exit as the usage error it is.
+//
+// No report is produced, because a gate that returns nothing can gate: see Run
+// for why the terminal that hands back artifacts cannot also be the one that
+// fails.
+func (r *BrunoCi) Check(ctx context.Context) error { // bruno (../../../../../daggerverse/bruno/ci.go:142:1)
+	if r.check != nil {
+		return nil
+	}
+	q := r.query.Select("check")
+
+	return q.Execute(ctx)
+}
+
+// A unique identifier for this BrunoCi.
+func (r *BrunoCi) ID(ctx context.Context) (ID, error) {
+	if r.id != nil {
+		return *r.id, nil
+	}
+	q := r.query.Select("id")
+
+	var response ID
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
+func (r *BrunoCi) XXX_GraphQLType() string {
+	return "BrunoCi"
+}
+
+// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
+func (r *BrunoCi) XXX_GraphQLIDType() string {
+	return "ID"
+}
+
+// XXX_GraphQLID is an internal function. It returns the underlying type ID
+func (r *BrunoCi) XXX_GraphQLID(ctx context.Context) (string, error) {
+	id, err := r.ID(ctx)
+	if err != nil {
+		return "", err
+	}
+	return string(id), nil
+}
+
+func (r *BrunoCi) MarshalJSON() ([]byte, error) {
+	id, err := r.ID(marshalCtx)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(id)
+}
+func (r *BrunoCi) UnmarshalJSON(bs []byte) error {
+	var id string
+	err := json.Unmarshal(bs, &id)
+	if err != nil {
+		return err
+	}
+	*r = BrunoCi{query: selectNode(dag.query, id, "BrunoCi")}
+	return nil
+}
+
+// Run executes the pipeline and returns the requested reports as a directory,
+// one file per format: report.json, report.xml for junit, report.html.
+//
+// It does not fail on a failing request, test or assertion. That is deliberate
+// and it is the same reasoning as Collection.Report: a Dagger function that
+// returns an error forfeits its value, so a Run that gated would hand back
+// nothing on exactly the runs whose reports a pipeline needs — the JUnit file a
+// CI system turns into a test report, the HTML page somebody opens to see which
+// assertion failed. Pair the two: Run for the artifacts, Check for the gate.
+//
+// A lint error is still an error here, because then the collection never ran
+// and there is no report to return. So is a usage error, for the same reason.
+func (r *BrunoCi) Run() *Directory { // bruno (../../../../../daggerverse/bruno/ci.go:167:1)
+	q := r.query.Select("run")
+
+	return &Directory{
+		query: q,
+	}
+}
+
+// WithEnvironment selects the environment the pipeline resolves variables from,
+// by the name of the file under environments/ without its extension. See
+// Collection.WithEnvironment.
+//
+// It is also what the lint stage checks references against, so the environment
+// a pipeline runs under is the one its variables are required to resolve in.
+func (r *BrunoCi) WithEnvironment(name string) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:61:1)
+	q := r.query.Select("withEnvironment")
+	q = q.Arg("name", name)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// BrunoCiWithLintOpts contains options for BrunoCi.WithLint
+type BrunoCiWithLintOpts struct {
+	//
+	// Treat lint warnings as failures.
+	//
+	FailOnWarnings bool // bruno (../../../../../daggerverse/bruno/ci.go:100:2)
+}
+
+// WithLint adds the lint stage, which runs before the collection and fails the
+// pipeline on a structural error without issuing a request. See
+// Collection.Lint for the rules.
+//
+// It is opt-in rather than always-on because linting is an opinion about how a
+// collection is written, and a pipeline should not start failing on one the day
+// it adopts the builder.
+func (r *BrunoCi) WithLint(opts ...BrunoCiWithLintOpts) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:97:1)
+	q := r.query.Select("withLint")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `failOnWarnings` optional argument
+		if !querybuilder.IsZeroValue(opts[i].FailOnWarnings) {
+			q = q.Arg("failOnWarnings", opts[i].FailOnWarnings)
+		}
+	}
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithReport adds a reporter format — json, junit or html — to the set Run
+// returns. Call it more than once for more than one format.
+//
+// Every requested format comes out of a single collection pass: bru accepts all
+// of its `--reporter-*` flags at once, so asking for both JUnit and HTML costs
+// one run and the two artifacts describe the same set of responses rather than
+// two different ones.
+//
+// Like the rest of the builder it has no error return, so an unknown format is
+// reported by the terminal that would have written it.
+func (r *BrunoCi) WithReport(format string) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:118:1)
+	q := r.query.Select("withReport")
+	q = q.Arg("format", format)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithSecretVar makes a secret readable from the collection as
+// {{process.env.NAME}}, without it ever reaching argv. See
+// Collection.WithSecretVar.
+//
+// A pipeline takes secrets and not plain overrides on purpose: a value worth
+// passing into CI by hand is usually a credential, and WithVar would put it on
+// the command line. A collection that needs a non-secret override can still be
+// assembled through Collection.
+func (r *BrunoCi) WithSecretVar(name string, value *Secret) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:84:1)
+	assertNotNil("value", value)
+	q := r.query.Select("withSecretVar")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// WithService binds a service into the pipeline's network under alias, so the
+// collection can reach it by that hostname. A collection is inert without a
+// target. See Collection.WithService.
+func (r *BrunoCi) WithService(alias string, service *Service) *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:70:1)
+	assertNotNil("service", service)
+	q := r.query.Select("withService")
+	q = q.Arg("alias", alias)
+	q = q.Arg("service", service)
+
+	return &BrunoCi{
+		query: q,
+	}
+}
+
+// AsNode returns this BrunoCi as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *BrunoCi) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}
@@ -539,6 +798,30 @@ func (r *BrunoCollection) WithoutTags(tags []string) *BrunoCollection { // bruno
 func (r *BrunoCollection) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
+	}
+}
+
+// Create or update a binding of type BrunoCi in the environment
+func (r *Env) WithBrunoCiInput(name string, value *BrunoCi, description string) *Env { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
+	assertNotNil("value", value)
+	q := r.query.Select("withBrunoCiInput")
+	q = q.Arg("name", name)
+	q = q.Arg("value", value)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
+	}
+}
+
+// Declare a desired BrunoCi output to be assigned in the environment
+func (r *Env) WithBrunoCiOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
+	q := r.query.Select("withBrunoCiOutput")
+	q = q.Arg("name", name)
+	q = q.Arg("description", description)
+
+	return &Env{
+		query: q,
 	}
 }
 
