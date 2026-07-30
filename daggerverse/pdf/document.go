@@ -270,7 +270,7 @@ func isSignatureReport(out string) bool {
 	return strings.Contains(out, noSignaturesMarker) || strings.Contains(out, signatureInfoMarker)
 }
 
-// Convert opens the conversion namespace: the render options, and the nine
+// Convert opens the conversion namespace: the render options, and the eleven
 // outputs that read them.
 //
 // It is a separate object rather than more methods on Document because the

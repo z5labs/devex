@@ -41,6 +41,14 @@
 // them. HTML is pdftohtml's, which is not a renderer at all so much as a
 // re-layout, and shares no options with either.
 //
+// Two of the outputs report where the text *is* rather than what it says, and
+// are pdftotext's as well: Bbox emits a box per word as XHTML, Tsv emits a row
+// per layout element as a table. They are the text-layer analogues of the
+// tesseract module's Hocr and Tsv — the same shape of answer, sourced from the
+// document's own coordinates rather than from recognition, so the boxes are exact
+// rather than estimated. That is the whole argument for reaching for this module
+// before that one even when geometry is what is wanted.
+//
 // Four reports describe the document instead of converting it, one per tool:
 // Info is pdfinfo, Fonts is pdffonts, Metadata is `pdfinfo -meta` and Signatures
 // is pdfsig. Each returns its tool's own report as text. Parsing those into
@@ -62,7 +70,7 @@
 //   - document.go — *Document, one bound PDF: its passwords, its page range,
 //     and the four reports about it — what pdfinfo says, which fonts it needs,
 //     its XMP metadata, and its signatures.
-//   - convert.go  — *Convert, the render options and the nine outputs that
+//   - convert.go  — *Convert, the render options and the eleven outputs that
 //     read them.
 //   - pages.go    — Split and Merge, the two page-structure operations. They
 //     sit together rather than with their receivers because they are one
@@ -145,6 +153,25 @@ const (
 	textOutputPath = outputDir + "/document.txt"
 	psOutputPath   = outputDir + "/document.ps"
 	pageBase       = outputDir + "/page"
+
+	// bboxOutputPath is the file Convert.Bbox writes and tsvOutputPath the one
+	// Convert.Tsv writes. The extensions are this module's choice — pdftotext
+	// writes whichever format its flags name, whatever the output is called — and
+	// they name what the bytes are so a consumer, or a human who exported the
+	// file, does not have to open it to find out.
+	bboxOutputPath = outputDir + "/document.bbox.html"
+	tsvOutputPath  = outputDir + "/document.tsv"
+
+	// bboxFlag, bboxLayoutFlag and tsvFlag are the three geometry-reporting
+	// modes of pdftotext. Each replaces the plain text output with a structured
+	// report of its own rather than modifying it, so exactly one of them reaches
+	// a command line and the layout flags LayoutMode maps onto never join it.
+	// Poppler would accept the combination — `-bbox -layout` exits 0 — and
+	// silently ignore the layout flag, which is precisely why LayoutMode is left
+	// off here rather than forwarded and trusted.
+	bboxFlag       = "-bbox"
+	bboxLayoutFlag = "-bbox-layout"
+	tsvFlag        = "-tsv"
 
 	// pageNamePrefix is the leading part of a rendered page's file name, and
 	// has to agree with pageBase: the normalization pass strips it to read the

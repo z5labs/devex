@@ -3,7 +3,8 @@
 Daggerverse module that reads and renders PDFs with
 [poppler](https://poppler.freedesktop.org/) as a `dagger call`. Bind a PDF and
 get back its text — exactly, in reading order, physical layout or content-stream
-order — or its pages as PNG, JPEG or TIFF images, at a resolution or a pixel
+order, or with a bounding box per word so you know where on the page each one
+was — or its pages as PNG, JPEG or TIFF images, at a resolution or a pixel
 size you choose, in colour, grayscale or bilevel. Keep the type outlines instead
 and it gives you SVG, EPS or PostScript; ask for markup and it gives you HTML
 with the page's images beside it. Ask it what the document is and it tells you:
@@ -331,7 +332,7 @@ and not by the document: chain validation needs a trust database, this image
 carries none, and `pdfsig` says so on stderr — which is not part of the report.
 Supply one with `-nssdir` through [`Container`](#toolchain).
 
-## Convert — the render options and the nine outputs
+## Convert — the render options and the eleven outputs
 
 ```go
 Document.Convert() *Convert
@@ -343,6 +344,8 @@ Convert.WithoutAnnotations() *Convert
 
 Convert.Text(ctx, layout LayoutMode, disablePageBreaks bool) (string, error)
 Convert.Txt(ctx, layout LayoutMode, disablePageBreaks bool) (*dagger.File, error)
+Convert.Bbox(ctx, withLayout bool) (*dagger.File, error)
+Convert.Tsv(ctx) (*dagger.File, error)
 Convert.Png(ctx) (*dagger.Directory, error)
 Convert.Jpeg(ctx) (*dagger.Directory, error)
 Convert.Tiff(ctx) (*dagger.Directory, error)
@@ -361,6 +364,7 @@ Which options an output actually reads depends on the renderer behind it:
 | output | renderer | reads |
 | --- | --- | --- |
 | `Text`, `Txt` | `pdftotext` | `layout`, `disablePageBreaks` |
+| `Bbox`, `Tsv` | `pdftotext` | — |
 | `Png`, `Jpeg`, `Tiff` | `pdftoppm` | `WithDpi`, `WithColorMode`, `WithScaleTo`, `WithoutAnnotations` |
 | `Svg`, `Eps`, `Ps` | `pdftocairo` | `WithDpi` |
 | `Html` | `pdftohtml` | — |
@@ -426,6 +430,79 @@ disagree:
 
 A table wants `PHYSICAL`, prose in columns wants `READING`, and a caller
 reconstructing the content stream wants `RAW`.
+
+### `Bbox` and `Tsv` — where the text *is*
+
+`Text` returns words. Layout-aware post-processing needs where each word **was**,
+and `Bbox` and `Tsv` report it. They are the text-layer analogues of the
+[`tesseract`](../tesseract) module's `Hocr` and `Tsv` — the same shape of answer,
+sourced from the document's own coordinates rather than from recognition, so the
+boxes are **exact rather than estimated**. Reach for them when the words are not
+the whole answer: redacting a region, cropping a figure, deciding which column a
+phrase belongs to, or lining extracted text up against a render of the same page.
+
+`Bbox` emits XHTML — a `page` element per page naming its size, holding a `word`
+element per space-separated word:
+
+```xml
+<page width="612.000000" height="792.000000">
+  <word xMin="72.000000" yMin="94.768000" xMax="128.040000" yMax="116.968000">Page</word>
+  <word xMin="134.712000" yMin="94.768000" xMax="148.056000" yMax="116.968000">1</word>
+</page>
+```
+
+`withLayout` wraps those in the `flow`, `block` and `line` elements poppler groups
+them into, each carrying the box around everything under it — the same words at
+the same coordinates, with the paragraph structure a caller reconstructing prose
+needs and a caller reading word boxes pays parsing for.
+
+> The report is a **whole XHTML document** — `-bbox` implies poppler's
+> `-htmlmeta`, so the boxes arrive inside a `doc` element inside an `html` element
+> with a doctype ahead of it. Read the `doc` subtree, not the file's root.
+
+`Tsv` emits the twelve-column table tesseract's TSV renderer defines, header row
+included: `level`, `page_num`, `par_num`, `block_num`, `line_num`, `word_num`,
+`left`, `top`, `width`, `height`, `conf`, `text`. `level` says what a row is — **1**
+a page, **3** a flow, **4** a line, **5** a word — and structural rows name
+themselves in the text column:
+
+```tsv
+level	page_num	…	left	top	width	height	conf	text
+1	1	…	0.000000	0.000000	612.000000	792.000000	-1	###PAGE###
+4	1	…	72.000000	94.768000	222.816000	22.200000	-1	###LINE###
+5	1	…	72.00	94.77	56.04	22.20	100	Page
+```
+
+Reach for `Tsv` over `Bbox` when the consumer is a table reader — a dataframe, a
+spreadsheet, `awk` — and when **the page a row belongs to has to be recoverable
+from the row itself**. That is the one thing this format carries and `Bbox` does
+not: a `page` element states its size and never its number, so a narrowed `Bbox`
+report is traceable only by position, while `page_num` is the page's number in the
+whole document even under `WithPageRange` — pages 4 through 6 come back as 4, 5
+and 6, not as 1, 2 and 3.
+
+Coordinates are in **points, from the top-left of the page**, which is not where
+the PDF's own coordinate system starts. A word's box is the font's
+ascender-to-descender span around the baseline rather than the glyphs' ink, so a
+one-glyph word is exactly as tall as a long one — 22.2 points at 24pt Helvetica.
+
+A few of poppler's own details are worth knowing before writing an assertion
+against either format:
+
+- There is **no level-2 paragraph row**, the `par_num` column notwithstanding.
+- `conf` is `-1` on structural rows and `100` on every word. This is extraction,
+  not recognition: there is nothing to be uncertain about.
+- Word rows round to **two** decimals where structural rows print six.
+- A TSV page row's `left` and `top` are junk after the first page — poppler leaves
+  the previous page's last word in them. The size is right; the position is not.
+- A page with **no text layer** yields an empty `page` element and no word rows
+  rather than a failure: poppler notes `no word list` on stderr and exits 0. That
+  is the same boundary `Text` draws — no words is the signal to render the page
+  and hand it to OCR, not a sign anything went wrong.
+
+The render options are ignored, these being extractions and not renders, and so is
+`LayoutMode`: the report's structure is poppler's own and is not the text's reading
+order. `WithPageRange` narrows both.
 
 ### `ColorMode`
 
