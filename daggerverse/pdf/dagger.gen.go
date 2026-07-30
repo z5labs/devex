@@ -406,6 +406,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Convert":
 		switch fnName {
+		case "Bbox":
+			var parent Convert
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var withLayout bool
+			if inputArgs["withLayout"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["withLayout"]), &withLayout)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg withLayout", err))
+				}
+			}
+			return (*Convert).Bbox(&parent, ctx, withLayout)
 		case "Eps":
 			var parent Convert
 			err = json.Unmarshal(parentJSON, &parent)
@@ -476,6 +490,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Convert).Tiff(&parent, ctx)
+		case "Tsv":
+			var parent Convert
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Convert).Tsv(&parent, ctx)
 		case "Txt":
 			var parent Convert
 			err = json.Unmarshal(parentJSON, &parent)

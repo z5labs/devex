@@ -243,6 +243,80 @@ func (c *Convert) Txt(
 	return res.container.File(textOutputPath), nil
 }
 
+// Bbox returns the document's text layer as an XHTML report carrying a bounding
+// box for every word, in points, measured from the top-left of the page.
+//
+// It is the text-layer analogue of the tesseract module's Hocr — the same shape
+// of answer, sourced from the document's own coordinates rather than from
+// recognition, so the boxes are exact rather than estimated. Reach for it when
+// the words are not the whole answer: redacting a region, cropping a figure out
+// of a page, deciding which of two columns a phrase belongs to, or lining
+// extracted text up against a render of the same page.
+//
+// Every page arrives as a `page` element naming its width and height, holding one
+// `word` element per space-separated word with its `xMin`, `yMin`, `xMax` and
+// `yMax`. Pass withLayout to wrap those in the `flow`, `block` and `line`
+// elements poppler groups them into, each carrying the box around everything
+// under it — which is what a caller reconstructing paragraphs wants, and what a
+// caller who only needs word boxes pays parsing for.
+//
+// The report is a whole XHTML document, `-bbox` implying poppler's `-htmlmeta`:
+// the boxes sit inside a `doc` element inside an `html` element with a doctype
+// ahead of it. Read the `doc` subtree, not the file's root.
+//
+// A page with no text layer is reported as an empty `page` element rather than as
+// a failure — poppler notes `no word list` on stderr and exits 0 — which is the
+// same boundary Text draws: no words is the signal to render the page and hand it
+// to OCR, not a sign that anything went wrong.
+//
+// The render options are ignored, this being an extraction and not a render, and
+// so is LayoutMode: the report's structure is poppler's own and is not the text's
+// reading order. WithPageRange narrows it.
+func (c *Convert) Bbox(
+	ctx context.Context,
+	// Add the block and line boxes poppler groups the words into.
+	// +optional
+	withLayout bool,
+) (*dagger.File, error) {
+	flag := bboxFlag
+	if withLayout {
+		flag = bboxLayoutFlag
+	}
+	return c.geometry(ctx, "Bbox", flag, bboxOutputPath)
+}
+
+// Tsv returns the document's text layer as a tab-separated table with one row
+// per layout element, each naming the page it came from and the box it occupies.
+//
+// It is the text-layer analogue of the tesseract module's Tsv, and the format is
+// literally tesseract's: twelve columns — `level`, `page_num`, `par_num`,
+// `block_num`, `line_num`, `word_num`, `left`, `top`, `width`, `height`, `conf`,
+// `text` — with a header row ahead of them. `level` says what a row describes: 1
+// a page, 3 a flow, 4 a line, 5 a word. Poppler emits no level-2 paragraph row
+// despite carrying the column for it. Structural rows name themselves in the text
+// column — `###PAGE###`, `###FLOW###`, `###LINE###` — and `conf` is -1 on them
+// and 100 on every word, this being extraction and not recognition: there is
+// nothing to be uncertain about.
+//
+// Reach for it over Bbox when the consumer is a table reader — a dataframe, a
+// spreadsheet, awk — rather than a markup parser, and when the page a row belongs
+// to has to be recoverable from the row itself. That is the one thing this format
+// carries and Bbox does not: a `-bbox` page element states its size and never its
+// number, so a narrowed report is traceable only by position, while `page_num`
+// here is the page's number in the whole document even under WithPageRange.
+//
+// Coordinates are in points, from the top-left of the page, and a word's box is
+// the font's ascender-to-descender span around the baseline rather than the
+// glyphs' ink — so a one-glyph word is exactly as tall as a long one. Word rows
+// round to two decimals where the structural rows print six.
+//
+// A page with no text layer yields its page row and no word rows rather than a
+// failure, the same boundary Text and Bbox draw. The render options are ignored,
+// as is LayoutMode. WithPageRange narrows it.
+func (c *Convert) Tsv(ctx context.Context) (*dagger.File, error) {
+	return c.geometry(ctx, "Tsv", tsvFlag, tsvOutputPath)
+}
+
 // Png renders each page in range to a PNG and returns the directory holding
 // them, named `page-0001.png`, `page-0002.png`, and so on.
 //
@@ -562,6 +636,30 @@ func (c *Convert) pageLoop(render string) string {
 		`	p=$((p + 1))`,
 		`done`,
 	}, "\n")
+}
+
+// geometry runs pdftotext in one of its geometry-reporting modes and returns the
+// report it wrote.
+//
+// The three modes share everything but their flag: none of them takes a layout
+// mode, none of them takes a page-break switch, and all of them narrow to the
+// document's page range. The report is written to a file rather than read off
+// stdout because both formats are structured — markup and a table — and a
+// consumer parses them rather than reading them.
+func (c *Convert) geometry(ctx context.Context, label, flag, output string) (*dagger.File, error) {
+	if err := c.Document.validateRange(ctx); err != nil {
+		return nil, err
+	}
+	flags := append([]string{flag}, c.Document.rangeArgs()...)
+	res, err := c.Document.runScript(ctx, label, strings.Join([]string{
+		"set -e",
+		"mkdir -p " + outputDir,
+		c.Document.command("pdftotext", flags, sourcePath, output),
+	}, "\n"))
+	if err != nil {
+		return nil, err
+	}
+	return res.container.File(output), nil
 }
 
 // raster renders the pages and returns the directory holding them, with every

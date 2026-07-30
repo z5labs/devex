@@ -10,11 +10,16 @@ package main
 
 import (
 	"context"
+	"encoding/xml"
+	"errors"
 	"fmt"
 	"image"
+	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	// Registered for their decoders alone: the geometry and pixel assertions
@@ -125,7 +130,79 @@ const (
 	// the render geometry assertions are derived from.
 	ledgerPageWidth  = 612
 	ledgerPageHeight = 792
+
+	// The next six constants are ledgerPdf's text geometry, read straight out of
+	// the fixture's own content stream — `/F1 24 Tf`, `72 680 Td`, `40 TL` — and
+	// are what the bbox and TSV assertions derive their expected boxes from. They
+	// are the reason those assertions can be exact rather than non-empty: the
+	// coordinates poppler reports are the document's own, so any number it prints
+	// is predictable from the fixture without asking another tool.
+
+	// ledgerTextX is the x of every line's text origin, and so the xMin the
+	// first word of every line has to report.
+	ledgerTextX = 72
+	// ledgerFirstBaseline is the y of the first line's baseline, measured from
+	// the bottom of the page the way PDF coordinates are. Poppler reports boxes
+	// from the *top*, so every expectation below subtracts.
+	ledgerFirstBaseline = 680
+	// ledgerLeading is the `TL` each subsequent line drops the baseline by.
+	ledgerLeading = 40
+	// ledgerFontSize is the size the pages are set at.
+	ledgerFontSize = 24
+	// helveticaAscent and helveticaDescent are Helvetica's AFM ascender and
+	// descender as fractions of the font size — 718 and -207 per 1000 — and are
+	// what poppler measures a word's box from rather than the glyphs' own ink.
+	// That is why the box is the same height for `ledger.` as for `1`, and why a
+	// word's height comes out (0.718 + 0.207) x 24 = 22.2 points.
+	helveticaAscent  = 0.718
+	helveticaDescent = 0.207
+
+	// ledgerWordsPerPage is how many space-separated words a ledgerPdf page
+	// carries: five on the first line, two on the second.
+	ledgerWordsPerPage = 7
+	// ledgerFirstLineWords is how many of those are on the first line.
+	ledgerFirstLineWords = 5
+	// ledgerLines is how many lines each page carries, which is how many blocks
+	// -bbox-layout groups them into: the 40-point leading against a 22.2-point
+	// line is a gap poppler reads as a paragraph break.
+	ledgerLines = 2
+
+	// geometryEpsilon is the slack a coordinate comparison allows. It is set by
+	// the *output* rather than by the arithmetic: pdftotext prints a bbox
+	// coordinate to six decimals but rounds a TSV word row to two, so a two-
+	// decimal row is up to 0.005 away from the exact value.
+	geometryEpsilon = 0.01
+
+	// tsvLevelPage, tsvLevelFlow, tsvLevelLine and tsvLevelWord are the layout
+	// elements a -tsv row's `level` column names. The numbering is tesseract's
+	// — the format is a port of its TSV renderer, which is what makes the two
+	// modules' geometry outputs the same shape — and poppler uses four of the
+	// five: there is no level-2 paragraph row, the `par_num` column
+	// notwithstanding.
+	tsvLevelPage = 1
+	tsvLevelFlow = 3
+	tsvLevelLine = 4
+	tsvLevelWord = 5
+
+	// The columns a -tsv row is read out of, by index into the twelve tsvColumns
+	// name.
+	tsvColumnLevel  = 0
+	tsvColumnPage   = 1
+	tsvColumnLeft   = 6
+	tsvColumnTop    = 7
+	tsvColumnWidth  = 8
+	tsvColumnHeight = 9
+	tsvColumnText   = 11
 )
+
+// tsvColumns is the header row pdftotext -tsv writes, and the shape every row
+// under it has. Asserting it whole is what makes the index constants above safe:
+// a column inserted upstream moves every coordinate this suite reads, and would
+// otherwise turn into a silently wrong geometry assertion.
+var tsvColumns = []string{
+	"level", "page_num", "par_num", "block_num", "line_num", "word_num",
+	"left", "top", "width", "height", "conf", "text",
+}
 
 // ledgerMarkers is the marker word on each page of ledgerPdf, in page order.
 //
@@ -189,6 +266,12 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("TxtMatchesText", t.TxtMatchesText)
 	jobs = jobs.WithJob("DisablePageBreaksControlsFormFeeds", t.DisablePageBreaksControlsFormFeeds)
 	jobs = jobs.WithJob("LayoutModesProduceDifferentOrderings", t.LayoutModesProduceDifferentOrderings)
+
+	jobs = jobs.WithJob("BboxCarriesOneBoxPerWord", t.BboxCarriesOneBoxPerWord)
+	jobs = jobs.WithJob("BboxWithLayoutAddsBlockAndLineBoxes", t.BboxWithLayoutAddsBlockAndLineBoxes)
+	jobs = jobs.WithJob("TsvRowsCarryPageNumbersAndWordGeometry", t.TsvRowsCarryPageNumbersAndWordGeometry)
+	jobs = jobs.WithJob("PageRangeNarrowsTheGeometryOutputs", t.PageRangeNarrowsTheGeometryOutputs)
+	jobs = jobs.WithJob("GeometryOfAnImageOnlyPdfReportsPagesWithoutWords", t.GeometryOfAnImageOnlyPdfReportsPagesWithoutWords)
 
 	jobs = jobs.WithJob("PageRangeNarrowsText", t.PageRangeNarrowsText)
 	jobs = jobs.WithJob("PageRangeOpenEndedRunsToTheLastPage", t.PageRangeOpenEndedRunsToTheLastPage)
@@ -1244,6 +1327,655 @@ func hasSideBySideLine(text, left, right string) bool {
 		}
 	}
 	return false
+}
+
+// BboxCarriesOneBoxPerWord asserts Bbox reports the page's size and one box per
+// word, at the coordinates the document itself draws the words at.
+//
+// The coordinates are the whole point of the function, so they are checked and
+// not merely counted. ledgerPdf sets its pages with `/F1 24 Tf`, `72 680 Td` and
+// `40 TL`, so every number poppler can print here is derivable from the fixture:
+// the first word of a line starts at x=72, and a line's box runs from the
+// baseline less Helvetica's ascender to the baseline plus its descender, measured
+// down from the top of the 792-point page. A test that asserted the boxes were
+// non-empty would pass just as well on boxes that were all the same.
+//
+// The absence of layout boxes is asserted too, because that is what `withLayout`
+// is the difference between: a plain -bbox report carries words directly under
+// the page, with no flow, block or line around them.
+func (t *Tests) BboxCarriesOneBoxPerWord(ctx context.Context) error {
+	report, err := pdf().Document(fixture(ledgerPdf)).Convert().Bbox().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bbox: %w", err)
+	}
+	doc, err := parseBbox(report)
+	if err != nil {
+		return err
+	}
+	if len(doc.Pages) != ledgerPages {
+		return fmt.Errorf("expected %d pages in the report, got %d", ledgerPages, len(doc.Pages))
+	}
+
+	for i, page := range doc.Pages {
+		number := i + 1
+		if !nearly(page.Width, ledgerPageWidth) || !nearly(page.Height, ledgerPageHeight) {
+			return fmt.Errorf("page %d: expected a %dx%d point page, got %gx%g",
+				number, ledgerPageWidth, ledgerPageHeight, page.Width, page.Height)
+		}
+		if len(page.Flows) != 0 {
+			return fmt.Errorf("page %d: expected no layout boxes without withLayout, got %d flows",
+				number, len(page.Flows))
+		}
+		if len(page.Words) != ledgerWordsPerPage {
+			return fmt.Errorf("page %d: expected %d words, got %d: %v",
+				number, ledgerWordsPerPage, len(page.Words), wordTexts(page.Words))
+		}
+
+		// The marker word is what makes this page this page: it occurs nowhere
+		// else in the document, so a report whose pages were reordered or whose
+		// words were carried over from the previous page fails here.
+		if want := ledgerMarkers[i] + "."; page.Words[ledgerWordsPerPage-1].Text != want {
+			return fmt.Errorf("page %d: expected the last word to be %q, got %v",
+				number, want, wordTexts(page.Words))
+		}
+		if err := assertLedgerWordBoxes(number, page.Words); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BboxWithLayoutAddsBlockAndLineBoxes asserts withLayout wraps the same word
+// boxes in the block and line boxes poppler groups them into.
+//
+// Both halves matter. The words have to be the same words at the same
+// coordinates, because the layout report is meant to be the plain one with more
+// structure and not a differently measured one — so the two reports' words are
+// compared box for box. And the boxes that were added have to mean something:
+// each line's box is asserted to be exactly the union of the words under it, and
+// each block's the union of its lines. A test that only counted `block` elements
+// would pass on boxes that were all the page.
+//
+// ledgerPdf is the fixture for it because its two lines land in two blocks: the
+// 40-point leading against a 22.2-point line is a gap poppler reads as a
+// paragraph break, so the block grouping is observable rather than degenerate.
+func (t *Tests) BboxWithLayoutAddsBlockAndLineBoxes(ctx context.Context) error {
+	conv := pdf().Document(fixture(ledgerPdf)).Convert()
+
+	plainReport, err := conv.Bbox().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bbox: %w", err)
+	}
+	plain, err := parseBbox(plainReport)
+	if err != nil {
+		return err
+	}
+
+	layoutReport, err := conv.Bbox(dagger.PdfConvertBboxOpts{WithLayout: true}).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bbox with layout: %w", err)
+	}
+	layout, err := parseBbox(layoutReport)
+	if err != nil {
+		return err
+	}
+
+	if len(layout.Pages) != len(plain.Pages) {
+		return fmt.Errorf("expected withLayout to report the same %d pages, got %d",
+			len(plain.Pages), len(layout.Pages))
+	}
+	for i, page := range layout.Pages {
+		number := i + 1
+		if len(page.Words) != 0 {
+			return fmt.Errorf("page %d: expected withLayout to put every word under a line, got %d loose words",
+				number, len(page.Words))
+		}
+
+		var blocks []bboxBlock
+		for _, flow := range page.Flows {
+			blocks = append(blocks, flow.Blocks...)
+		}
+		if len(blocks) != ledgerLines {
+			return fmt.Errorf("page %d: expected %d blocks, one per line of the page, got %d",
+				number, ledgerLines, len(blocks))
+		}
+
+		var words []bboxWord
+		for _, block := range blocks {
+			var blockWords []bboxWord
+			for _, line := range block.Lines {
+				if len(line.Words) == 0 {
+					return fmt.Errorf("page %d: a line box carries no words: %s", number, line.bboxRect)
+				}
+				if got, want := line.bboxRect, union(line.Words); got != want {
+					return fmt.Errorf("page %d: expected the line box to be the union of its words %s, got %s",
+						number, want, got)
+				}
+				blockWords = append(blockWords, line.Words...)
+			}
+			if got, want := block.bboxRect, union(blockWords); got != want {
+				return fmt.Errorf("page %d: expected the block box to be the union of its lines %s, got %s",
+					number, want, got)
+			}
+			words = append(words, blockWords...)
+		}
+
+		// Same words, same boxes: the layout report is the plain one with
+		// structure added, not a second measurement of the page.
+		if !slices.Equal(words, plain.Pages[i].Words) {
+			return fmt.Errorf("page %d: expected withLayout to carry the same word boxes\nplain:  %v\nlayout: %v",
+				number, plain.Pages[i].Words, words)
+		}
+	}
+	return nil
+}
+
+// union is the smallest box containing every word's box, which is what a line's
+// and a block's box have to report for what sits under them.
+func union(words []bboxWord) bboxRect {
+	if len(words) == 0 {
+		return bboxRect{}
+	}
+	out := words[0].bboxRect
+	for _, w := range words[1:] {
+		out.XMin = min(out.XMin, w.XMin)
+		out.YMin = min(out.YMin, w.YMin)
+		out.XMax = max(out.XMax, w.XMax)
+		out.YMax = max(out.YMax, w.YMax)
+	}
+	return out
+}
+
+// assertLedgerWordBoxes checks one ledgerPdf page's word boxes against the
+// geometry its content stream draws them at.
+//
+// Each of the page's two lines is checked as a line: its words share the vertical
+// extent the baseline and the font's metrics fix, the first of them opens at the
+// text origin, and the rest advance to the right of it without overlapping. The
+// horizontal progression is what would catch boxes that carried the right
+// vertical extent while being pinned to one x.
+func assertLedgerWordBoxes(page int, words []bboxWord) error {
+	for line, span := range [][]bboxWord{
+		words[:ledgerFirstLineWords],
+		words[ledgerFirstLineWords:],
+	} {
+		top, bottom := ledgerLineExtent(line)
+		for i, word := range span {
+			if !nearly(word.YMin, top) || !nearly(word.YMax, bottom) {
+				return fmt.Errorf("page %d line %d: expected %q to run from y=%g to y=%g, got %s",
+					page, line, word.Text, top, bottom, word.bboxRect)
+			}
+			if word.XMax <= word.XMin {
+				return fmt.Errorf("page %d line %d: expected %q to have width, got %s",
+					page, line, word.Text, word.bboxRect)
+			}
+			if i == 0 {
+				if !nearly(word.XMin, ledgerTextX) {
+					return fmt.Errorf("page %d line %d: expected %q to open the line at x=%d, got %s",
+						page, line, word.Text, ledgerTextX, word.bboxRect)
+				}
+				continue
+			}
+			if prev := span[i-1]; word.XMin < prev.XMax {
+				return fmt.Errorf("page %d line %d: expected %q to start right of %q, got %s after %s",
+					page, line, word.Text, prev.Text, word.bboxRect, prev.bboxRect)
+			}
+		}
+	}
+	return nil
+}
+
+// ledgerLineExtent is the top and bottom a word on the given line of a ledgerPdf
+// page has to report, lines counted from zero.
+//
+// Poppler reports a box from the top of the page while the document places its
+// text from the bottom, so the baseline is subtracted from the page height rather
+// than used directly — and the box is the font's ascender-to-descender span
+// around that baseline, not the glyphs' ink.
+func ledgerLineExtent(line int) (top, bottom float64) {
+	baseline := float64(ledgerFirstBaseline - line*ledgerLeading)
+	return ledgerPageHeight - baseline - helveticaAscent*ledgerFontSize,
+		ledgerPageHeight - baseline + helveticaDescent*ledgerFontSize
+}
+
+// nearly compares two coordinates in points. See geometryEpsilon for why the
+// slack exists at all.
+func nearly(got, want float64) bool {
+	return math.Abs(got-want) < geometryEpsilon
+}
+
+// bboxRect is the four numbers every element of a -bbox report carries, in
+// points, measured from the top-left of the page.
+type bboxRect struct {
+	XMin float64 `xml:"xMin,attr"`
+	YMin float64 `xml:"yMin,attr"`
+	XMax float64 `xml:"xMax,attr"`
+	YMax float64 `xml:"yMax,attr"`
+}
+
+// String renders a box for an assertion message, which is the only reason a
+// coordinate ever needs formatting here.
+func (r bboxRect) String() string {
+	return fmt.Sprintf("[%g %g %g %g]", r.XMin, r.YMin, r.XMax, r.YMax)
+}
+
+// bboxWord is one word and the box it occupies.
+type bboxWord struct {
+	bboxRect
+	Text string `xml:",chardata"`
+}
+
+// bboxLine and bboxBlock are the layout boxes -bbox-layout adds around the
+// words. A plain -bbox report has neither.
+type bboxLine struct {
+	bboxRect
+	Words []bboxWord `xml:"word"`
+}
+
+type bboxBlock struct {
+	bboxRect
+	Lines []bboxLine `xml:"line"`
+}
+
+// bboxFlow is the outermost layout grouping, and carries no box of its own.
+type bboxFlow struct {
+	Blocks []bboxBlock `xml:"block"`
+}
+
+// bboxPage is one page of the report. Both shapes are modelled at once because
+// which one a page arrives in is exactly what `withLayout` decides: plain -bbox
+// puts the words directly under the page, and -bbox-layout puts them under
+// flow/block/line — so exactly one of Words and Flows is ever populated, and
+// which one is an assertion rather than an assumption.
+type bboxPage struct {
+	Width  float64    `xml:"width,attr"`
+	Height float64    `xml:"height,attr"`
+	Words  []bboxWord `xml:"word"`
+	Flows  []bboxFlow `xml:"flow"`
+}
+
+type bboxDoc struct {
+	Pages []bboxPage `xml:"page"`
+}
+
+// parseBbox reads the <doc> subtree out of a -bbox report.
+//
+// The report is a whole XHTML document — `-bbox` sets `-htmlmeta`, so the boxes
+// arrive wrapped in a doctype, an html element and a head — and only the <doc>
+// inside it is the report. Tokenising down to that element rather than modelling
+// the wrapper keeps the expectations about the boxes and not about the markup
+// poppler carries them in.
+func parseBbox(report string) (bboxDoc, error) {
+	dec := xml.NewDecoder(strings.NewReader(report))
+	for {
+		tok, err := dec.Token()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return bboxDoc{}, fmt.Errorf("parse the bbox report: %w\n%s", err, head(report))
+		}
+		start, ok := tok.(xml.StartElement)
+		if !ok || start.Name.Local != "doc" {
+			continue
+		}
+		var doc bboxDoc
+		if err := dec.DecodeElement(&doc, &start); err != nil {
+			return bboxDoc{}, fmt.Errorf("decode the bbox report: %w\n%s", err, head(report))
+		}
+		return doc, nil
+	}
+	return bboxDoc{}, fmt.Errorf("expected a <doc> element in the report, got:\n%s", head(report))
+}
+
+// wordTexts is a page's words in order, for an assertion message.
+func wordTexts(words []bboxWord) []string {
+	out := make([]string, 0, len(words))
+	for _, w := range words {
+		out = append(out, w.Text)
+	}
+	return out
+}
+
+// TsvRowsCarryPageNumbersAndWordGeometry asserts Tsv reports one row per layout
+// element, each naming the page it came from and the box it occupies.
+//
+// The page number is the half that makes the format worth having next to Bbox: a
+// `-bbox` page element carries a size and no number, so a report of a multi-page
+// document is traceable back to its pages only positionally, while every TSV row
+// names its page outright. This asserts the numbers run 1..12 in order on the page
+// rows, and that each page's word rows carry that page's marker word — so a row
+// attributed to the wrong page fails here.
+//
+// The geometry is the other half, and is checked against the fixture's own
+// content stream rather than asserted non-empty: a word row's `left` is the text
+// origin for the first word of a line, its `top` is the baseline measured down
+// from the top of the page less the font's ascender, and its `height` is the
+// ascender-to-descender span — 22.2 points at 24pt Helvetica, the same for a
+// one-glyph word as for a seven-glyph one.
+func (t *Tests) TsvRowsCarryPageNumbersAndWordGeometry(ctx context.Context) error {
+	report, err := pdf().Document(fixture(ledgerPdf)).Convert().Tsv().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Tsv: %w", err)
+	}
+	rows, err := parseTsv(report)
+	if err != nil {
+		return err
+	}
+
+	pages := rowsAtLevel(rows, tsvLevelPage)
+	if len(pages) != ledgerPages {
+		return fmt.Errorf("expected %d page rows, got %d", ledgerPages, len(pages))
+	}
+	for i, row := range pages {
+		if want := i + 1; row.page != want {
+			return fmt.Errorf("expected page row %d to be numbered %d, got %d", i, want, row.page)
+		}
+		// Only the size is checked. A page row's `left` and `top` are poppler's
+		// own quirk: the first page reports 0,0 and every page after it reports
+		// the previous page's last word, so an assertion about them would be an
+		// assertion about a bug.
+		if !nearly(row.width, ledgerPageWidth) || !nearly(row.height, ledgerPageHeight) {
+			return fmt.Errorf("page %d: expected a %dx%d point page row, got %gx%g",
+				row.page, ledgerPageWidth, ledgerPageHeight, row.width, row.height)
+		}
+	}
+
+	// The structural rows are part of the format and are what a consumer groups
+	// words by, so their count is asserted too: ledgerPdf's two lines are two
+	// flows of one line each on every page.
+	for _, level := range []struct {
+		level int
+		name  string
+	}{{tsvLevelFlow, "flow"}, {tsvLevelLine, "line"}} {
+		got := rowsAtLevel(rows, level.level)
+		if want := ledgerPages * ledgerLines; len(got) != want {
+			return fmt.Errorf("expected %d %s rows, got %d", want, level.name, len(got))
+		}
+	}
+
+	words := rowsAtLevel(rows, tsvLevelWord)
+	if want := ledgerPages * ledgerWordsPerPage; len(words) != want {
+		return fmt.Errorf("expected %d word rows, got %d", want, len(words))
+	}
+	for page := 1; page <= ledgerPages; page++ {
+		onPage := rowsOnPage(words, page)
+		if len(onPage) != ledgerWordsPerPage {
+			return fmt.Errorf("page %d: expected %d word rows, got %d",
+				page, ledgerWordsPerPage, len(onPage))
+		}
+		// The marker word occurs on exactly one page of the document, so a row
+		// attributed to the wrong page is visible here and nowhere else.
+		if want := ledgerMarkers[page-1] + "."; onPage[ledgerWordsPerPage-1].text != want {
+			return fmt.Errorf("page %d: expected the last word row to read %q, got %q",
+				page, want, onPage[ledgerWordsPerPage-1].text)
+		}
+		if err := assertLedgerWordRows(page, onPage); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// assertLedgerWordRows checks one ledgerPdf page's word rows against the geometry
+// its content stream draws them at.
+//
+// A row reports a position and a size where a bbox element reports two corners,
+// so this is the same assertion in the other spelling — which is the point of
+// checking it twice: a `width` that was really an `xMax` would satisfy the bbox
+// test and fail here.
+func assertLedgerWordRows(page int, rows []tsvRow) error {
+	for line, span := range [][]tsvRow{
+		rows[:ledgerFirstLineWords],
+		rows[ledgerFirstLineWords:],
+	} {
+		top, bottom := ledgerLineExtent(line)
+		for i, row := range span {
+			if !nearly(row.top, top) {
+				return fmt.Errorf("page %d line %d: expected %q at top=%g, got %g",
+					page, line, row.text, top, row.top)
+			}
+			if !nearly(row.height, bottom-top) {
+				return fmt.Errorf("page %d line %d: expected %q to be %g points tall, got %g",
+					page, line, row.text, bottom-top, row.height)
+			}
+			if row.width <= 0 {
+				return fmt.Errorf("page %d line %d: expected %q to have width, got %g",
+					page, line, row.text, row.width)
+			}
+			if i == 0 {
+				if !nearly(row.left, ledgerTextX) {
+					return fmt.Errorf("page %d line %d: expected %q to open the line at left=%d, got %g",
+						page, line, row.text, ledgerTextX, row.left)
+				}
+				continue
+			}
+			if prev := span[i-1]; row.left < prev.left+prev.width {
+				return fmt.Errorf("page %d line %d: expected %q to start right of %q, got left=%g after left=%g width=%g",
+					page, line, row.text, prev.text, row.left, prev.left, prev.width)
+			}
+		}
+	}
+	return nil
+}
+
+// PageRangeNarrowsTheGeometryOutputs asserts WithPageRange narrows Bbox and Tsv
+// to the pages it names, in all three shapes the two functions come in.
+//
+// The two formats answer "which page is this" differently, and that difference is
+// the reason this test checks the narrowing on both rather than trusting one. A
+// `-bbox` page element carries a width and a height and no number at all, so the
+// only thing that ties a narrowed report back to the document is the order of its
+// pages and the words on them — which is what the marker words are checked for
+// here. A TSV row names its page outright, and names it with the page's number in
+// the *whole* document rather than its position in the range: pages 4 through 6
+// come back as 4, 5 and 6, not as 1, 2 and 3.
+func (t *Tests) PageRangeNarrowsTheGeometryOutputs(ctx context.Context) error {
+	const first, last = 4, 6
+
+	conv := pdf().Document(fixture(ledgerPdf)).WithPageRange(first, last).Convert()
+
+	for _, tc := range []struct {
+		name string
+		file *dagger.File
+	}{
+		{"Bbox", conv.Bbox()},
+		{"Bbox with layout", conv.Bbox(dagger.PdfConvertBboxOpts{WithLayout: true})},
+	} {
+		report, err := tc.file.Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+		doc, err := parseBbox(report)
+		if err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+		if want := last - first + 1; len(doc.Pages) != want {
+			return fmt.Errorf("%s: expected %d pages, got %d", tc.name, want, len(doc.Pages))
+		}
+		for i, page := range doc.Pages {
+			words := page.Words
+			for _, flow := range page.Flows {
+				for _, block := range flow.Blocks {
+					for _, line := range block.Lines {
+						words = append(words, line.Words...)
+					}
+				}
+			}
+			// The marker word is the only thing in the report that says which
+			// page of the document this is.
+			if want := ledgerMarkers[first-1+i] + "."; words[len(words)-1].Text != want {
+				return fmt.Errorf("%s: expected page %d of the report to be document page %d, carrying %q, got %v",
+					tc.name, i+1, first+i, want, wordTexts(words))
+			}
+		}
+	}
+
+	report, err := conv.Tsv().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Tsv: %w", err)
+	}
+	rows, err := parseTsv(report)
+	if err != nil {
+		return err
+	}
+	var numbered []int
+	for _, row := range rowsAtLevel(rows, tsvLevelPage) {
+		numbered = append(numbered, row.page)
+	}
+	want := []int{}
+	for page := first; page <= last; page++ {
+		want = append(want, page)
+	}
+	if !slices.Equal(numbered, want) {
+		return fmt.Errorf("expected the page rows to name the document's own pages %v, got %v", want, numbered)
+	}
+	// Every word row belongs to a page in range too, which is what would catch a
+	// report that narrowed its page rows and not its words.
+	for _, row := range rowsAtLevel(rows, tsvLevelWord) {
+		if row.page < first || row.page > last {
+			return fmt.Errorf("expected every word row to be on pages %d-%d, got %q on page %d",
+				first, last, row.text, row.page)
+		}
+	}
+	return nil
+}
+
+// GeometryOfAnImageOnlyPdfReportsPagesWithoutWords asserts a PDF with no text
+// layer produces a well-formed report of a page with nothing on it, and does not
+// fail.
+//
+// It is the same boundary with the tesseract module that TextOnImageOnlyPdfReturnsNothing
+// draws, and it needs its own assertion because the failure mode here is louder:
+// poppler writes `no word list` to *stderr* for such a page and exits 0, having
+// written a perfectly good report to the output file. A module that read stderr as
+// a diagnostic, or that treated the absence of words as a document it could not
+// open, would turn the signal to go and rasterize this document into an error.
+//
+// The page element still has to be there and still has to state its size, because
+// that is what distinguishes a page carrying no text from a document that was
+// never read.
+func (t *Tests) GeometryOfAnImageOnlyPdfReportsPagesWithoutWords(ctx context.Context) error {
+	conv := pdf().Document(fixture(scanPdf)).Convert()
+
+	report, err := conv.Bbox().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Bbox: %w", err)
+	}
+	doc, err := parseBbox(report)
+	if err != nil {
+		return err
+	}
+	if len(doc.Pages) != 1 {
+		return fmt.Errorf("expected one page in the report, got %d", len(doc.Pages))
+	}
+	page := doc.Pages[0]
+	if !nearly(page.Width, ledgerPageWidth) || !nearly(page.Height, ledgerPageHeight) {
+		return fmt.Errorf("expected a %dx%d point page, got %gx%g",
+			ledgerPageWidth, ledgerPageHeight, page.Width, page.Height)
+	}
+	if len(page.Words) != 0 || len(page.Flows) != 0 {
+		return fmt.Errorf("expected no words on a page with no text layer, got %v",
+			wordTexts(page.Words))
+	}
+
+	tsv, err := conv.Tsv().Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Tsv: %w", err)
+	}
+	rows, err := parseTsv(tsv)
+	if err != nil {
+		return err
+	}
+	if got := len(rowsAtLevel(rows, tsvLevelPage)); got != 1 {
+		return fmt.Errorf("expected one page row, got %d", got)
+	}
+	if got := rowsAtLevel(rows, tsvLevelWord); len(got) != 0 {
+		return fmt.Errorf("expected no word rows on a page with no text layer, got %d", len(got))
+	}
+	return nil
+}
+
+// tsvRow is one row of a -tsv report: which layout element it describes, which
+// page it came from, the box it occupies and the text in it.
+type tsvRow struct {
+	level  int
+	page   int
+	left   float64
+	top    float64
+	width  float64
+	height float64
+	text   string
+}
+
+// parseTsv reads a -tsv report, header included, and rejects anything that is not
+// the twelve-column table poppler documents.
+func parseTsv(report string) ([]tsvRow, error) {
+	lines := strings.Split(strings.TrimRight(report, "\n"), "\n")
+	if len(lines) == 0 {
+		return nil, fmt.Errorf("the report is empty")
+	}
+	if got := strings.Split(lines[0], "\t"); !slices.Equal(got, tsvColumns) {
+		return nil, fmt.Errorf("expected the header %v, got %v", tsvColumns, got)
+	}
+
+	rows := make([]tsvRow, 0, len(lines)-1)
+	for i, line := range lines[1:] {
+		fields := strings.Split(line, "\t")
+		if len(fields) != len(tsvColumns) {
+			return nil, fmt.Errorf("row %d: expected %d columns, got %d: %q",
+				i, len(tsvColumns), len(fields), line)
+		}
+		var row tsvRow
+		var err error
+		for _, num := range []struct {
+			column int
+			into   *int
+		}{{tsvColumnLevel, &row.level}, {tsvColumnPage, &row.page}} {
+			if *num.into, err = strconv.Atoi(fields[num.column]); err != nil {
+				return nil, fmt.Errorf("row %d: %q is not a number: %q", i, fields[num.column], line)
+			}
+		}
+		for _, coord := range []struct {
+			column int
+			into   *float64
+		}{
+			{tsvColumnLeft, &row.left},
+			{tsvColumnTop, &row.top},
+			{tsvColumnWidth, &row.width},
+			{tsvColumnHeight, &row.height},
+		} {
+			if *coord.into, err = strconv.ParseFloat(fields[coord.column], 64); err != nil {
+				return nil, fmt.Errorf("row %d: %q is not a coordinate: %q", i, fields[coord.column], line)
+			}
+		}
+		row.text = fields[tsvColumnText]
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+// rowsAtLevel is every row describing one kind of layout element, in report
+// order.
+func rowsAtLevel(rows []tsvRow, level int) []tsvRow {
+	var out []tsvRow
+	for _, row := range rows {
+		if row.level == level {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// rowsOnPage is every row a report attributes to one page, in report order.
+func rowsOnPage(rows []tsvRow, page int) []tsvRow {
+	var out []tsvRow
+	for _, row := range rows {
+		if row.page == page {
+			out = append(out, row)
+		}
+	}
+	return out
 }
 
 // PngNamesEveryPageWithFourDigits asserts the page-naming contract on a

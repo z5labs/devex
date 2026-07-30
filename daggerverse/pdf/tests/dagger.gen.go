@@ -234,6 +234,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AuthenticatedRepositoryIsRejectedWithoutApkAuth(&parent, ctx)
+		case "BboxCarriesOneBoxPerWord":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BboxCarriesOneBoxPerWord(&parent, ctx)
+		case "BboxWithLayoutAddsBlockAndLineBoxes":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BboxWithLayoutAddsBlockAndLineBoxes(&parent, ctx)
 		case "ColorModesProduceDifferentPixels":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -297,6 +311,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).FontsReportsWhetherEachFaceIsEmbedded(&parent, ctx)
+		case "GeometryOfAnImageOnlyPdfReportsPagesWithoutWords":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeometryOfAnImageOnlyPdfReportsPagesWithoutWords(&parent, ctx)
 		case "HtmlCarriesPageMarkupAndItsImages":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -360,6 +381,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PageRangeNarrowsText(&parent, ctx)
+		case "PageRangeNarrowsTheGeometryOutputs":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PageRangeNarrowsTheGeometryOutputs(&parent, ctx)
 		case "PageRangeOpenEndedRunsToTheLastPage":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -479,6 +507,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).TextReproducesTextLayerExactly(&parent, ctx)
+		case "TsvRowsCarryPageNumbersAndWordGeometry":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TsvRowsCarryPageNumbersAndWordGeometry(&parent, ctx)
 		case "TxtMatchesText":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
