@@ -1,0 +1,65 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Metadata 5 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [4 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 6 0 R >>
+endobj
+5 0 obj
+<< /Type /Metadata /Subtype /XML /Length 543 >>
+stream
+<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+ <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+  <rdf:Description rdf:about=""
+    xmlns:dc="http://purl.org/dc/elements/1.1/"
+    xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+   <dc:title>
+    <rdf:Alt>
+     <rdf:li xml:lang="x-default">XMPTITLE the packet's own title</rdf:li>
+    </rdf:Alt>
+   </dc:title>
+   <xmp:CreatorTool>devex pdf module fixture</xmp:CreatorTool>
+  </rdf:Description>
+ </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>
+
+endstream
+endobj
+6 0 obj
+<<  /Length 73 >>
+stream
+BT
+/F1 12 Tf
+72 700 Td
+(This page carries an XMP metadata packet.) Tj
+ET
+
+endstream
+endobj
+7 0 obj
+<< /Title (INFOTITLE the info dictionary's title) >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000080 00000 n 
+0000000137 00000 n 
+0000000234 00000 n 
+0000000360 00000 n 
+0000000984 00000 n 
+0000001108 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R /Info 7 0 R >>
+startxref
+1176
+%%EOF

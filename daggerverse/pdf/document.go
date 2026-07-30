@@ -147,6 +147,129 @@ func (d *Document) PageCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
+// Fonts returns what pdffonts reports about every face the document's pages
+// name: the face's name, its type, its encoding, whether it is embedded in the
+// file, whether it is a subset, whether it carries a ToUnicode map, and the
+// object it lives in.
+//
+// The `emb` column is the one to read. A PDF that names a font without
+// embedding one — the usual shape for anything not born as a scan — is drawn by
+// asking fontconfig for a substitute, and a substitute poppler cannot find is
+// not an error: the glyphs are simply absent from the rendered page and the
+// command exits 0. This report is what that failure looks like before it
+// happens, which makes it the diagnostic to reach for when a render comes out
+// blank or a face comes out wrong. `no` in that column means the render depends
+// on the image's own fonts — the packaged family, or one supplied through
+// WithFonts.
+//
+// The report is pdffonts' own table, verbatim. Parsing it into structured
+// values is deliberately not this module's job: the format is stable but wide,
+// and a caller who wants one column can read it out of these lines more cheaply
+// than this module can model all of them.
+//
+// WithPageRange narrows it, because which faces a document needs is a question
+// about pages: a face used only on page 40 is absent from a report of pages 1
+// through 3. Which substitute poppler would actually choose for an unembedded
+// face is a different question, answered by `pdffonts -subst`, and reachable
+// through Container.
+func (d *Document) Fonts(ctx context.Context) (string, error) {
+	if err := d.validateRange(ctx); err != nil {
+		return "", err
+	}
+	out, err := d.run(ctx, "Fonts", d.command("pdffonts", d.rangeArgs(), sourcePath))
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(out.stdout, "\n"), nil
+}
+
+// Metadata returns the document's XMP packet: the RDF/XML block a producer
+// writes its own record of the document into — title, creator tool, rights,
+// modification history — and the one place a workflow's own custom properties
+// can live inside a PDF.
+//
+// It is the packet and nothing else, which is what makes it worth having next to
+// Info. The two carry different things and disagree in the wild: Info reports the
+// PDF's Info dictionary, whose handful of keys a producer may have left behind
+// when it rewrote the XMP, and the packet is the record a downstream asset
+// system actually reads. The packet is returned exactly as it sits in the file,
+// so a caller can hand it to an XML parser or grep a property out of it.
+//
+// A document carrying no packet is not an error and does not return nothing:
+// poppler prints nothing at all and exits 0, and an empty string is
+// indistinguishable from a function that never ran. It returns a line saying
+// there is no XMP and naming Info as the report that does carry this document's
+// metadata.
+//
+// WithPageRange does not narrow it, the packet being a property of the document
+// rather than of any page — the same reason it does not narrow Info.
+func (d *Document) Metadata(ctx context.Context) (string, error) {
+	out, err := d.run(ctx, "Metadata", d.command("pdfinfo", []string{metadataFlag}, sourcePath))
+	if err != nil {
+		return "", err
+	}
+	packet := strings.TrimRight(out.stdout, "\n")
+	if strings.TrimSpace(packet) == "" {
+		return noMetadataReport, nil
+	}
+	return packet, nil
+}
+
+// Signatures returns what pdfsig reports about the document's digital
+// signatures: one block per signature naming its field, its signer, when it was
+// signed, which algorithm signed it, how much of the document it covers, and
+// whether the signature validates.
+//
+// A document with no signatures — which is nearly every document — gets the
+// report saying so rather than an error. That is the point of the function
+// being callable on an arbitrary PDF: "is this signed, and does it check out" is
+// a question asked *before* the answer is known, so the unsigned answer has to
+// come back as a result. poppler exits 2 for it, and this is the one place the
+// module reads a non-zero exit as a report rather than a failure.
+//
+// It reports and does not gate. A signature that fails to validate is a report
+// saying so — `Signature Validation: Signature is Invalid.` — and not an error,
+// for the same reason: a caller asking whether the signatures hold needs the
+// answer, and one that wants to stop on a bad signature reads the verdict out of
+// the report. Only a run that got no report at all — an unreadable file, a
+// document whose password is missing or wrong — fails.
+//
+// What the report can say about a signer's *certificate* is limited by the image
+// rather than by the document. Certificate validation needs a trust database,
+// this image carries none, and pdfsig says so on stderr — which is not part of
+// this report. A caller who needs a validated chain supplies one with
+// `-nssdir`, through Container.
+//
+// Neither WithPageRange nor anything else narrows it: a signature covers byte
+// ranges of the file rather than pages, and pdfsig has no page bounds at all.
+// The passwords do reach it, an encrypted document being one it has to open like
+// any other.
+func (d *Document) Signatures(ctx context.Context) (string, error) {
+	res, code, err := d.capture(ctx, d.command("pdfsig", nil, sourcePath))
+	if err != nil {
+		return "", err
+	}
+	report := strings.TrimRight(res.stdout, "\n")
+	// A non-zero exit that printed a report is an answer about the document —
+	// unsigned, or signed by something that did not validate — and only a
+	// non-zero exit that printed nothing is a failed run.
+	if code != 0 && !isSignatureReport(report) {
+		return "", d.failure("Signatures", code, res.stdout, res.stderr)
+	}
+	return report, nil
+}
+
+// isSignatureReport reports whether pdfsig got far enough to say something about
+// the document, which is what separates its two meanings of a non-zero exit.
+//
+// It matches on what was printed rather than on the code, because the codes are
+// ambiguous where the output is not: pdfsig exits 1 both for a document it could
+// not open — nothing on stdout — and for one whose signature did not validate,
+// having printed the whole report first.
+func isSignatureReport(out string) bool {
+	return strings.Contains(out, noSignaturesMarker) || strings.Contains(out, signatureInfoMarker)
+}
+
 // Convert opens the conversion namespace: the render options, and the five
 // outputs that read them.
 //
@@ -298,31 +421,43 @@ func (d *Document) run(ctx context.Context, label string, command string) (*popp
 // non-zero exit into an error that says what actually went wrong. Anything
 // after the script becomes `$0`, `$1` and so on, which is how a value the
 // script needs reaches it without being interpolated into the script text.
-//
-// Expect=ReturnTypeAny keeps a failed run on the value path so its stderr is
-// still readable; without it the exit code is the error and poppler's own
-// message about the document is lost inside Dagger's.
 func (d *Document) runScript(ctx context.Context, label string, script string, args ...string) (*popplerResult, error) {
+	res, code, err := d.capture(ctx, script, args...)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, d.failure(label, code, res.stdout, res.stderr)
+	}
+	return res, nil
+}
+
+// capture runs a shell script against the bound document and returns its output
+// and its exit code without judging either, which is what Signatures needs: for
+// pdfsig a non-zero exit is as often an answer about the document as it is a
+// failure to read it.
+//
+// Expect=ReturnTypeAny is what keeps a failed run on the value path so its
+// output is still readable; without it the exit code is the error and poppler's
+// own message about the document is lost inside Dagger's.
+func (d *Document) capture(ctx context.Context, script string, args ...string) (*popplerResult, int, error) {
 	exec := d.container().WithExec(
 		append([]string{"sh", "-c", script}, args...),
 		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
 
 	code, err := exec.ExitCode(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	stdout, err := exec.Stdout(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	stderr, err := exec.Stderr(ctx)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	if code != 0 {
-		return nil, d.failure(label, code, stdout, stderr)
-	}
-	return &popplerResult{container: exec, stdout: stdout, stderr: stderr}, nil
+	return &popplerResult{container: exec, stdout: stdout, stderr: stderr}, code, nil
 }
 
 // failure builds the error a non-zero exit becomes.

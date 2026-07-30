@@ -62,6 +62,36 @@ const (
 	// be handed to the tesseract module.
 	scanPdf = "scan.pdf"
 
+	// fontsPdf is a two-page PDF whose pages name different faces: page one an
+	// unembedded Helvetica, page two an unembedded Courier alongside a Type 3
+	// font.
+	//
+	// Both halves of that are deliberate. The faces differ per page, which is
+	// the only way a page range is observable in a font report at all — every
+	// page of ledgerPdf names the same face, so narrowing it changes nothing.
+	// And the Type 3 font is embedded by construction, its glyph procedures
+	// being in the file itself, which is what gives the `emb` column something
+	// to say `yes` about.
+	fontsPdf = "fonts.pdf"
+
+	// fontsHelvetica, fontsCourier and fontsEmbedded are the face names
+	// pdffonts reports for fontsPdf: the first on page one, the other two on
+	// page two.
+	fontsHelvetica = "Helvetica"
+	fontsCourier   = "Courier"
+	fontsEmbedded  = "SquareGlyphs"
+
+	// metadataPdf is a one-page PDF carrying an XMP packet in a /Metadata
+	// stream, plus an Info dictionary. The two carry deliberately different
+	// titles, which is what lets an assertion tell the packet apart from
+	// pdfinfo's ordinary report of the same document.
+	metadataPdf = "metadata.pdf"
+
+	// xmpTitleMarker occurs in metadataPdf's XMP packet and infoTitleMarker in
+	// its Info dictionary, and neither occurs anywhere else in the fixture.
+	xmpTitleMarker  = "XMPTITLE"
+	infoTitleMarker = "INFOTITLE"
+
 	// swatchPdf is a one-page PDF of saturated colour patches and one mid grey.
 	// It exists because a colour mode is not observable in a PNG's header:
 	// poppler's writer emits 8-bit RGB whatever was asked for, so the only place
@@ -108,9 +138,9 @@ var ledgerMarkers = []string{
 }
 
 // popplerBinaries is every executable poppler-utils installs. Container's
-// promise is that all of them are reachable, not just the three this module
-// wraps: the module wraps pdftotext, pdftoppm and pdfinfo, and the escape hatch
-// is the whole point of the other ten.
+// promise is that all of them are reachable, not just the seven this module
+// wraps: the module wraps pdftotext, pdftoppm, pdfinfo, pdftocairo, pdftohtml,
+// pdffonts and pdfsig, and the escape hatch is the whole point of the other six.
 var popplerBinaries = []string{
 	"pdfattach", "pdfdetach", "pdffonts", "pdfimages", "pdfinfo",
 	"pdfseparate", "pdfsig", "pdftocairo", "pdftohtml", "pdftoppm",
@@ -147,6 +177,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("WithFontsPutsFaceWhereFontconfigFindsIt", t.WithFontsPutsFaceWhereFontconfigFindsIt)
 
 	jobs = jobs.WithJob("InfoReportsPageCountAndSize", t.InfoReportsPageCountAndSize)
+	jobs = jobs.WithJob("FontsReportsWhetherEachFaceIsEmbedded", t.FontsReportsWhetherEachFaceIsEmbedded)
+	jobs = jobs.WithJob("FontsNarrowsToThePageRange", t.FontsNarrowsToThePageRange)
+	jobs = jobs.WithJob("MetadataReturnsTheXmpPacketOrSaysThereIsNone", t.MetadataReturnsTheXmpPacketOrSaysThereIsNone)
+	jobs = jobs.WithJob("SignaturesReportsAnUnsignedDocumentInsteadOfFailing", t.SignaturesReportsAnUnsignedDocumentInsteadOfFailing)
+	jobs = jobs.WithJob("ReportsOpenAnEncryptedDocumentWithThePassword", t.ReportsOpenAnEncryptedDocumentWithThePassword)
 
 	jobs = jobs.WithJob("TextReproducesTextLayerExactly", t.TextReproducesTextLayerExactly)
 	jobs = jobs.WithJob("TextOnImageOnlyPdfReturnsNothing", t.TextOnImageOnlyPdfReturnsNothing)
@@ -652,6 +687,292 @@ func (t *Tests) InfoReportsPageCountAndSize(ctx context.Context) error {
 		return fmt.Errorf("expected PageCount %d, got %d", ledgerPages, count)
 	}
 	return nil
+}
+
+// FontsReportsWhetherEachFaceIsEmbedded asserts Fonts surfaces pdffonts' table
+// and that the `emb` column in it says what it is supposed to say.
+//
+// ledgerPdf is the shape the module's font install exists for: its pages name
+// Helvetica without embedding it, so poppler has to ask fontconfig for a
+// substitute, and with no font installed there is nothing to substitute — the
+// page renders blank and the command exits 0. `Helvetica … no` is what that
+// silent failure looks like before it happens, which is the whole reason a
+// pipeline asks for this report.
+//
+// fontsPdf carries the other half of the column. Its Type 3 font is embedded by
+// construction, so the report has to read `yes` for it; without that contrast
+// the assertion would pass just as well on a report that said `no` about
+// everything, including one produced by a module that had hardcoded the answer.
+func (t *Tests) FontsReportsWhetherEachFaceIsEmbedded(ctx context.Context) error {
+	report, err := pdf().Document(fixture(ledgerPdf)).Fonts(ctx)
+	if err != nil {
+		return fmt.Errorf("Fonts: %w", err)
+	}
+	// The header is part of the report and is what makes it readable as a table
+	// rather than as a list of names.
+	for _, want := range []string{"name", "type", "encoding", "emb"} {
+		if !strings.Contains(report, want) {
+			return fmt.Errorf("expected the report's header to name the %q column, got:\n%s", want, report)
+		}
+	}
+	row, err := fontRow(report, fontsHelvetica)
+	if err != nil {
+		return fmt.Errorf("%s: %s", ledgerPdf, err.Error())
+	}
+	if got := fontEmbedded(row); got != "no" {
+		return fmt.Errorf("expected %s to be reported unembedded, got %q in:\n%s",
+			fontsHelvetica, got, report)
+	}
+
+	report, err = pdf().Document(fixture(fontsPdf)).Fonts(ctx)
+	if err != nil {
+		return fmt.Errorf("Fonts of %s: %w", fontsPdf, err)
+	}
+	for _, tc := range []struct {
+		face string
+		emb  string
+	}{
+		{fontsHelvetica, "no"},
+		{fontsCourier, "no"},
+		{fontsEmbedded, "yes"},
+	} {
+		row, err := fontRow(report, tc.face)
+		if err != nil {
+			return fmt.Errorf("%s: %s", fontsPdf, err.Error())
+		}
+		if got := fontEmbedded(row); got != tc.emb {
+			return fmt.Errorf("expected %s's emb column to read %q, got %q in:\n%s",
+				tc.face, tc.emb, got, report)
+		}
+	}
+	return nil
+}
+
+// FontsNarrowsToThePageRange asserts WithPageRange reaches pdffonts, and that a
+// range it cannot honour is refused the way every other one is.
+//
+// Which faces a document needs is a question about pages, so this is not a
+// cosmetic option: a report of pages 1 through 3 that listed a face used only on
+// page 40 would say the render depends on a font it does not, and one that
+// dropped a face used on page 2 would say the opposite. fontsPdf is built for
+// it, its two pages naming different faces, because narrowing a report of
+// ledgerPdf — every page of which names the same Helvetica — changes nothing at
+// all and would pass against a module that ignored the bounds entirely.
+func (t *Tests) FontsNarrowsToThePageRange(ctx context.Context) error {
+	doc := pdf().Document(fixture(fontsPdf))
+
+	for _, tc := range []struct {
+		first, last int
+		want        []string
+		absent      []string
+	}{
+		{1, 1, []string{fontsHelvetica}, []string{fontsCourier, fontsEmbedded}},
+		{2, 2, []string{fontsCourier, fontsEmbedded}, []string{fontsHelvetica}},
+		// An open-ended range is the whole document from page one, so both
+		// pages' faces are back.
+		{1, 0, []string{fontsHelvetica, fontsCourier, fontsEmbedded}, nil},
+	} {
+		report, err := doc.WithPageRange(tc.first, tc.last).Fonts(ctx)
+		if err != nil {
+			return fmt.Errorf("Fonts for pages %d-%d: %w", tc.first, tc.last, err)
+		}
+		for _, face := range tc.want {
+			if _, err := fontRow(report, face); err != nil {
+				return fmt.Errorf("pages %d-%d: %s", tc.first, tc.last, err.Error())
+			}
+		}
+		for _, face := range tc.absent {
+			if strings.Contains(report, face) {
+				return fmt.Errorf("pages %d-%d: expected no %s in the report, got:\n%s",
+					tc.first, tc.last, face, report)
+			}
+		}
+	}
+
+	// The bounds are checked against the document rather than handed to poppler,
+	// which for pdffonts is the difference between a named refusal and a report
+	// of no fonts at all — it prints the header and exits 0 for a range past the
+	// end of the document.
+	_, err := doc.WithPageRange(9, 0).Fonts(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a range past the end of the document to be rejected")
+	}
+	for _, want := range []string{"first (9)", "2 pages"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the rejection to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// MetadataReturnsTheXmpPacketOrSaysThereIsNone asserts both halves of what
+// Metadata answers, because the interesting one is the absence.
+//
+// The packet is asserted to be the packet and not pdfinfo's ordinary report of
+// the same document: `pdfinfo -meta` prints the XMP alone, so a module that
+// dropped the flag would return a report that still mentions a title and still
+// looks like metadata. metadataPdf's Info dictionary carries a deliberately
+// different title for exactly that reason — the wrong one showing up is what
+// makes the substitution visible.
+//
+// The absence is the half that needs a decision. poppler prints nothing at all
+// and exits 0 for a document with no XMP, and an empty string is
+// indistinguishable from a function that did not run, so the module answers with
+// a line naming the absence and pointing at the report that does carry the
+// document's metadata.
+func (t *Tests) MetadataReturnsTheXmpPacketOrSaysThereIsNone(ctx context.Context) error {
+	packet, err := pdf().Document(fixture(metadataPdf)).Metadata(ctx)
+	if err != nil {
+		return fmt.Errorf("Metadata: %w", err)
+	}
+	for _, want := range []string{"<?xpacket", "x:xmpmeta", "dc:title", xmpTitleMarker} {
+		if !strings.Contains(packet, want) {
+			return fmt.Errorf("expected the packet to contain %q, got:\n%s", want, packet)
+		}
+	}
+	// The Info dictionary's title is what pdfinfo prints without -meta, so its
+	// presence would mean the ordinary report came back under this name.
+	if strings.Contains(packet, infoTitleMarker) {
+		return fmt.Errorf("expected the XMP packet rather than pdfinfo's ordinary report, got:\n%s", packet)
+	}
+
+	absent, err := pdf().Document(fixture(ledgerPdf)).Metadata(ctx)
+	if err != nil {
+		return fmt.Errorf("Metadata of a document without XMP: %w", err)
+	}
+	// A document with no XMP is a perfectly good document, so this is a result
+	// and not a failure — and it has to say something, an empty string being what
+	// poppler returns and what a caller cannot act on.
+	for _, want := range []string{"No XMP metadata", "Info"} {
+		if !strings.Contains(absent, want) {
+			return fmt.Errorf("expected the absence to be reported with %q, got:\n%s", want, absent)
+		}
+	}
+	// Whatever it says, it must not read as a packet: a caller looking for XMP
+	// has to be able to tell there is none.
+	if strings.Contains(absent, "<?xpacket") {
+		return fmt.Errorf("expected no XMP packet, got:\n%s", absent)
+	}
+	return nil
+}
+
+// SignaturesReportsAnUnsignedDocumentInsteadOfFailing asserts the case almost
+// every document is: no signatures, reported as a result.
+//
+// It is the assertion the function's exit-code handling exists for. pdfsig exits
+// 2 for a document carrying no signatures, having printed exactly what it found,
+// and the module's usual treatment of a non-zero exit — an error naming the
+// failure — would turn the ordinary answer to an ordinary question into a broken
+// pipeline. Reserving failure for the runs that failed is what makes this
+// callable on documents whose signing status is what the caller is asking about.
+//
+// The NSS check is the other half. pdfsig writes `NSS_Init failed` to stderr in
+// an image carrying no certificate database, which is every image this module
+// builds, and a report assembled from both streams would carry that line into
+// every caller's output as though it were something the document said.
+func (t *Tests) SignaturesReportsAnUnsignedDocumentInsteadOfFailing(ctx context.Context) error {
+	report, err := pdf().Document(fixture(ledgerPdf)).Signatures(ctx)
+	if err != nil {
+		return fmt.Errorf("Signatures: %w", err)
+	}
+	if !strings.Contains(report, "does not contain any signatures") {
+		return fmt.Errorf("expected the report to say the document carries no signatures, got:\n%s", report)
+	}
+	if strings.Contains(report, "NSS") {
+		return fmt.Errorf("expected the report to carry the document's own report and not poppler's diagnostics, got:\n%s", report)
+	}
+	return nil
+}
+
+// ReportsOpenAnEncryptedDocumentWithThePassword asserts the document's password
+// reaches all three reporting tools, and that each says the same thing without
+// one.
+//
+// Each tool opens the document itself, so none of this follows from extraction
+// or rendering already working: a password threaded into pdftotext's invocation
+// and not into pdffonts' produces a module where a report on an encrypted
+// document fails while everything else about it succeeds. Both branches are
+// asserted for each, because the refusal is the half a caller reads — poppler
+// reports every wrong password as `Incorrect password` whether one was supplied
+// or not, so the message has to distinguish what the module knows and poppler
+// does not.
+func (t *Tests) ReportsOpenAnEncryptedDocumentWithThePassword(ctx context.Context) error {
+	userPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the user password: %w", err)
+	}
+	ownerPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the owner password: %w", err)
+	}
+	user := dag.SetSecret("pdf-tests-reports-user-password", userPw)
+	owner := dag.SetSecret("pdf-tests-reports-owner-password", ownerPw)
+	encrypted := encryptedLedger(user, owner)
+
+	reports := []struct {
+		name string
+		read func(doc *dagger.PdfDocument) (string, error)
+		want string
+	}{
+		{"Fonts", func(doc *dagger.PdfDocument) (string, error) { return doc.Fonts(ctx) }, fontsHelvetica},
+		// The encrypted fixture is ledgerPdf, which carries no XMP packet, so the
+		// opened document's answer here is the absence — reported, not failed.
+		{"Metadata", func(doc *dagger.PdfDocument) (string, error) { return doc.Metadata(ctx) }, "No XMP metadata"},
+		{"Signatures", func(doc *dagger.PdfDocument) (string, error) { return doc.Signatures(ctx) }, "does not contain any signatures"},
+	}
+
+	for _, report := range reports {
+		if _, err := report.read(pdf().Document(encrypted)); err == nil {
+			return fmt.Errorf("%s: expected an encrypted document to be refused without a password", report.name)
+		} else {
+			for _, want := range []string{"encrypted", "no password was supplied", "WithUserPassword"} {
+				if !strings.Contains(err.Error(), want) {
+					return fmt.Errorf("%s: expected the refusal to mention %q, got: %v", report.name, want, err)
+				}
+			}
+		}
+
+		for _, opened := range []struct {
+			name string
+			doc  *dagger.PdfDocument
+		}{
+			{"WithUserPassword", pdf().Document(encrypted).WithUserPassword(user)},
+			{"WithOwnerPassword", pdf().Document(encrypted).WithOwnerPassword(owner)},
+		} {
+			got, err := report.read(opened.doc)
+			if err != nil {
+				return fmt.Errorf("%s with %s: %w", report.name, opened.name, err)
+			}
+			if !strings.Contains(got, report.want) {
+				return fmt.Errorf("%s with %s: expected the report to contain %q, got:\n%s",
+					report.name, opened.name, report.want, got)
+			}
+		}
+	}
+	return nil
+}
+
+// fontRow picks one face's row out of pdffonts' table and splits it into fields.
+func fontRow(report, face string) ([]string, error) {
+	for _, line := range strings.Split(report, "\n") {
+		if strings.HasPrefix(line, face) {
+			return strings.Fields(line), nil
+		}
+	}
+	return nil, fmt.Errorf("expected a row for %s, got:\n%s", face, report)
+}
+
+// fontEmbedded reads the `emb` column out of a row of pdffonts' table.
+//
+// It counts from the end because the columns before it can each carry a space —
+// `Type 1` is one column, and a font name may hold one too — while the five that
+// follow never do: emb, sub, uni, and the two halves of the object reference.
+func fontEmbedded(fields []string) string {
+	const embFromEnd = 5
+	if len(fields) < embFromEnd {
+		return ""
+	}
+	return fields[len(fields)-embFromEnd]
 }
 
 // TextReproducesTextLayerExactly asserts Text returns the document's text

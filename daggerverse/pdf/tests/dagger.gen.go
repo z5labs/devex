@@ -248,6 +248,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).EpsWritesEveryPageOfTheDocument(&parent, ctx)
+		case "FontsNarrowsToThePageRange":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FontsNarrowsToThePageRange(&parent, ctx)
+		case "FontsReportsWhetherEachFaceIsEmbedded":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).FontsReportsWhetherEachFaceIsEmbedded(&parent, ctx)
 		case "HtmlCarriesPageMarkupAndItsImages":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -276,6 +290,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).LayoutModesProduceDifferentOrderings(&parent, ctx)
+		case "MetadataReturnsTheXmpPacketOrSaysThereIsNone":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MetadataReturnsTheXmpPacketOrSaysThereIsNone(&parent, ctx)
 		case "PageRangeNarrowsEveryPerPageFormat":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -339,6 +360,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RenderSettingsRejectNonPositiveValues(&parent, ctx)
+		case "ReportsOpenAnEncryptedDocumentWithThePassword":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ReportsOpenAnEncryptedDocumentWithThePassword(&parent, ctx)
 		case "ScaleToOverridesDpi":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -346,6 +374,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ScaleToOverridesDpi(&parent, ctx)
+		case "SignaturesReportsAnUnsignedDocumentInsteadOfFailing":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).SignaturesReportsAnUnsignedDocumentInsteadOfFailing(&parent, ctx)
 		case "SvgWritesOneVectorFilePerPage":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
