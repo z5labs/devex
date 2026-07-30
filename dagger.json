@@ -4,102 +4,14 @@
   "sdk": {
     "source": "go"
   },
-  "toolchains": [
-    {
-      "name": "bruno-tests",
-      "source": "daggerverse/bruno/tests"
-    },
-    {
-      "name": "certificate-management-tests",
-      "source": "daggerverse/certificate-management/tests"
-    },
-    {
-      "name": "crypto-tests",
-      "source": "daggerverse/crypto/tests"
-    },
-    {
-      "name": "dgraph-tests",
-      "source": "daggerverse/dgraph/tests"
-    },
-    {
-      "name": "envoy-tests",
-      "source": "daggerverse/envoy/tests"
-    },
-    {
-      "name": "flash-tests",
-      "source": "daggerverse/flash/tests"
-    },
-    {
-      "name": "go-tests",
-      "source": "daggerverse/go/tests"
-    },
-    {
-      "name": "grafana-stack-tests",
-      "source": "daggerverse/grafana-stack/tests"
-    },
-    {
-      "name": "java-tests",
-      "source": "daggerverse/java/tests"
-    },
-    {
-      "name": "kafka-tests",
-      "source": "daggerverse/kafka/tests"
-    },
-    {
-      "name": "kicad-tests",
-      "source": "daggerverse/kicad/tests"
-    },
-    {
-      "name": "opentofu-tests",
-      "source": "daggerverse/opentofu/tests"
-    },
-    {
-      "name": "otel-tests",
-      "source": "daggerverse/otel/tests"
-    },
-    {
-      "name": "pdf-tests",
-      "source": "daggerverse/pdf/tests"
-    },
-    {
-      "name": "postgres-tests",
-      "source": "daggerverse/postgres/tests"
-    },
-    {
-      "name": "qemu-tests",
-      "source": "daggerverse/qemu/tests"
-    },
-    {
-      "name": "random-tests",
-      "source": "daggerverse/random/tests"
-    },
-    {
-      "name": "skill-gen-tests",
-      "source": "daggerverse/skill-gen/tests"
-    },
-    {
-      "name": "tesseract-tests",
-      "source": "daggerverse/tesseract/tests"
-    },
-    {
-      "name": "valkey-tests",
-      "source": "daggerverse/valkey/tests"
-    },
-    {
-      "name": "workspace-ci-tests",
-      "source": "daggerverse/workspace-ci/tests"
-    },
-    {
-      "name": "z5labs-tests",
-      "source": "daggerverse/z5labs/tests"
-    },
-    {
-      "name": "zig-tests",
-      "source": "daggerverse/zig/tests"
-    }
-  ],
   "include": [
     "!ci/README.md"
+  ],
+  "dependencies": [
+    {
+      "name": "workspace-ci",
+      "source": "daggerverse/workspace-ci"
+    }
   ],
   "source": "ci",
   "codegen": {

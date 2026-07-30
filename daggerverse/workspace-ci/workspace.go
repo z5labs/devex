@@ -212,6 +212,31 @@ func (ws *workspace) affected(ctx context.Context, base, head string) ([]string,
 	return planner.SelectModules(ws.moduleDirs, ws.closures, changed, global)
 }
 
+// partitionSplits divides the affected modules into the ones the run-everything
+// path may emit as a single coarse leg and the ones the caller asked to have
+// enumerated anyway.
+//
+// A named module that is not in the workspace is reported rather than ignored: it
+// is a typo, and its whole effect would otherwise be nothing at all.
+func (ws *workspace) partitionSplits(affected []string) (coarse, split []string) {
+	want := make(map[string]bool, len(ws.m.SplitModules))
+	for _, dir := range ws.m.SplitModules {
+		want[dir] = true
+	}
+	for _, dir := range affected {
+		if want[dir] {
+			split = append(split, dir)
+			delete(want, dir)
+			continue
+		}
+		coarse = append(coarse, dir)
+	}
+	for _, dir := range sortedKeys(want) {
+		fmt.Fprintf(os.Stderr, "workspace-ci: %q was named as a split module but is not in the plan; its checks will share one leg\n", dir)
+	}
+	return coarse, split
+}
+
 // legs enumerates the checks of each affected module and returns one leg per
 // check.
 //

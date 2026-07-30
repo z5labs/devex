@@ -50,9 +50,29 @@ repository discovers that repository's modules, diffs its `.git`, and hashes its
 sources. Verified against a separate workspace, which produced a plan identical
 to the one a local checkout produced.
 
-Installing it as a dependency or a toolchain also works, and a toolchain gets you
-`workspace-ci:generated`, `workspace-ci:generated-self-test` and
-`workspace-ci:selection-self-test` as checks of your own.
+To also adopt `generated`, `generated-self-test` and `selection-self-test` as
+checks of your own, install this module as a **dependency of your root module**
+and declare them there:
+
+```go
+// +check
+// +cache="never"
+func (m *Root) Generated(ctx context.Context) error {
+	return dag.WorkspaceCi().Generated(ctx)
+}
+```
+
+`dag.CurrentWorkspace()` resolves to the caller's workspace from inside a
+dependency, so the check reads your repository, not this one. Repeat
+`+cache="never"` on the wrapper: the directive on the function being called does
+not propagate to the one calling it.
+
+Declaring them on the **root** module specifically is what makes them work as
+intended — a plan always runs the root module's checks and never memoizes them,
+which is the premise `generated` rests on. Installing this module as a
+*toolchain* instead surfaces those checks to `dagger check`, but not to a plan:
+enumeration reads `Module.checks`, which reports a module's own checks and not
+its toolchains'. A toolchain check is therefore one no plan ever emits a leg for.
 
 ## What the planner will not do
 
@@ -64,6 +84,26 @@ actual planning). Only modules a change could reach are loaded, and the
 run-everything path emits one leg per module rather than one per check, so it
 loads none at all. Fewer, coarser legs there also means fewer simultaneous engine
 boots.
+
+### When one coarse leg is too coarse
+
+A coarse leg runs a module's whole suite in one engine on one runner. That is free
+when a module's checks share their containers — 13 checks of a Grafana stack land
+in ~1m30s — and it is wrong when each check boots a stack of its own. A Kafka
+suite whose five checks bring up five different distributions puts **87** brokers,
+controllers and registries into a single engine, where a slow start becomes a
+failed one.
+
+`--split-modules` is the escape hatch: the modules it names are enumerated even
+when everything runs, so their checks get a leg each.
+
+```sh
+dagger -m … call --split-modules=daggerverse/kafka/tests plan --base=… --head=…
+```
+
+Each named module costs one load, which is the thing this path exists to avoid —
+so name the ones that need it, not every module with more than one check. A name
+that matches no module in the plan is reported on stderr rather than ignored.
 
 **It will not return an empty plan.** A workspace it cannot read is an error: an
 empty matrix skips the run job and passes the gate having run nothing. Everything

@@ -243,6 +243,7 @@ func (t *Tests) All(ctx context.Context) error {
 		"affected-modules-reports-what-change-reached":           t.AffectedModulesReportsWhatChangeReached,
 		"plan-emits-github-actions-matrix":                       t.PlanEmitsGithubActionsMatrix,
 		"plan-applies-timeout-overrides":                         t.PlanAppliesTimeoutOverrides,
+		"plan-splits-named-modules-on-the-run-everything-path":   t.PlanSplitsNamedModulesOnTheRunEverythingPath,
 		"new-rejects-malformed-timeouts":                         t.NewRejectsMalformedTimeouts,
 		"new-rejects-memo-token-without-repo":                    t.NewRejectsMemoTokenWithoutRepo,
 		"selection-self-test-passes":                             t.SelectionSelfTestPasses,

@@ -66,10 +66,13 @@ repo root instead.
 
 ## CI
 
-Checks run through Dagger via the [`ci/`](ci/) module, wired into GitHub Actions
-in [`.github/workflows/ci.yml`](.github/workflows/ci.yml). Each module has a
-sibling `tests/` module exposed as a toolchain in
-[`dagger.json`](dagger.json).
+Every module has a sibling `tests/` module whose suite is a Dagger check.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs them through
+[`daggerverse/workspace-ci`](daggerverse/workspace-ci), which plans each change:
+it diffs the commit range, works out which modules the change could reach, and
+returns one leg per check to run — skipping those a previous run already proved
+good — each routed at the module that owns it. The [`ci/`](ci/) module holds only
+the three checks that must run whatever changed.
 
 The manually-triggered
 [`update-dagger.yml`](.github/workflows/update-dagger.yml) workflow bumps the
