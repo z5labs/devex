@@ -109,24 +109,30 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 
 func (r Batch) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Tesseract *Tesseract
-		Source    *dagger.Directory
-		Glob      string
-		Options   options
+		Tesseract      *Tesseract
+		Source         *dagger.Directory
+		Glob           string
+		Concurrency    int
+		HasConcurrency bool
+		Options        options
 	}
 	concrete.Tesseract = r.Tesseract
 	concrete.Source = r.Source
 	concrete.Glob = r.Glob
+	concrete.Concurrency = r.Concurrency
+	concrete.HasConcurrency = r.HasConcurrency
 	concrete.Options = r.Options
 	return json.Marshal(&concrete)
 }
 
 func (r *Batch) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Tesseract *Tesseract
-		Source    *dagger.Directory
-		Glob      string
-		Options   options
+		Tesseract      *Tesseract
+		Source         *dagger.Directory
+		Glob           string
+		Concurrency    int
+		HasConcurrency bool
+		Options        options
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -135,6 +141,8 @@ func (r *Batch) UnmarshalJSON(bs []byte) error {
 	r.Tesseract = concrete.Tesseract
 	r.Source = concrete.Source
 	r.Glob = concrete.Glob
+	r.Concurrency = concrete.Concurrency
+	r.HasConcurrency = concrete.HasConcurrency
 	r.Options = concrete.Options
 	return nil
 }
@@ -585,6 +593,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Batch).Files(&parent, ctx)
+		case "WithConcurrency":
+			var parent Batch
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var concurrency int
+			if inputArgs["concurrency"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["concurrency"]), &concurrency)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg concurrency", err))
+				}
+			}
+			return (*Batch).WithConcurrency(&parent, concurrency), nil
 		case "WithDpi":
 			var parent Batch
 			err = json.Unmarshal(parentJSON, &parent)

@@ -4,30 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"dagger/tesseract/internal/dagger"
 )
-
-// batchArgv0 is the `$0` the batch loop runs under. Every recognition flag and
-// configfile reaches the loop as `"$@"` rather than being interpolated into the
-// script, which is what keeps a parameter value with a space or a quote in it
-// from needing any escaping at all.
-const batchArgv0 = "tesseract-batch"
-
-// batchScript is the whole of the batch mechanism: read one record per image,
-// create its output directory, recognise it.
-//
-// `set -e` aborts on the first failure, so a page tesseract cannot read fails
-// the run carrying its own message instead of going quietly missing from the
-// results. IFS is a literal tab, so a file name with spaces survives the read;
-// checkManifestSafe rejects the tabs and newlines that would not.
-const batchScript = `set -e
-while IFS="` + "\t" + `" read -r src out dir; do
-	mkdir -p "$dir"
-	tesseract "$src" "$out" "$@"
-done < ` + batchManifestPath
 
 // imageExtensions is what the default glob accepts, lower-cased for a
 // case-insensitive comparison. It is the set this image can actually decode:
@@ -45,6 +28,13 @@ var imageExtensions = []string{
 // Batch is a directory of images plus the recognition options that apply to
 // all of them. It carries the same options type Document does, so the two
 // cannot drift: every With* here forwards to the shared builder.
+//
+// It is also built out of Document rather than merely resembling one. Each
+// matched image is recognised as its own Document — its own exec, its own
+// mounts, its own cache entry — and what runs several of them at a time is Go,
+// not a runner inside a container. That is what keeps the scheduling, the
+// bound and the failure reporting in a language with types and a debugger,
+// instead of in a shell script mounted into an image.
 type Batch struct {
 	// +private
 	Tesseract *Tesseract
@@ -52,6 +42,10 @@ type Batch struct {
 	Source *dagger.Directory
 	// +private
 	Glob string
+	// +private
+	Concurrency int
+	// +private
+	HasConcurrency bool
 	// +private
 	Options options
 }
@@ -69,6 +63,35 @@ type Batch struct {
 func (b *Batch) WithGlob(pattern string) *Batch {
 	out := *b
 	out.Glob = pattern
+	return &out
+}
+
+// WithConcurrency bounds how many images the batch recognises at once.
+//
+// It defaults to the number of CPUs the module can see, which is what a batch
+// wants: every image is its own exec, and recognising them one at a time would
+// pay that overhead N times for none of the parallelism it buys. Processes are
+// how tesseract parallelises well — eleven pages on four CPUs take 3.37s one at
+// a time and 1.05s eleven at a time, ~90% efficiency where its own OpenMP
+// manages 33%, because those regions sit inside the LSTM inner loops and do not
+// amortize.
+//
+// Recognising more than one at a time therefore also caps OpenMP at one thread
+// per process, unless the caller named an explicit ompThreadLimit on New, which
+// is left alone. Concurrency multiplied by per-process threads rather than
+// bounded by cores is the one shape that is slower than doing nothing: four
+// concurrent unbounded passes on four CPUs take 3m36.8s against 1.24s bounded,
+// 174x.
+//
+// Pass a number to take less of the machine than the default, or 1 to recognise
+// one image at a time. Non-positive is rejected at output time.
+func (b *Batch) WithConcurrency(
+	// Maximum number of images to recognise at the same time.
+	concurrency int,
+) *Batch {
+	out := *b
+	out.Concurrency = concurrency
+	out.HasConcurrency = true
 	return &out
 }
 
@@ -115,7 +138,10 @@ func (b *Batch) WithUserPatterns(patterns *dagger.File) *Batch {
 }
 
 // Files lists the images the batch will recognise, as paths relative to the
-// source directory root, in the order they are processed.
+// source directory root, sorted. Sorted is not the order they are recognised
+// in — they run several at a time — but it is the order their artifacts are
+// assembled in, so the returned directory is the same whatever the scheduling
+// did.
 //
 // It answers the question a glob always raises — did that pattern pick up what
 // I meant? — without paying for the recognition, and it fails on an empty match
@@ -128,45 +154,147 @@ func (b *Batch) Files(ctx context.Context) ([]string, error) {
 // input layout, with one artifact per requested format per image: `scans/a.png`
 // becomes `scans/a.txt` alongside `scans/a.pdf`.
 //
-// The whole batch is one container exec. tesseract's own list-file mode — a
-// text file of image paths as the FILE argument — is not what does that here,
-// because it treats the list as one multi-page *document*: it renders a single
-// concatenated artifact set (one .txt with form-feed page breaks, one
-// multi-page PDF) and offers no way to get the per-image files this returns.
-// So the exec loops over the manifest instead, which keeps the expensive part
-// — a container exec, its mounts and its cache lookup, per page — collapsed to
-// one, while each image still gets its own output base.
+// Each image is recognised on its own, as its own exec, WithConcurrency of them
+// at a time. tesseract's own list-file mode — a text file of image paths as the
+// FILE argument — is not what a batch wants, because it treats the list as one
+// multi-page *document*: it renders a single concatenated artifact set (one .txt
+// with form-feed page breaks, one multi-page PDF) and offers no way to get the
+// per-image files this returns.
+//
+// One exec per image is what makes the results cache per image too: an edited
+// page invalidates its own recognition and nothing else, which is the whole
+// difference for a corpus that grows a page at a time. It costs one exec's
+// overhead per page instead of per batch — see the README for what that is
+// worth measured — and it is the shape that lets the fan-out live in Go.
 func (b *Batch) Export(
 	ctx context.Context,
 	// Output formats to render for each image in the batch.
 	formats []Format,
 ) (*dagger.Directory, error) {
-	configs, err := selectFormats(formats)
+	selected, err := selectedFormats(formats)
 	if err != nil {
+		return nil, err
+	}
+	if err := b.validateConcurrency(); err != nil {
 		return nil, err
 	}
 	sources, err := b.matches(ctx)
 	if err != nil {
 		return nil, err
 	}
+	// Validated once here rather than per image: the checks are the same for
+	// every recognition in the batch, and a bad option should be reported as
+	// itself instead of as a failure of whichever page happened to run first.
 	if err := b.Options.validate(ctx, b.Tesseract); err != nil {
 		return nil, err
 	}
-	manifest, err := batchManifest(sources)
-	if err != nil {
-		return nil, err
-	}
-	flags, err := b.Options.flags(b.Tesseract)
+
+	execs, err := b.recognise(ctx, sources, formatConfigs(selected))
 	if err != nil {
 		return nil, err
 	}
 
-	args := append([]string{"sh", "-c", batchScript, batchArgv0}, flags...)
-	exec, err := execTesseract(ctx, b.container(manifest), append(args, configs...))
-	if err != nil {
-		return nil, err
+	// Assembling the mirrored directory is pure graph-building — every
+	// recognition has already run — so it is one WithFile per artifact, in a
+	// fixed order, off the exec that produced it.
+	out := dag.Directory()
+	for i, source := range sources {
+		base := outputBaseFor(source)
+		for _, format := range selected {
+			ext := formatTable[format].ext
+			out = out.WithFile(base+ext, execs[i].File(outputBase+ext))
+		}
 	}
-	return exec.Directory(outputDir), nil
+	return out, nil
+}
+
+// recognise runs one exec per image, at most workers() of them at a time, and
+// returns the finished execs positionally.
+//
+// The bound is a slot channel rather than an unbounded fan-out because a
+// thousand pages is a thousand containers otherwise, and because recognition
+// that is already using every core gains nothing from being asked for more of
+// them at once.
+//
+// The first failure cancels the rest: a batch that is going to fail has no
+// reason to recognise the remaining pages first, and the error it reports names
+// the image. tesseract's own message usually cannot — handed a file leptonica
+// will not decode, it falls back to reading the file as a list of image paths
+// and reports the *contents* of its first line as the file it could not open.
+func (b *Batch) recognise(ctx context.Context, sources []string, configs []string) ([]*dagger.Container, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		first error
+	)
+	execs := make([]*dagger.Container, len(sources))
+	slots := make(chan struct{}, b.workers())
+
+	for i, source := range sources {
+		wg.Go(func() {
+			select {
+			case slots <- struct{}{}:
+				defer func() { <-slots }()
+			case <-ctx.Done():
+				return
+			}
+
+			exec, err := b.document(source).run(ctx, outputBase, configs...)
+
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				// Formatted rather than %w-wrapped: the error crosses the
+				// module boundary, which unwraps a chain back to the inner
+				// error and would drop the image's name along with it.
+				if first == nil {
+					first = fmt.Errorf("Batch: %q: %v", source, err)
+					cancel()
+				}
+				return
+			}
+			execs[i] = exec
+		})
+	}
+	wg.Wait()
+
+	if first != nil {
+		return nil, first
+	}
+	return execs, nil
+}
+
+// document binds one matched image to the toolchain as the Document it is, so
+// the two units of work share their execution as well as their option set: a
+// batch is its images recognised as Documents, several at a time.
+func (b *Batch) document(source string) *Document {
+	return &Document{
+		Tesseract: b.toolchain(),
+		Source:    b.Source.File(source),
+		Options:   b.Options,
+	}
+}
+
+// toolchain is the module the batch's recognitions run on: the caller's, or a
+// copy bounded to one OpenMP thread when several of them run at once.
+//
+// Concurrency multiplied by per-process threads rather than bounded by cores is
+// the one shape slower than doing nothing (see WithConcurrency), and one thread
+// per process is the fast shape outright. The bound rides on a copy of the
+// module rather than on the caller's, so nothing else built from the same
+// Tesseract sees it; it is applied after `apk add`, so the two images still
+// share the package fetch. An ompThreadLimit the caller named on New is theirs
+// and is left alone.
+func (b *Batch) toolchain() *Tesseract {
+	if b.workers() <= minBatchConcurrency || b.Tesseract.OmpThreadLimit != hostCpuOmpThreadLimit {
+		return b.Tesseract
+	}
+	out := b.Tesseract.clone()
+	out.OmpThreadLimit = concurrentOmpThreadLimit
+	return out
 }
 
 // with returns a copy of the batch carrying a new option set, which is what
@@ -177,12 +305,34 @@ func (b *Batch) with(opts options) *Batch {
 	return &out
 }
 
-// container mounts the source directory and the manifest the exec loops over,
-// alongside whatever the options bring with them.
-func (b *Batch) container(manifest *dagger.File) *dagger.Container {
-	return b.Options.mount(b.Tesseract.Container().
-		WithMountedDirectory(batchSourceDir, b.Source).
-		WithMountedFile(batchManifestPath, manifest))
+// workers is how many recognitions run at once: whatever WithConcurrency asked
+// for, or one per CPU the module can see.
+//
+// The default is the core count rather than one because every image is its own
+// exec now: recognising them one at a time would pay that exec's overhead N
+// times over and spend none of the parallelism it bought. What makes the core
+// count safe is toolchain's OpenMP bound — see WithConcurrency.
+func (b *Batch) workers() int {
+	if b.HasConcurrency {
+		return b.Concurrency
+	}
+	if cpus := runtime.NumCPU(); cpus > minBatchConcurrency {
+		return cpus
+	}
+	return minBatchConcurrency
+}
+
+// validateConcurrency rejects a bound that would run no images at all. It is
+// deferred to output time rather than reported from the builder because a
+// builder has no error return, which is the same reason WithDpi's check lives
+// away from WithDpi.
+func (b *Batch) validateConcurrency() error {
+	if b.HasConcurrency && b.Concurrency < minBatchConcurrency {
+		return fmt.Errorf(
+			"WithConcurrency: concurrency must be positive, got %d: pass 1 to recognise one image at a time, or leave it unset for one per available CPU",
+			b.Concurrency)
+	}
+	return nil
 }
 
 // matches resolves the glob into the sorted list of images to recognise, and
@@ -215,9 +365,6 @@ func (b *Batch) matches(ctx context.Context) ([]string, error) {
 		}
 		if err := rejectPdf(p); err != nil {
 			return nil, fmt.Errorf("Batch: %w", err)
-		}
-		if err := checkManifestSafe(p); err != nil {
-			return nil, fmt.Errorf("Batch: %w: rename it, or recognise it on its own with Document", err)
 		}
 		sources = append(sources, p)
 	}
@@ -264,32 +411,6 @@ func checkOutputCollisions(sources []string) error {
 		seen[base] = p
 	}
 	return nil
-}
-
-// checkManifestSafe rejects a path the tab-separated manifest cannot carry
-// unambiguously. Spaces are fine — the loops split on tabs alone — but a tab or
-// a newline in a file name would be read as a field or record boundary and act
-// on the wrong file. Batch and Training share the manifest shape and therefore
-// share the check; each adds its own way out of it.
-func checkManifestSafe(p string) error {
-	if strings.ContainsAny(p, "\t\n") {
-		return fmt.Errorf("file name %q contains a tab or newline, which the manifest cannot represent", p)
-	}
-	return nil
-}
-
-// batchManifest renders the file the exec loops over: one record per image,
-// holding the source path, the output base and the directory to create for it.
-// All three are absolute container paths, resolved here rather than in the
-// shell so the loop needs no path arithmetic of its own.
-func batchManifest(sources []string) (*dagger.File, error) {
-	var sb strings.Builder
-	for _, p := range sources {
-		out := outputDir + "/" + outputBaseFor(p)
-		fmt.Fprintf(&sb, "%s\t%s\t%s\n", batchSourceDir+"/"+p, out, path.Dir(out))
-	}
-	name := path.Base(batchManifestPath)
-	return dag.Directory().WithNewFile(name, sb.String()).File(name), nil
 }
 
 // outputBaseFor maps an input path onto the output base that mirrors it, by

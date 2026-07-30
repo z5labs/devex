@@ -248,6 +248,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AuthenticatedRepositoryIsRejectedWithoutApkAuth(&parent, ctx)
+		case "BatchConcurrencyMatchesSerialOutput":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchConcurrencyMatchesSerialOutput(&parent, ctx)
+		case "BatchConcurrencyReportsFailingImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).BatchConcurrencyReportsFailingImage(&parent, ctx)
 		case "BatchDefaultGlobSkipsNonImages":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

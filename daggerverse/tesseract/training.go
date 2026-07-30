@@ -320,6 +320,22 @@ func (tr *Training) iterations() (int, error) {
 	return tr.Iterations, nil
 }
 
+// checkManifestSafe rejects a path the tab-separated manifest cannot carry
+// unambiguously. Spaces are fine — the sample-building loop splits on tabs
+// alone — but a tab or a newline in a file name would be read as a field or
+// record boundary and act on the wrong file.
+//
+// Batch used to share this check and no longer needs it: it recognises each
+// image as its own exec with its own mount, so there is no record format left
+// for a file name to break. Training still assembles one, and one shell loop
+// reads it.
+func checkManifestSafe(p string) error {
+	if strings.ContainsAny(p, "\t\n") {
+		return fmt.Errorf("file name %q contains a tab or newline, which the manifest cannot represent", p)
+	}
+	return nil
+}
+
 // pairs resolves the source directory into the training samples it holds, and
 // reports every reason it is not a training set: an image with no ground
 // truth, a ground truth with no image, two images that would share one, or
