@@ -63,10 +63,19 @@
 // else here has: pdfseparate and pdfunite accept no password, so an encrypted
 // document has to be decrypted before either will touch it.
 //
+// Two more pull out what the document *contains* rather than a conversion of it,
+// and both are routinely confused with a render. EmbeddedImages is pdfimages: the
+// image objects on the pages, at the resolution they are stored at, which for a
+// scan is better OCR input than any resolution Convert.Png can be asked for
+// because nothing was resampled to produce it. Attachments is pdfdetach: whole
+// files hung off the document's catalog, which is how an invoice carries its
+// machine-readable XML, and which no amount of rendering reaches.
+//
 // File map (all `package main`, surfaced as one Dagger module):
 //
-//   - enums.go    — ColorMode and LayoutMode plus the tables mapping them onto
-//     poppler's flags, and the internal raster- and per-page-format tables.
+//   - enums.go    — ColorMode, LayoutMode and ImageFormat plus the tables
+//     mapping them onto poppler's flags, and the internal raster- and
+//     per-page-format tables.
 //   - document.go — *Document, one bound PDF: its passwords, its page range,
 //     and the four reports about it — what pdfinfo says, which fonts it needs,
 //     its XMP metadata, and its signatures.
@@ -76,6 +85,10 @@
 //     sit together rather than with their receivers because they are one
 //     story: the page-naming contract one writes is the order the other
 //     reads.
+//   - extract.go  — EmbeddedImages and Attachments, the two extractions. They
+//     sit together because they are one story too: both return what the file
+//     already carries, and both are reached for by mistake instead of a render
+//     or instead of each other.
 package main
 
 import (
@@ -100,9 +113,9 @@ const (
 	defaultAlpineTag = "3.24"
 
 	// popplerPkg carries all thirteen pdf* binaries this module reaches
-	// through Container, of which nine are wrapped: pdftotext, pdftoppm,
-	// pdfinfo, pdftocairo, pdftohtml, pdffonts, pdfsig, pdfseparate and
-	// pdfunite.
+	// through Container, of which eleven are wrapped: pdftotext, pdftoppm,
+	// pdfinfo, pdftocairo, pdftohtml, pdffonts, pdfsig, pdfseparate,
+	// pdfunite, pdfimages and pdfdetach.
 	popplerPkg = "poppler-utils"
 
 	// fontPkg is the substitute font family poppler draws with when a PDF
@@ -375,9 +388,9 @@ func (p *Pdf) WithFonts(
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and nine of them are wrapped here, so pdfimages, pdfattach,
-// pdfdetach and pdftops stay reachable via `container with-exec` — as do the
-// flags of a wrapped tool that this module does not surface, `pdffonts -subst`
+// binaries and eleven of them are wrapped here, so pdfattach and pdftops stay
+// reachable via `container with-exec` — as do the flags of a wrapped tool that
+// this module does not surface, `pdffonts -subst` and `pdfdetach -savefile`
 // among them.
 func (p *Pdf) Container() *dagger.Container {
 	ctr := p.base().WithExec([]string{"apk", "add", "--no-cache", popplerPkg, fontPkg})

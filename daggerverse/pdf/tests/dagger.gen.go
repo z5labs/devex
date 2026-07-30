@@ -227,6 +227,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ApkRepositoryReplacesImageDefaults(&parent, ctx)
+		case "AttachmentsReportsPopplersRefusalOfPathBearingNames":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AttachmentsReportsPopplersRefusalOfPathBearingNames(&parent, ctx)
+		case "AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone(&parent, ctx)
 		case "AuthenticatedRepositoryIsRejectedWithoutApkAuth":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +297,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).DpiDefaultsToOneFiftyAndScalesWithTheSetting(&parent, ctx)
+		case "EmbeddedImagesKeepsTheOriginalEncoding":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).EmbeddedImagesKeepsTheOriginalEncoding(&parent, ctx)
+		case "EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange(&parent, ctx)
+		case "EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage(&parent, ctx)
 		case "EncryptedDocumentNeedsThePassword":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -297,6 +332,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).EpsWritesEveryPageOfTheDocument(&parent, ctx)
+		case "ExtractionsOpenAnEncryptedDocumentWithThePassword":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ExtractionsOpenAnEncryptedDocumentWithThePassword(&parent, ctx)
 		case "FontsNarrowsToThePageRange":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

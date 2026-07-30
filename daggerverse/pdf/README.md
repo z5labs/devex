@@ -12,7 +12,11 @@ page count, page size, PDF version, whether it is encrypted and under which
 algorithm, which fonts it needs and whether they are embedded, what its XMP
 metadata says, and whether its signatures check out. Or leave it a PDF and change
 its page structure instead: `Split` takes a document apart a page per file,
-`Merge` puts several back together in the order you name them.
+`Merge` puts several back together in the order you name them. Or take out what
+the file already carries rather than a conversion of it: `EmbeddedImages` pulls
+the image objects off the pages at the resolution they are stored at, and
+`Attachments` pulls out the files hung off the document — the machine-readable
+XML an invoice carries next to its printable page.
 
 **There is no official poppler container image**, so this module assembles its
 own the way `tesseract` and `qemu` do rather than pinning a vendor image the way
@@ -142,12 +146,12 @@ Pdf.Merge(ctx, sources []*dagger.File) (*dagger.File, error)
 ```
 
 `Container` is the escape hatch. poppler-utils ships **thirteen** binaries and
-this module wraps nine of them — `pdftotext`, `pdftoppm`, `pdfinfo`,
-`pdftocairo`, `pdftohtml`, `pdffonts`, `pdfsig`, `pdfseparate` and `pdfunite` —
-so `pdfimages`, `pdftops`, `pdfattach` and `pdfdetach` stay reachable via
-`container with-exec` until they get wrapped too (see
-[Follow-ups](#follow-ups)). So do the flags of a wrapped tool that this module
-does not surface, `pdffonts -subst` among them.
+this module wraps eleven of them — `pdftotext`, `pdftoppm`, `pdfinfo`,
+`pdftocairo`, `pdftohtml`, `pdffonts`, `pdfsig`, `pdfseparate`, `pdfunite`,
+`pdfimages` and `pdfdetach` — so `pdftops` and `pdfattach` stay reachable via
+`container with-exec`. `pdfattach` is deliberately not planned (see
+[Follow-ups](#follow-ups)). So are the flags of a wrapped tool that this module
+does not surface, `pdffonts -subst` and `pdfdetach -savefile` among them.
 
 `Version` reads **stderr**, not stdout: poppler's tools print their version
 banner on stderr and still exit 0, so a module reading stdout would report the
@@ -167,6 +171,8 @@ Document.Fonts(ctx) (string, error)
 Document.Metadata(ctx) (string, error)
 Document.Signatures(ctx) (string, error)
 Document.Split(ctx) (*dagger.Directory, error)
+Document.EmbeddedImages(ctx, format ImageFormat) (*dagger.Directory, error)
+Document.Attachments(ctx) (*dagger.Directory, error)
 Document.Convert() *Convert
 ```
 
@@ -222,7 +228,9 @@ Bounds are **1-based and inclusive**, matching poppler's own `-f`/`-l`, so
 the first page alone. A zero `last` means "to the last page", which is the only
 way to spell an open-ended range without first asking how many pages there are.
 
-It narrows the text outputs, the raster outputs and `Split` alike.
+It narrows the text outputs, the raster outputs, `Split` and `EmbeddedImages`
+alike. It does not narrow `Info`, `PageCount`, `Metadata`, `Signatures` or
+`Attachments`, all of which describe the document rather than a slice of it.
 
 Bounds are checked against the document and rejected by naming the bound, at the
 point of use rather than in the builder — the check needs the page count, which
@@ -677,6 +685,152 @@ single pages to merge — and the pages keep their own size, so merging US Lette
 with A4 yields a document whose pages differ in size, which is what a
 concatenation should do.
 
+## `EmbeddedImages` and `Attachments` — what the file carries, not a render
+
+```go
+Document.EmbeddedImages(ctx, format ImageFormat) (*dagger.Directory, error)
+Document.Attachments(ctx) (*dagger.Directory, error)
+```
+
+Two extractions that are not renders, and are routinely mistaken for them.
+
+### `EmbeddedImages` is not `Convert().Png()`
+
+`Convert().Png()` **rasterizes a page**: it draws the text, the vectors, the
+annotations and the images into a new bitmap at whatever `WithDpi` names, and the
+pixels it produces have never existed before. `EmbeddedImages` returns the **image
+objects the file contains**, decoded no further than it has to be. For a scanned
+document that is the scan, at the resolution it was scanned at, with nothing
+resampled on the way out — which makes it strictly better OCR input than any
+resolution `Convert().Png()` can be asked for:
+
+```go
+doc := dag.Pdf().Document(scan)
+
+// Better: the scan itself, at its own resolution.
+images := doc.EmbeddedImages(dagger.PdfImageFormatPng)
+
+// Worse for OCR: a re-rasterization of pixels that were already pixels.
+pages := doc.Convert().WithDpi(300).Png()
+```
+
+The two are not interchangeable in the other direction either. A page of text and
+vectors carries **no image object at all**, so `EmbeddedImages` returns nothing
+for it and `Convert().Png()` is the only thing that draws it. Which is also why
+`WithDpi`, `WithColorMode`, `WithScaleTo` and `WithoutAnnotations` are not
+reachable from `EmbeddedImages`: they live on `Convert`, and there is nothing to
+choose about the resolution of an image that already has one.
+
+`EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage` is the test that pins the
+distinction, and it pins it on the numbers: `scan.pdf`'s image is 16x16, and a
+render of the US Letter page it is drawn across is 1275x1650.
+
+### `ImageFormat` — keep the encoding, or replace it
+
+An embedded image already has an encoding, so every member either keeps it or
+replaces it. There is no default: which one is right depends entirely on what
+reads the result, and quietly re-encoding a caller's scan is not a decision this
+module makes on their behalf.
+
+| member | flags | encoded image | image with no writable encoding |
+| --- | --- | --- | --- |
+| `PNG` | `-png` | re-encoded as PNG | PNG |
+| `TIFF` | `-tiff` | re-encoded as TIFF | TIFF |
+| `ORIGINAL` | `-j -jp2 -jbig2 -ccitt` | **kept byte for byte** | netpbm — `.ppm`, `.pgm`, `.pbm` |
+| `ALL` | `-all` | **kept byte for byte** | PNG, or TIFF where PNG cannot represent it |
+
+"Kept byte for byte" is meant literally, and covers JPEG, JPEG 2000, JBIG2 and
+CCITT G4 — the four encodings poppler can copy through instead of decoding.
+`EmbeddedImagesKeepsTheOriginalEncoding` asserts it as byte equality against the
+JPEG stream read out of the fixture itself, because a `.jpg` of the right
+dimensions is also what a re-encode produces.
+
+The **fallback** is the whole difference between `ORIGINAL` and `ALL`. A raw or
+Flate-compressed bitmap — most PDFs not born as scans — has no encoding to keep,
+and `ORIGINAL` writes netpbm for it: a `.ppm` in the result is not a failure. Pick
+`ALL` when the images are of mixed encodings and every one of them has to be
+readable by something ordinary.
+
+### Image naming — `image-0000-page-0001.png`
+
+A different contract from the page families, and named so it can never be mistaken
+for one:
+
+```
+image-0000-page-0001.jpg   ← image 0, drawn on page 1
+image-0001-page-0001.png
+image-0002-page-0002.png
+```
+
+The number after `image-` is poppler's index for the image, 0-based — the `num`
+column of `pdfimages -list` for an unnarrowed run. The number after `-page-` is
+the **1-based source page** it was drawn on, the same promise `Split` makes. The
+index comes first so lexicographic order is document order, and both are padded to
+at least four digits by a rename pass in the same exec, for the reason the
+[page contract](#page-naming--page-0001png) has one: `pdfimages` pads to three, so
+the thousandth image of a document widens the field mid-directory.
+
+There is **no one-file-per-page contract** here, and there cannot be: a page may
+carry several images and most pages carry none.
+
+`WithPageRange` narrows it, and moves exactly one of the two numbers. The page
+number stays the document's; the image index restarts, being poppler's count for
+the *run*. Pages 2–3 of a document whose first image is on page 1 come back
+starting at `image-0000-page-0002`.
+
+### `Attachments` — the files hung off the document
+
+An embedded file is a whole file attached to the PDF, not part of any page's
+content: the machine-readable XML a ZUGFeRD or Factur-X invoice carries beside its
+printable page, a spreadsheet behind a report, a CAD file behind a drawing.
+Nothing in `Convert` reaches it and neither does `EmbeddedImages` — this is the
+only function that does.
+
+The names are the **document's own**, and this is the one directory here that is
+not renamed to a contract. An attachment's name is *data*: it is what the producer
+called the file and what a consumer looks for, so `invoice.xml` stays
+`invoice.xml`.
+
+```go
+attached := dag.Pdf().Document(invoice).Attachments()
+xml := attached.File("invoice.xml")
+```
+
+`WithPageRange` does not narrow it — an embedded file hangs off the catalog, and
+`pdfdetach` has no page bounds at all — and unlike `Split` and `Merge`, **the
+passwords do reach it**: `pdfdetach` takes both `-upw` and `-opw`, as does
+`pdfimages`.
+
+> **One path-bearing attachment name loses them all.** poppler refuses the whole
+> `-saveall` with `I/O Error: Preventing directory traversal` rather than skipping
+> the one file, so a document naming an attachment `../elsewhere.xml` yields
+> nothing at all. Nothing passed to this module changes that — the name is the
+> document's — so the failure says so and names `pdfdetach -list` plus
+> `pdfdetach -savefile <name> -o <path>` through `Container` as the way to fetch
+> the rest one at a time.
+
+### Nothing to extract is a failure, not an empty directory
+
+Both functions **refuse** a document with nothing to give them:
+
+```
+EmbeddedImages: this document carries no image objects: there is nothing to
+extract, and a page of text and vectors is drawn rather than extracted —
+Convert().Png() is what renders one. `pdfimages -list`, through Container,
+answers the same question without failing
+```
+
+That is a deliberate departure from `Signatures`, which reports an unsigned
+document rather than failing on it, and the reason is the return type. `Signatures`
+returns a string and has room to say "no signatures"; a `*dagger.Directory` has
+none, and an empty one is exactly what an extraction that failed to write anything
+also produces — while both tools exit 0 either way. So the module is the only place
+that can tell a caller which of the two happened, and the narrowed message names
+the pages that were asked for so a caller who narrowed to the wrong ones is not
+told the whole document is empty. A caller sweeping many documents, where "no
+attachments" is an ordinary outcome, wants either the `-list` reports through
+`Container` or to tolerate this error.
+
 ## Page naming — `page-0001.png`
 
 `Png`, `Jpeg`, `Tiff`, `Svg`, `Eps`, `Html` and `Split` return a directory of
@@ -693,6 +847,11 @@ module's:
 | `Eps` | `page-0001.eps` |
 | `Html` | `page-0001.html` (+ its images, see above) |
 | `Split` | `page-0001.pdf` |
+
+`EmbeddedImages` is **not** on that list and honours a contract of its own —
+[`image-0000-page-0001.png`](#image-naming--image-0000-page-0001png) — because an
+image is not a page: several can sit on one page and most pages carry none.
+`Attachments` is on no list at all, its names being the document's.
 
 The families reach that contract from opposite directions. `pdftoppm` and
 `pdfseparate` name the files and this module **renames** them; for `Svg`, `Eps`
@@ -760,12 +919,10 @@ about. Same posture as `tesseract`'s outputs and `kicad`.
 
 ## Follow-ups
 
-Text-layer geometry as bbox HTML and TSV (#269);
-extracting embedded images and attachments (#271); cropping the render
-window and selecting odd or even pages (#272); the chained `Ci` builder (#273);
-linearize, encrypt and repair via qpdf (#274); testing package assembly off a
-private apk mirror (#275); removing `tesseract`'s `FromPdf` in favour of this
-module (#276); renderer fidelity and colour-profile options (#277).
+Cropping the render window and selecting odd or even pages (#272); the chained
+`Ci` builder (#273); linearize, encrypt and repair via qpdf (#274); removing
+`tesseract`'s `FromPdf` in favour of this module (#276); renderer fidelity and
+colour-profile options (#277).
 
 Deliberately **not** planned: ghostscript or mupdf rendering backends, and
 `pdfattach`. A second rasterizer buys different rendering bugs rather than

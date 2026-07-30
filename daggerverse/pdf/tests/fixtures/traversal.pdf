@@ -1,0 +1,48 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /EmbeddedFiles 4 0 R >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [3 0 R] >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>
+endobj
+4 0 obj
+<< /Names [(a-escaping) 5 0 R (b-ordinary) 7 0 R] >>
+endobj
+5 0 obj
+<< /Type /Filespec /F (../escaped.txt) /UF (../escaped.txt) /EF << /F 6 0 R >> >>
+endobj
+6 0 obj
+<< /Type /EmbeddedFile /Length 14 >>
+stream
+Marker TANGO.
+endstream
+endobj
+7 0 obj
+<< /Type /Filespec /F (ordinary.txt) /UF (ordinary.txt) /EF << /F 8 0 R >> >>
+endobj
+8 0 obj
+<< /Type /EmbeddedFile /Length 16 >>
+stream
+Marker UNIFORM.
+endstream
+endobj
+xref
+0 9
+0000000000 65535 f 
+0000000015 00000 n 
+0000000098 00000 n 
+0000000155 00000 n 
+0000000226 00000 n 
+0000000294 00000 n 
+0000000391 00000 n 
+0000000474 00000 n 
+0000000567 00000 n 
+trailer
+<< /Size 9 /Root 1 0 R >>
+startxref
+652
+%%EOF

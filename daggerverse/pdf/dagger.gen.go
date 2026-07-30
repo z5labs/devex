@@ -187,6 +187,60 @@ func (r *Convert) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r ImageFormat) IsEnum() {}
+
+func (r ImageFormat) Name() string {
+	switch r {
+	case ImageFormatAll:
+		return "All"
+	case ImageFormatOriginal:
+		return "Original"
+	case ImageFormatPng:
+		return "Png"
+	case ImageFormatTiff:
+		return "Tiff"
+	}
+	return ""
+}
+
+func (r ImageFormat) Value() string {
+	return string(r)
+}
+
+func (r ImageFormat) MarshalJSON() ([]byte, error) {
+	if r == "" {
+		return []byte("\"\""), nil
+	}
+	name := r.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", r)
+	}
+	return json.Marshal(name)
+}
+
+func (r *ImageFormat) UnmarshalJSON(bs []byte) error {
+	var s string
+	err := json.Unmarshal(bs, &s)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*r = ""
+	case "All":
+		*r = ImageFormatAll
+	case "Original":
+		*r = ImageFormatOriginal
+	case "Png":
+		*r = ImageFormatPng
+	case "Tiff":
+		*r = ImageFormatTiff
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
 func (r LayoutMode) IsEnum() {}
 
 func (r LayoutMode) Name() string {
@@ -572,6 +626,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Document":
 		switch fnName {
+		case "Attachments":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Document).Attachments(&parent, ctx)
 		case "Convert":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)
@@ -579,6 +640,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return (*Document).Convert(&parent), nil
+		case "EmbeddedImages":
+			var parent Document
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var format ImageFormat
+			if inputArgs["format"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["format"]), &format)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
+				}
+			}
+			return (*Document).EmbeddedImages(&parent, ctx, format)
 		case "Fonts":
 			var parent Document
 			err = json.Unmarshal(parentJSON, &parent)

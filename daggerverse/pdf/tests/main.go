@@ -9,12 +9,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -67,6 +70,13 @@ const (
 	// be handed to the tesseract module.
 	scanPdf = "scan.pdf"
 
+	// scanImageSide is the width and the height, in pixels, of the one image
+	// object scanPdf carries. It is nothing like the size of a render of that
+	// page — 16 pixels against the 1275 a US Letter page covers at 150 dpi —
+	// which is what makes the difference between extracting an image and
+	// rasterizing the page it sits on measurable rather than arguable.
+	scanImageSide = 16
+
 	// fontsPdf is a two-page PDF whose pages name different faces: page one an
 	// unembedded Helvetica, page two an unembedded Courier alongside a Type 3
 	// font.
@@ -103,6 +113,63 @@ const (
 	// GRAY and MONO show up is in the pixels, and flat saturated colour is what
 	// makes them show up unambiguously.
 	swatchPdf = "swatch.pdf"
+
+	// galleryPdf is a two-page PDF carrying three image objects and no page a
+	// render would confuse them with: page one draws a DCT-encoded photograph
+	// and then a wide strip, page two a thin strip.
+	//
+	// All three halves of that are deliberate. The photograph is JPEG-encoded, so
+	// there is an encoding for ORIGINAL to keep; the strips are unencoded, so
+	// there is something for the same member to fall back on; and the three sit
+	// across two pages in a known draw order, which is what makes the naming
+	// contract and the page range observable at all.
+	galleryPdf = "gallery.pdf"
+
+	// galleryPhoto*, galleryWide* and galleryThin* are the pixel dimensions of
+	// gallery.pdf's three images. No two are alike and none is the size of any
+	// page render, so a dimension is an identity: an assertion can say which
+	// image it is holding without decoding what is drawn on it.
+	galleryPhotoWidth  = 32
+	galleryPhotoHeight = 24
+	galleryWideWidth   = 6
+	galleryWideHeight  = 2
+	galleryThinWidth   = 8
+	galleryThinHeight  = 1
+
+	// invoicePdf is a one-page PDF carrying two embedded files in its name tree —
+	// `invoice.xml` and `terms.txt` — which is the shape a ZUGFeRD or Factur-X
+	// invoice arrives in: a human-readable page plus the machine-readable record
+	// attached to it.
+	//
+	// Two rather than one, because "returns every attachment" is the claim, and
+	// one attachment is a claim a single-file implementation would also satisfy.
+	// Both streams are unfiltered, so the bytes pdfdetach writes out are the
+	// bytes visible in the fixture.
+	invoicePdf = "invoice.pdf"
+
+	// invoiceXMLName and invoiceTextName are what invoicePdf calls its two
+	// attachments, and invoiceXMLMarker and invoiceTextMarker are words occurring
+	// exactly once each, in one attachment apiece. The markers are what say the
+	// right bytes landed in the right file.
+	// traversalPdf is a one-page PDF whose first attachment is named with a path
+	// in it — `../escaped.txt` — beside an ordinary one.
+	//
+	// It exists for the module's message about poppler's refusal of such a name,
+	// which is a message of this module's own rather than a diagnostic passed
+	// through. The ordinary second attachment is the point of the fixture: poppler
+	// declines the *whole* extraction rather than the one file, so a document like
+	// this yields nothing at all, and no argument to this module changes that.
+	traversalPdf = "traversal.pdf"
+
+	// traversalOtherName is what traversalPdf calls the attachment that is named
+	// perfectly ordinarily, and which a caller has to reach with
+	// `pdfdetach -savefile` because of the other one.
+	traversalOtherName = "ordinary.txt"
+
+	invoiceXMLName    = "invoice.xml"
+	invoiceTextName   = "terms.txt"
+	invoiceXMLMarker  = "QUEBEC"
+	invoiceTextMarker = "SIERRA"
 
 	// annotatedPdf is a one-page PDF whose only colour comes from a Square
 	// annotation's appearance stream. Every red pixel in a render of it is the
@@ -215,10 +282,10 @@ var ledgerMarkers = []string{
 }
 
 // popplerBinaries is every executable poppler-utils installs. Container's
-// promise is that all of them are reachable, not just the nine this module
+// promise is that all of them are reachable, not just the eleven this module
 // wraps: the module wraps pdftotext, pdftoppm, pdfinfo, pdftocairo, pdftohtml,
-// pdffonts, pdfsig, pdfseparate and pdfunite, and the escape hatch is the whole
-// point of the other four.
+// pdffonts, pdfsig, pdfseparate, pdfunite, pdfimages and pdfdetach, and the
+// escape hatch is the whole point of the other two.
 var popplerBinaries = []string{
 	"pdfattach", "pdfdetach", "pdffonts", "pdfimages", "pdfinfo",
 	"pdfseparate", "pdfsig", "pdftocairo", "pdftohtml", "pdftoppm",
@@ -302,6 +369,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("SplitThenMergeRoundTripsTheDocument", t.SplitThenMergeRoundTripsTheDocument)
 	jobs = jobs.WithJob("SplitAndMergeCannotOpenAnEncryptedDocument", t.SplitAndMergeCannotOpenAnEncryptedDocument)
 
+	jobs = jobs.WithJob("EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage", t.EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage)
+	jobs = jobs.WithJob("EmbeddedImagesKeepsTheOriginalEncoding", t.EmbeddedImagesKeepsTheOriginalEncoding)
+	jobs = jobs.WithJob("EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange", t.EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange)
+	jobs = jobs.WithJob("AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone", t.AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone)
+	jobs = jobs.WithJob("AttachmentsReportsPopplersRefusalOfPathBearingNames", t.AttachmentsReportsPopplersRefusalOfPathBearingNames)
+	jobs = jobs.WithJob("ExtractionsOpenAnEncryptedDocumentWithThePassword", t.ExtractionsOpenAnEncryptedDocumentWithThePassword)
+
 	jobs = jobs.WithJob("EncryptedDocumentNeedsThePassword", t.EncryptedDocumentNeedsThePassword)
 
 	jobs = jobs.WithJob("ApkRepositoryAssemblesWorkingToolchainFromMirror", t.ApkRepositoryAssemblesWorkingToolchainFromMirror)
@@ -312,6 +386,547 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("DefaultApkConfigurationIsUntouched", t.DefaultApkConfigurationIsUntouched)
 
 	return jobs.Run(ctx)
+}
+
+// EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage asserts the distinction the
+// function is named for: what comes back is the image object the document
+// carries, not a rasterization of the page it sits on.
+//
+// The proof is the pixel dimensions, and it is only a proof because the two
+// numbers cannot be confused. scanPdf's image is 16x16; the US Letter page it is
+// drawn across covers 1275x1650 at the module's default resolution. A function
+// that quietly rasterized the page would return an image 79 times wider, and a
+// dimension assertion catches that where an entry-count assertion would not — one
+// page carrying one image produces one file either way.
+//
+// The render is fetched here rather than hardcoded so the comparison is against
+// what this module actually produces, which is the thing a caller would otherwise
+// mistake this for.
+func (t *Tests) EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage(ctx context.Context) error {
+	doc := pdf().Document(fixture(scanPdf))
+
+	dir := doc.EmbeddedImages(dagger.PdfImageFormatPng)
+	entries, err := dir.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("EmbeddedImages: %w", err)
+	}
+	if want := []string{"image-0000-page-0001.png"}; !slices.Equal(entries, want) {
+		return fmt.Errorf("expected %v, got %v", want, entries)
+	}
+
+	extracted, err := firstPageConfig(ctx, dir, "embedded-images")
+	if err != nil {
+		return fmt.Errorf("decoding the extracted image: %w", err)
+	}
+	if extracted.Width != scanImageSide || extracted.Height != scanImageSide {
+		return fmt.Errorf("expected the embedded image to be %dx%d, got %dx%d",
+			scanImageSide, scanImageSide, extracted.Width, extracted.Height)
+	}
+
+	rendered, err := firstPageConfig(ctx, doc.Convert().Png(), "embedded-images-render")
+	if err != nil {
+		return fmt.Errorf("decoding the page render: %w", err)
+	}
+	if rendered.Width == extracted.Width && rendered.Height == extracted.Height {
+		return fmt.Errorf(
+			"expected the extraction and the render to differ in size, both were %dx%d",
+			rendered.Width, rendered.Height)
+	}
+	if wantW, wantH := pixelsAt(defaultDpi); rendered.Width != wantW || rendered.Height != wantH {
+		return fmt.Errorf("expected the render to be %dx%d, got %dx%d",
+			wantW, wantH, rendered.Width, rendered.Height)
+	}
+	return nil
+}
+
+// EmbeddedImagesKeepsTheOriginalEncoding asserts what each ImageFormat member
+// does to an image that already has an encoding, and asserts the one that keeps
+// it does so byte for byte.
+//
+// Byte equality is the only assertion that actually says "kept". A `.jpg` that
+// decodes to the right dimensions would also come out of a re-encode, and a
+// re-encode is precisely what ORIGINAL exists to avoid — so the expectation here
+// is read out of the fixture itself: gallery.pdf's photograph is JPEG bytes
+// hex-armored inside the file, and hex-decoding them gives exactly what poppler
+// should have written.
+//
+// The extensions carry the rest of the claim. ORIGINAL falls back to netpbm for
+// the two unencoded strips, which is the part of that member most likely to
+// surprise a caller and therefore the part most worth pinning; ALL is the same
+// member with PNG as the fallback instead, which is the whole difference between
+// the two; and PNG and TIFF re-encode everything, the photograph included.
+func (t *Tests) EmbeddedImagesKeepsTheOriginalEncoding(ctx context.Context) error {
+	doc := pdf().Document(fixture(galleryPdf))
+	const photo = "image-0000-page-0001"
+
+	want, err := galleryJpegBytes(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the fixture's JPEG stream: %w", err)
+	}
+
+	for _, tc := range []struct {
+		format  dagger.PdfImageFormat
+		entries []string
+		// keeps is whether the photograph's file should be the fixture's own
+		// JPEG bytes, unchanged.
+		keeps bool
+	}{
+		{
+			format: dagger.PdfImageFormatOriginal,
+			entries: []string{
+				photo + ".jpg", "image-0001-page-0001.ppm", "image-0002-page-0002.ppm",
+			},
+			keeps: true,
+		},
+		{
+			format: dagger.PdfImageFormatAll,
+			entries: []string{
+				photo + ".jpg", "image-0001-page-0001.png", "image-0002-page-0002.png",
+			},
+			keeps: true,
+		},
+		{
+			format: dagger.PdfImageFormatPng,
+			entries: []string{
+				photo + ".png", "image-0001-page-0001.png", "image-0002-page-0002.png",
+			},
+		},
+		{
+			format: dagger.PdfImageFormatTiff,
+			entries: []string{
+				photo + ".tif", "image-0001-page-0001.tif", "image-0002-page-0002.tif",
+			},
+		},
+	} {
+		label := string(tc.format)
+		dir := doc.EmbeddedImages(tc.format)
+
+		got, err := dir.Entries(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: EmbeddedImages: %w", label, err)
+		}
+		if !slices.Equal(got, tc.entries) {
+			return fmt.Errorf("%s: expected %v, got %v", label, tc.entries, got)
+		}
+
+		tmp, cleanup, err := exportedDir(ctx, dir, "embedded-"+strings.ToLower(label))
+		if err != nil {
+			return fmt.Errorf("%s: %w", label, err)
+		}
+		bytesOut, err := os.ReadFile(filepath.Join(tmp, tc.entries[0]))
+		cleanup()
+		if err != nil {
+			return fmt.Errorf("%s: reading %s: %w", label, tc.entries[0], err)
+		}
+
+		if tc.keeps != bytes.Equal(bytesOut, want) {
+			if tc.keeps {
+				return fmt.Errorf(
+					"%s: expected %s to be the document's own %d JPEG bytes, got %d bytes",
+					label, tc.entries[0], len(want), len(bytesOut))
+			}
+			return fmt.Errorf(
+				"%s: expected %s to be re-encoded rather than the document's own JPEG bytes",
+				label, tc.entries[0])
+		}
+	}
+	return nil
+}
+
+// EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange asserts both numbers in
+// an extracted image's name mean what the contract says, and asserts a document
+// with nothing to extract is told so rather than handed an empty directory.
+//
+// The names are checked against the images' *dimensions*, not merely counted.
+// gallery.pdf's three images are three different sizes on purpose, so decoding
+// each one says which image landed under which name — an assertion a numbering
+// that shuffled or off-by-oned the files would fail and an entry-count assertion
+// would not.
+//
+// The page range is where the two numbers part company. The page number is the
+// source document's, like everywhere else in this module, so page two's image
+// stays `page-0002` when page two is all that was asked for. The image index is
+// not: it is poppler's count for the run, so it restarts at zero. That is
+// asserted rather than worked around because it is the surprising half of the
+// contract, and a caller cross-referencing `pdfimages -list` needs to know which
+// number moved.
+func (t *Tests) EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange(ctx context.Context) error {
+	doc := pdf().Document(fixture(galleryPdf))
+
+	for _, tc := range []struct {
+		name string
+		doc  *dagger.PdfDocument
+		want map[string][2]int
+	}{
+		{
+			name: "the whole document",
+			doc:  doc,
+			want: map[string][2]int{
+				"image-0000-page-0001.png": {galleryPhotoWidth, galleryPhotoHeight},
+				"image-0001-page-0001.png": {galleryWideWidth, galleryWideHeight},
+				"image-0002-page-0002.png": {galleryThinWidth, galleryThinHeight},
+			},
+		},
+		{
+			name: "both images of page one",
+			doc:  doc.WithPageRange(1, 1),
+			want: map[string][2]int{
+				"image-0000-page-0001.png": {galleryPhotoWidth, galleryPhotoHeight},
+				"image-0001-page-0001.png": {galleryWideWidth, galleryWideHeight},
+			},
+		},
+		{
+			// The index restarts and the page does not, which is the whole point
+			// of asserting a range that does not begin at page one.
+			name: "page two alone",
+			doc:  doc.WithPageRange(2, 2),
+			want: map[string][2]int{
+				"image-0000-page-0002.png": {galleryThinWidth, galleryThinHeight},
+			},
+		},
+	} {
+		dir := tc.doc.EmbeddedImages(dagger.PdfImageFormatPng)
+
+		entries, err := dir.Entries(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: EmbeddedImages: %w", tc.name, err)
+		}
+		names := slices.Sorted(maps.Keys(tc.want))
+		if !slices.Equal(entries, names) {
+			return fmt.Errorf("%s: expected %v, got %v", tc.name, names, entries)
+		}
+
+		configs, err := imageConfigs(ctx, dir, "embedded-names")
+		if err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+		for name, size := range tc.want {
+			got := configs[name]
+			if got.Width != size[0] || got.Height != size[1] {
+				return fmt.Errorf("%s: expected %s to be %dx%d, got %dx%d",
+					tc.name, name, size[0], size[1], got.Width, got.Height)
+			}
+		}
+	}
+
+	// A range past the end of the document is refused before the extraction runs,
+	// the same check every other page-bounded function goes through.
+	_, err := doc.WithPageRange(1, 3).EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a range past the end of the document to be rejected")
+	}
+	for _, want := range []string{"last (3)", "2 pages"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the rejection to mention %q, got: %v", want, err)
+		}
+	}
+
+	// A document of text and vectors carries no image objects at all, and
+	// pdfimages exits 0 for it — so the module is the only thing that can tell a
+	// caller the difference between that and an extraction that wrote nothing.
+	_, err = pdf().Document(fixture(ledgerPdf)).
+		EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a document with no images to be refused")
+	}
+	for _, want := range []string{"no image objects", "Convert().Png()", "pdfimages -list"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+		}
+	}
+
+	// Narrowed, the same refusal names the pages that were asked for, so a caller
+	// who narrowed to the wrong ones is not told the whole document is empty.
+	_, err = pdf().Document(fixture(galleryPdf)).WithPageRange(2, 2).
+		EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("page two of the gallery carries an image: %w", err)
+	}
+	_, err = pdf().Document(fixture(ledgerPdf)).WithPageRange(2, 3).
+		EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a narrowed extraction of a document with no images to be refused")
+	}
+	if want := "on pages 2 through 3"; !strings.Contains(err.Error(), want) {
+		return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+	}
+	return nil
+}
+
+// AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone asserts both halves of
+// what the function promises: every file the document attached, under the name
+// the document gave it, and an answer a caller can act on for a document that
+// attached nothing.
+//
+// Two attachments is the minimum that tests "every" — one would be satisfied by
+// an implementation that saved the first and stopped — and their contents are
+// read rather than their names counted, because a name is not evidence the right
+// bytes landed under it.
+//
+// The names are the fixture's own and are deliberately *not* the page-style
+// contract the rest of this module's directories honour. An attachment's name is
+// data: it is what the producer called the file and what a consumer looks for, so
+// `invoice.xml` staying `invoice.xml` is the assertion, not a defect in the
+// naming discipline.
+//
+// The empty case is refused rather than returned as an empty directory. pdfdetach
+// exits 0 for a document with no attachments, so the directory would say nothing
+// about which of the two happened, and the message names `pdfdetach -list` as the
+// way to ask without failing.
+func (t *Tests) AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone(ctx context.Context) error {
+	doc := pdf().Document(fixture(invoicePdf))
+
+	want := []string{invoiceXMLName, invoiceTextName}
+	slices.Sort(want)
+
+	// A page range has no meaning for an attachment, which hangs off the
+	// document's catalog rather than off any page, so it narrows nothing — the
+	// same posture Metadata and Signatures take.
+	for _, tc := range []struct {
+		name string
+		doc  *dagger.PdfDocument
+	}{
+		{"the whole document", doc},
+		{"narrowed to page one", doc.WithPageRange(1, 1)},
+	} {
+		entries, err := tc.doc.Attachments().Entries(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: Attachments: %w", tc.name, err)
+		}
+		if !slices.Equal(entries, want) {
+			return fmt.Errorf("%s: expected %v, got %v", tc.name, want, entries)
+		}
+	}
+
+	dir := doc.Attachments()
+	for _, tc := range []struct {
+		file   string
+		prefix string
+		marker string
+	}{
+		{invoiceXMLName, "<?xml version=", invoiceXMLMarker},
+		{invoiceTextName, "Payment terms:", invoiceTextMarker},
+	} {
+		got, err := dir.File(tc.file).Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("reading %s: %w", tc.file, err)
+		}
+		if !strings.HasPrefix(got, tc.prefix) {
+			return fmt.Errorf("expected %s to open with %q, got:\n%s", tc.file, tc.prefix, head(got))
+		}
+		if !strings.Contains(got, tc.marker) {
+			return fmt.Errorf("expected %s to carry the marker %q, got:\n%s", tc.file, tc.marker, head(got))
+		}
+	}
+
+	_, err := pdf().Document(fixture(ledgerPdf)).Attachments().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a document with no attachments to be refused")
+	}
+	for _, want := range []string{"no embedded files", "pdfdetach -list"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// AttachmentsReportsPopplersRefusalOfPathBearingNames asserts what happens to a
+// document that names an attachment with a path in it, and asserts the failure
+// carries what a caller needs to get the rest of the attachments anyway.
+//
+// The behaviour is poppler's and it is coarse: one such name makes `-saveall`
+// refuse the *whole* extraction with `Preventing directory traversal`, so the
+// perfectly ordinary second attachment in this fixture comes back not at all. The
+// module cannot fix that — the name is the document's — so what it can do is say
+// which document did it, list the names, and point at the tool that fetches them
+// one at a time. The names are asserted for that reason: they are the argument
+// `pdfdetach -savefile` needs, and without them the message is a dead end.
+func (t *Tests) AttachmentsReportsPopplersRefusalOfPathBearingNames(ctx context.Context) error {
+	_, err := pdf().Document(fixture(traversalPdf)).Attachments().Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected a path-bearing attachment name to be refused")
+	}
+	for _, want := range []string{
+		"names an attachment with a path",
+		"nothing was saved",
+		"pdfdetach -savefile",
+		traversalOtherName,
+		"Preventing directory traversal",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the refusal to mention %q, got: %v", want, err)
+		}
+	}
+	return nil
+}
+
+// ExtractionsOpenAnEncryptedDocumentWithThePassword asserts the passwords reach
+// both extractions, which is the property that separates them from Split and
+// Merge.
+//
+// It is worth an assertion of its own precisely because the module already has
+// two functions where it is false. pdfseparate and pdfunite take no password at
+// all, so `WithUserPassword(...).Split()` is a call that cannot be made to work
+// and says so; pdfimages and pdfdetach both take `-upw` and `-opw`, so the same
+// document that Split refuses these two open. Nothing about the two families
+// looks different from the outside, and only a test says which is which.
+//
+// Both branches are asserted for each: refused by naming the encryption when no
+// password was supplied — poppler says `Incorrect password` whether one was given
+// or not — and the full result when it was.
+func (t *Tests) ExtractionsOpenAnEncryptedDocumentWithThePassword(ctx context.Context) error {
+	userPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the user password: %w", err)
+	}
+	ownerPw, err := generatedPassword(ctx)
+	if err != nil {
+		return fmt.Errorf("generating the owner password: %w", err)
+	}
+	user := dag.SetSecret("pdf-tests-extract-user-password", userPw)
+	owner := dag.SetSecret("pdf-tests-extract-owner-password", ownerPw)
+
+	images := pdf().Document(encryptedFixture(galleryPdf, user, owner))
+	files := pdf().Document(encryptedFixture(invoicePdf, user, owner))
+
+	for _, tc := range []struct {
+		name   string
+		bare   func(context.Context) ([]string, error)
+		opened func(context.Context) ([]string, error)
+		want   int
+	}{
+		{
+			name: "EmbeddedImages",
+			bare: func(ctx context.Context) ([]string, error) {
+				return images.EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+			},
+			opened: func(ctx context.Context) ([]string, error) {
+				return images.WithUserPassword(user).
+					EmbeddedImages(dagger.PdfImageFormatPng).Entries(ctx)
+			},
+			want: 3,
+		},
+		{
+			name: "Attachments",
+			bare: func(ctx context.Context) ([]string, error) {
+				return files.Attachments().Entries(ctx)
+			},
+			opened: func(ctx context.Context) ([]string, error) {
+				return files.WithOwnerPassword(owner).Attachments().Entries(ctx)
+			},
+			want: 2,
+		},
+	} {
+		if _, err := tc.bare(ctx); err == nil {
+			return fmt.Errorf("%s: expected an encrypted document to be refused without a password", tc.name)
+		} else {
+			for _, want := range []string{"encrypted", "no password was supplied", "WithUserPassword"} {
+				if !strings.Contains(err.Error(), want) {
+					return fmt.Errorf("%s: expected the refusal to mention %q, got: %v", tc.name, want, err)
+				}
+			}
+		}
+
+		got, err := tc.opened(ctx)
+		if err != nil {
+			return fmt.Errorf("%s with the password: %w", tc.name, err)
+		}
+		if len(got) != tc.want {
+			return fmt.Errorf("%s: expected %d entries with the password, got %v", tc.name, tc.want, got)
+		}
+	}
+	return nil
+}
+
+// imageConfigs decodes the header of every file in an extracted directory, keyed
+// by name, which is what an assertion about *which* image landed under a name
+// needs. The headers are all it needs: the dimensions are the identity.
+func imageConfigs(ctx context.Context, dir *dagger.Directory, prefix string) (map[string]image.Config, error) {
+	tmp, cleanup, err := exportedDir(ctx, dir, prefix)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+
+	files, err := os.ReadDir(tmp)
+	if err != nil {
+		return nil, err
+	}
+	configs := make(map[string]image.Config, len(files))
+	for _, entry := range files {
+		if entry.IsDir() {
+			continue
+		}
+		f, err := os.Open(filepath.Join(tmp, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		cfg, _, err := image.DecodeConfig(f)
+		f.Close()
+		if err != nil {
+			return nil, fmt.Errorf("decode %s: %w", entry.Name(), err)
+		}
+		configs[entry.Name()] = cfg
+	}
+	return configs, nil
+}
+
+// galleryJpegBytes is the JPEG stream gallery.pdf carries, read out of the
+// fixture and hex-decoded.
+//
+// This is the oracle the byte-equality assertion needs, and it is the fixture
+// rather than another tool's opinion of the fixture — which is the whole reason
+// the suite's fixtures are hex-armored. The one image object whose filter chain
+// ends in /DCTDecode is the photograph; the two strips carry no such filter.
+func galleryJpegBytes(ctx context.Context) ([]byte, error) {
+	raw, err := fixtureBytes(ctx, galleryPdf)
+	if err != nil {
+		return nil, err
+	}
+
+	at := bytes.Index(raw, []byte("/DCTDecode"))
+	if at < 0 {
+		return nil, fmt.Errorf("%s carries no /DCTDecode image object", galleryPdf)
+	}
+	const opener, closer = "stream\n", "\n>\n"
+	start := bytes.Index(raw[at:], []byte(opener))
+	if start < 0 {
+		return nil, fmt.Errorf("%s: no stream follows the /DCTDecode object", galleryPdf)
+	}
+	start += at + len(opener)
+	end := bytes.Index(raw[start:], []byte(closer))
+	if end < 0 {
+		return nil, fmt.Errorf("%s: the /DCTDecode stream is unterminated", galleryPdf)
+	}
+
+	// The armor is wrapped, so the line breaks come out before the decode.
+	packed := strings.Join(strings.Fields(string(raw[start:start+end])), "")
+	decoded, err := hex.DecodeString(packed)
+	if err != nil {
+		return nil, fmt.Errorf("%s: decoding the armored JPEG: %w", galleryPdf, err)
+	}
+	return decoded, nil
+}
+
+// fixtureBytes reads a committed fixture off a real filesystem.
+//
+// It goes through an export rather than File.Contents because a PDF opens with a
+// binary comment line by convention, and File.Contents is a GraphQL String —
+// which cannot carry arbitrary bytes intact. Same reason the rendered pages are
+// read this way.
+func fixtureBytes(ctx context.Context, name string) ([]byte, error) {
+	tmp, err := os.MkdirTemp(".", "pdf-fixture-")
+	if err != nil {
+		return nil, fmt.Errorf("temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	path := filepath.Join(tmp, name)
+	if _, err := fixture(name).Export(ctx, path); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
 }
 
 // SvgWritesOneVectorFilePerPage asserts Svg renders a multi-page document to one
@@ -2701,19 +3316,25 @@ func generatedPassword(ctx context.Context) (string, error) {
 }
 
 // encryptedLedger returns ledgerPdf encrypted under the given passwords.
+func encryptedLedger(user, owner *dagger.Secret) *dagger.File {
+	return encryptedFixture(ledgerPdf, user, owner)
+}
+
+// encryptedFixture returns a committed fixture encrypted under the given
+// passwords.
 //
 // qpdf is installed into the module's own image rather than pulled as a separate
 // one so the fixture is encrypted by the same Alpine release that then reads it,
 // and the passwords reach it through the environment for the same reason the
 // module does it that way.
-func encryptedLedger(user, owner *dagger.Secret) *dagger.File {
+func encryptedFixture(name string, user, owner *dagger.Secret) *dagger.File {
 	const (
 		plain  = "/tmp/plain.pdf"
 		cipher = "/tmp/encrypted.pdf"
 	)
 	return pdf().Container().
 		WithExec([]string{"apk", "add", "--no-cache", "qpdf"}).
-		WithMountedFile(plain, fixture(ledgerPdf)).
+		WithMountedFile(plain, fixture(name)).
 		WithSecretVariable("QPDF_USER_PASSWORD", user).
 		WithSecretVariable("QPDF_OWNER_PASSWORD", owner).
 		WithExec([]string{"sh", "-c",

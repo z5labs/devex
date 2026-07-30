@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Pdf
-func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:236:6)
+func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:249:6)
 	q := r.query.Select("asPdf")
 
 	return &Pdf{
@@ -86,7 +86,7 @@ func (r *Env) WithPdfDocumentOutput(name string, description string) *Env { // p
 }
 
 // Create or update a binding of type Pdf in the environment
-func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:236:6)
+func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:249:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPdfInput")
 	q = q.Arg("name", name)
@@ -99,7 +99,7 @@ func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { /
 }
 
 // Declare a desired Pdf output to be assigned in the environment
-func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:236:6)
+func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:249:6)
 	q := r.query.Select("withPdfOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -113,7 +113,7 @@ func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../.
 // carries the image coordinates and the fonts the image is built with;
 // Document hangs off it so the generated SDK surfaces conversion under
 // `dag.Pdf().Document(...)`.
-type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:236:6)
+type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:249:6)
 	query *querybuilder.Selection
 
 	id      *ID
@@ -136,11 +136,11 @@ func (r *Pdf) WithGraphQLQuery(q *querybuilder.Selection) *Pdf {
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and nine of them are wrapped here, so pdfimages, pdfattach,
-// pdfdetach and pdftops stay reachable via `container with-exec` — as do the
-// flags of a wrapped tool that this module does not surface, `pdffonts -subst`
+// binaries and eleven of them are wrapped here, so pdfattach and pdftops stay
+// reachable via `container with-exec` — as do the flags of a wrapped tool that
+// this module does not surface, `pdffonts -subst` and `pdfdetach -savefile`
 // among them.
-func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:382:1)
+func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:395:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -153,7 +153,7 @@ func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/ma
 // The boundary input is a *dagger.File rather than a *dagger.Directory: a PDF
 // resolves nothing relative to its own location, so one file is the whole unit
 // of work however many pages it carries.
-func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:415:1)
+func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:428:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -249,7 +249,7 @@ func (r *Pdf) Merge(sources []*File) *File { // pdf (../../../../../daggerverse/
 
 // Version returns the poppler release the assembled image ships, as the bare
 // version number reported by `pdftotext -v`.
-func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:395:1)
+func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:408:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -275,7 +275,7 @@ func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../..
 // why the credentials are not simply userinfo in the WithApkRepository URL,
 // which would put them in /etc/apk/repositories and in every apk error
 // message that quotes it.
-func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:343:1)
+func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:356:1)
 	assertNotNil("credentials", credentials)
 	q := r.query.Select("withApkAuth")
 	q = q.Arg("credentials", credentials)
@@ -298,7 +298,7 @@ func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../dag
 // Repeatable, for a mirror set signed by more than one key. It is a *File
 // rather than a *Secret because a public key is not a credential: it is meant
 // to be in the image, and WithApkAuth is the option for the part that is not.
-func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:320:1)
+func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:333:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withApkKey")
 	q = q.Arg("key", key)
@@ -328,7 +328,7 @@ func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pd
 // call per component. A repository's index is signed, so pair this with
 // WithApkKey unless the mirror is signed by a key the base image already
 // trusts.
-func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:292:1)
+func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:305:1)
 	q := r.query.Select("withApkRepository")
 	q = q.Arg("url", url)
 
@@ -352,7 +352,7 @@ func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../dagger
 // /etc/fonts/fonts.conf tells fontconfig to scan, so the faces in it are
 // indistinguishable from packaged ones as far as poppler is concerned. It is
 // mounted rather than copied so a large family does not become an image layer.
-func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:367:1)
+func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:380:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withFonts")
 	q = q.Arg("dir", dir)
@@ -893,6 +893,49 @@ func (r *PdfDocument) WithGraphQLQuery(q *querybuilder.Selection) *PdfDocument {
 	}
 }
 
+// Attachments extracts the files embedded in the document and returns the
+// directory holding them, each under the name the document gives it.
+//
+// This is the other half of what a PDF can carry that is not a page. An embedded
+// file is a whole file attached to the document — the machine-readable XML a
+// ZUGFeRD or Factur-X invoice carries alongside its human-readable page, a
+// spreadsheet behind a report, a CAD file behind a drawing — and it is not drawn,
+// not rendered and not part of any page's content. Neither Convert nor
+// EmbeddedImages will ever produce it: this is the only function that reaches it.
+//
+// The names are the document's own, not this module's, and that is the one place
+// this function departs from every other directory-returning function here. An
+// attachment's name is *data* — it is what the producer called the file and what
+// the consumer expects to find — so normalizing it to a contract the way the page
+// families do would destroy the thing that makes the result usable. A caller
+// wanting the invoice XML asks for `invoice.xml`.
+//
+// The flip side is that poppler polices those names, and polices them coarsely:
+// an attachment whose name carries a path — `../elsewhere.xml` — makes pdfdetach
+// refuse the *whole* extraction with `Preventing directory traversal` rather than
+// skip that one file, so one such name means no attachments at all. That is
+// reported as what it is, carrying the list of names the document holds, because
+// those names are what `pdfdetach -savefile` needs to fetch them one at a time
+// through Container.
+//
+// A document carrying no embedded files is refused rather than returned as an
+// empty directory, for the reason EmbeddedImages gives: pdfdetach exits 0 for it,
+// so the directory would be indistinguishable from an extraction that wrote
+// nothing. `pdfdetach -list` is the report that answers "does this carry any"
+// without failing, and the message names it.
+//
+// WithPageRange does not narrow it. An embedded file hangs off the document's
+// catalog rather than off any page — pdfdetach has no page bounds at all — which
+// is the same reason it does not narrow Metadata or Signatures. The passwords do
+// reach it, unlike Split and Merge: pdfdetach takes both.
+func (r *PdfDocument) Attachments() *Directory { // pdf (../../../../../daggerverse/pdf/extract.go:240:1)
+	q := r.query.Select("attachments")
+
+	return &Directory{
+		query: q,
+	}
+}
+
 // Convert opens the conversion namespace: the render options, and the eleven
 // outputs that read them.
 //
@@ -905,6 +948,67 @@ func (r *PdfDocument) Convert() *PdfConvert { // pdf (../../../../../daggerverse
 	q := r.query.Select("convert")
 
 	return &PdfConvert{
+		query: q,
+	}
+}
+
+// EmbeddedImages extracts the image objects the document *contains* and returns
+// the directory holding them, named `image-0000-page-0001.png` and so on.
+//
+// This is not Convert().Png(), and the difference is the reason the function is
+// named this way. Convert().Png() *rasterizes a page*: it draws everything on
+// the page — text, vectors, annotations, images — into a new bitmap at whatever
+// resolution WithDpi names, and the pixels it produces have never existed before.
+// This returns the image objects themselves, decoded no further than it has to
+// be: for a scanned document that is the scan, at the resolution it was scanned
+// at, with no resampling in between. Which is why it is the better OCR input of
+// the two — every render is a resampling of an image that was already pixels, and
+// recognition accuracy is exactly what that costs.
+//
+// It follows that WithDpi, WithColorMode, WithScaleTo and WithoutAnnotations have
+// no meaning here and are not reachable from this function at all: they live on
+// Convert, which is where rendering decisions belong. There is nothing to choose
+// about the resolution of an image that already has one. By the same token this
+// returns *nothing* for a page whose content is text and vectors — there is no
+// image object on it to extract, and Convert().Png() is what draws such a page.
+//
+// The format is the one real choice, and it is required rather than defaulted
+// because every member either keeps the document's encoding or replaces it, and
+// no one of those is the obviously right thing to do quietly. See ImageFormat.
+// ORIGINAL is worth reading twice: it keeps JPEG, JPEG 2000, JBIG2 and CCITT G4
+// streams byte for byte, and for an image encoded in none of those — a raw or
+// Flate-compressed bitmap, which is most PDFs that were not born as scans — it
+// falls back to netpbm, so a `.ppm` or `.pgm` in the result is not a failure but
+// an image that had no encoding to keep. ALL is the member whose fallback is PNG
+// instead, and is what to reach for when every image has to be readable by
+// something ordinary.
+//
+// The names carry both numbers poppler reports, padded and reordered but not
+// renumbered. The one after `image-` is the image's index in this extraction,
+// 0-based, which for an unnarrowed run is the `num` column of
+// `pdfimages -list`; the one after `-page-` is the 1-based source page it was
+// drawn on. The index comes first so lexicographic order is document order —
+// which it is, images being extracted in page order — and the word `image` comes
+// first of all so a directory of these is never mistaken for a directory of
+// rendered pages.
+//
+// A page can carry several images and most pages carry none, so there is no
+// one-file-per-page contract here of the kind every render honours. A document
+// carrying no images at all is refused rather than returned as an empty
+// directory: pdfimages exits 0 for it, so the directory would be indistinguishable
+// from an extraction that failed to write anything, and the overwhelmingly common
+// thing a caller does with this function is export it.
+//
+// WithPageRange narrows it. Note that it renumbers nothing but does restart the
+// image index, that index being poppler's count for the run rather than for the
+// document: pages 2 through 3 of a document whose first image is on page 1 come
+// back starting at `image-0000-page-0002`. The page number stays the source
+// document's, the same promise Split makes.
+func (r *PdfDocument) EmbeddedImages(format PdfImageFormat) *Directory { // pdf (../../../../../daggerverse/pdf/extract.go:160:1)
+	q := r.query.Select("embeddedImages")
+	q = q.Arg("format", format)
+
+	return &Directory{
 		query: q,
 	}
 }
@@ -1226,18 +1330,18 @@ type PdfOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // pdf (../../../../../daggerverse/pdf/main.go:258:2)
+	Registry string // pdf (../../../../../daggerverse/pdf/main.go:271:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:261:2)
+	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:274:2)
 }
 
 // New returns a Pdf module backed by <registry>/library/alpine:<tag> with
 // poppler-utils and a substitute font family installed.
-func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:253:1)
+func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:266:1)
 	q := r.query.Select("pdf")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -1330,6 +1434,100 @@ const (
 	// ColorModeMono renders bilevel (`-mono`): every pixel pure black or pure
 	// white, with flat tones dithered rather than averaged.
 	PdfColorModeMono PdfColorMode = "MONO" // pdf (../../../../../daggerverse/pdf/enums.go:33:2)
+
+)
+
+// ImageFormat is the encoding EmbeddedImages writes an extracted image in, and
+// maps onto pdfimages' format flags.
+//
+// Unlike the render formats, this one *is* a Dagger enum, because here the
+// format is a genuine question rather than a choice of function. An embedded
+// image already has an encoding, so every member either keeps it or replaces it,
+// and which of those a caller wants depends on what reads the result: ORIGINAL
+// hands on the bytes the document carries, and PNG hands on something every
+// image library opens without a codec question.
+//
+// Note on rendered names: the Dagger Go SDK derives each GraphQL enum member
+// from the *constant identifier* in SCREAMING_SNAKE_CASE, so these surface as
+// `PNG`, `TIFF`, `ORIGINAL` and `ALL`.
+type PdfImageFormat string // pdf (../../../../../daggerverse/pdf/enums.go:110:6)
+
+func (PdfImageFormat) IsEnum() {}
+
+func (v PdfImageFormat) Name() string {
+	switch v {
+	case PdfImageFormatAll:
+		return "ALL"
+	case PdfImageFormatOriginal:
+		return "ORIGINAL"
+	case PdfImageFormatPng:
+		return "PNG"
+	case PdfImageFormatTiff:
+		return "TIFF"
+	default:
+		return ""
+	}
+}
+
+func (v PdfImageFormat) Value() string {
+	return string(v)
+}
+
+func (v *PdfImageFormat) MarshalJSON() ([]byte, error) {
+	if *v == "" {
+		return []byte(`""`), nil
+	}
+	name := v.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", *v)
+	}
+	return json.Marshal(name)
+}
+
+func (v *PdfImageFormat) UnmarshalJSON(dt []byte) error {
+	var s string
+	if err := json.Unmarshal(dt, &s); err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*v = ""
+	case "ALL":
+		*v = PdfImageFormatAll
+	case "ORIGINAL":
+		*v = PdfImageFormatOriginal
+	case "PNG":
+		*v = PdfImageFormatPng
+	case "TIFF":
+		*v = PdfImageFormatTiff
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
+const (
+	// ImageFormatAll is ORIGINAL with a better fallback: an image with no
+	// natively writable encoding becomes PNG, or TIFF where PNG cannot represent
+	// it. It is the member to reach for when a document's images are of mixed
+	// encodings and every one of them has to be readable.
+	PdfImageFormatAll PdfImageFormat = "ALL" // pdf (../../../../../daggerverse/pdf/enums.go:130:2)
+
+	// ImageFormatOriginal writes the encoded stream out unchanged wherever
+	// poppler can — JPEG, JPEG 2000, JBIG2 and CCITT G4 — and falls back to
+	// netpbm for an image encoded in none of them. It is the member for a caller
+	// who wants the document's own bytes, and the one whose fallback is worth
+	// reading about: see EmbeddedImages.
+	PdfImageFormatOriginal PdfImageFormat = "ORIGINAL" // pdf (../../../../../daggerverse/pdf/enums.go:125:2)
+
+	// ImageFormatPng re-encodes every image as PNG. Lossless, so the
+	// re-encoding costs image quality nothing — it costs only the original
+	// encoding, which for a JPEG-encoded scan usually means a larger file.
+	PdfImageFormatPng PdfImageFormat = "PNG" // pdf (../../../../../daggerverse/pdf/enums.go:116:2)
+
+	// ImageFormatTiff re-encodes every image as TIFF, which is the format the
+	// document-imaging world already speaks.
+	PdfImageFormatTiff PdfImageFormat = "TIFF" // pdf (../../../../../daggerverse/pdf/enums.go:119:2)
 
 )
 
