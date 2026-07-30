@@ -1,7 +1,7 @@
-// Package main implements the pdf Dagger module: reading a PDF's text and
-// rendering its pages as images, as a `dagger call` instead of the usual
-// hand-rolled Dockerfile with poppler-utils in it plus a shell script to
-// rescue the output.
+// Package main implements the pdf Dagger module: reading a PDF's text,
+// rendering its pages, and reporting what it is made of, as a `dagger call`
+// instead of the usual hand-rolled Dockerfile with poppler-utils in it plus a
+// shell script to rescue the output.
 //
 // The text path and the OCR path are different tools for different documents,
 // and this module is the one to try first. pdftotext reads the text layer a
@@ -41,12 +41,20 @@
 // them. HTML is pdftohtml's, which is not a renderer at all so much as a
 // re-layout, and shares no options with either.
 //
+// Four reports describe the document instead of converting it, one per tool:
+// Info is pdfinfo, Fonts is pdffonts, Metadata is `pdfinfo -meta` and Signatures
+// is pdfsig. Each returns its tool's own report as text. Parsing those into
+// structured values is deliberately out of scope — the formats are stable but
+// wide, and a caller who wants one field can read it out of these lines more
+// cheaply than this module can model all of them.
+//
 // File map (all `package main`, surfaced as one Dagger module):
 //
 //   - enums.go    — ColorMode and LayoutMode plus the tables mapping them onto
 //     poppler's flags, and the internal raster- and per-page-format tables.
 //   - document.go — *Document, one bound PDF: its passwords, its page range,
-//     and what pdfinfo reports about it.
+//     and the four reports about it — what pdfinfo says, which fonts it needs,
+//     its XMP metadata, and its signatures.
 //   - convert.go  — *Convert, the render options and the nine outputs that
 //     read them.
 package main
@@ -73,8 +81,8 @@ const (
 	defaultAlpineTag = "3.24"
 
 	// popplerPkg carries all thirteen pdf* binaries this module reaches
-	// through Container, of which five are wrapped: pdftotext, pdftoppm,
-	// pdfinfo, pdftocairo and pdftohtml.
+	// through Container, of which seven are wrapped: pdftotext, pdftoppm,
+	// pdfinfo, pdftocairo, pdftohtml, pdffonts and pdfsig.
 	popplerPkg = "poppler-utils"
 
 	// fontPkg is the substitute font family poppler draws with when a PDF
@@ -152,6 +160,27 @@ const (
 	// endOfDocument is the WithPageRange `last` that means "to the last page",
 	// and the zero value a Document that was never given a range carries.
 	endOfDocument = 0
+
+	// metadataFlag is what makes pdfinfo print the document's XMP packet, and
+	// only the packet: the ordinary report is suppressed, so a document with no
+	// XMP produces no output at all.
+	metadataFlag = "-meta"
+
+	// noMetadataReport is what Metadata answers for a document carrying no XMP
+	// packet. It is a report and not an error, that document being a perfectly
+	// good one, and it is not the empty string poppler produces because an empty
+	// string is indistinguishable from a function that never ran.
+	noMetadataReport = "No XMP metadata: this document carries no XMP packet. " +
+		"Info reports the metadata in its Info dictionary."
+
+	// noSignaturesMarker and signatureInfoMarker are the two openings pdfsig's
+	// report comes in — one for a document carrying no signatures, one for a
+	// document carrying some — and recognising either is what lets Signatures
+	// tell a report from a failed run. pdfsig exits non-zero for both an
+	// unsigned document (2) and a signature that did not validate (1), and 1 is
+	// also what it exits for a document it could not open at all.
+	noSignaturesMarker  = "does not contain any signatures"
+	signatureInfoMarker = "Digital Signature Info of:"
 
 	// incorrectPasswordMarker is the text poppler's own message carries when a
 	// document is encrypted and the password it was given — including the
@@ -307,9 +336,10 @@ func (p *Pdf) WithFonts(
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and five of them are wrapped here, so pdfimages, pdfseparate,
-// pdfunite, pdfsig, pdffonts and the rest stay reachable via
-// `container with-exec`.
+// binaries and seven of them are wrapped here, so pdfimages, pdfseparate,
+// pdfunite, pdfattach, pdfdetach and pdftops stay reachable via
+// `container with-exec` — as do the flags of a wrapped tool that this module
+// does not surface, `pdffonts -subst` among them.
 func (p *Pdf) Container() *dagger.Container {
 	ctr := p.base().WithExec([]string{"apk", "add", "--no-cache", popplerPkg, fontPkg})
 	// Mounted after the install because the install is what brings

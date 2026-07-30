@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Pdf
-func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:168:6)
+func (r *Binding) AsPdf() *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
 	q := r.query.Select("asPdf")
 
 	return &Pdf{
@@ -86,7 +86,7 @@ func (r *Env) WithPdfDocumentOutput(name string, description string) *Env { // p
 }
 
 // Create or update a binding of type Pdf in the environment
-func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:168:6)
+func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withPdfInput")
 	q = q.Arg("name", name)
@@ -99,7 +99,7 @@ func (r *Env) WithPdfInput(name string, value *Pdf, description string) *Env { /
 }
 
 // Declare a desired Pdf output to be assigned in the environment
-func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:168:6)
+func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
 	q := r.query.Select("withPdfOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -113,7 +113,7 @@ func (r *Env) WithPdfOutput(name string, description string) *Env { // pdf (../.
 // carries the image coordinates and the fonts the image is built with;
 // Document hangs off it so the generated SDK surfaces conversion under
 // `dag.Pdf().Document(...)`.
-type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:168:6)
+type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:197:6)
 	query *querybuilder.Selection
 
 	id      *ID
@@ -136,10 +136,11 @@ func (r *Pdf) WithGraphQLQuery(q *querybuilder.Selection) *Pdf {
 
 // Container returns the assembled toolchain image. This is the escape hatch
 // for everything this module does not wrap: poppler-utils ships thirteen
-// binaries and five of them are wrapped here, so pdfimages, pdfseparate,
-// pdfunite, pdfsig, pdffonts and the rest stay reachable via
-// `container with-exec`.
-func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:313:1)
+// binaries and seven of them are wrapped here, so pdfimages, pdfseparate,
+// pdfunite, pdfattach, pdfdetach and pdftops stay reachable via
+// `container with-exec` — as do the flags of a wrapped tool that this module
+// does not surface, `pdffonts -subst` among them.
+func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/main.go:343:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -152,7 +153,7 @@ func (r *Pdf) Container() *Container { // pdf (../../../../../daggerverse/pdf/ma
 // The boundary input is a *dagger.File rather than a *dagger.Directory: a PDF
 // resolves nothing relative to its own location, so one file is the whole unit
 // of work however many pages it carries.
-func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:346:1)
+func (r *Pdf) Document(source *File) *PdfDocument { // pdf (../../../../../daggerverse/pdf/main.go:376:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -213,7 +214,7 @@ func (r *Pdf) UnmarshalJSON(bs []byte) error {
 
 // Version returns the poppler release the assembled image ships, as the bare
 // version number reported by `pdftotext -v`.
-func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:326:1)
+func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/main.go:356:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -239,7 +240,7 @@ func (r *Pdf) Version(ctx context.Context) (string, error) { // pdf (../../../..
 // why the credentials are not simply userinfo in the WithApkRepository URL,
 // which would put them in /etc/apk/repositories and in every apk error
 // message that quotes it.
-func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:275:1)
+func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:304:1)
 	assertNotNil("credentials", credentials)
 	q := r.query.Select("withApkAuth")
 	q = q.Arg("credentials", credentials)
@@ -262,7 +263,7 @@ func (r *Pdf) WithApkAuth(credentials *Secret) *Pdf { // pdf (../../../../../dag
 // Repeatable, for a mirror set signed by more than one key. It is a *File
 // rather than a *Secret because a public key is not a credential: it is meant
 // to be in the image, and WithApkAuth is the option for the part that is not.
-func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:252:1)
+func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:281:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withApkKey")
 	q = q.Arg("key", key)
@@ -292,7 +293,7 @@ func (r *Pdf) WithApkKey(key *File) *Pdf { // pdf (../../../../../daggerverse/pd
 // call per component. A repository's index is signed, so pair this with
 // WithApkKey unless the mirror is signed by a key the base image already
 // trusts.
-func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:224:1)
+func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:253:1)
 	q := r.query.Select("withApkRepository")
 	q = q.Arg("url", url)
 
@@ -316,7 +317,7 @@ func (r *Pdf) WithApkRepository(url string) *Pdf { // pdf (../../../../../dagger
 // /etc/fonts/fonts.conf tells fontconfig to scan, so the faces in it are
 // indistinguishable from packaged ones as far as poppler is concerned. It is
 // mounted rather than copied so a large family does not become an image layer.
-func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:299:1)
+func (r *Pdf) WithFonts(dir *Directory) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:328:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withFonts")
 	q = q.Arg("dir", dir)
@@ -748,9 +749,12 @@ func (r *PdfConvert) AsNode() Node {
 type PdfDocument struct { // pdf (../../../../../daggerverse/pdf/document.go:18:6)
 	query *querybuilder.Selection
 
-	id        *ID
-	info      *string
-	pageCount *int
+	fonts      *string
+	id         *ID
+	info       *string
+	metadata   *string
+	pageCount  *int
+	signatures *string
 }
 type WithPdfDocumentFunc func(r *PdfDocument) *PdfDocument
 
@@ -775,12 +779,49 @@ func (r *PdfDocument) WithGraphQLQuery(q *querybuilder.Selection) *PdfDocument {
 // nothing about the PDF — and because it is what lets one bound document, with
 // its passwords and its page range settled, fan out into several differently
 // configured conversions.
-func (r *PdfDocument) Convert() *PdfConvert { // pdf (../../../../../daggerverse/pdf/document.go:158:1)
+func (r *PdfDocument) Convert() *PdfConvert { // pdf (../../../../../daggerverse/pdf/document.go:281:1)
 	q := r.query.Select("convert")
 
 	return &PdfConvert{
 		query: q,
 	}
+}
+
+// Fonts returns what pdffonts reports about every face the document's pages
+// name: the face's name, its type, its encoding, whether it is embedded in the
+// file, whether it is a subset, whether it carries a ToUnicode map, and the
+// object it lives in.
+//
+// The `emb` column is the one to read. A PDF that names a font without
+// embedding one — the usual shape for anything not born as a scan — is drawn by
+// asking fontconfig for a substitute, and a substitute poppler cannot find is
+// not an error: the glyphs are simply absent from the rendered page and the
+// command exits 0. This report is what that failure looks like before it
+// happens, which makes it the diagnostic to reach for when a render comes out
+// blank or a face comes out wrong. `no` in that column means the render depends
+// on the image's own fonts — the packaged family, or one supplied through
+// WithFonts.
+//
+// The report is pdffonts' own table, verbatim. Parsing it into structured
+// values is deliberately not this module's job: the format is stable but wide,
+// and a caller who wants one column can read it out of these lines more cheaply
+// than this module can model all of them.
+//
+// WithPageRange narrows it, because which faces a document needs is a question
+// about pages: a face used only on page 40 is absent from a report of pages 1
+// through 3. Which substitute poppler would actually choose for an unembedded
+// face is a different question, answered by `pdffonts -subst`, and reachable
+// through Container.
+func (r *PdfDocument) Fonts(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/document.go:175:1)
+	if r.fonts != nil {
+		return *r.fonts, nil
+	}
+	q := r.query.Select("fonts")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this PdfDocument.
@@ -850,6 +891,38 @@ func (r *PdfDocument) Info(ctx context.Context) (string, error) { // pdf (../../
 	return response, q.Execute(ctx)
 }
 
+// Metadata returns the document's XMP packet: the RDF/XML block a producer
+// writes its own record of the document into — title, creator tool, rights,
+// modification history — and the one place a workflow's own custom properties
+// can live inside a PDF.
+//
+// It is the packet and nothing else, which is what makes it worth having next to
+// Info. The two carry different things and disagree in the wild: Info reports the
+// PDF's Info dictionary, whose handful of keys a producer may have left behind
+// when it rewrote the XMP, and the packet is the record a downstream asset
+// system actually reads. The packet is returned exactly as it sits in the file,
+// so a caller can hand it to an XML parser or grep a property out of it.
+//
+// A document carrying no packet is not an error and does not return nothing:
+// poppler prints nothing at all and exits 0, and an empty string is
+// indistinguishable from a function that never ran. It returns a line saying
+// there is no XMP and naming Info as the report that does carry this document's
+// metadata.
+//
+// WithPageRange does not narrow it, the packet being a property of the document
+// rather than of any page — the same reason it does not narrow Info.
+func (r *PdfDocument) Metadata(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/document.go:206:1)
+	if r.metadata != nil {
+		return *r.metadata, nil
+	}
+	q := r.query.Select("metadata")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // PageCount returns how many pages the document has, by reading the `Pages:`
 // line out of what Info reports.
 //
@@ -862,6 +935,47 @@ func (r *PdfDocument) PageCount(ctx context.Context) (int, error) { // pdf (../.
 	q := r.query.Select("pageCount")
 
 	var response int
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// Signatures returns what pdfsig reports about the document's digital
+// signatures: one block per signature naming its field, its signer, when it was
+// signed, which algorithm signed it, how much of the document it covers, and
+// whether the signature validates.
+//
+// A document with no signatures — which is nearly every document — gets the
+// report saying so rather than an error. That is the point of the function
+// being callable on an arbitrary PDF: "is this signed, and does it check out" is
+// a question asked *before* the answer is known, so the unsigned answer has to
+// come back as a result. poppler exits 2 for it, and this is the one place the
+// module reads a non-zero exit as a report rather than a failure.
+//
+// It reports and does not gate. A signature that fails to validate is a report
+// saying so — `Signature Validation: Signature is Invalid.` — and not an error,
+// for the same reason: a caller asking whether the signatures hold needs the
+// answer, and one that wants to stop on a bad signature reads the verdict out of
+// the report. Only a run that got no report at all — an unreadable file, a
+// document whose password is missing or wrong — fails.
+//
+// What the report can say about a signer's *certificate* is limited by the image
+// rather than by the document. Certificate validation needs a trust database,
+// this image carries none, and pdfsig says so on stderr — which is not part of
+// this report. A caller who needs a validated chain supplies one with
+// `-nssdir`, through Container.
+//
+// Neither WithPageRange nor anything else narrows it: a signature covers byte
+// ranges of the file rather than pages, and pdfsig has no page bounds at all.
+// The passwords do reach it, an encrypted document being one it has to open like
+// any other.
+func (r *PdfDocument) Signatures(ctx context.Context) (string, error) { // pdf (../../../../../daggerverse/pdf/document.go:247:1)
+	if r.signatures != nil {
+		return *r.signatures, nil
+	}
+	q := r.query.Select("signatures")
+
+	var response string
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -963,18 +1077,18 @@ type PdfOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // pdf (../../../../../daggerverse/pdf/main.go:190:2)
+	Registry string // pdf (../../../../../daggerverse/pdf/main.go:219:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:193:2)
+	AlpineTag string // pdf (../../../../../daggerverse/pdf/main.go:222:2)
 }
 
 // New returns a Pdf module backed by <registry>/library/alpine:<tag> with
 // poppler-utils and a substitute font family installed.
-func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:185:1)
+func (r *Query) Pdf(opts ...PdfOpts) *Pdf { // pdf (../../../../../daggerverse/pdf/main.go:214:1)
 	q := r.query.Select("pdf")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument

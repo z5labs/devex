@@ -8,7 +8,8 @@ size you choose, in colour, grayscale or bilevel. Keep the type outlines instead
 and it gives you SVG, EPS or PostScript; ask for markup and it gives you HTML
 with the page's images beside it. Ask it what the document is and it tells you:
 page count, page size, PDF version, whether it is encrypted and under which
-algorithm.
+algorithm, which fonts it needs and whether they are embedded, what its XMP
+metadata says, and whether its signatures check out.
 
 **There is no official poppler container image**, so this module assembles its
 own the way `tesseract` and `qemu` do rather than pinning a vendor image the way
@@ -137,11 +138,12 @@ Pdf.Version(ctx) (string, error)
 ```
 
 `Container` is the escape hatch. poppler-utils ships **thirteen** binaries and
-this module wraps three of them — `pdftotext`, `pdftoppm` and `pdfinfo` — so
-`pdfimages`, `pdfseparate`, `pdfunite`, `pdfsig`, `pdffonts`, `pdftocairo`,
-`pdftohtml`, `pdftops`, `pdfattach` and `pdfdetach` stay reachable via
-`container with-exec` until they get wrapped too (see
-[Follow-ups](#follow-ups)).
+this module wraps seven of them — `pdftotext`, `pdftoppm`, `pdfinfo`,
+`pdftocairo`, `pdftohtml`, `pdffonts` and `pdfsig` — so `pdfimages`,
+`pdfseparate`, `pdfunite`, `pdftops`, `pdfattach` and `pdfdetach` stay reachable
+via `container with-exec` until they get wrapped too (see
+[Follow-ups](#follow-ups)). So do the flags of a wrapped tool that this module
+does not surface, `pdffonts -subst` among them.
 
 `Version` reads **stderr**, not stdout: poppler's tools print their version
 banner on stderr and still exit 0, so a module reading stdout would report the
@@ -157,6 +159,9 @@ Document.WithOwnerPassword(password *dagger.Secret) *Document
 Document.WithPageRange(first int, last int) *Document
 Document.Info(ctx) (string, error)
 Document.PageCount(ctx) (int, error)
+Document.Fonts(ctx) (string, error)
+Document.Metadata(ctx) (string, error)
+Document.Signatures(ctx) (string, error)
 Document.Convert() *Convert
 ```
 
@@ -177,7 +182,8 @@ body  := doc.WithPageRange(2, 0).Convert().WithDpi(300).Png()
 
 `Info` and `PageCount` describe the **document**, not a conversion of it, so
 `WithPageRange` does not narrow them. That is also what makes `PageCount` usable
-as the bound a range is validated against.
+as the bound a range is validated against. `Fonts`, `Metadata` and `Signatures`
+are the other three reports — see [The four reports](#the-four-reports).
 
 ### Passwords
 
@@ -228,6 +234,98 @@ document with no text in it.
 | `WithPageRange(5, 3)` | `last (3) must not precede first (5)` |
 | `WithPageRange(20, 0)` on 12 pages | `first (20) is past the end of the document, which has 12 pages` |
 | `WithPageRange(1, 13)` on 12 pages | `last (13) is past the end …` |
+
+## The four reports
+
+Four functions describe the document instead of converting it, one per poppler
+tool. Each returns its tool's report as text.
+
+| function | tool | page range | passwords |
+| --- | --- | --- | --- |
+| `Info` | `pdfinfo` | no — describes the document | yes |
+| `Fonts` | `pdffonts` | **yes** — which faces a document needs is a question about pages | yes |
+| `Metadata` | `pdfinfo -meta` | no — the packet is document-level | yes |
+| `Signatures` | `pdfsig` | no — a signature covers byte ranges, and the tool has no page bounds | yes |
+
+**They are not parsed, deliberately.** The formats are stable but wide, and a
+caller who wants one field can grep it out of these lines more cheaply than this
+module can model all of them. Structured values would mean four schemas to keep
+in step with poppler's output for no capability that grepping does not already
+have.
+
+### `Fonts` — the blank-page diagnostic, before the blank page
+
+```
+name                                 type              encoding         emb sub uni object ID
+------------------------------------ ----------------- ---------------- --- --- --- ---------
+Helvetica                            Type 1            WinAnsi          no  no  no       3  0
+```
+
+The `emb` column is the one to read, and it is the direct diagnostic for the
+failure [the font install](#the-font-is-not-decoration) exists to prevent: `no`
+means the file names that face without carrying it, so the render depends on the
+image's own fonts — the packaged family, or one supplied through `WithFonts`. Get
+that wrong and the page renders **blank while exiting 0**. This report is what
+that looks like beforehand.
+
+`WithPageRange` narrows it, because a face used only on page 40 is genuinely
+absent from a report of pages 1 through 3. Out-of-document bounds are rejected
+here the same way they are everywhere else — poppler would print the header and
+exit 0, which reads as a document that needs no fonts at all.
+
+Which substitute poppler would *actually* pick for an unembedded face is a
+different question, answered by `pdffonts -subst` through
+[`Container`](#toolchain).
+
+### `Metadata` — the XMP packet, not the Info dictionary
+
+`Metadata` returns the RDF/XML block a producer writes its own record of the
+document into, exactly as it sits in the file, ready for an XML parser. It is
+worth having next to `Info` because the two carry different things and disagree
+in the wild: `Info` reports the PDF's Info **dictionary**, whose handful of keys a
+producer may have left behind when it rewrote the XMP, and the packet is the
+record a downstream asset system reads.
+
+A document carrying **no** packet is not an error and does not come back empty.
+poppler prints nothing at all and exits 0 for that, and an empty string is
+indistinguishable from a function that never ran, so the module answers:
+
+```
+No XMP metadata: this document carries no XMP packet. Info reports the metadata in its Info dictionary.
+```
+
+### `Signatures` — reports, and does not gate
+
+An unsigned document — which is nearly every document — gets the report saying
+so, not a failure:
+
+```
+File '/work/source.pdf' does not contain any signatures
+```
+
+The path in it is where the module mounts the bound file, poppler naming the file
+it was handed; the report is otherwise `pdfsig`'s own, verbatim.
+
+That is the whole point of the function being callable on an arbitrary PDF: "is
+this signed, and does it check out" is asked *before* the answer is known, so the
+unsigned answer has to arrive as a result. It is also the one place this module
+reads a non-zero exit as a report — `pdfsig` exits **2** for it.
+
+It reports rather than gates. A signature that fails to validate comes back as a
+report saying `Signature Validation: Signature is Invalid.`, not as an error, and
+a caller that wants to stop on a bad signature reads the verdict out of the
+report. Only a run that produced no report at all — an unreadable file, a missing
+or wrong password — fails.
+
+> `pdfsig` overloads its exit codes: **1** is both "a signature did not validate",
+> having printed the whole report, and "could not open the document", having
+> printed nothing. The module therefore decides on what was *printed*, not on the
+> code.
+
+What the report can say about a signer's **certificate** is limited by the image
+and not by the document: chain validation needs a trust database, this image
+carries none, and `pdfsig` says so on stderr — which is not part of the report.
+Supply one with `-nssdir` through [`Container`](#toolchain).
 
 ## Convert — the render options and the nine outputs
 
@@ -502,8 +600,7 @@ about. Same posture as `tesseract`'s outputs and `kicad`.
 
 ## Follow-ups
 
-Reporting a document's fonts, metadata and signatures (#268);
-text-layer geometry as bbox HTML and TSV (#269); splitting and merging pages
+Text-layer geometry as bbox HTML and TSV (#269); splitting and merging pages
 (#270); extracting embedded images and attachments (#271); cropping the render
 window and selecting odd or even pages (#272); the chained `Ci` builder (#273);
 linearize, encrypt and repair via qpdf (#274); testing package assembly off a
