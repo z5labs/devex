@@ -50,9 +50,29 @@ repository discovers that repository's modules, diffs its `.git`, and hashes its
 sources. Verified against a separate workspace, which produced a plan identical
 to the one a local checkout produced.
 
-Installing it as a dependency or a toolchain also works, and a toolchain gets you
-`workspace-ci:generated`, `workspace-ci:generated-self-test` and
-`workspace-ci:selection-self-test` as checks of your own.
+To also adopt `generated`, `generated-self-test` and `selection-self-test` as
+checks of your own, install this module as a **dependency of your root module**
+and declare them there:
+
+```go
+// +check
+// +cache="never"
+func (m *Root) Generated(ctx context.Context) error {
+	return dag.WorkspaceCi().Generated(ctx)
+}
+```
+
+`dag.CurrentWorkspace()` resolves to the caller's workspace from inside a
+dependency, so the check reads your repository, not this one. Repeat
+`+cache="never"` on the wrapper: the directive on the function being called does
+not propagate to the one calling it.
+
+Declaring them on the **root** module specifically is what makes them work as
+intended — a plan always runs the root module's checks and never memoizes them,
+which is the premise `generated` rests on. Installing this module as a
+*toolchain* instead surfaces those checks to `dagger check`, but not to a plan:
+enumeration reads `Module.checks`, which reports a module's own checks and not
+its toolchains'. A toolchain check is therefore one no plan ever emits a leg for.
 
 ## What the planner will not do
 
