@@ -136,13 +136,25 @@ func (d *Document) Info(ctx context.Context) (string, error) {
 // It is the page count of the whole document, not of a WithPageRange — which
 // is what makes it usable as the bound a range is checked against.
 func (d *Document) PageCount(ctx context.Context) (int, error) {
-	info, err := d.Info(ctx)
+	return d.pageCount(ctx, "PageCount")
+}
+
+// pageCount is PageCount under the caller's own name, which is what every
+// conversion reads the padding width from.
+//
+// The label is the caller's rather than this function's because the page count
+// is not what a caller asked for: a render that cannot open the document should
+// say so as the render, not as a report the caller never called. It is the same
+// pdfinfo invocation Info runs, so the two share a cache entry — the round trip
+// is paid once per document per session however many conversions read it.
+func (d *Document) pageCount(ctx context.Context, label string) (int, error) {
+	res, err := d.run(ctx, label, d.command("pdfinfo", nil, sourcePath))
 	if err != nil {
 		return 0, err
 	}
-	count, err := parsePageCount(info)
+	count, err := parsePageCount(strings.TrimRight(res.stdout, "\n"))
 	if err != nil {
-		return 0, fmt.Errorf("PageCount: %s", err.Error())
+		return 0, fmt.Errorf("%s: %s", label, err.Error())
 	}
 	return count, nil
 }

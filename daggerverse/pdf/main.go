@@ -96,6 +96,7 @@ import (
 	"fmt"
 	"strings"
 
+	"dagger/pdf/fanout"
 	"dagger/pdf/internal/dagger"
 )
 
@@ -160,12 +161,11 @@ const (
 	sourcePath = workDir + "/source.pdf"
 	outputDir  = "/out"
 
-	// textOutputPath is the file Convert.Txt writes, psOutputPath the one
-	// Convert.Ps writes, and pageBase the OUTPUTBASE handed to pdftoppm — which
-	// appends a page number and the format's extension to it.
+	// textOutputPath is the file Convert.Txt writes and psOutputPath the one
+	// Convert.Ps writes. The per-page renders name their own output — see
+	// pageName — so there is no shared output base for them to derive it from.
 	textOutputPath = outputDir + "/document.txt"
 	psOutputPath   = outputDir + "/document.ps"
-	pageBase       = outputDir + "/page"
 
 	// bboxOutputPath is the file Convert.Bbox writes and tsvOutputPath the one
 	// Convert.Tsv writes. The extensions are this module's choice — pdftotext
@@ -187,13 +187,18 @@ const (
 	tsvFlag        = "-tsv"
 
 	// pageNamePrefix is the leading part of a rendered page's file name, and
-	// has to agree with pageBase: the normalization pass strips it to read the
-	// page number back out.
+	// has to agree with pageBase: Split's normalization pass strips it to read
+	// the page number back out.
 	pageNamePrefix = "page-"
 
 	// minPageNumberWidth is the digit count every rendered page's number is
-	// padded to. See normalizeScript for what it buys.
+	// padded to. See pageNumberWidth for what it buys.
 	minPageNumberWidth = 4
+
+	// minRenderConcurrency is the floor on how many pages a conversion renders
+	// at once, and so the smallest bound WithConcurrency accepts: zero pages at
+	// a time renders nothing at all.
+	minRenderConcurrency = 1
 
 	// defaultDpi is the resolution pages are rendered at when the caller names
 	// none, and is pdftoppm's own default. It is a screen-reading resolution
@@ -418,6 +423,27 @@ func (p *Pdf) Version(ctx context.Context) (string, error) {
 	// The first line is `pdftotext version <version>`; the rest is copyright.
 	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
 	return strings.TrimSpace(strings.TrimPrefix(first, "pdftotext version")), nil
+}
+
+// RenderSchedulingSelfTest verifies the properties the per-page render fan-out
+// depends on: that every page runs, that WithConcurrency is honoured as both a
+// ceiling and a floor, that a failure partway through is the error reported, and
+// that it stops the pages behind it from starting.
+//
+// It sits on the module rather than in the test module because it checks
+// unexported scheduling, and it exists at all because no document can check it.
+// poppler does not fail a page: measured against the pinned poppler 25.12, every
+// damaged page shape — a dangling page-tree kid, a kid of the wrong type, a loop
+// in the tree, a null kid, an absurd MediaBox, an absurd resolution — is a
+// warning on stderr and an exit status of 0. So the fail-fast has no fixture
+// that would exercise it, and this is what covers it instead.
+//
+// It runs in-process and needs no container, so it is cheap enough to be a check
+// of its own.
+//
+// +check
+func (p *Pdf) RenderSchedulingSelfTest(ctx context.Context) error {
+	return fanout.SelfCheck()
 }
 
 // Document binds one PDF to the toolchain.

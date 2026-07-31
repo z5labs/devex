@@ -3,62 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
+	"dagger/pdf/fanout"
 	"dagger/pdf/internal/dagger"
 )
-
-// rasterArgv0 is the `$0` the raster script runs under, so the format's
-// extension reaches it as `$1` rather than being interpolated into the script
-// text.
-const rasterArgv0 = "pdf-raster"
-
-// normalizeScript renames every page the tool just wrote so its number is
-// zero-padded to a fixed width, and is the reason this directory can be handed
-// to another module at all. It is the raster renders' pass and Split's alike:
-// both write a page per file, and both leave the number unpadded for it.
-//
-// pdftoppm pads a page number to the width of the document's page count, so a
-// 9-page document yields `page-1.png` and a 10-page one `page-01.png`.
-// Lexicographic order is therefore page order within a single document and
-// nothing more: a consumer that sorts what it is given — the tesseract module's
-// Batch does a bare sort.Strings — has no way to know which width it is holding,
-// and a caller who hardcodes one name shape breaks on the next document. Padding
-// to a fixed minimum makes the shape a contract instead of a consequence.
-//
-// The width is the greater of the module's minimum and whatever pdftoppm chose,
-// so a document longer than the minimum can express stays uniform rather than
-// being truncated into ambiguity.
-//
-// It runs in the same exec as the render, so the directory this function returns
-// has never existed under the other names.
-var normalizeScript = strings.Join([]string{
-	`ext="$1"`,
-	`width=` + strconv.Itoa(minPageNumberWidth),
-	`for f in ` + pageGlob + `; do`,
-	`	[ -e "$f" ] || continue`,
-	`	n=${f##*/` + pageNamePrefix + `}`,
-	`	n=${n%."$ext"}`,
-	`	if [ ${#n} -gt "$width" ]; then width=${#n}; fi`,
-	`done`,
-	`for f in ` + pageGlob + `; do`,
-	`	[ -e "$f" ] || continue`,
-	`	n=${f##*/` + pageNamePrefix + `}`,
-	`	n=${n%."$ext"}`,
-	// Leading zeros are stripped before printf sees the number: POSIX printf
-	// reads a leading-zero argument as an octal constant, so `09` is not 9 but
-	// a diagnostic.
-	`	stripped=$(printf '%s' "$n" | sed 's/^0*//')`,
-	`	[ -n "$stripped" ] || stripped=0`,
-	`	padded=$(printf "%0${width}d" "$stripped")`,
-	`	if [ "$n" != "$padded" ]; then mv "$f" "` + outputDir + `/` + pageNamePrefix + `$padded.$ext"; fi`,
-	`done`,
-}, "\n")
-
-// pageGlob matches every page a render wrote, whatever width pdftoppm numbered
-// it to. The extension comes from `$1` so one script serves all three formats.
-const pageGlob = outputDir + `/` + pageNamePrefix + `*."$ext"`
 
 // Convert is a conversion of a bound document: the options a render reads, and
 // the outputs that read them.
@@ -88,6 +39,10 @@ type Convert struct {
 	HasScaleTo bool
 	// +private
 	HideAnnotations bool
+	// +private
+	Concurrency int
+	// +private
+	HasConcurrency bool
 }
 
 // WithDpi sets the resolution pages are rendered at, in dots per inch.
@@ -170,6 +125,40 @@ func (c *Convert) WithScaleTo(
 func (c *Convert) WithoutAnnotations() *Convert {
 	out := c.clone()
 	out.HideAnnotations = true
+	return out
+}
+
+// WithConcurrency bounds how many pages a render converts at once.
+//
+// It defaults to the number of CPUs the module can see, which is what a
+// document wants: every page is its own exec, and poppler renders a page on one
+// core whatever the machine has. A 129-page document at 300 dpi spends about a
+// minute of that one core, and the recognition it is usually rendered for
+// spends its own time across every core — so the render is a third of the CPU
+// and two thirds of the wall clock, and the share grows with core count rather
+// than shrinking.
+//
+// Unlike the tesseract module's Batch, this bound needs no companion. poppler's
+// tools are single-threaded, so concurrency here is concurrency and not
+// concurrency multiplied by an OpenMP team; the pages contend for cores the way
+// any other CPU-bound workload does.
+//
+// Pass a number to take less of the machine than the default, or 1 to render one
+// page at a time. Non-positive is rejected at output time.
+//
+// It is a scheduling bound and nothing else: the directory a conversion returns
+// is the same whatever it is set to. It is also not what decides how the results
+// cache — one exec per page is what does that, at every bound including 1.
+//
+// Ignored by Text, Txt, Bbox, Tsv and Ps, none of which renders a page at a
+// time. See Ps for why that one is a single invocation.
+func (c *Convert) WithConcurrency(
+	// Maximum number of pages to render at the same time.
+	concurrency int,
+) *Convert {
+	out := c.clone()
+	out.Concurrency = concurrency
+	out.HasConcurrency = true
 	return out
 }
 
@@ -403,6 +392,15 @@ func (c *Convert) Eps(ctx context.Context) (*dagger.Directory, error) {
 // Splitting it into a page-per-file directory would produce fragments that are
 // each individually invalid.
 //
+// That is also why this is the one render that stays a single invocation, and
+// why WithConcurrency does nothing here. Every other page-per-file output fans
+// out one exec per page and assembles the directory afterwards; a PostScript
+// document cannot be assembled that way, because concatenating the fragments is
+// not the same operation as writing the document — the result would need its
+// prologue, its page markers and its `%%Pages:` count rewritten, which is a
+// PostScript editor and not a renderer. A caller who wants the pages rendered
+// concurrently wants Eps, which is one page per file by definition.
+//
 // WithDpi governs the rasterized regions the output can still contain.
 // WithColorMode, WithScaleTo and WithoutAnnotations are ignored here and by Svg,
 // Eps and Html, and are documented no-ops rather than rejections for the same
@@ -484,11 +482,22 @@ func (c *Convert) textFlags(label string, layout LayoutMode, disablePageBreaks b
 // rasterFlags renders everything pdftoppm needs that is not the document, the
 // output base or a password.
 //
-// -forcenum is unconditional. In poppler 25.12 — what the pinned Alpine tag
-// ships — it changes nothing, because a page number is always appended. It is
-// here for the caller who overrode alpineTag onto an older release, where a
-// single-page render was named `page.png` with no number in it at all, breaking
-// the naming contract for exactly the documents most likely to be one page.
+// -singlefile is what makes the page-naming contract this module's rather than
+// poppler's. Handed an output base, pdftoppm appends a page number of its own
+// choosing and the format's extension; handed -singlefile it writes exactly
+// `<base>.<ext>` and nothing else, so a render told to produce `page-0007` does.
+// Since each invocation renders one page, that is the whole contract, and the
+// rename pass the raster family used to run afterwards is gone with it.
+//
+// -forcenum is gone for the same reason, and could not survive: it overrides
+// -singlefile rather than composing with it, so the two together write
+// `page-0007-07.png`. It existed for a caller who overrode alpineTag onto a
+// poppler old enough to name a single-page render `page.png`, and -singlefile
+// answers that case outright on every release — the number is in the name this
+// module chose, not in one the tool appended.
+//
+// The document's own range flags are deliberately not appended: the page bounds
+// are per invocation now, one page wide, and are added by raster.
 func (c *Convert) rasterFlags(label string, format rasterFormat) ([]string, error) {
 	if c.HasDpi && c.Dpi <= 0 {
 		return nil, fmt.Errorf(
@@ -505,7 +514,7 @@ func (c *Convert) rasterFlags(label string, format rasterFormat) ([]string, erro
 			label, string(c.ColorMode), colorNames())
 	}
 
-	args := []string{format.flag, "-forcenum"}
+	args := []string{format.flag, "-singlefile"}
 	// Exactly one of the two ever reaches the command line, which is what
 	// makes WithScaleTo override WithDpi here rather than inside poppler.
 	if c.HasScaleTo {
@@ -517,7 +526,7 @@ func (c *Convert) rasterFlags(label string, format rasterFormat) ([]string, erro
 	if c.HideAnnotations {
 		args = append(args, "-hide-annotations")
 	}
-	return append(args, c.Document.rangeArgs()...), nil
+	return args, nil
 }
 
 // dpi is the resolution a render runs at: what the caller asked for, or the
@@ -549,93 +558,205 @@ func (c *Convert) cairoFlags(format pageFormat) ([]string, error) {
 	return args, nil
 }
 
-// pageRender writes one file per page and returns the directory holding them.
+// pageRender writes one file per page, one exec per page, and returns the
+// directory holding them.
 //
-// The page loop runs in the container rather than here because its upper bound
-// is the document's page count, and reading that from Go would mean a second
-// round trip to fetch what the very next exec is about to open anyway. Resolving
-// it in the same shell keeps the whole conversion one exec, the way the raster
-// path's rename pass does.
+// The whole directory of each render is taken rather than the page file alone,
+// because pdftohtml writes more than the page: a page carrying images gets them
+// beside its markup under names of the tool's choosing, referenced from the
+// markup by a relative path. Selecting only what this module can name would
+// leave that markup pointing at files the returned directory does not hold.
+// Pages cannot collide in the merge — every name a render writes starts with the
+// page's own `page-NNNN` base — and they are merged in page order, so the result
+// does not depend on which exec finished first.
 func (c *Convert) pageRender(ctx context.Context, label string, format pageFormat) (*dagger.Directory, error) {
 	flags, err := c.cairoFlags(format)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Document.validateRange(ctx); err != nil {
-		return nil, err
-	}
-
-	name := pageNamePrefix + `$padded`
-	if format.namesExtension {
-		name += "." + format.ext
-	}
-	// The bounds are the loop variable, so the document's own range flags are
-	// deliberately not appended: this invocation renders exactly one page.
-	render := c.Document.command(format.tool, flags,
-		"-f", `"$p"`, "-l", `"$p"`, sourcePath, name)
-
-	res, err := c.Document.runScript(ctx, label, c.pageLoop(render))
+	pages, err := c.plan(ctx, label)
 	if err != nil {
 		return nil, err
 	}
-	return res.container.Directory(outputDir), nil
+
+	jobs := make([]pageJob, 0, len(pages))
+	for _, page := range pages {
+		// The output is named relative to the output directory, and the script
+		// works it from the inside — `cd` rather than an absolute path —
+		// because pdftohtml writes the output name it was given into every
+		// `img src` in the markup it produces. Named absolutely, it emits
+		// markup whose images only resolve on the machine that rendered them.
+		name := page.base
+		if format.namesExtension {
+			name += "." + format.ext
+		}
+		jobs = append(jobs, pageJob{
+			page: page.number,
+			script: strings.Join([]string{
+				"set -e",
+				"mkdir -p " + outputDir,
+				"cd " + outputDir,
+				c.Document.command(format.tool, flags,
+					"-f", strconv.Itoa(page.number), "-l", strconv.Itoa(page.number),
+					sourcePath, name),
+			}, "\n"),
+		})
+	}
+
+	execs, err := c.render(ctx, label, jobs)
+	if err != nil {
+		return nil, err
+	}
+	out := dag.Directory()
+	for _, exec := range execs {
+		out = out.WithDirectory("/", exec.Directory(outputDir))
+	}
+	return out, nil
 }
 
-// pageLoop is the script that runs a per-page conversion once for every page in
-// range, with `$padded` set to the page's zero-padded number.
+// page is one page of a planned conversion: its number in the source document,
+// and the padded file base every output of it is named from.
+type page struct {
+	number int
+	base   string
+}
+
+// pageJob is one page's render — the page it covers and the script that renders
+// it — carried together so a failure can name the page rather than the exec.
+type pageJob struct {
+	page   int
+	script string
+	args   []string
+}
+
+// plan resolves which pages a conversion covers and what each one's output is
+// called, and is the one place the naming contract is decided.
 //
-// It works the output directory from the inside — `cd` rather than an absolute
-// output path — because pdftohtml writes the output name it was given into every
-// `img src` in the markup it produces. Named absolutely, it emits markup whose
-// images only resolve on the machine that rendered them.
-func (c *Convert) pageLoop(render string) string {
+// It costs a PageCount round trip that the in-container page loop was written to
+// avoid, and the trade is deliberate. One exec per page cannot compute the
+// padding width from the files it finds, because each exec finds exactly one; so
+// the width moves to Go, where it needs the page count. That is one pdfinfo per
+// conversion rather than one per page, it is the same exec validateRange already
+// pays for whenever a range is set, and Dagger caches it — a second conversion of
+// the same document does not run it again.
+func (c *Convert) plan(ctx context.Context, label string) ([]page, error) {
+	if err := c.validateConcurrency(); err != nil {
+		return nil, err
+	}
+	if err := c.Document.validateRange(ctx); err != nil {
+		return nil, err
+	}
+	count, err := c.Document.pageCount(ctx, label)
+	if err != nil {
+		return nil, err
+	}
+
 	first := 1
 	if c.Document.HasRange && c.Document.FirstPage > 0 {
 		first = c.Document.FirstPage
 	}
-	last := endOfDocument
-	if c.Document.HasRange {
+	last := count
+	if c.Document.HasRange && c.Document.LastPage != endOfDocument {
 		last = c.Document.LastPage
 	}
 
-	return strings.Join([]string{
-		// set -e is what makes a page poppler cannot write stop the loop
-		// carrying its own message, rather than leaving a directory that is
-		// short a page and says nothing about it.
-		`set -e`,
-		`mkdir -p ` + outputDir,
-		`cd ` + outputDir,
-		`first=` + strconv.Itoa(first),
-		`last=` + strconv.Itoa(last),
-		// An open-ended range is resolved here rather than in Go so the page
-		// count and the render share one exec.
-		//
-		// The report is captured and parsed in two steps rather than piped
-		// straight into sed, because set -e reads the exit status of the *last*
-		// command in a pipeline. Piped, a document pdfinfo cannot open leaves
-		// sed succeeding on nothing, and the run gets as far as the page-count
-		// check below and fails there — with poppler's diagnostic still on
-		// stderr, but joined by a second message about a page count that was
-		// never the problem. Split, the script stops on pdfinfo's own status.
-		`if [ "$last" -eq ` + strconv.Itoa(endOfDocument) + ` ]; then`,
-		`	info=$(` + c.Document.command("pdfinfo", nil, sourcePath) + `)`,
-		`	last=$(printf '%s\n' "$info" | sed -n 's/^Pages:[[:space:]]*//p')`,
-		`fi`,
-		`case "$last" in`,
-		`	''|*[!0-9]*) echo "could not read the page count: $last" >&2; exit 1;;`,
-		`esac`,
-		// The width is the greater of the module's minimum and what the last
-		// page number needs, so a document longer than the minimum can express
-		// stays uniform. Same contract the raster path normalizes to.
-		`width=` + strconv.Itoa(minPageNumberWidth),
-		`if [ ${#last} -gt "$width" ]; then width=${#last}; fi`,
-		`p="$first"`,
-		`while [ "$p" -le "$last" ]; do`,
-		`	padded=$(printf "%0${width}d" "$p")`,
-		`	` + render,
-		`	p=$((p + 1))`,
-		`done`,
-	}, "\n")
+	// A conversion covering no pages would otherwise return an empty directory,
+	// which a caller reads as a document that rendered fine and had nothing in
+	// it — the same silent success EmbeddedImages refuses for a document with no
+	// images. It is not reachable through a page range, validateRange having
+	// bounded both ends against the count already; it is the floor under a
+	// document that reports having no pages at all.
+	if last < first {
+		return nil, fmt.Errorf(
+			"%s: this document reports %d page(s), so there is nothing to render",
+			label, count)
+	}
+
+	// The width follows the whole document rather than the range, so every
+	// conversion of one document numbers its pages the same way however it was
+	// narrowed — which is what makes a page traceable to the page it came from.
+	width := pageNumberWidth(count)
+	pages := make([]page, 0, last-first+1)
+	for number := first; number <= last; number++ {
+		pages = append(pages, page{
+			number: number,
+			base:   fmt.Sprintf("%s%0*d", pageNamePrefix, width, number),
+		})
+	}
+	return pages, nil
+}
+
+// pageNumberWidth is how many digits a rendered page's number is padded to: the
+// greater of the module's minimum and what the document's last page needs.
+//
+// The minimum is what makes the shape a contract rather than a consequence of
+// the document's length, and taking the greater of the two is what keeps a
+// document longer than the minimum can express uniform rather than truncating it
+// into ambiguity. See normalizeScript, which Split reaches the same contract by.
+func pageNumberWidth(count int) int {
+	return max(minPageNumberWidth, len(strconv.Itoa(count)))
+}
+
+// render runs one exec per page, at most workers() of them at a time, and
+// returns the finished execs positionally.
+//
+// The scheduling itself is the fanout package's, which imports no dagger and is
+// tested with `go test -race` — see that package for why the properties it holds
+// cannot be tested against a document instead. What is here is what makes a
+// failure readable: the page each exec covers, in the label its error carries.
+func (c *Convert) render(ctx context.Context, label string, jobs []pageJob) ([]*dagger.Container, error) {
+	execs := make([]*dagger.Container, len(jobs))
+
+	// Each unit writes only its own element, and Run does not return until every
+	// unit it started has, so the slice needs no lock of its own.
+	err := fanout.Run(ctx, c.workers(), len(jobs), func(ctx context.Context, i int) error {
+		job := jobs[i]
+		// The label carries the page, so every message this run can produce —
+		// poppler's own failure, and the module's message for an encrypted
+		// document — names the page it came from without the error being
+		// wrapped twice. Returned as it is rather than %w-wrapped: the error
+		// crosses the module boundary, which unwraps a chain back to the inner
+		// error and would drop the page's name along with it.
+		res, err := c.Document.runScript(ctx,
+			fmt.Sprintf("%s page %d", label, job.page), job.script, job.args...)
+		if err != nil {
+			return err
+		}
+		execs[i] = res.container
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return execs, nil
+}
+
+// workers is how many pages render at once: whatever WithConcurrency asked for,
+// or one per CPU the module can see.
+//
+// The default is the core count rather than one because every page is its own
+// exec now, and a single pdftoppm renders a document's pages one after another
+// on one core however many the machine has. What makes the core count safe here
+// — and needs no companion bound, unlike the tesseract module's Batch — is that
+// poppler's tools are single-threaded.
+func (c *Convert) workers() int {
+	if c.HasConcurrency {
+		return c.Concurrency
+	}
+	return max(minRenderConcurrency, runtime.NumCPU())
+}
+
+// validateConcurrency rejects a bound that would render no pages at all. It is
+// deferred to output time rather than reported from the builder because a
+// builder has no error return, which is the same reason WithDpi's check lives
+// away from WithDpi.
+func (c *Convert) validateConcurrency() error {
+	if c.HasConcurrency && c.Concurrency < minRenderConcurrency {
+		return fmt.Errorf(
+			"WithConcurrency: concurrency must be positive, got %d: pass 1 to render one page at a time, or leave it unset for one per available CPU",
+			c.Concurrency)
+	}
+	return nil
 }
 
 // geometry runs pdftotext in one of its geometry-reporting modes and returns the
@@ -664,27 +785,63 @@ func (c *Convert) geometry(ctx context.Context, label, flag, output string) (*da
 
 // raster renders the pages and returns the directory holding them, with every
 // page's number padded to a fixed width.
+//
+// One pdftoppm per page, rather than one over the whole document, is what lets
+// the pages render at the same time — poppler renders a range serially in a
+// single process, on one core whatever the machine has — and what makes the
+// results cache per page: an edited page invalidates its own render and nothing
+// else. It is the same reversal #298 made in the tesseract module, for the same
+// measured reason; see the README.
+//
+// Each page is named outright rather than renamed afterwards, -singlefile making
+// pdftoppm write exactly the file it is given. The files are selected by name
+// off the exec that produced them, in page order, so the returned directory is
+// the same whatever order the renders finished in.
 func (c *Convert) raster(ctx context.Context, label string, format rasterFormat) (*dagger.Directory, error) {
 	flags, err := c.rasterFlags(label, format)
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Document.validateRange(ctx); err != nil {
-		return nil, err
-	}
-	// set -e makes a document poppler cannot open fail here, carrying its own
-	// message, rather than turning into an empty page directory a caller would
-	// read as a document with no pages in it.
-	script := strings.Join([]string{
-		"set -e",
-		"mkdir -p " + outputDir,
-		c.Document.command("pdftoppm", flags, sourcePath, pageBase),
-		normalizeScript,
-	}, "\n")
-
-	res, err := c.Document.runScript(ctx, label, script, rasterArgv0, format.ext)
+	pages, err := c.plan(ctx, label)
 	if err != nil {
 		return nil, err
 	}
-	return res.container.Directory(outputDir), nil
+
+	jobs := make([]pageJob, 0, len(pages))
+	for _, page := range pages {
+		bounds := []string{"-f", strconv.Itoa(page.number), "-l", strconv.Itoa(page.number)}
+		// set -e makes a page poppler cannot draw fail here, carrying its own
+		// message, rather than dropping a file from a directory a caller would
+		// read as a document that was short a page all along.
+		jobs = append(jobs, pageJob{
+			page: page.number,
+			script: strings.Join([]string{
+				"set -e",
+				"mkdir -p " + outputDir,
+				c.Document.command("pdftoppm", concat(flags, bounds),
+					sourcePath, outputDir+"/"+page.base),
+			}, "\n"),
+		})
+	}
+
+	execs, err := c.render(ctx, label, jobs)
+	if err != nil {
+		return nil, err
+	}
+	out := dag.Directory()
+	for i, page := range pages {
+		name := page.base + "." + format.ext
+		out = out.WithFile(name, execs[i].File(outputDir+"/"+name))
+	}
+	return out, nil
+}
+
+// concat joins two flag lists into a new slice, which appending to the first
+// would not: the flags are built once per conversion and read once per page, so
+// an append that happened to have spare capacity would let one page's bounds
+// overwrite the next one's.
+func concat(a, b []string) []string {
+	out := make([]string, 0, len(a)+len(b))
+	out = append(out, a...)
+	return append(out, b...)
 }

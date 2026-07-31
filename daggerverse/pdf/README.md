@@ -349,6 +349,7 @@ Convert.WithDpi(dpi int) *Convert
 Convert.WithColorMode(mode ColorMode) *Convert
 Convert.WithScaleTo(pixels int) *Convert
 Convert.WithoutAnnotations() *Convert
+Convert.WithConcurrency(concurrency int) *Convert  // default: one per CPU
 
 Convert.Text(ctx, layout LayoutMode, disablePageBreaks bool) (string, error)
 Convert.Txt(ctx, layout LayoutMode, disablePageBreaks bool) (*dagger.File, error)
@@ -401,6 +402,127 @@ conv := doc.Convert().WithDpi(300).WithColorMode(dagger.PdfColorModeMono)
 png  := conv.Png()
 tiff := conv.Tiff()
 ```
+
+### One exec per page, fanned out from Go
+
+```go
+doc.Convert().WithDpi(300).WithConcurrency(8).Png()   // default: one page per CPU
+```
+
+`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps` and `Html` render **one page per exec**, as
+many at a time as `WithConcurrency` allows. The bound, the scheduling, the
+fail-fast and the error message are all Go — nothing about running a conversion
+is interpreted inside a container.
+
+That is a reversal, and it is the same one [#298][i298] made in `tesseract`.
+Until #309 the raster family was a single `pdftoppm` over the whole document,
+and the vector family a page loop *inside* one exec. `pdftoppm` renders a range
+serially in one process, so an N-page document was one core for as long as it
+took, however many the machine had:
+
+| pages | one exec | one exec per page, Go fan-out |
+| --- | --- | --- |
+| 12 | 17.0s | **4.0s** |
+| 48 | 60.4s | **6.5s** |
+| 48, one page edited | 60.7s | 6.5s |
+| 48, pages 1–24 already rendered | 61.0s | **4.3s** |
+
+`dagger call document --source=… convert with-dpi --dpi=300 png entries`, median
+of three, a freshly generated document every run so nothing is a cache hit,
+32-CPU host, 300 dpi; ~1.2s of every figure is CLI startup and module load. Both
+columns produce a **byte-identical directory** — the same `sha256` — which is
+the point: concurrency is allowed to change how long a render takes and nothing
+else.
+
+The last two rows are the ones worth reading carefully, because **only one of
+them is a win, and it is not the one `tesseract` got.**
+
+- **Editing a page re-renders the whole document, in both columns.** Every
+  page's exec mounts the *same* PDF, so a change to any byte of it invalidates
+  all of them. `tesseract`'s `Batch` gets the opposite result — 50 pages, one
+  edited, 17.5s → 2.5s — because there each exec mounts *its own image file*.
+  A per-item exec only caches per item when the items are separate inputs, and
+  the pages of a PDF are not.
+- **Rendering a page range you have already rendered part of is a win.** Pages
+  1–24 followed by the whole 48 costs 4.3s against 6.4s cold, because the first
+  24 execs are hits. That is the [#300](https://github.com/z5labs/devex/issues/300)
+  sharding case: a document rendered in slices, or a slice widened after the
+  fact, no longer re-renders what it already has.
+
+Three properties the serial loop had for free, which the fan-out has to keep:
+
+- **A page that cannot be rendered fails the whole conversion**, rather than
+  going missing from a directory of a thousand, and the error names the page:
+  `Png page 7 failed (exit 99): …`.
+- **The first failure cancels the rest.** A conversion that is going to fail has
+  no reason to render the remaining pages first.
+- **The pages are assembled in page order**, off execs that finished in whatever
+  order they finished in, so the returned directory does not depend on the
+  scheduling.
+
+Those three are covered by `Pdf.RenderSchedulingSelfTest` rather than by a
+fixture, and that is not a shortcut — **poppler will not fail a page.** Measured
+against the pinned poppler 25.12, every damaged page shape is a warning on
+stderr and an exit status of 0, with a file still written: a dangling page-tree
+kid, a kid of the wrong type, a loop in the page tree, a null kid, a
+two-million-point `MediaBox`, a `MediaBox` of zero, and a resolution large enough
+to print `Bogus memory allocation size`. The only non-zero exits are for a
+document that cannot be opened at all and for a page range outside it, and both
+are caught before any page is rendered. So no document makes one page of a render
+fail, the scheduling is tested where it lives — `fanout/`, which imports no
+dagger and runs under `go test -race` — and the fail-fast exists for the
+failures poppler *does* report rather than for one this repo can demonstrate.
+
+> A blank or wrong-looking page is **not** one of the failures this catches, for
+> the same reason: poppler exits 0 for it. [`Fonts`](#fonts--the-blank-page-diagnostic-before-the-blank-page)
+> is the diagnostic for that, before the fact.
+
+[i298]: https://github.com/z5labs/devex/issues/298
+
+#### Why the default is one page per CPU
+
+`WithConcurrency` defaults to `runtime.NumCPU()`, matching `tesseract`'s `Batch`
+and the repo's guidance that a default should favour the machine the caller is
+on. Unlike `Batch` it needs no companion bound: poppler's tools are
+single-threaded, so concurrency here is concurrency and not concurrency
+multiplied by an OpenMP team.
+
+The share of a job this fixes **grows with core count rather than shrinking.**
+On the reporter's 129-page document in
+[#308](https://github.com/z5labs/devex/discussions/308), the render was ~60s on
+one core against ~30s of 14-core recognition — two thirds of the wall clock for
+a third of the CPU. The same document on a 32-CPU host is ~13s of recognition
+against an unchanged ~60s of render.
+
+**Every existing caller's cache entries churn once**, and that is a property of
+the fan-out and not of the default: one exec per page is N entries at *every*
+bound, including `WithConcurrency(1)`. The first conversion after upgrading
+re-renders; the old single entry is orphaned and expires on Dagger's usual
+7-day TTL.
+
+#### What the per-page open costs
+
+N execs each re-open the PDF and re-parse its xref, where one `pdftoppm` did
+that once. Measured inside a single container — no Dagger, so this is poppler's
+cost alone — on a 48-page document:
+
+| dpi | one process | 48 processes, serial | overhead |
+| --- | --- | --- | --- |
+| 150 | 3.72s | 4.67s | 20 ms/page |
+| 300 | 12.12s | 14.92s | 58 ms/page |
+| 600 | 43.99s | 49.78s | 121 ms/page |
+
+It is **not a fixed per-open cost**: it scales with the output's pixel count, so
+it is roughly 13–26% whatever the resolution rather than shrinking against a
+larger raster. An image-only document of the same length costs much the same
+(16 ms/page at 150, 49 ms/page at 300), so this is not the font cache being
+rebuilt — it is the per-process render state, page bitmap included, that a single
+process amortizes across pages and N processes do not.
+
+Against the ~0.47s/page a real 300-dpi page costs in #308, ~58ms is ~12% more
+CPU for the whole document — bought back many times over by the first extra core
+the fan-out uses, and the reason the trade is worth making rather than a reason
+to hesitate.
 
 ### Text and `Txt`
 
@@ -573,7 +695,7 @@ reachable, and `SvgWritesOneVectorFilePerPage` asserts the absence of a
 
 **EPS refuses multi-page outright.** `pdftocairo -eps` handed a document with a
 second page writes nothing and exits 99 with `EPS files can only contain one
-page.` The per-page loop is what turns that refusal into the whole document.
+page.` The per-page fan-out is what turns that refusal into the whole document.
 Note that an EPS's bounding box is the page's **ink**, not its media box —
 poppler crops to what is drawn, so a US Letter page with one line of text on it
 comes out a few inches wide. That is EPS's own convention (a figure carries its
@@ -584,6 +706,15 @@ disagree with the geometry `Png` reports.
 multi-page format: one document with a `%%Pages:` count and a `%%Page:` marker
 per page. A directory of one-page fragments would look tidier beside `Svg` and
 `Eps` and be individually invalid.
+
+That is also why **`Ps` is the one render that stays a single invocation**, and
+why `WithConcurrency` does nothing for it. Every other page-per-file output fans
+out an exec per page and assembles the directory afterwards; a PostScript
+document cannot be assembled that way, because concatenating the fragments is
+not the same operation as writing the document — the result needs its prologue,
+its page markers and its `%%Pages:` count rewritten, which is a PostScript editor
+and not a renderer. A caller who wants the pages rendered concurrently wants
+`Eps`, which is one page per file by definition.
 
 ### `Html` — markup with the images beside it
 
@@ -625,6 +756,16 @@ at all. `Split` is `pdfseparate`: one PDF per page, named to the same
 [page-naming contract](#page-naming--page-0001png) the render family honours,
 `page-0001.pdf` onwards. `Merge` is `pdfunite`: several PDFs concatenated into
 one.
+
+**`Split` stays one exec**, where the renders now fan out a page at a time, and
+that is a measured decision rather than an omission. Splitting is not
+rasterizing: `pdfseparate` copies page objects, at **0.8 ms/page** for the whole
+document in one invocation against 5.8 ms/page one invocation per page. A page
+that costs a millisecond does not want its own container — the Dagger exec around
+it costs two orders of magnitude more than the work — so a fan-out here would
+make `Split` slower for every document and buy nothing but cache granularity
+nobody is waiting on. `Convert.WithConcurrency` therefore does not reach it, and
+`Split` needs no bound of its own.
 
 They are **lossless** in a way no conversion is. Each split page carries the
 original page's own objects across — its text layer, its fonts, its annotations,
@@ -853,14 +994,21 @@ module's:
 image is not a page: several can sit on one page and most pages carry none.
 `Attachments` is on no list at all, its names being the document's.
 
-The families reach that contract from opposite directions. `pdftoppm` and
-`pdfseparate` name the files and this module **renames** them; for `Svg`, `Eps`
-and `Html` the module drives the page loop itself and **names them outright**,
-one invocation per page, because neither `pdftocairo` nor `pdftohtml` will
-produce a usable page-per-file set on its own. The upper bound of that loop — a
-`WithPageRange` open-ended `last`, or no range at all — is resolved from
-`pdfinfo` **inside the same exec** that renders, so the whole conversion stays
-one exec either way.
+Every render **names its pages outright**; only `Split` renames. The module
+drives the page loop itself and hands each invocation the exact file it should
+write, which is what `-singlefile` buys for the raster family — handed an output
+base, `pdftoppm` appends a page number of its own choosing, and handed
+`-singlefile` it writes exactly `<base>.<ext>`. `Split` cannot be named that way
+and goes through a rename pass instead: `pdfseparate` writes every page of a
+range in one invocation, numbered to whatever width the destination pattern
+asked for.
+
+The width comes from `PageCount`, read in **Go**, once per conversion — the
+greater of four and the digits the document's last page needs. That round trip
+is what one exec per page costs and it is the trade the fan-out makes knowingly:
+an exec that renders one page cannot compute a padding width from the files it
+finds, because it finds exactly one. It is the same `pdfinfo` `Info` runs, so a
+conversion of a document already reported on pays nothing for it.
 
 `pdfseparate` is the one that would honour a padded name if it were asked:
 handed a `page-%04d.pdf` destination pattern it zero-pads for you. It goes
@@ -868,12 +1016,12 @@ through the rename pass anyway, because a fixed width in the pattern is a width
 and not a *floor* — a document with more than 9999 pages would come out numbered
 to two widths, which is the exact ambiguity the contract exists to remove.
 
-For the raster family in particular, **this is a normalization, not
-`pdftoppm`'s own behaviour.** `pdftoppm` pads a
-page number to the width of the *document's* page count, so a 9-page document
-yields `page-1.png` and a 10-page one `page-01.png` — and a 9-page *range* of a
-12-page document yields `page-01.png` too, because the width follows the
-document rather than what was rendered.
+For the raster family in particular, **this is a contract, not `pdftoppm`'s own
+behaviour.** Left to itself `pdftoppm` pads a page number to the width of the
+*document's* page count, so a 9-page document yields `page-1.png` and a 10-page
+one `page-01.png` — and a 9-page *range* of a 12-page document yields
+`page-01.png` too, because the width follows the document rather than what was
+rendered.
 
 Lexicographic order is therefore page order **only within a single document**,
 and a consumer that sorts what it is handed — `tesseract`'s `Batch` does a bare
@@ -882,21 +1030,21 @@ hardcodes one name shape breaks on the next document. Padding to a fixed minimum
 makes the shape a contract instead of a consequence, and that is what lets this
 directory be handed to another module at all.
 
-A rename pass runs **in the same exec** as the render, so the directory never
-existed under the other names. The width is the greater of four and whatever the
-tool chose, so a document longer than four digits can express stays uniform
-rather than being truncated into ambiguity.
+`Split`'s rename pass runs **in the same exec** as the split, so its directory
+never existed under the other names.
 
 Page numbers are the **source document's**, not positions within a range, so
 `WithPageRange(4, 6)` yields `page-0004`…`page-0006`. That keeps a rendered page
-traceable back to the page it came from.
+traceable back to the page it came from. The *width* follows the whole document
+rather than the range, for the same reason: every conversion of one document
+numbers its pages the same way however it was narrowed.
 
-`-forcenum` is passed unconditionally to `pdftoppm`. On poppler 25.12 — what the
-pinned tag ships — it changes nothing, because a page number is always appended.
-It is there for a caller who overrode `alpineTag` onto an older release, where a
-single-page render was named `page.png` with no number at all, breaking the
-contract for exactly the documents most likely to be one page. The per-page
-family needs no equivalent, naming its own output.
+`-forcenum` used to be passed unconditionally to `pdftoppm`, for a caller who
+overrode `alpineTag` onto a poppler old enough to name a single-page render
+`page.png` with no number at all. It is gone, and could not have survived
+`-singlefile`: the two override rather than compose, and together they write
+`page-0007-07.png`. They answer the same worry anyway — the number is in the name
+this module chose rather than in one the tool appended, on every release.
 
 ### Why `pdftoppm` for raster and `pdftocairo` for vector
 
@@ -917,11 +1065,25 @@ transform of its inputs — the document bytes plus the flags — so Dagger's 7-
 default is correct and there is no chained-method propagation problem to worry
 about. Same posture as `tesseract`'s outputs and `kicad`.
 
+What the per-page fan-out changes is the *granularity*: a render is now one cache
+entry per page rather than one per conversion. See [One exec per page](#one-exec-per-page-fanned-out-from-go)
+for what that does and does not buy — it makes an overlapping page range cheap
+and it does **not** make an edited document cheap, because every page's exec
+mounts the same PDF.
+
 ## Follow-ups
 
 Cropping the render window and selecting odd or even pages (#272); the chained
-`Ci` builder (#273); linearize, encrypt and repair via qpdf (#274); renderer
+`Ci` builder (#273) — which will want `WithConcurrency` forwarded, the way #305
+does for `tesseract`; linearize, encrypt and repair via qpdf (#274); renderer
 fidelity and colour-profile options (#277).
+
+The per-page fan-out (#309) does **not** address intermediate size: a
+3,000-page 300-dpi directory is still gigabytes crossing a module boundary at
+once, and [#300](https://github.com/z5labs/devex/issues/300)'s `WithPageRange`
+sharding recipe is still the answer to that. What the fan-out changes for it is
+the cost: a shard of a document already partly rendered now reuses the pages it
+has.
 
 `tesseract`'s `FromPdf` was removed in favour of this module (#276): that module
 carries no rasterizer at all now, so `Png()` feeds its `Batch` directly — which

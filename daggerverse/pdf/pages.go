@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"dagger/pdf/internal/dagger"
@@ -14,11 +15,10 @@ const (
 	// refuses a pattern without one, which is how a multi-page document is
 	// allowed to write more than one file.
 	//
-	// The number goes in unpadded and is padded afterwards by normalizeScript,
-	// the same pass the raster renders go through. pdfseparate would honour a
-	// `%04d` here, but the width would then be fixed rather than a floor, and a
-	// document with more than 9999 pages would come out numbered to two
-	// different widths.
+	// The number goes in unpadded and is padded afterwards by normalizeScript.
+	// pdfseparate would honour a `%04d` here, but the width would then be fixed
+	// rather than a floor, and a document with more than 9999 pages would come
+	// out numbered to two different widths.
 	splitPattern = outputDir + "/" + pageNamePrefix + "%d.pdf"
 
 	// splitArgv0 is the `$0` the split script runs under, so the extension
@@ -36,6 +36,57 @@ const (
 	mergeInputDir = "/in"
 	mergedPath    = outputDir + "/merged.pdf"
 )
+
+// normalizeScript renames every page pdfseparate just wrote so its number is
+// zero-padded to a fixed width, and is the reason this directory can be handed
+// to another module at all.
+//
+// It is Split's alone. The render family reaches the same contract from the
+// other end: it drives the page loop from Go, so it *names* each page outright
+// and has nothing to rename — see pageName. Split cannot, pdfseparate writing
+// every page of a range in one invocation, and the number it writes being as
+// wide as the caller's destination pattern asked for.
+//
+// Padding to a fixed minimum is what makes the shape a contract instead of a
+// consequence. Lexicographic order is otherwise page order within a single
+// document and nothing more: a consumer that sorts what it is given — the
+// tesseract module's Batch does a bare sort.Strings — has no way to know which
+// width it is holding, and a caller who hardcodes one name shape breaks on the
+// next document.
+//
+// The width is the greater of the module's minimum and whatever the tool chose,
+// so a document longer than the minimum can express stays uniform rather than
+// being truncated into ambiguity.
+//
+// It runs in the same exec as the split, so the directory Split returns has
+// never existed under the other names.
+var normalizeScript = strings.Join([]string{
+	`ext="$1"`,
+	`width=` + strconv.Itoa(minPageNumberWidth),
+	`for f in ` + pageGlob + `; do`,
+	`	[ -e "$f" ] || continue`,
+	`	n=${f##*/` + pageNamePrefix + `}`,
+	`	n=${n%."$ext"}`,
+	`	if [ ${#n} -gt "$width" ]; then width=${#n}; fi`,
+	`done`,
+	`for f in ` + pageGlob + `; do`,
+	`	[ -e "$f" ] || continue`,
+	`	n=${f##*/` + pageNamePrefix + `}`,
+	`	n=${n%."$ext"}`,
+	// Leading zeros are stripped before printf sees the number: POSIX printf
+	// reads a leading-zero argument as an octal constant, so `09` is not 9 but
+	// a diagnostic.
+	`	stripped=$(printf '%s' "$n" | sed 's/^0*//')`,
+	`	[ -n "$stripped" ] || stripped=0`,
+	`	padded=$(printf "%0${width}d" "$stripped")`,
+	`	if [ "$n" != "$padded" ]; then mv "$f" "` + outputDir + `/` + pageNamePrefix + `$padded.$ext"; fi`,
+	`done`,
+}, "\n")
+
+// pageGlob matches every page the split wrote, whatever width pdfseparate
+// numbered it to. The extension comes from `$1` rather than being interpolated
+// into the script text.
+const pageGlob = outputDir + `/` + pageNamePrefix + `*."$ext"`
 
 // Split writes each page of the document to its own PDF and returns the
 // directory holding them, named `page-0001.pdf`, `page-0002.pdf`, and so on.
