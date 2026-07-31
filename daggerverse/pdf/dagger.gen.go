@@ -152,6 +152,8 @@ func (r Convert) MarshalJSON() ([]byte, error) {
 		ScaleTo         int
 		HasScaleTo      bool
 		HideAnnotations bool
+		Concurrency     int
+		HasConcurrency  bool
 	}
 	concrete.Document = r.Document
 	concrete.Dpi = r.Dpi
@@ -160,6 +162,8 @@ func (r Convert) MarshalJSON() ([]byte, error) {
 	concrete.ScaleTo = r.ScaleTo
 	concrete.HasScaleTo = r.HasScaleTo
 	concrete.HideAnnotations = r.HideAnnotations
+	concrete.Concurrency = r.Concurrency
+	concrete.HasConcurrency = r.HasConcurrency
 	return json.Marshal(&concrete)
 }
 
@@ -172,6 +176,8 @@ func (r *Convert) UnmarshalJSON(bs []byte) error {
 		ScaleTo         int
 		HasScaleTo      bool
 		HideAnnotations bool
+		Concurrency     int
+		HasConcurrency  bool
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -184,6 +190,8 @@ func (r *Convert) UnmarshalJSON(bs []byte) error {
 	r.ScaleTo = concrete.ScaleTo
 	r.HasScaleTo = concrete.HasScaleTo
 	r.HideAnnotations = concrete.HideAnnotations
+	r.Concurrency = concrete.Concurrency
+	r.HasConcurrency = concrete.HasConcurrency
 	return nil
 }
 
@@ -586,6 +594,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Convert).WithColorMode(&parent, mode), nil
+		case "WithConcurrency":
+			var parent Convert
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var concurrency int
+			if inputArgs["concurrency"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["concurrency"]), &concurrency)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg concurrency", err))
+				}
+			}
+			return (*Convert).WithConcurrency(&parent, concurrency), nil
 		case "WithDpi":
 			var parent Convert
 			err = json.Unmarshal(parentJSON, &parent)
@@ -785,6 +807,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Pdf).Merge(&parent, ctx, sources)
+		case "RenderSchedulingSelfTest":
+			var parent Pdf
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Pdf).RenderSchedulingSelfTest(&parent, ctx)
 		case "Version":
 			var parent Pdf
 			err = json.Unmarshal(parentJSON, &parent)

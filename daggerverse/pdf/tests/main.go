@@ -344,6 +344,9 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PageRangeOpenEndedRunsToTheLastPage", t.PageRangeOpenEndedRunsToTheLastPage)
 	jobs = jobs.WithJob("PageRangeRejectsInvalidBounds", t.PageRangeRejectsInvalidBounds)
 
+	jobs = jobs.WithJob("RenderConcurrencyMatchesSerialOutput", t.RenderConcurrencyMatchesSerialOutput)
+	jobs = jobs.WithJob("RenderConcurrencyAppliesToEveryPerPageFormat", t.RenderConcurrencyAppliesToEveryPerPageFormat)
+
 	jobs = jobs.WithJob("PngNamesEveryPageWithFourDigits", t.PngNamesEveryPageWithFourDigits)
 	jobs = jobs.WithJob("PngNarrowedRangeKeepsFourDigitNames", t.PngNarrowedRangeKeepsFourDigitNames)
 	jobs = jobs.WithJob("PngSinglePageIsStillNumbered", t.PngSinglePageIsStillNumbered)
@@ -2888,6 +2891,121 @@ func (t *Tests) JpegAndTiffFollowTheSameContract(ctx context.Context) error {
 	return nil
 }
 
+// RenderConcurrencyMatchesSerialOutput asserts a document rendered several pages
+// at a time produces exactly what the same document produces one page at a time,
+// and that a bound that would render nothing is refused.
+//
+// Byte equality is the whole promise of the knob: concurrency is allowed to
+// change how long a render takes and nothing else. What it pins now that every
+// page is its own exec is the *assembly* — the pages are collected in page order
+// off execs that finished in whatever order they finished in, so a directory
+// that came out right only because the work happened to be serial would fail
+// here. The digest covers the names and the bytes together.
+//
+// A bound wider than the document is included because it is the ordinary case
+// for a short document on a large machine: the default is one page per CPU, and
+// most documents are shorter than the core count.
+func (t *Tests) RenderConcurrencyMatchesSerialOutput(ctx context.Context) error {
+	conv := pdf().Document(fixture(ledgerPdf)).Convert()
+
+	serial := conv.WithConcurrency(1).Png()
+	serialDigest, err := serial.Digest(ctx)
+	if err != nil {
+		return fmt.Errorf("Png one page at a time: %w", err)
+	}
+	if got, err := serial.Entries(ctx); err != nil {
+		return fmt.Errorf("Png one page at a time: %w", err)
+	} else if err := assertPageNames(got, pageNames("png", 1, ledgerPages)); err != nil {
+		return fmt.Errorf("one page at a time: %s", err.Error())
+	}
+
+	for _, tc := range []struct {
+		name string
+		dir  *dagger.Directory
+	}{
+		{"unset, one per CPU", conv.Png()},
+		{"four at a time", conv.WithConcurrency(4).Png()},
+		{"wider than the document", conv.WithConcurrency(ledgerPages * 4).Png()},
+	} {
+		digest, err := tc.dir.Digest(ctx)
+		if err != nil {
+			return fmt.Errorf("Png %s: %w", tc.name, err)
+		}
+		if digest != serialDigest {
+			return fmt.Errorf(
+				"expected Png %s to be byte-identical to the serial render, got digest %s against %s",
+				tc.name, digest, serialDigest)
+		}
+	}
+
+	// A single-page range under a bound wider than the range is the shape a
+	// fan-out is most likely to get wrong — one unit of work, many workers —
+	// and it is also the shape that stopped being a whole-document render.
+	single, err := pdf().Document(fixture(ledgerPdf)).
+		WithPageRange(7, 7).Convert().WithConcurrency(8).Png().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("Png of a single-page range: %w", err)
+	}
+	if err := assertPageNames(single, pageNames("png", 7, 7)); err != nil {
+		return fmt.Errorf("single-page range: %s", err.Error())
+	}
+
+	// Zero workers would render nothing at all, which is a directory of missing
+	// pages rather than a failure, so it is refused by name.
+	for _, n := range []int{0, -2} {
+		_, err := conv.WithConcurrency(n).Png().Entries(ctx)
+		if err == nil {
+			return fmt.Errorf("expected concurrency %d to be rejected, got nil", n)
+		}
+		for _, want := range []string{"WithConcurrency", "concurrency must be positive", strconv.Itoa(n)} {
+			if !strings.Contains(err.Error(), want) {
+				return fmt.Errorf("expected the error for concurrency %d to mention %q, got: %v", n, want, err)
+			}
+		}
+	}
+	return nil
+}
+
+// RenderConcurrencyAppliesToEveryPerPageFormat asserts the bound reaches the
+// vector family too, and that the pages those formats write are assembled the
+// same way whatever the scheduling did.
+//
+// Html is the one worth checking rather than assuming. Its pages are not the
+// only thing in the directory — a page carrying images gets them beside its
+// markup under pdftohtml's own names — so it is the format whose assembly takes
+// the whole of each render's output rather than one named file, and the format
+// where a fan-out could plausibly lose or collide a file.
+func (t *Tests) RenderConcurrencyAppliesToEveryPerPageFormat(ctx context.Context) error {
+	for _, tc := range []struct {
+		name   string
+		render func(*dagger.PdfConvert) *dagger.Directory
+	}{
+		{"Svg", func(c *dagger.PdfConvert) *dagger.Directory { return c.Svg() }},
+		{"Eps", func(c *dagger.PdfConvert) *dagger.Directory { return c.Eps() }},
+		// HTML rather than Html: the generated bindings uppercase the acronym.
+		{"Html", func(c *dagger.PdfConvert) *dagger.Directory { return c.HTML() }},
+	} {
+		// galleryPdf carries images on its pages, which is what makes the Html
+		// case cover more than the markup.
+		conv := pdf().Document(fixture(galleryPdf)).Convert()
+
+		serial, err := tc.render(conv.WithConcurrency(1)).Digest(ctx)
+		if err != nil {
+			return fmt.Errorf("%s one page at a time: %w", tc.name, err)
+		}
+		concurrent, err := tc.render(conv.WithConcurrency(4)).Digest(ctx)
+		if err != nil {
+			return fmt.Errorf("%s four at a time: %w", tc.name, err)
+		}
+		if serial != concurrent {
+			return fmt.Errorf(
+				"expected %s to be byte-identical whatever the scheduling, got digest %s against %s",
+				tc.name, concurrent, serial)
+		}
+	}
+	return nil
+}
+
 // SplitWritesOnePdfPerPage asserts Split turns a twelve-page document into
 // twelve one-page PDFs named to the same contract every render family member
 // honours.
@@ -3234,12 +3352,11 @@ func (t *Tests) EncryptedDocumentNeedsThePassword(ctx context.Context) error {
 		}
 	}
 
-	// The per-page formats reach poppler by a different route than PageCount
-	// does — they resolve the document's page count inside the same exec that
-	// renders, from a shell rather than from Go — and an encrypted document has
-	// to be refused just as clearly along it. Without this the whole per-page
-	// family's encryption behaviour would rest on the raster path's assertion,
-	// which does not exercise that shell at all.
+	// Every render resolves the page count before it can name a page, so an
+	// encrypted document is refused there rather than by a render that failed.
+	// That is the message a caller sees, and it has to name the encryption
+	// rather than the page count it happened to be reading — the report is not
+	// what they asked for.
 	_, err = pdf().Document(encrypted).Convert().Svg().Entries(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Svg on an encrypted document to be refused without a password")

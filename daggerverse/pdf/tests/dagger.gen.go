@@ -472,6 +472,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PsHoldsEveryPageInOneFile(&parent, ctx)
+		case "RenderConcurrencyAppliesToEveryPerPageFormat":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RenderConcurrencyAppliesToEveryPerPageFormat(&parent, ctx)
+		case "RenderConcurrencyMatchesSerialOutput":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RenderConcurrencyMatchesSerialOutput(&parent, ctx)
 		case "RenderSettingsRejectNonPositiveValues":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
