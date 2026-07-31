@@ -94,6 +94,11 @@ suite whose five checks bring up five different distributions puts **87** broker
 controllers and registries into a single engine, where a slow start becomes a
 failed one.
 
+Reach for this only once you have a leg that is genuinely too coarse rather than a
+suite that is flaky under load. devex named `daggerverse/kafka/tests` here for a
+while and then removed it: the failures turned out to be an image that segfaults at
+startup (#307), which splitting hid rather than fixed.
+
 `--split-modules` is the escape hatch: the modules it names are enumerated even
 when everything runs, so their checks get a leg each.
 

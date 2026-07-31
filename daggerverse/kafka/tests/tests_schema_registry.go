@@ -27,7 +27,7 @@ func (t *Tests) SchemaRegistryRegisterLookupRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -155,7 +155,7 @@ func (t *Tests) ApicurioSchemaRegistryRegisterLookupRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -283,7 +283,7 @@ func (t *Tests) KarapaceSchemaRegistryRegisterLookupRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -409,7 +409,7 @@ func (t *Tests) SchemaRegistryFramedProduceConsumeRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -504,7 +504,7 @@ func (t *Tests) SchemaRegistryPlaintextConsumeUnframed(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -579,7 +579,7 @@ func (t *Tests) SchemaRegistryRejectsClusterModeMismatch(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, _, _, err := freshTlsCluster(ctx, kafkaImageTag, 1)
+	cluster, _, _, err := freshTlsClusterApache(ctx, kafkaImageTag, 1)
 	if err != nil {
 		return fmt.Errorf("create tls cluster: %w", err)
 	}
@@ -634,7 +634,7 @@ func (t *Tests) SchemaRegistryJSONFramedProduceConsumeRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -760,7 +760,7 @@ func (t *Tests) AvroConsumeUnframedErrors(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -819,7 +819,7 @@ func (t *Tests) AvroFramedProduceConsumeRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -1066,7 +1066,7 @@ func (t *Tests) AvroBytesFieldRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -1165,8 +1165,8 @@ func freshTlsRegistryStack(ctx context.Context, kafkaImageTag string) (
 		return nil, nil, nil, err
 	}
 	k := dag.Kafka()
-	cluster := k.ApacheNativeCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
-		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	cluster := k.ApacheCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
+		dagger.KafkaApacheClusterOpts{Tag: kafkaImageTag, Brokers: 1})
 	srSec := k.TLSSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password())
 	clientSec := k.TLSSchemaRegistryClientSecurity(ts.Pkcs12(), ts.Password())
 	return cluster, srSec, clientSec, nil
@@ -1192,9 +1192,9 @@ func freshMtlsRegistryStack(ctx context.Context, kafkaImageTag string) (
 		return nil, nil, nil, err
 	}
 	k := dag.Kafka()
-	cluster := k.ApacheNativeCluster(clusterId,
+	cluster := k.ApacheCluster(clusterId,
 		k.MtlsServerSecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password()),
-		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+		dagger.KafkaApacheClusterOpts{Tag: kafkaImageTag, Brokers: 1})
 	srSec := k.MtlsSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password())
 
 	clientKs, clientKsPwd, err := issueClientKeystore(ctx, ca, "sr-rest-client")
@@ -1228,8 +1228,8 @@ func freshTlsAvroStack(ctx context.Context, kafkaImageTag string) (
 		return nil, nil, nil, nil, err
 	}
 	k := dag.Kafka()
-	cluster := k.ApacheNativeCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
-		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+	cluster := k.ApacheCluster(clusterId, k.TLSServerSecurity(caKs.Pkcs12(), caKs.Password()),
+		dagger.KafkaApacheClusterOpts{Tag: kafkaImageTag, Brokers: 1})
 	srSec := k.TLSSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password())
 	registryClientSec := k.TLSSchemaRegistryClientSecurity(ts.Pkcs12(), ts.Password())
 	wireClientSec := k.TLSClientSecurity(ts.Pkcs12(), ts.Password())
@@ -1257,9 +1257,9 @@ func freshMtlsAvroStack(ctx context.Context, kafkaImageTag string) (
 		return nil, nil, nil, nil, err
 	}
 	k := dag.Kafka()
-	cluster := k.ApacheNativeCluster(clusterId,
+	cluster := k.ApacheCluster(clusterId,
 		k.MtlsServerSecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password()),
-		dagger.KafkaApacheNativeClusterOpts{Tag: kafkaImageTag, Brokers: 1})
+		dagger.KafkaApacheClusterOpts{Tag: kafkaImageTag, Brokers: 1})
 	srSec := k.MtlsSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password(), ts.Pkcs12(), ts.Password())
 
 	restKs, restKsPwd, err := issueClientKeystore(ctx, ca, "sr-rest-client")

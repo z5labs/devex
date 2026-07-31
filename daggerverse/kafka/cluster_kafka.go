@@ -54,10 +54,27 @@ type Cluster struct {
 // (with a brand-new CA the previous invocation's franz-go client doesn't
 // trust) every time the test calls another method on the chain.
 //
-// The GraalVM-compiled image has been observed to flake during the broker
-// `setup` step under load — see Dagger Cloud trace
-// `377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,
-// use `ApacheCluster()`.
+// The GraalVM-compiled image segfaults at startup under load. It happens
+// immediately after the entrypoint's `===> Launching`, in class
+// initialization, before Kafka logs anything of its own:
+//
+//	[ [ SegfaultHandler caught a segfault ... ] ] si_signo: 11
+//	  com.oracle.svm.core.posix.headers.Pwd.getpwuid
+//	  com.oracle.svm.core.posix.PosixSystemPropertiesSupport.userHomeValue
+//	  com.oracle.svm.core.jdk.SystemPropertiesSupport.userHome
+//	  kafka.docker.KafkaDockerWrapper.main
+//
+// and the container exits 1. It hits controllers as readily as brokers — the
+// two runs it has been caught in took a controller each: Dagger Cloud traces
+// `377f2e176c4f0e9844cb7f958c1e911b` and the run behind #307. Note the string
+// to grep for is `SegfaultHandler caught a segfault`; SubstrateVM prints
+// neither `SIGSEGV` nor `Segmentation fault`.
+//
+// Nothing here can prevent it — the frames are all `com.oracle.svm.core.*`,
+// i.e. the AOT image's own substitutions for `user.home`. Use `ApacheCluster()`
+// if a node dying at startup would cost you more than the JVM's slower cold
+// start; that image runs the same Scala wrapper on HotSpot, which has no such
+// code path.
 //
 // +cache="session"
 func (k *Kafka) ApacheNativeCluster(

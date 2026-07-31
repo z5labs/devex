@@ -32,23 +32,6 @@ env:
   # re-reading daggerverse/workspace-ci/README.md.
   MEMO_TTL_SECONDS: "86400"
 
-  # Modules whose checks must each get their own leg even when everything runs.
-  # The run-everything path otherwise emits one coarse leg per module, which shares
-  # one engine on one runner — free when a module's checks share their containers
-  # (13 grafana-stack checks land in ~1m30s), wrong when each check boots a stack
-  # of its own.
-  #
-  # kafka/tests is the latter: its five checks bring up five different Kafka
-  # distributions, 87 brokers/controllers/registries in one engine. Under that load
-  # a broker loses the race to reach its KRaft controller and dies (#307), which
-  # failed 3 of 3 attempts of one run here while the same check has not failed on
-  # main in 20 runs. Splitting it restores main's layout: five legs, five runners,
-  # five engines.
-  #
-  # Each name costs one module load in the list job, so this stays a short list of
-  # modules that need it rather than every module with more than one check.
-  SPLIT_MODULES: "daggerverse/kafka/tests"
-
   # Per-leg check-step budgets in minutes; anything unlisted gets the planner's
   # default of 6, which fits a leg that runs a single check and — since a module's
   # checks run concurrently and share their container builds — most coarse legs too.
@@ -62,14 +45,19 @@ env:
   #   daggerverse/workspace-ci declares that same whole-workspace `generated` as
   #                            its own check, so its coarse leg repeats the sweep;
   #                            measured at 5m12s against the 6m default.
+  #   daggerverse/kafka/tests  is the exception to "most coarse legs too": its
+  #                            five checks boot five different Kafka
+  #                            distributions rather than sharing containers, so
+  #                            the leg pays for all five. Measured at 8m45s and
+  #                            9m18s across two runs of this layout.
   #
   # A module key covers that module's coarse leg AND its per-check legs, since a
-  # coarse leg's name *is* the module directory (#306). Neither key above names a
-  # module that also produces per-check legs worth tightening, so nothing here is
-  # bound more loosely than it needs to be.
+  # coarse leg's name *is* the module directory (#306). None of the keys above
+  # name a module that also produces per-check legs worth tightening, so nothing
+  # here is bound more loosely than it needs to be.
   CHECK_TIMEOUTS: >-
     {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
-    "daggerverse/workspace-ci": 15}
+    "daggerverse/workspace-ci": 15, "daggerverse/kafka/tests": 15}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -174,7 +162,6 @@ jobs:
         run: |
           set -euo pipefail
           jobs="$(dagger -m daggerverse/workspace-ci call \
-            --split-modules="$SPLIT_MODULES" \
             --timeouts="$CHECK_TIMEOUTS" \
             --memo-token=env:GH_TOKEN \
             --memo-repo="$GITHUB_REPOSITORY" \
