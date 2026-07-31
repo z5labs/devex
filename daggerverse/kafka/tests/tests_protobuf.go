@@ -245,7 +245,7 @@ func (t *Tests) ProtobufKeyFramedProduceConsumeRoundTrip(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -366,7 +366,7 @@ func (t *Tests) ProtobufConsumeUnframedErrors(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -422,7 +422,7 @@ func (t *Tests) ProtobufConsumeMessageIndexMismatchErrors(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}
@@ -492,7 +492,7 @@ func (t *Tests) ProtobufConsumeMessageIndexMismatchErrors(
 // messageName, consume it back, and assert the consumed value equals
 // wantCanonical and carries the registered schema id.
 func protobufRoundTrip(ctx context.Context, kafkaImageTag, messageName, inputJSON, wantCanonical string) error {
-	cluster, err := freshCluster(ctx, kafkaImageTag)
+	cluster, err := freshClusterApache(ctx, kafkaImageTag)
 	if err != nil {
 		return fmt.Errorf("create cluster: %w", err)
 	}

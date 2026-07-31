@@ -12,11 +12,14 @@
 //                          contains.
 //   - tests_native.go    — ApacheNativeCluster (apache/kafka-native) cluster
 //                          helpers (freshCluster / freshTlsCluster /
-//                          freshMtlsCluster) + every test that drives the
-//                          GraalVM image (the bulk of the suite, including
-//                          shared roundTripBinaryOn).
+//                          freshMtlsCluster) + the Native group: every test
+//                          that drives the GraalVM image, including shared
+//                          roundTripBinaryOn.
 //   - tests_apache.go    — ApacheCluster (apache/kafka JVM) cluster helpers
-//                          + the three Apache-JVM round-trip tests.
+//                          (freshClusterApache / freshTlsClusterApache /
+//                          freshMtlsClusterApache) + the three Apache-JVM
+//                          round-trip tests. The SchemaRegistry group runs on
+//                          these helpers too — see its doc comment below.
 //   - tests_confluent.go — ConfluentCluster (confluentinc/cp-kafka) cluster
 //                          helpers + the three cp-kafka round-trip tests.
 //   - tests_redpanda.go  — RedpandaCluster (redpandadata/redpanda) cluster
@@ -100,10 +103,28 @@ func (t *Tests) All(
 }
 
 // SchemaRegistry runs the Schema Registry tests — ConfluentSchemaRegistry,
-// ApicurioSchemaRegistry, and KarapaceSchemaRegistry — as one group. Each test
-// owns the cluster (and, for the round-trips, the registry service) it boots,
-// so the group's only lifetime guarantee is that both are torn down once it
-// returns.
+// ApicurioSchemaRegistry, and KarapaceSchemaRegistry — plus the Avro and
+// PROTOBUF serde round-trips, as one group. Each test owns the cluster (and,
+// for the round-trips, the registry service) it boots, so the group's only
+// lifetime guarantee is that both are torn down once it returns.
+//
+// Every cluster in this group is an ApacheCluster — the apache/kafka JVM image
+// — via the freshClusterApache / freshTlsClusterApache helpers, NOT the
+// apache/kafka-native image the Native group uses. Do not switch it back for
+// the faster cold start. This is the largest group in the suite, it boots more
+// clusters than any other, and apache/kafka-native segfaults during startup:
+//
+//	===> Launching ...
+//	[ [ SegfaultHandler caught a segfault ... ] ] si_signo: 11
+//	  com.oracle.svm.core.posix.headers.Pwd.getpwuid
+//	  com.oracle.svm.core.posix.PosixSystemPropertiesSupport.userHomeValue
+//	  kafka.docker.KafkaDockerWrapper.main
+//
+// which kills whichever node drew the short straw — a controller, in the run
+// this was diagnosed from — and the group with it (#307). The crashing frames
+// are `com.oracle.svm.core.*`, so they exist only in the AOT-compiled image;
+// the JVM image cannot reach them. The native image keeps its coverage in the
+// Native group, where a crash costs one group rather than the whole suite.
 //
 // +check
 // +cache="session"

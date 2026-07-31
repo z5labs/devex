@@ -12,6 +12,11 @@ import (
 // Same single-controller-single-broker plaintext topology — only the
 // underlying image differs — so it lets tests verify the JVM variant
 // without otherwise diverging from the freshCluster flow.
+//
+// It is also what the whole SchemaRegistry group runs on, rather than only the
+// three ApacheJVM tests below: see that group's doc comment in main.go for the
+// apache/kafka-native segfault that made the JVM image the right default for
+// the suite's largest group (#307).
 func freshClusterApache(ctx context.Context, kafkaImageTag string) (*dagger.KafkaCluster, error) {
 	clusterId, err := newClusterId(ctx)
 	if err != nil {

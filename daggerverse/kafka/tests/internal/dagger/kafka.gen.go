@@ -424,16 +424,16 @@ func (r *Kafka) WithGraphQLQuery(q *querybuilder.Selection) *Kafka {
 type KafkaApacheClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:98:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:115:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:100:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:117:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:102:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:119:2)
 
 	// Default: "4.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:104:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:121:2)
 }
 
 // ApacheCluster spins up a KRaft Kafka cluster of the requested size with
@@ -448,7 +448,7 @@ type KafkaApacheClusterOpts struct {
 // been observed to segfault during broker startup — see Dagger Cloud
 // trace `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor
 // whenever startup robustness matters more than cold-start latency.
-func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:94:1)
+func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:111:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("apacheCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -481,16 +481,16 @@ func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaSer
 type KafkaApacheNativeClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:67:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:84:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:69:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:86:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:71:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:88:2)
 
 	// Default: "4.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:73:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:90:2)
 }
 
 // ApacheNativeCluster spins up a KRaft Kafka cluster of the requested
@@ -520,11 +520,28 @@ type KafkaApacheNativeClusterOpts struct {
 // so a `(with a brand-new CA the previous invocation's franz-go client doesn't
 // trust) every time the test calls another method on the chain.
 //
-// The GraalVM-compiled image has been observed to flake during the broker
-// `setup` step under load — see Dagger Cloud trace
-// `377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,
-// use `ApacheCluster()`.
-func (r *Kafka) ApacheNativeCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheNativeClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:63:1)
+// The GraalVM-compiled image segfaults at startup under load. It happens
+// immediately after the entrypoint's `===> Launching`, in class
+// initialization, before Kafka logs anything of its own:
+//
+//	[ [ SegfaultHandler caught a segfault ... ] ] si_signo: 11
+//	  com.oracle.svm.core.posix.headers.Pwd.getpwuid
+//	  com.oracle.svm.core.posix.PosixSystemPropertiesSupport.userHomeValue
+//	  com.oracle.svm.core.jdk.SystemPropertiesSupport.userHome
+//	  kafka.docker.KafkaDockerWrapper.main
+//
+// and the container exits 1. It hits controllers as readily as brokers — the
+// two runs it has been caught in took a controller each: Dagger Cloud traces
+// `377f2e176c4f0e9844cb7f958c1e911b` and the run behind #307. Note the string
+// to grep for is `SegfaultHandler caught a segfault`; SubstrateVM prints
+// neither `SIGSEGV` nor `Segmentation fault`.
+//
+// Nothing here can prevent it — the frames are all `com.oracle.svm.core.*`,
+// i.e. the AOT image's own substitutions for `user.home`. Use `ApacheCluster()`
+// if a node dying at startup would cost you more than the JVM's slower cold
+// start; that image runs the same Scala wrapper on HotSpot, which has no such
+// code path.
+func (r *Kafka) ApacheNativeCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheNativeClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:80:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("apacheNativeCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -621,16 +638,16 @@ func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity)
 type KafkaConfluentClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:129:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:146:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:131:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:148:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:133:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:150:2)
 
 	// Default: "8.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:135:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:152:2)
 }
 
 // ConfluentCluster spins up a KRaft Kafka cluster of the requested size
@@ -645,7 +662,7 @@ type KafkaConfluentClusterOpts struct {
 // The constructor silently disables Confluent's phone-home telemetry
 // (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`) on every broker so
 // the cluster behaves the same way the Apache variants do at startup.
-func (r *Kafka) ConfluentCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaConfluentClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:125:1)
+func (r *Kafka) ConfluentCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaConfluentClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:142:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("confluentCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -1764,7 +1781,7 @@ func (r *KafkaCluster) WithGraphQLQuery(q *querybuilder.Selection) *KafkaCluster
 // same hostname BootstrapServers reports, so the container can dial brokers
 // using the same address strings as a franz-go Client returned from
 // Cluster.Client.
-func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:401:1)
+func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:418:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1776,7 +1793,7 @@ func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../
 
 // BootstrapServers returns the host:port pairs each broker advertises on its
 // client-facing listener.
-func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:387:1)
+func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:404:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1787,7 +1804,7 @@ func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) {
 
 // Client starts every broker service in the cluster and returns a franz-go
 // Client wired with their bootstrap addresses.
-func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:412:1)
+func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:429:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1856,7 +1873,7 @@ func (r *KafkaCluster) UnmarshalJSON(bs []byte) error {
 // cluster just run out the clock (~5 min observed in Dagger trace
 // `972bc311bf374f817b7c88481229a10c`). SIGKILL returns immediately, which
 // is all a test needs.
-func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:361:1)
+func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:378:1)
 	if r.stop != nil {
 		return nil
 	}
