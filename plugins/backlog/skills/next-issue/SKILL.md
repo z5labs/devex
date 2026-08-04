@@ -13,9 +13,9 @@ You never run `gh pr merge`. You label the pull request and GitHub merges it, ga
 default branch's protection rules; see step 9.
 
 Nothing about the repository is written into this skill. The repository slug and default
-branch are read from the repository itself (step 0); the label, milestone, dependency
-convention, verify commands, merge label and worktree directory are read from
-`.claude/backlog.json`.
+branch are read from the repository itself (step 0); the label, milestone, optional project
+scope, dependency convention, verify commands, merge label and worktree directory are read
+from `.claude/backlog.json`.
 
 ## 0. Load the configuration
 
@@ -37,18 +37,18 @@ Do not invent defaults and carry on. A guessed label selects the wrong issues an
 verify list opens red pull requests, and both failures look like the repository's fault
 rather than the config's.
 
-The six keys, and what each is used for:
+What each key is used for:
 
 | key | used at |
 | --- | --- |
-| `select.label`, `select.milestone`, `select.limit` | step 1 — read by `select-issue.sh`, not by you |
+| `select.label`, `select.milestone`, `select.limit`, `select.project` | step 1 — read by `select-issue.sh`, not by you |
 | `dependencies.style` | step 1 — same |
 | `verify` | step 4, the commands that gate the pull request |
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
 | `review.required` | steps 7 and 8, whether Copilot gates the merge |
 | `worktreeDir` | steps 2 and 10, where the worktree lives |
 
-Read the file for the four keys you use directly. The first four rows belong to step 1's
+Read the file for the four keys you use directly. The first three rows belong to step 1's
 script, which re-reads and validates them itself — including rejecting an empty `verify`,
 which parses fine and would otherwise surface as a pull request nothing local ever checked.
 
@@ -84,11 +84,43 @@ exit code:
 | 0 | `{"number":N,"title":"…"}` | that is your issue — continue to step 2 |
 | 10 | `BACKLOG EMPTY` | print that line and stop. Do nothing else. |
 | 11 | `BLOCKED — …`, then a line per issue naming what holds it | print it and stop |
-| 4 | a message naming the problem | `BLOCKED`. The config or the environment is wrong, not the backlog — usually `.claude/backlog.json` is missing, unparseable, carries an unknown `dependencies.style`, or has an empty `verify`. Point at `backlog:setup-backlog`. |
+| 4 | a message naming the problem | `BLOCKED`. The config or the environment is wrong, not the backlog — usually `.claude/backlog.json` is missing, unparseable, carries an unknown `dependencies.style`, or has an empty `verify`. A requested project scope that could not be resolved lands here too; see below. Point at `backlog:setup-backlog`. |
 
 The script walks candidates in ascending number order and takes the first whose every
 declared dependency is `CLOSED`. Its per-candidate reasoning goes to stderr, so a selection
 you did not expect can be explained without re-running anything.
+
+### Scoping the run to one project field value
+
+Some repositories group work by a single-select field on a GitHub project — `Module`, `Area`,
+`Component` — rather than by labels or milestones. Where `.claude/backlog.json` carries
+`select.project`, one run can be restricted to a single value of that field:
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/select-issue.sh" --project-value <value>
+```
+
+Pass the flag when, and only when, you were asked for a scoped run — the user named one, or
+`backlog:run-backlog` put one in your prompt. Otherwise call the script with no arguments and
+let `select.project.value` decide, which is normally `null` and means the whole backlog.
+`--no-project-filter` is the other direction: run unscoped even though the config pins a
+value.
+
+The scope is applied before the dependency walk, so the walk sees only in-scope issues and a
+blocker outside the scope cannot hold up the one you were asked to work.
+
+Two things to know when it fails:
+
+- It needs the **`read:project`** token scope, which `repo` does not include.
+  `gh auth refresh -s read:project` grants it.
+- Every project failure is exit 4 — a token without that scope, an unknown project, a field
+  that does not exist or is not a single-select, a value that is not one of the field's
+  options, `--project-value` with no `select.project` in the config. **Do not retry without
+  the flag.** Selecting from the whole backlog when a scope was asked for gets work done in
+  the wrong order, which is worse than selecting nothing; report `BLOCKED` with the message.
+
+Exit 10 under a scope is not a failure — the scope is genuinely drained. Say which scope in
+the report, so a finished module reads differently from a finished backlog.
 
 **Do not reconstruct any of this by hand**, and do not fall back to `gh issue list` plus your
 own body parsing if the call fails. That fallback is where this step's history lives: the
@@ -531,7 +563,8 @@ state you saw.
 
 Finish with a short status: issue number and title, pull request number and URL, check
 result, whether the pull request reached `MERGED`, and any judgment call that shaped the
-public API.
+public API. If the run was scoped with `--project-value`, name the scope — an outcome from a
+scoped backlog says nothing about the rest of it.
 
 - When `review.required` is `true`: whether Copilot reviewed and what it flagged.
 - When `review.required` is `false`: say plainly that **the pull request merged without a
@@ -545,7 +578,8 @@ If you stopped early, say exactly where and why, beginning the report with `BLOC
 Stop and report — do not push through — if any of these happen:
 
 - `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
-  unknown `dependencies.style`, or has an empty `verify`.
+  unknown `dependencies.style`, has an empty `verify`, or a requested project scope could not
+  be resolved. Never re-run it without `--project-value` to get past the last of those.
 - The same CI failure survives three fix attempts.
 - Acceptance criteria are ambiguous enough that two readings produce materially different
   public APIs.

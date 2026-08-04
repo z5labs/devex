@@ -19,11 +19,11 @@ answer it, label for auto merge, close the issue, clean up — then stops.
 so each issue starts from clean context, and halts on `BACKLOG EMPTY`, on
 `BLOCKED`, or at a bounded iteration count.
 
-Nothing repository-specific lives in the skills. Six knobs live in
-`.claude/backlog.json` — which label and milestone form the backlog, how issue
-bodies declare dependencies, the commands that must pass before a pull request
-opens, the merge label and workflow, whether a review is required, and where
-worktrees go — described by
+Nothing repository-specific lives in the skills. The knobs live in
+`.claude/backlog.json` — which label, milestone and optional project field value
+form the backlog, how issue bodies declare dependencies, the commands that must
+pass before a pull request opens, the merge label and workflow, whether a review
+is required, and where worktrees go — described by
 [`assets/backlog.schema.json`](backlog/assets/backlog.schema.json). The repo
 slug and default branch are deliberately *not* among them: they are read from
 `gh repo view`, so a fork or a rename cannot leave the config describing a
@@ -51,6 +51,16 @@ took the real dependencies below it with it. Three of those made an issue
 rather than not at all. Those bodies are now
 [`scripts/select-issue_test.sh`](backlog/scripts/select-issue_test.sh), which
 needs no network.
+
+The same script can narrow the backlog to one value of a single-select field on
+a GitHub project — `--project-value workspace-ci` on a repository that groups
+its work by `Module` — for repositories where the axis worth working along is
+one the label and milestone filters cannot see. The value is read over GraphQL
+as a `ProjectV2ItemFieldSingleSelectValue`, checked against the field's declared
+options so a typo cannot resolve to an empty backlog, and intersected with this
+repository's issues because an org-level project spans repositories. Every way
+it can fail is exit 4: falling back to the unfiltered backlog when a scope was
+asked for is the same class of failure as a silently eligible issue.
 
 The review gate is
 [`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request, wait,

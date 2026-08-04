@@ -28,7 +28,37 @@
           "type": "integer",
           "minimum": 1,
           "default": 200,
-          "description": "The `--limit` passed to `gh issue list`. Always passed explicitly: gh's default page size is 30, and on a backlog larger than that the eligible issues simply fall off the end of the list without any error."
+          "description": "The `--limit` passed to `gh issue list`. Always passed explicitly: gh's default page size is 30, and on a backlog larger than that the eligible issues simply fall off the end of the list without any error. It bounds the *label* query, so it also bounds what `select.project` can then narrow: on a backlog longer than this, an in-scope issue can fall off the end before the project scope is ever applied."
+        },
+        "project": {
+          "type": ["object", "null"],
+          "default": null,
+          "description": "Optionally narrow the backlog to one value of a GitHub Projects v2 single-select field — \"just the workspace-ci stories\" — on a repository that groups its work by a project field rather than by labels or milestones. Absent or `null` means no such scoping, and `scripts/select-issue.sh` then makes no project API call at all. Reading a project field rather than a convention in the issue body is deliberate: the data already exists on every issue the project holds, a single-select cannot hold a typo'd value however the issue was filed (`gh issue create --body` bypasses issue templates entirely), and the value comes back as data rather than as prose to parse. The cost is that membership lives outside the repository, so a renamed field or a deleted project takes the scoping with it — acceptable because the filter is optional and its failure mode is `select-issue.sh` refusing to select, never a silent fall back to the unscoped backlog. Requires the `read:project` token scope (`gh auth refresh -s read:project`).",
+          "additionalProperties": false,
+          "required": ["owner", "number", "field"],
+          "properties": {
+            "owner": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The organisation or user login that owns the project. An organisation is tried first and a user only after GitHub reports the login is not one, because a project number is scoped to its owner."
+            },
+            "number": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "The project number, as it appears in the project's URL (`/orgs/<owner>/projects/<number>`)."
+            },
+            "field": {
+              "type": "string",
+              "minLength": 1,
+              "description": "The single-select field to read, by name — `Module`, `Area`, `Component`. It must be a single-select field: any other field type is a hard failure rather than a scope that quietly matches nothing. The name is matched exactly, and the failure names every field the project has."
+            },
+            "value": {
+              "type": ["string", "null"],
+              "minLength": 1,
+              "default": null,
+              "description": "The field value the backlog is restricted to, matched exactly against the field's declared options. `null` means no scoping by default — the usual setting, because \"just workspace-ci today\" is a property of one run rather than a permanent description of the backlog. `select-issue.sh --project-value <value>` overrides this per run and `--no-project-filter` clears it, so a scoped run needs no edit to this file. A value that is not one of the field's options fails with the list of options rather than selecting from an empty backlog, which would read as a drained one and stop the loop looking like success."
+            }
+          }
         }
       }
     },

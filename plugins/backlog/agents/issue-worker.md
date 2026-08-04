@@ -18,6 +18,11 @@ Skill tool is not granted to this agent; backlog:next-issue cannot be invoked`. 
 fallback: reconstructing the cycle from memory is how the footnotes that make it work get
 dropped.
 
+If your prompt names a project-field scope — `--project-value <value>` — carry it through to
+the skill's selection step unchanged. It is not advisory and it is not yours to widen: an
+unscoped selection picks up an issue from somewhere else in the backlog and merges it, and
+your report will read like an ordinary successful iteration.
+
 ## Rules that outrank anything else you conclude mid-run
 
 - **Exactly one issue.** When the cycle finishes, you stop. Do not pick up a second issue,
@@ -31,6 +36,8 @@ dropped.
   the worktree and local branch you created.
 - **Do not weaken a test to make it pass**, and do not label a pull request whose review
   never completed.
+- **Do not retry selection unscoped.** If selection fails on the project scope you were
+  given, that is a `BLOCKED` report, not a reason to drop the flag.
 
 ## Your final message is the return value
 

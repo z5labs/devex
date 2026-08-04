@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 #
-# select-issue_test.sh — the fixture corpus for select-issue.sh's extraction.
+# select-issue_test.sh — the fixture corpus for select-issue.sh.
 #
-# Every case below is an issue body that a real backlog can contain. The ones
-# marked REGRESSION were extracted wrongly by the awk/sed/grep pipelines this
-# script replaced, back when they lived in `skills/next-issue/SKILL.md` as prose
-# for an agent to retype and check against a table by eye. Three of them
-# produced a *silently eligible* issue, which is the failure that gets work done
-# in the wrong order rather than not at all.
+# Two halves, both offline.
+#
+# **Extraction.** Every case is an issue body that a real backlog can contain.
+# The ones marked REGRESSION were extracted wrongly by the awk/sed/grep
+# pipelines this script replaced, back when they lived in
+# `skills/next-issue/SKILL.md` as prose for an agent to retype and check against
+# a table by eye. Three of them produced a *silently eligible* issue, which is
+# the failure that gets work done in the wrong order rather than not at all.
+#
+# **Project scoping.** Every case is a GraphQL response `gh api graphql
+# --paginate` can return for the project query, fed to `--project-items`. The
+# failures matter as much as the matches here: a scope that resolves to nothing
+# and a scope that was never applied both look like an ordinary backlog from the
+# outside, so each one has to be an exit 4 rather than an empty answer.
 #
 # Run: plugins/backlog/scripts/select-issue_test.sh
 # Exit 0 when every case matches, 1 otherwise.
@@ -211,6 +219,134 @@ check 'parses nothing' none '' \
 - #12
 
 Depends on #17.'
+
+printf '\nproject scoping\n'
+
+# One GraphQL page, built around the item list under test. The field list and
+# the query root are the two things individual cases vary, so both are
+# arguments. The shape is what `gh api graphql` really returns — the fields are
+# read out of `fields` because `field(name:)` fails the whole query on a name
+# that does not exist, taking the list of real names with it.
+FIELDS='[{"__typename":"ProjectV2Field","name":"Title"},
+         {"__typename":"ProjectV2SingleSelectField","name":"Status","options":[{"name":"Todo"},{"name":"Done"}]},
+         {"__typename":"ProjectV2SingleSelectField","name":"Module","options":[{"name":"workspace-ci"},{"name":"pdf"}]}]'
+
+page() { # <items json array> [fields json array] [organization|user]
+  printf '{"data":{"%s":{"projectV2":{"title":"devex",' "${3:-organization}"
+  printf '"fields":{"nodes":%s},' "${2:-$FIELDS}"
+  printf '"items":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":%s}}}}}' "$1"
+}
+
+issue_item() { # <number> <repo> <field value, or - for none>
+  local value='null'
+  [ "$3" = - ] || value="{\"__typename\":\"ProjectV2ItemFieldSingleSelectValue\",\"name\":\"$3\"}"
+  printf '{"content":{"__typename":"Issue","number":%s,"repository":{"nameWithOwner":"%s"}},"fieldValueByName":%s}' \
+    "$1" "$2" "$value"
+}
+
+# checkp <name> <repo> <field> <value> <expected numbers, space separated> <pages>
+checkp() {
+  local name=$1 repo=$2 field=$3 value=$4 want=$5 pages=$6 got rc
+  got=$(printf '%s' "$pages" | "$SUT" --project-items "$repo" "$field" "$value" 2>/dev/null)
+  rc=$?
+  got=$(printf '%s' "$got" | tr '\n' ' ')
+  got=${got% }
+  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [%s]\n' "$name" "${got:-<none>}"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want [%s] exit 0, got [%s] exit %d\n' "$name" "$want" "$got" "$rc"
+  fi
+}
+
+# checkp_fail <name> <repo> <field> <value> <substring of the message> <pages>
+checkp_fail() {
+  local name=$1 repo=$2 field=$3 value=$4 want=$5 pages=$6 err rc
+  err=$(printf '%s' "$pages" | "$SUT" --project-items "$repo" "$field" "$value" 2>&1 >/dev/null)
+  rc=$?
+  case "$err" in
+    *"$want"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s message lacks [%s]: %s\n' "$name" "$want" "$err"
+       return ;;
+  esac
+  if [ "$rc" -eq 4 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [exit 4]\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 4, got exit %d\n' "$name" "$rc"
+  fi
+}
+
+checkp 'the requested value, and only it' z5labs/devex Module workspace-ci '288 291' \
+  "$(page "[$(issue_item 288 z5labs/devex workspace-ci),
+            $(issue_item 302 z5labs/devex pdf),
+            $(issue_item 291 z5labs/devex workspace-ci)]")"
+
+# An org-level project spans repositories. Trusting its items as-is would select
+# issue 288 in *this* repository because a sibling repository's 288 is in scope.
+checkp 'another repository is not this one' z5labs/devex Module workspace-ci '291' \
+  "$(page "[$(issue_item 288 z5labs/other workspace-ci),
+            $(issue_item 291 z5labs/devex workspace-ci)]")"
+
+# A project holds draft issues and pull requests too. Neither has an issue
+# number in this repository, and a draft's `content` carries no `number` at all.
+checkp 'draft issues and pull requests are skipped' z5labs/devex Module workspace-ci '291' \
+  "$(page '[{"content":{"__typename":"DraftIssue"},"fieldValueByName":{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":"workspace-ci"}},
+            {"content":{"__typename":"PullRequest","number":304,"repository":{"nameWithOwner":"z5labs/devex"}},"fieldValueByName":{"__typename":"ProjectV2ItemFieldSingleSelectValue","name":"workspace-ci"}},
+            '"$(issue_item 291 z5labs/devex workspace-ci)"']')"
+
+# An item that was never given a value for the field is out of scope, not in it.
+checkp 'an unset field value is out of scope' z5labs/devex Module workspace-ci '291' \
+  "$(page "[$(issue_item 288 z5labs/devex -),
+            $(issue_item 291 z5labs/devex workspace-ci)]")"
+
+# Defensive: only a single-select value is read. A value of any other type on a
+# field that has since been retyped must not match by carrying the right `name`.
+checkp 'only a single-select value counts' z5labs/devex Module workspace-ci '291' \
+  "$(page '[{"content":{"__typename":"Issue","number":288,"repository":{"nameWithOwner":"z5labs/devex"}},"fieldValueByName":{"__typename":"ProjectV2ItemFieldTextValue","name":"workspace-ci"}},
+            '"$(issue_item 291 z5labs/devex workspace-ci)"']')"
+
+# `--paginate` prints one whole response per page, concatenated. Reading only
+# the first would silently drop every item past 100 — a scoped backlog that
+# looks short rather than one that errors.
+checkp 'every page contributes, deduped' z5labs/devex Module workspace-ci '288 291 306' \
+  "$(page "[$(issue_item 288 z5labs/devex workspace-ci),
+            $(issue_item 291 z5labs/devex workspace-ci)]")
+$(page "[$(issue_item 291 z5labs/devex workspace-ci),
+            $(issue_item 306 z5labs/devex workspace-ci)]")"
+
+# A project can be owned by a user rather than an organisation, and the query
+# root differs. Both responses have to read the same.
+checkp 'a user-owned project reads the same' z5labs/devex Module workspace-ci '291' \
+  "$(page "[$(issue_item 291 z5labs/devex workspace-ci)]" "$FIELDS" user)"
+
+checkp 'no items at all is an empty scope, not an error' z5labs/devex Module workspace-ci '' \
+  "$(page '[]')"
+
+# The four failures. Each one would otherwise resolve to an empty candidate set,
+# which reads as a drained backlog and stops the loop looking like success.
+checkp_fail 'a typo in the value names the options' z5labs/devex Module Workspace-CI \
+  'workspace-ci,pdf' \
+  "$(page "[$(issue_item 291 z5labs/devex workspace-ci)]")"
+
+checkp_fail 'an unknown field names the fields' z5labs/devex Modul workspace-ci \
+  'Title, Status, Module' \
+  "$(page "[$(issue_item 291 z5labs/devex workspace-ci)]")"
+
+checkp_fail 'a field of the wrong type is refused' z5labs/devex Module workspace-ci \
+  'not a single-select field' \
+  "$(page "[$(issue_item 291 z5labs/devex workspace-ci)]" \
+          '[{"__typename":"ProjectV2Field","name":"Module"}]')"
+
+checkp_fail 'an unresolvable project is refused' z5labs/devex Module workspace-ci \
+  'no project was returned' \
+  '{"data":{"organization":{"projectV2":null}}}'
+
+checkp_fail 'an empty response is refused' z5labs/devex Module workspace-ci \
+  'returned no response' ''
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
