@@ -1,4 +1,8 @@
 {
+  "enabledPlugins": {
+    "daggerverse@z5labs-devex": true,
+    "backlog@z5labs-devex": true
+  },
   "extraKnownMarketplaces": {
     "z5labs-devex": {
       "source": {
@@ -6,8 +10,5 @@
         "repo": "z5labs/devex"
       }
     }
-  },
-  "enabledPlugins": {
-    "daggerverse@z5labs-devex": true
   }
 }
