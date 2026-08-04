@@ -1,0 +1,6 @@
+{
+  "name": "backlog",
+  "description": "Run a repository's story backlog unattended — one issue at a time, from selection through worktree, verification, pull request, Copilot review and label-driven auto merge",
+  "version": "0.1.0",
+  "author": { "name": "z5labs" }
+}

@@ -58,6 +58,7 @@ Then install a plugin:
 
 | Plugin | Provides |
 | ------ | -------- |
+| [`backlog`](plugins/backlog) | `/backlog:run-backlog` — works a repository's story backlog unattended, one issue at a time, from selection through pull request to a label-driven auto merge. |
 | [`daggerverse`](plugins/daggerverse) | `/plan-dagger-module` — paces a design conversation and drafts story issues for a new daggerverse module. |
 
 See [`plugins/README.md`](plugins/README.md) for the plugin layout. To develop

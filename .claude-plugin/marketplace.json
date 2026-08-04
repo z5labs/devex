@@ -8,6 +8,11 @@
   },
   "plugins": [
     {
+      "name": "backlog",
+      "source": "./plugins/backlog",
+      "description": "Run a repository's story backlog unattended, one issue at a time, from selection through pull request to a label-driven auto merge"
+    },
+    {
       "name": "daggerverse",
       "source": "./plugins/daggerverse",
       "description": "Claude Code tooling for designing and building daggerverse modules"
