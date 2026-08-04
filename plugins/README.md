@@ -34,7 +34,7 @@ The cycle never runs `gh pr merge`. It labels the pull request and
 GitHub, gated by the default branch's protection rules — which is what puts the
 merge policy somewhere readable and what lets the loop run unattended at all.
 
-Both ends of the cycle are scripts rather than numbered steps, for the same
+Three parts of the cycle are scripts rather than numbered steps, for the same
 reason: they carry no judgment, and a procedure an agent retypes cannot be
 tested.
 
@@ -51,6 +51,17 @@ took the real dependencies below it with it. Three of those made an issue
 rather than not at all. Those bodies are now
 [`scripts/select-issue_test.sh`](backlog/scripts/select-issue_test.sh), which
 needs no network.
+
+The review gate is
+[`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request, wait,
+and classify what landed, as `0 completed / 1 declined / 2 timed out / 3 could
+not request`. "Did Copilot review this?" looks like one question and is two, and
+the two used to sit sixty lines apart: the wait exited on the first `reviewed`
+event, while whether that review had *declined* the work was a separate command
+under its own heading. Copilot declines a pull request over 300 files with a
+review whose body says so, and that decline satisfies any `length > 0` test —
+which is how a cycle once merged with no review at all. The merge label is the
+assertion that a review completed, so the assertion is now an exit code.
 
 The tail of the cycle is
 [`scripts/finish-issue.sh`](backlog/scripts/finish-issue.sh) rather than five

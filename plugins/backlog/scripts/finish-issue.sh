@@ -123,12 +123,20 @@ if [ -n "$WT" ]; then
     || warn "could not remove the worktree at $WT; it may have uncommitted changes"
 fi
 
-if [ -n "$(git status --porcelain)" ]; then
+# Only ever fast-forward a checkout that is ALREADY on the default branch. This
+# script cleans up what the cycle created; the branch the operator left their
+# main checkout on is not that, and silently moving it is a surprise waiting at
+# the end of an unattended run. Nothing depends on the local ref anyway — step 2
+# fetches and branches from origin/<default-branch> — so declining here costs
+# nothing.
+CURRENT=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || printf '')
+if [ "$CURRENT" != "$DEFAULT_BRANCH" ]; then
+  warn "main checkout at $MAIN is on '${CURRENT:-a detached HEAD}', not $DEFAULT_BRANCH; leaving it alone"
+elif [ -n "$(git status --porcelain)" ]; then
   warn "main checkout at $MAIN is dirty; skipping the update of $DEFAULT_BRANCH"
 else
-  git checkout --quiet "$DEFAULT_BRANCH" 2>/dev/null \
-    && git pull --quiet --ff-only 2>/dev/null \
-    || warn "could not bring $DEFAULT_BRANCH up to date; the next iteration may branch from a stale ref"
+  git pull --quiet --ff-only 2>/dev/null \
+    || warn "could not fast-forward $DEFAULT_BRANCH"
 fi
 
 # A stale *local* branch is what breaks a retry: `git worktree add -b <branch>`

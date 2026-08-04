@@ -236,12 +236,20 @@ ten minutes later.
 
 ## 6. Wait for checks
 
-Do not foreground a `sleep` loop. Either use `gh pr checks <pr> --watch --fail-fast`, or
-poll with `Monitor`.
+Pass this as the `command` of a `Monitor` call:
 
-Do **not** use Bash `run_in_background` for a wait loop. It has been observed exiting
-immediately without ever polling, which looks like a completed wait and reports whatever the
-first sample happened to be. `Monitor` is the tool for every wait in this cycle.
+```
+gh pr checks <pr> --repo <repo> --watch --fail-fast
+```
+
+**Not to Bash.** `--watch` blocks until every check finishes, which on a repository with real
+CI outlasts the Bash tool — the call is killed mid-wait, and a wait that never finished looks
+exactly like a pull request whose checks failed. Every wait in this cycle goes through
+`Monitor` for that reason; step 7 and step 10 are the same.
+
+Do **not** use Bash `run_in_background` either. It has been observed exiting immediately
+without ever polling, which looks like a completed wait and reports whatever the first sample
+happened to be.
 
 - Exit 0 → green, continue.
 - Failure → read the logs (`gh run view <id> --log-failed`), fix, push, and re-watch. After
@@ -253,136 +261,79 @@ first sample happened to be. `Monitor` is the tool for every wait in this cycle.
   branch has no required status check, seen from the other side — with no required check,
   the label in step 9 merges the pull request the instant it lands.
 
-## 7. Request the Copilot review
+## 7. The Copilot review — one call
 
 **If `review.required` is `false`, skip this step and step 8 entirely** and go to step 9.
 Nothing here is optional when it is `true`.
 
-Copilot is a **Bot**, not a User. Two things follow. The login is
-`copilot-pull-request-reviewer[bot]`, and passing a bare `reviewers[]=Copilot` to the REST
-endpoint `POST /pulls/<pr>/requested_reviewers` returns 200 while silently doing nothing —
-`requested_reviewers` stays empty and the wait below then times out on a review that was
-never requested.
-
-The GraphQL mutation is the reliable path. It takes `botIds`, not `reviewers`:
+Requesting the review, waiting for it, and deciding whether what landed *is* a review are one
+call. Pass it as the `command` of a `Monitor` call — the wait runs up to ten minutes, past the
+Bash tool's ceiling — and not to Bash with `run_in_background`:
 
 ```
-PR_ID=$(gh pr view <pr> --json id --jq .id)
-BOT_ID=$(gh api '/users/copilot-pull-request-reviewer[bot]' --jq .node_id)
-gh api graphql -f query='
-mutation($pr:ID!, $bot:ID!) {
-  requestReviews(input: {pullRequestId: $pr, botIds: [$bot], union: true}) {
-    pullRequest { reviewRequests(first:10) { nodes {
-      requestedReviewer { __typename ... on Bot { login } } } } }
-  }
-}' -f pr="$PR_ID" -f bot="$BOT_ID"
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr>
 ```
 
-The bot ID is looked up by login rather than hard-coded. Confirm the response lists
-`copilot-pull-request-reviewer` under `reviewRequests` — an empty list means the request did
-not take.
+| exit | meaning | what you do |
+| --- | --- | --- |
+| 0 | a review **completed** — it left comments, or reported it generated none. stdout is its body | continue to step 8 |
+| 1 | the most recent review **declined** the work; stdout is why | `BLOCKED`, and do **not** label. If it is the 300-file limit, say so and suggest how the work could be split |
+| 2 | timed out waiting | re-run it; it resumes. If it times out again, `BLOCKED` |
+| 3 | the review could not be requested — Copilot code review is probably not enabled for this organisation | `BLOCKED`, naming that |
+| 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
 
-REST also works *provided the full bot login is used*, and is a reasonable fallback if the
-mutation errors:
+**Only exit 0 lets you label the pull request in step 9.**
 
-```
-gh api --method POST repos/<repo>/pulls/<pr>/requested_reviewers \
-  -f "reviewers[]=copilot-pull-request-reviewer[bot]" -q '.number'
-```
+### Why this is a script
 
-Either way, confirm the login appears in `requested_reviewers` before you start waiting.
+"Did Copilot review this?" looks like one question and is two, and the cycle used to answer
+them in places far enough apart that the second could be skipped. The wait was a polling loop
+that exited on the first `reviewed` event; whether that review had *declined* the work was a
+separate command sixty lines further down, under its own heading. Copilot posts a review
+whose body declines — most often `"Copilot wasn't able to review this pull request because it
+exceeds the maximum number of files (300)"` — and that decline satisfies any `length > 0`
+test. It has been missed in the wild: a vendored test suite pushed a pull request past the
+limit, Copilot declined, the check passed, and the cycle merged with no review at all.
 
-### Wait for the review to land
+The label in step 9 **is** the assertion that a review completed. Making it an exit code is
+what stops that assertion depending on an agent remembering a second question at the very end
+of the longest part of the cycle.
 
-Pass this as the `command` of a `Monitor` call — not to Bash with `run_in_background`, for
-the reason in step 6:
+Four findings live inside the script rather than in prose here, each of which cost a
+debugging session:
 
-```
-for i in $(seq 1 40); do
-  n=$(gh api --paginate repos/<repo>/issues/<pr>/timeline \
-        --jq '.[]|select(.event=="reviewed")
-              |select(.user.login|test("copilot";"i"))|.id' 2>/dev/null | wc -l)
-  if [ "$n" -gt 0 ]; then echo "copilot review landed"; exit 0; fi
-  sleep 15
-done
-echo "copilot review timed out"; exit 1
-```
+- Copilot is a **Bot**, not a User. The GraphQL mutation takes `botIds`; a bare
+  `reviewers[]=Copilot` on the REST endpoint returns 200 while doing nothing, and the wait
+  then times out on a review that was never requested. REST works only with the full
+  `copilot-pull-request-reviewer[bot]` login. The bot's node ID is looked up rather than
+  hard-coded.
+- The wait polls the **timeline**, not `pulls/<pr>/reviews`. The reviews endpoint has been
+  seen empty for forty minutes after Copilot had in fact submitted, so polling it times out
+  on a pull request that *was* reviewed.
+- `--paginate`, because the timeline returns thirty events per page and a pull request with a
+  few pushes and check runs pushes the `reviewed` event off page one.
+- A case-insensitive `copilot` login filter, without which the repository owner glancing at
+  the pull request ends the wait and step 9 decides on a review that never arrived.
 
-Two filters, both load bearing.
-
-`--paginate`, because the timeline returns thirty events per page by default, and a pull
-request that saw several pushes, check runs and comments will push the `reviewed` event off
-the first page — where an unpaginated read reports zero and the loop times out on a reviewed
-pull request, which is the exact failure this step exists to avoid. Counting `.id` lines
-rather than taking a `length` per page is what makes the count work across pages.
-
-The `copilot` login filter, because a `reviewed` event from *anyone* would otherwise end the
-wait. The repository owner reviewing a pull request while Copilot was still working would
-satisfy this loop, and step 9 would then be deciding on a review that never arrived. The
-gate is specifically that Copilot completed; the wait has to be specific in the same way.
-Matching is case-insensitive on purpose — the timeline reports this reviewer as `Copilot`
-while the `pulls/` endpoints report `copilot-pull-request-reviewer[bot]`.
-
-The wait polls the **timeline**, not `pulls/<pr>/reviews`. The reviews endpoint — and the
-equivalent GraphQL query — have been seen returning an empty array for as long as forty
-minutes after Copilot had in fact submitted, while the timeline showed it immediately.
-Polling the reviews endpoint therefore produces a timeout on a pull request that was
-reviewed, and that reads as a missing review rather than as the API lagging.
-
-**Never report `BLOCKED` for a missing review without checking the timeline first:**
-
-```
-gh api --paginate repos/<repo>/issues/<pr>/timeline \
-  --jq '.[]|select(.event=="reviewed")|select(.user.login|test("copilot";"i"))' \
-  | jq -s 'sort_by(.submitted_at)|last|{user:.user.login,state,body}'
-```
-
-Same two filters, for the same two reasons — without the login filter this returns whichever
-review is newest, which after a human comment is not Copilot's. And `jq -s` because it
-slurps the per-page objects back into one array before sorting: sorting inside `--jq` would
-sort each page separately and give you the last review *of the last page*, not the last
-review.
-
-### A non-empty reviews array does not mean the pull request was reviewed
-
-Copilot posts a review whose body **declines** the work — most often `"Copilot wasn't able
-to review this pull request because it exceeds the maximum number of files (300)"` — and
-that decline satisfies a naive `length > 0` test. Check the body before treating the review
-as real.
-
-Read the **most recent** Copilot review only. Reruns and pushed fixes leave older reviews in
-the array, so an earlier decline sitting beside a later completed review — or the reverse —
-is easy to misread:
-
-```
-gh api repos/<repo>/pulls/<pr>/reviews \
-  --jq '[.[] | select(.user.login | test("copilot";"i"))]
-        | sort_by(.submitted_at) | last | .body // "no copilot review"'
-```
-
-A body matching `wasn't able to review` is a **declined** review, not a completed one. This
-has been seen in the wild: vendored test suites pushed a pull request past the 300-file
-limit, Copilot declined, the `length > 0` check passed, and the cycle merged with no review
-at all.
-
-If the review is declined, times out, or the request itself errors (Copilot code review not
-enabled for the organisation), the cycle does **not** label the pull request — see step 9.
+Re-running is safe: a Copilot review already on the pull request is classified and returned
+without requesting another, and the newest review wins, so an old decline sitting beside a
+newer completed review is not misread.
 
 ## 8. Address the review
 
 **Skipped entirely when `review.required` is `false`.**
 
-Pull both the summary review and the inline comments — a review whose body says it
-`generated no comments` still counts as having reviewed:
+Step 7 already printed the summary body on stdout. What it does not carry is the inline
+comments, which is what you are here for:
 
 ```
-gh api repos/<repo>/pulls/<pr>/reviews  --jq '.[] | "\(.user.login) [\(.state)]\n\(.body)"'
 gh api repos/<repo>/pulls/<pr>/comments --jq '.[] | "[\(.id)] \(.path):\(.line)\n\(.body)"'
 ```
 
-If the reviews endpoint is still lagging (step 7), read the body from the timeline instead —
-the `reviewed` events carry the same `state` and `body`. An empty result here is a stale
-endpoint, not an absent review.
+An empty result is normal — a review whose body says it `generated no comments` still counts
+as having reviewed, and step 7 exited 0 on it. If you want the summary again, take it from
+step 7's output rather than from `pulls/<pr>/reviews`, which lags (see step 7) and will
+happily return an empty array for a review that landed.
 
 Use judgment. Fix what is a real defect or a genuine improvement. Where a comment is wrong
 or does not apply, reply on the thread explaining why rather than making the change — do not
@@ -421,9 +372,8 @@ immediately, if they have already passed — and leaves it open if one fails.
 Apply the label only when **both** hold:
 
 1. Checks are green, and
-2. **either** `review.required` is `false`, **or** a Copilot review actually **completed** —
-   it either left comments (every one now addressed or answered) or reported that it
-   generated none.
+2. **either** `review.required` is `false`, **or** step 7 exited **0** — a review actually
+   completed, and every comment it left is now addressed or answered.
 
 This is not a formality to route around: the label **is** the assertion that you verified
 both conditions, and adding it without having done so is the same failure as merging
@@ -435,9 +385,8 @@ label gate plus the branch protection rule — rather than in a decision made mi
 visible only in a transcript. It is also what lets the loop run unattended: an agent merging
 on its own is blocked, and labelling is not.
 
-When `review.required` is `true`, a review that was declined, never arrived, or was never
-requested because the request errored is **not** a completed review. Do **not** label the
-pull request. Leave it open, leave the worktree in place, and stop with a report beginning
+When `review.required` is `true`, any exit from step 7 other than 0 — declined (1), timed out
+(2), never requested (3) — is **not** a completed review. Do **not** label the pull request. Leave it open, leave the worktree in place, and stop with a report beginning
 `BLOCKED` that names the pull request and why the review is missing, so the user can tell a
 pull request that needs a human look from one that merged on its own. Sending unreviewed
 work to the default branch is the one step of this cycle that is not yours to take
@@ -467,8 +416,12 @@ Do not conclude anything from `OPEN not-armed` until the workflow run has actual
 The run list is what disambiguates:
 
 ```
-gh run list --repo <repo> --workflow <merge.workflow> --limit 1
+gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit 1
 ```
+
+`--branch` is what makes this your run. Without it, `--limit 1` is the most recent run of
+that workflow in the whole repository — anyone labelling another pull request while yours is
+queued hands you their result, and it reads as a verdict on yours.
 
 Wait for it to leave `queued` and `in_progress`. A `success` conclusion with the pull
 request still open means auto merge is armed and waiting on a check. A `failure` conclusion
@@ -558,8 +511,10 @@ order, and check the state after the close rather than assuming it:
 # 4. re-read the state and confirm CLOSED
 # 5. git worktree remove <worktreeDir>/issue-<n>
 #    MAIN=$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)
-#    git -C "$MAIN" checkout <default-branch> && git -C "$MAIN" pull --ff-only
 #    git -C "$MAIN" branch -D issue-<n>
+#    # fast-forward the main checkout ONLY if it is already on <default-branch>;
+#    # moving the branch the operator left it on is not this cycle's to do, and
+#    # step 2 branches from origin/<default-branch> regardless
 ```
 
 A stale *local* branch is what breaks a retry — `git worktree add -b issue-<n>` fails
@@ -597,8 +552,8 @@ Stop and report — do not push through — if any of these happen:
 - Landing the pull request would require a force-push, a branch-protection override, or
   discarding someone else's commits.
 - `git status` in the main checkout is dirty with changes you did not make.
-- `review.required` is `true` and the Copilot review declined, timed out, or was never
-  requested successfully.
+- `review.required` is `true` and `await-review.sh` exited non-zero — the review declined,
+  timed out, or could not be requested.
 
 When you stop for one of these, begin the report with `BLOCKED` so the caller can tell a
 halted cycle from a finished one at a glance. `backlog:run-backlog` halts the loop on that
