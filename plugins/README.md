@@ -40,10 +40,18 @@ more numbered steps. Waiting for the merge, closing the issue, verifying it
 closed, dropping the worktree and deleting the local branch involve no judgment,
 run at the point where an agent's context is fullest, and can be half-done
 without anything looking wrong. The close matters most: a `Closes #N` line does
-*not* close the issue when a workflow's `GITHUB_TOKEN` performs the merge, and
-an issue left open is one the next iteration selects again. One call with a
-meaningful exit code cannot be forgotten and asserts the close instead of
-trusting it.
+*not* close the issue when a token performs the merge — the closing reference
+registers and nothing acts on it — and an issue left open is one the next
+iteration selects again. One call with a meaningful exit code cannot be
+forgotten and asserts the close instead of trusting it.
+
+Setting up the App token matters more than it looks. GitHub creates no workflow
+run from an event triggered by `GITHUB_TOKEN`, so a workflow that merges with
+its own token emits a `closed` event that starts nothing — and every job hanging
+off that event is skipped in silence. Merging with a GitHub App installation
+token instead is what makes `close-linked-issues` and `delete-merged-branch` run
+at all; `setup-backlog` checks for the two secrets and reports the degradation
+when they are absent.
 
 `setup-backlog` bootstraps a target repository: it writes the config with
 `verify` and `dependencies.style` inferred from the repository rather than

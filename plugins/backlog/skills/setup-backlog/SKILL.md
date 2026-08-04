@@ -133,13 +133,14 @@ existing file may carry a local change that matters, and the comments in the ass
 reasoning behind every clause in it — silently replacing one with the other destroys
 whichever of the two was the considered version.
 
-One diff line is worth calling out by name: **`issues: write` in the `permissions:` block.**
-An older copy of this workflow grants only `contents: write` and `pull-requests: write`, and
-on that copy a merge does not close the linked issue even though the pull request's
-`closingIssuesReferences` registered correctly — the auto-close runs as
-`github-actions[bot]` and is bounded by that block. The cycle closes the issue explicitly
-regardless, so this is the cheap half of a belt and braces rather than the fix; recommend it
-in the report when the existing file lacks it.
+Two differences are worth calling out by name if the existing file is an older copy:
+
+- **No `close-linked-issues` job.** A `Closes #N` line does not close the issue when a token
+  performs the merge, even though `closingIssuesReferences` registers correctly. Granting
+  `issues: write` was tested as the explanation on a real merge and did not fix it, so the
+  asset closes linked issues with an explicit `gh issue close` instead.
+- **No `Mint a GitHub App installation token` step.** This is the load-bearing one; see the
+  App check in step 5.
 
 Do not commit or push. Leave the file in the working tree and say in the report that it
 needs a commit, and that pushing it needs the `workflow` token scope from step 0.
@@ -175,6 +176,44 @@ and mark each result **ok**, **needs a change**, or **needs admin rights**.
 A `403` is **needs admin rights**, not a failure. It means the endpoint exists and the token
 cannot read it — report the check as unverified and name what the user needs to look at.
 Reporting it as a failure sends someone chasing a problem that may not be there.
+
+### The App token — check this one first
+
+Everything the merge workflow does *after* the merge depends on it. GitHub does not create
+workflow runs from events triggered by `GITHUB_TOKEN`, so when the workflow merges with its
+own token the resulting `closed` event starts no run at all: `close-linked-issues` and
+`delete-merged-branch` are both skipped, silently, every time. Measured across ten merges in
+two repositories — every run showed the branch job `skipped`, twenty-four merged branches
+survived, and the only run where it fired was a pull request a person had merged by hand.
+
+An App installation token is a different actor, so its events cascade normally.
+
+```
+gh secret list --repo <repo> --json name --jq '[.[].name]'
+```
+
+`BACKLOG_APP_ID` and `BACKLOG_APP_KEY` must both be present. A `403` here is **needs admin
+rights**, not a failure.
+
+When they are missing, report it as **needs a change** with the consequence stated — merged
+branches will accumulate with nothing to collect them, and the linked-issue close falls
+entirely to the cycle's own `finish-issue` step — and give the setup, which needs a human:
+
+1. Create a GitHub App (any account you control; it does not need to be public).
+2. Install it on this repository with **Contents**, **Pull requests** and **Issues** set to
+   **Read and write**.
+3. Add its App ID as `BACKLOG_APP_ID` and its PEM private key as `BACKLOG_APP_KEY`.
+
+The loop still works without it. Nothing merges unreviewed and no issue goes unclosed — the
+cycle's own close covers that — so this is a degradation, not a blocker. Report it as one.
+
+Check the symptom directly too, since it is the thing an operator will actually notice:
+
+```
+gh api --paginate repos/<repo>/branches --jq '.[].name' | wc -l
+```
+
+A pile of branches named after already-merged issues is this problem, not untidiness.
 
 ### Squash-only merging
 

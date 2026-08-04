@@ -536,27 +536,44 @@ skips its removal.
 ### Why this is a script
 
 Three of those steps have been rediscovered from first principles on cycle after cycle, and
-the close is the expensive one. **A `Closes #<n>` line does not close the issue when a
-workflow's `GITHUB_TOKEN` performs the merge.** Across four consecutive merges the closing
+the close is the expensive one. **A `Closes #<n>` line does not close the issue when a token
+rather than a person performs the merge.** Across five consecutive merges the closing
 reference registered correctly every time — step 5's assertion would have passed on all
-four — and every issue stayed open until an agent noticed and closed it by hand. The
-auto-close is performed as the merging actor, and that actor is `github-actions[bot]`, so it
-is bounded by the workflow's `permissions:` block; the workflow this plugin installs grants
-`issues: write` for that reason, and whether that is sufficient is not yet proven.
+five — and every issue stayed open until an agent noticed and closed it by hand.
 
-So the explicit close stays either way, and it is not a formality: an issue left open is one
-the next invocation of this skill selects again, so the loop re-implements work it has
-already merged. Putting it behind an exit code is what stops it depending on an agent
-remembering, at the very end of the longest part of the cycle, a fact that is invisible
-unless you go looking for it.
+Granting the merge workflow `issues: write` is the obvious explanation, and it was tested on
+a real merge: the issue still did not close, and the loop closed it by hand eighteen seconds
+later exactly as before. That explanation is **refuted**; the mechanism remains unknown.
 
-The script also **deletes nothing remote.** The `delete-merged-branch` job in
-`.github/workflows/<merge.workflow>` owns remote cleanup; `git push --delete` is denied by
-the operator's settings, and neither an agent nor a script should work around that rule.
-Note that `deleteBranchOnMerge` on the repository does not cover this either — it fires for
-a merge a person performs, not for one the workflow performs with its `GITHUB_TOKEN`, which
-is why that job exists at all. If a branch outlives its merge, the fix belongs in the
-workflow.
+So this close is not a backstop for something that usually works — for a long time it was
+the *only* thing closing these issues, and an issue left open is one the next invocation of
+this skill selects again, so the loop re-implements work it has already merged. Putting it
+behind an exit code is what stops it depending on an agent remembering, at the very end of
+the longest part of the cycle, a fact that is invisible unless you go looking for it.
+
+The workflow this plugin installs now also closes linked issues explicitly, in a
+`close-linked-issues` job. Both closes are idempotent — whichever arrives first wins and the
+other reads `CLOSED` and does nothing — and the redundancy is deliberate, because that job
+runs only when the repository is set up as below.
+
+### The remote branch, and what it depends on
+
+The script **deletes nothing remote.** `git push --delete` is denied by the operator's
+settings, and neither an agent nor a script should work around that rule; the
+`delete-merged-branch` job in `.github/workflows/<merge.workflow>` owns remote cleanup.
+
+That job only fires if the merge was performed by a **GitHub App installation token**.
+GitHub does not create workflow runs from events triggered by `GITHUB_TOKEN`, so a merge
+performed with `GITHUB_TOKEN` emits a `closed` event that starts no run — and both the
+branch deletion and the issue close above are skipped. Measured, not inferred: across ten
+merges in two repositories every auto-merge run showed that job `skipped` and twenty-four
+merged branches survived, while the one run where it did fire belonged to a pull request a
+person merged by hand.
+
+`backlog:setup-backlog` checks for the App secrets and reports when they are missing. If
+they are, expect merged branches to accumulate; say so in the report rather than deleting
+one, and note that `deleteBranchOnMerge` on the repository does not cover it either — that
+fires for a merge a person performs.
 
 ### If the script is unavailable
 
