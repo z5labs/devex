@@ -41,12 +41,16 @@ The six keys, and what each is used for:
 
 | key | used at |
 | --- | --- |
-| `select.label`, `select.milestone`, `select.limit` | step 1, listing the backlog |
-| `dependencies.style` | step 1, deciding eligibility |
+| `select.label`, `select.milestone`, `select.limit` | step 1 — read by `select-issue.sh`, not by you |
+| `dependencies.style` | step 1 — same |
 | `verify` | step 4, the commands that gate the pull request |
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
 | `review.required` | steps 7 and 8, whether Copilot gates the merge |
 | `worktreeDir` | steps 2 and 10, where the worktree lives |
+
+Read the file for the four keys you use directly. The first four rows belong to step 1's
+script, which re-reads and validates them itself — including rejecting an empty `verify`,
+which parses fine and would otherwise surface as a pull request nothing local ever checked.
 
 `${CLAUDE_PLUGIN_ROOT}/assets/backlog.schema.json` is the schema; read it if a key looks
 wrong.
@@ -65,100 +69,67 @@ next command. Note the values down and substitute them literally into the comman
 or re-derive them inside the same command. Every `<repo>` and `<default-branch>` in this
 document is one of those two values.
 
-## 1. Pick the issue
+## 1. Pick the issue — one call
 
-List the backlog. Pass `--milestone` **only** when `select.milestone` is not null — an
-empty `--milestone` is not the same as no milestone filter:
-
-```
-gh issue list --state open --label "<select.label>" --limit <select.limit> \
-  [--milestone "<select.milestone>"] --json number,title --jq 'sort_by(.number)[]'
-```
-
-`--limit` is always passed. gh's default page size is 30, and on a backlog larger than that
-the issues past the first page do not error — they are simply not in the list, so the cycle
-reports an empty or blocked backlog that is neither.
-
-Walk the list in ascending number order. For each candidate, read its body
-(`gh issue view <n> --json body --jq .body`) and extract its dependencies according to
-`dependencies.style`. An issue is *eligible* only when every issue it names is CLOSED:
+Selection carries no judgment: given the label, the milestone, the limit and the dependency
+convention, the answer is a function of the backlog. So it is one call, and the answer is an
+exit code:
 
 ```
-gh issue view <N> --json state --jq .state
+"${CLAUDE_PLUGIN_ROOT}/scripts/select-issue.sh"
 ```
 
-Take the lowest-numbered eligible issue.
+| exit | stdout | what you do |
+| --- | --- | --- |
+| 0 | `{"number":N,"title":"…"}` | that is your issue — continue to step 2 |
+| 10 | `BACKLOG EMPTY` | print that line and stop. Do nothing else. |
+| 11 | `BLOCKED — …`, then a line per issue naming what holds it | print it and stop |
+| 4 | a message naming the problem | `BLOCKED`. The config or the environment is wrong, not the backlog — usually `.claude/backlog.json` is missing, unparseable, carries an unknown `dependencies.style`, or has an empty `verify`. Point at `backlog:setup-backlog`. |
 
-- If no open issues match the label (and milestone, when set), print `BACKLOG EMPTY` and
-  stop. Do nothing else.
-- If open issues remain but none are eligible, print `BLOCKED` plus which dependency is
-  holding things up, and stop.
+The script walks candidates in ascending number order and takes the first whose every
+declared dependency is `CLOSED`. Its per-candidate reasoning goes to stderr, so a selection
+you did not expect can be explained without re-running anything.
 
-### Reading dependencies
+**Do not reconstruct any of this by hand**, and do not fall back to `gh issue list` plus your
+own body parsing if the call fails. That fallback is where this step's history lives: the
+extraction used to be three `awk`/`sed`/`grep` pipelines written out here for you to retype,
+and every one of them was wrong — a sentence reading `this issue is not blocked by anything`
+opened a dependency list, a fenced code block quoting the convention counted as a
+declaration, GitHub's `- [ ] #12` task-list form extracted nothing, and a cross-repository
+`owner/repo#N` silently terminated the list, dropping the real dependencies below it.
+`scripts/select-issue_test.sh` is the fixture corpus those came from; a change to the rules
+belongs there, not here.
 
-GitHub's native blocked-by field is **not** consulted. It has been observed empty on
-repositories whose issue bodies do declare ordering in prose, and an empty native field
-reads as an unblocked backlog, which is the one wrong answer that causes work to be done in
-the wrong order rather than not at all.
+### The conventions it reads
 
-`dependencies.style` is one of exactly three values. Anything else is a configuration
-error: stop, and report — beginning with `BLOCKED` — that `dependencies.style` must be one
-of `blocked-by`, `depends-on` or `none`, naming the value that was found and pointing at
-`backlog:setup-backlog`.
+Useful when you are *writing* an issue body, and what `backlog:setup-backlog` infers
+`dependencies.style` from. GitHub's own native blocked-by field is **not** consulted: it has
+been observed empty on repositories whose issue bodies do declare ordering in prose, and an
+empty native field reads as an unblocked backlog — the one wrong answer that gets work done
+in the wrong order rather than not at all.
 
-**`blocked-by`** — a line containing `Blocked by:` followed by `- #N` list items. The list
-ends at the first non-empty line that is not a list item:
+**`blocked-by`** — a line that *opens* with `Blocked by:` (a heading, bold, or plain), then
+`- #N` list items. The phrase has to start the line and end at a colon or the line end, which
+is what tells a declaration apart from prose that merely mentions being blocked. References
+on the label line itself count too, so `Blocked by: #12, #14` works. The list ends at the
+first non-blank line that is not a list item — a blank line does not end it, because Markdown
+calls a bullet list with blank lines between its items a single loose list. On each item the
+**first** reference is the dependency and the rest is a gloss, so `- #12 — needs #34 first`
+contributes 12 and not 34.
 
-```
-gh issue view <n> --json body --jq .body | awk '
-  tolower($0) ~ /blocked by/                       { inlist = 1; next }
-  inlist && /^[[:space:]]*[-*][[:space:]]*#[0-9]+/ { print; next }
-  inlist && NF                                     { inlist = 0 }
-' | sed -nE 's/^[[:space:]]*[-*][[:space:]]*#([0-9]+).*/\1/p'
-```
+**`depends-on`** — `Depends on #N` written inline, conventionally under a `Related Issues`
+heading. The reference has to follow the phrase immediately, so `Depends on the parser
+landing, see #99` is not a dependency on 99. A phrase negated in the same clause — `no longer
+depends on #17` — is a note that a dependency was removed, not a live one.
 
-The `sed` takes the **first** `#N` on each list item and nothing after it, so a trailing
-gloss like `- #12 — needs #34 first` contributes 12 and not 34.
+**`none`** — the backlog declares no ordering. Bodies are not parsed at all; every open issue
+carrying the label is eligible and the lowest-numbered one wins.
 
-**`depends-on`** — `Depends on #N`, written inline, conventionally under a `Related Issues`
-heading. There is no list structure to track, so match the phrase directly, case
-insensitively:
-
-```
-gh issue view <n> --json body --jq .body \
-  | grep -oiE 'depends on[[:space:]]*#[0-9]+' | grep -oE '[0-9]+'
-```
-
-**`none`** — the backlog declares no ordering. Do not parse the body for dependencies at
-all; every open issue carrying the label is eligible, and the lowest-numbered one wins.
-
-A bare `#N` means an issue in this repository. A cross-repository `owner/repo#N` is not
-modelled: treat it as a dependency you cannot resolve, and report `BLOCKED` naming it,
-rather than skipping it and calling the issue eligible.
-
-### Fixture
-
-The three styles must give three different answers on the same body. Against this one:
-
-```markdown
-### Related Issues
-
-Blocked by:
-- #12 — the parser this builds on
-- #14
-
-Depends on #17.
-
-- #19 is related but not blocking.
-```
-
-| `dependencies.style` | selects |
-| --- | --- |
-| `blocked-by` | 12, 14 — the list ends at `Depends on #17.`, which is neither blank nor a list item, so `- #19` is out of the list and not a dependency |
-| `depends-on` | 17 — the `Blocked by:` list items carry no phrase to match |
-| `none` | nothing; the issue is eligible on sight |
-
-If your extraction disagrees with that table on this body, the extraction is wrong.
+Under both parsing styles, text inside a ``` or `~~~` fence is example text, not a
+declaration. A bare `#N` means an issue in this repository. A cross-repository `owner/repo#N`
+is not modelled: it makes *that issue* ineligible and is named in the report, rather than
+being skipped and the issue called eligible — but the walk continues, so one unresolvable
+reference does not starve a backlog whose other issues are workable.
 
 ### Read the issue
 
@@ -618,8 +589,8 @@ If you stopped early, say exactly where and why, beginning the report with `BLOC
 
 Stop and report — do not push through — if any of these happen:
 
-- `.claude/backlog.json` is missing, does not parse, or carries an unknown
-  `dependencies.style`.
+- `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
+  unknown `dependencies.style`, or has an empty `verify`.
 - The same CI failure survives three fix attempts.
 - Acceptance criteria are ambiguous enough that two readings produce materially different
   public APIs.

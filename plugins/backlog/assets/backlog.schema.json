@@ -41,13 +41,13 @@
         "style": {
           "enum": ["blocked-by", "depends-on", "none"],
           "default": "blocked-by",
-          "description": "`blocked-by`: a line containing `Blocked by:` followed by `- #N` list items. `depends-on`: `Depends on #N` written inline, conventionally under a `Related Issues` heading. `none`: the backlog declares no ordering, so every open issue carrying the label is eligible and bodies are not parsed for dependencies at all."
+          "description": "`blocked-by`: a line *opening* with `Blocked by:` — heading, bold or plain — then `- #N` list items, GitHub task-list items included; references on the label line count too. The list ends at the first non-blank line that is not a list item, and the first reference on an item is the dependency (the rest is a gloss). `depends-on`: `Depends on #N` written inline, conventionally under a `Related Issues` heading, with the reference immediately following the phrase. `none`: the backlog declares no ordering, so every open issue carrying the label is eligible and bodies are not parsed at all. Under both parsing styles, fenced code is example text rather than a declaration, and a cross-repository `owner/repo#N` makes that issue ineligible and is named in the report rather than being silently skipped. `scripts/select-issue.sh` implements this and `scripts/select-issue_test.sh` is its fixture corpus — the rules live there, not in prose."
         }
       }
     },
     "verify": {
       "type": "array",
-      "description": "Shell commands that must every one succeed, in this order, inside the worktree, before a pull request is opened. Keep this the same set CI runs: the whole value of the list is that a local pass predicts a green pull request, and a command CI runs that is missing here turns into a red pull request the cycle then has to iterate on.",
+      "description": "Shell commands that must every one succeed, in this order, inside the worktree, before a pull request is opened. Keep this the same set CI runs: the whole value of the list is that a local pass predicts a green pull request, and a command CI runs that is missing here turns into a red pull request the cycle then has to iterate on. `scripts/select-issue.sh` refuses to select an issue when this is empty — an empty list parses fine and would otherwise surface only as a pull request nothing local ever looked at.",
       "minItems": 1,
       "items": { "type": "string", "minLength": 1 }
     },

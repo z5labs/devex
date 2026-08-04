@@ -72,9 +72,23 @@ gh issue list --state open --limit 20 --json number --jq '.[].number'
 Fetch a handful of those bodies (`gh issue view <n> --json body --jq .body`) and look for
 which convention is in use:
 
-- A line containing `Blocked by:` followed by `- #N` items → `blocked-by`.
+- A line opening with `Blocked by:` followed by `- #N` items → `blocked-by`.
 - `Depends on #N` written inline → `depends-on`.
 - Neither, across every body you read → `none`.
+
+Confirm the guess against the extractor the cycle will actually use, rather than against
+your reading of the body — they are not the same thing, and the one that decides eligibility
+is the extractor:
+
+```
+gh issue view <n> --json body --jq .body \
+  | "${CLAUDE_PLUGIN_ROOT}/scripts/select-issue.sh" --extract <style>
+```
+
+It prints one reference per line — `#14` for this repository, `owner/repo#N` for anywhere
+else — and nothing when the convention is absent. A style that extracts nothing from bodies
+that plainly declare ordering means the repository uses a third convention neither value
+models; say so rather than picking the closer of the two.
 
 Say in the report which issues you read and what you concluded. `none` inferred from a
 backlog that has simply not declared any ordering *yet* is the one inference worth
