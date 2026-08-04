@@ -245,6 +245,24 @@ The pull request body must include `Closes #<n>`, the acceptance criteria checke
 one, a note on any judgment call that shaped the public API, and how it was verified. Keep
 the standard attribution your harness adds to commits and pull request bodies.
 
+Then assert that the closing reference actually registered:
+
+```
+gh pr view <pr> --repo <repo> --json closingIssuesReferences \
+  --jq '[.closingIssuesReferences[].number]'
+```
+
+It must contain `<n>`. An empty array means GitHub did not parse the keyword — usually
+because the line is missing, misspelled, or names a cross-repository issue — and the link is
+established at creation time, so fixing the body later is the moment to re-check.
+
+This check costs one call and it is diagnostic, not preventive. It is expected to *pass* and
+for the issue to stay open anyway after the merge: the reference registers correctly and
+nothing acts on it when a workflow's `GITHUB_TOKEN` performs the merge, which is why step 10
+closes the issue explicitly. Running it here is what separates those two failures — a link
+that never formed from a link nothing honoured — instead of leaving them to look identical
+ten minutes later.
+
 ## 6. Wait for checks
 
 Do not foreground a `sleep` loop. Either use `gh pr checks <pr> --watch --fail-fast`, or
@@ -487,86 +505,84 @@ means the workflow itself is broken — report it, with the output of
 `gh run view <id> --log-failed`, rather than falling back to a manual merge, which is what
 this whole step exists to avoid.
 
-## 10. Wait for the merge, then clean up
+## 10. Finish — one call
 
-The merge is asynchronous: labelling queues it, and GitHub completes it when the checks
-finish. Wait for it before touching the worktree. Pass the script below as the `command` of
-a `Monitor` call — not to Bash with `run_in_background`:
+Everything after the label is mechanism, not judgment: wait for the merge, close the issue,
+verify it closed, drop the worktree, delete the local branch. Run it as one script rather
+than as five steps. Pass it as the `command` of a `Monitor` call — the wait runs up to ten
+minutes, past the Bash tool's ceiling — and not to Bash with `run_in_background`:
 
 ```
-for i in $(seq 1 40); do
-  s=$(gh pr view <pr> --json state -q .state 2>/dev/null || echo "")
-  case "$s" in
-    MERGED) echo "PR <pr> MERGED"; exit 0;;
-    CLOSED) echo "PR <pr> CLOSED without merging"; exit 1;;
-  esac
-  sleep 15
-done
-echo "PR <pr> still OPEN after 10m"; exit 1
+"${CLAUDE_PLUGIN_ROOT}/scripts/finish-issue.sh" <n> <pr> issue-<n>
 ```
 
-Both failure paths exit non-zero so an unmerged close or a timeout cannot be mistaken for
-success by anything that reads the exit code rather than the emitted line.
+Read its exit code. It is the assertion, and each value means one thing:
 
-If a required check fails, auto merge stays armed and the pull request stays open; fix the
-failure, push, and it merges when the rerun is green. If it stays `OPEN` with nothing
-running, report it rather than merging by hand.
+| exit | meaning | what you do |
+| --- | --- | --- |
+| 0 | merged, issue confirmed `CLOSED`, local cleanup done | continue to the report |
+| 1 | the pull request closed without merging | `BLOCKED`, naming the pull request |
+| 2 | timed out waiting for the merge | re-run it; it resumes. If it times out again with nothing running, `BLOCKED` |
+| 3 | the issue would not close | `BLOCKED` — this is the one that makes the next iteration redo merged work |
+| 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
 
-**Never delete the remote branch.** The `delete-merged-branch` job in
-`.github/workflows/<merge.workflow>` owns remote cleanup; leave it to do its job. `git push
---delete` is denied by the operator's settings, and a subagent must not work around that
-rule. Clean up only what you created locally: your own worktree and your own local branch.
+Warnings on stderr (`WARN`) are untidiness, not failure — a worktree that would not remove,
+a main checkout too dirty to update. Repeat them in the report and carry on.
 
-`deleteBranchOnMerge` on the repository does **not** cover this. It fires for a merge a
-person performs, not for one the auto merge workflow performs with its `GITHUB_TOKEN`, which
+Re-running after a timeout is safe: every step is guarded, so an already-merged pull request
+skips the wait, an already-closed issue skips the close, and an absent worktree or branch
+skips its removal.
+
+### Why this is a script
+
+Three of those steps have been rediscovered from first principles on cycle after cycle, and
+the close is the expensive one. **A `Closes #<n>` line does not close the issue when a
+workflow's `GITHUB_TOKEN` performs the merge.** Across four consecutive merges the closing
+reference registered correctly every time — step 5's assertion would have passed on all
+four — and every issue stayed open until an agent noticed and closed it by hand. The
+auto-close is performed as the merging actor, and that actor is `github-actions[bot]`, so it
+is bounded by the workflow's `permissions:` block; the workflow this plugin installs grants
+`issues: write` for that reason, and whether that is sufficient is not yet proven.
+
+So the explicit close stays either way, and it is not a formality: an issue left open is one
+the next invocation of this skill selects again, so the loop re-implements work it has
+already merged. Putting it behind an exit code is what stops it depending on an agent
+remembering, at the very end of the longest part of the cycle, a fact that is invisible
+unless you go looking for it.
+
+The script also **deletes nothing remote.** The `delete-merged-branch` job in
+`.github/workflows/<merge.workflow>` owns remote cleanup; `git push --delete` is denied by
+the operator's settings, and neither an agent nor a script should work around that rule.
+Note that `deleteBranchOnMerge` on the repository does not cover this either — it fires for
+a merge a person performs, not for one the workflow performs with its `GITHUB_TOKEN`, which
 is why that job exists at all. If a branch outlives its merge, the fix belongs in the
-workflow, not in a `git push` here.
+workflow.
 
-### Close the issue
+### If the script is unavailable
 
-Once the state really is `MERGED`, one thing the repository normally does on your behalf
-will not have happened: a merge performed by the workflow's `GITHUB_TOKEN` does not close
-the issue the way a merge performed by a person does. A `Closes #<n>` line in the pull
-request body has been observed not closing it. It is not a formality — an issue left open is
-one the next invocation of this skill selects again, so the loop re-implements work it has
-already merged:
+Running interactively without the plugin root set, do the same five things by hand, in this
+order, and check the state after the close rather than assuming it:
 
 ```
-gh issue view <n> --json state -q .state
-```
-
-If that says `OPEN`, close it explicitly, and say in the comment which pull request did the
-work so the trail is not just a bare state change:
-
-```
-gh issue close <n> --repo <repo> --comment "Implemented in #<pr>, merged as <sha>."
-```
-
-Re-read the state afterwards and confirm it is `CLOSED` before moving on.
-
-### Drop the worktree
-
-```
-git worktree remove <worktreeDir>/issue-<n>
-```
-
-Then bring the main checkout up to date so the next iteration branches from the merged
-state, and delete your own local branch. `git worktree list` reports the main checkout
-first, so this needs no hard-coded path:
-
-```
-MAIN=$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)
-git -C "$MAIN" checkout <default-branch>
-git -C "$MAIN" pull
-git -C "$MAIN" branch -D issue-<n>
+# 1. wait for MERGED (Monitor); CLOSED without merging and a timeout are both failures
+# 2. gh issue view <n> --repo <repo> --json state -q .state
+# 3. if OPEN: gh issue close <n> --repo <repo> --comment "Implemented in #<pr>, merged as <sha>."
+# 4. re-read the state and confirm CLOSED
+# 5. git worktree remove <worktreeDir>/issue-<n>
+#    MAIN=$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)
+#    git -C "$MAIN" checkout <default-branch> && git -C "$MAIN" pull --ff-only
+#    git -C "$MAIN" branch -D issue-<n>
 ```
 
 A stale *local* branch is what breaks a retry — `git worktree add -b issue-<n>` fails
 against an existing branch, and the retry then reports `BLOCKED` on a name collision rather
 than on anything real. The remote side needs nothing from you.
 
-If the pull request did not merge, leave the worktree in place and report `BLOCKED` with the
-pull request number and the last state you saw.
+If a required check fails, auto merge stays armed and the pull request stays open; fix the
+failure, push, and it merges when the rerun is green. If it stays `OPEN` with nothing
+running, report it rather than merging by hand. If the pull request did not merge at all,
+leave the worktree in place and report `BLOCKED` with the pull request number and the last
+state you saw.
 
 ## Report
 

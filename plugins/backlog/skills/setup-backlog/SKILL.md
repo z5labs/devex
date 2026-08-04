@@ -133,6 +133,14 @@ existing file may carry a local change that matters, and the comments in the ass
 reasoning behind every clause in it — silently replacing one with the other destroys
 whichever of the two was the considered version.
 
+One diff line is worth calling out by name: **`issues: write` in the `permissions:` block.**
+An older copy of this workflow grants only `contents: write` and `pull-requests: write`, and
+on that copy a merge does not close the linked issue even though the pull request's
+`closingIssuesReferences` registered correctly — the auto-close runs as
+`github-actions[bot]` and is bounded by that block. The cycle closes the issue explicitly
+regardless, so this is the cheap half of a belt and braces rather than the fix; recommend it
+in the report when the existing file lacks it.
+
 Do not commit or push. Leave the file in the working tree and say in the report that it
 needs a commit, and that pushing it needs the `workflow` token scope from step 0.
 

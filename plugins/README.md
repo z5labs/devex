@@ -34,6 +34,17 @@ The cycle never runs `gh pr merge`. It labels the pull request and
 GitHub, gated by the default branch's protection rules — which is what puts the
 merge policy somewhere readable and what lets the loop run unattended at all.
 
+The tail of the cycle is
+[`scripts/finish-issue.sh`](backlog/scripts/finish-issue.sh) rather than five
+more numbered steps. Waiting for the merge, closing the issue, verifying it
+closed, dropping the worktree and deleting the local branch involve no judgment,
+run at the point where an agent's context is fullest, and can be half-done
+without anything looking wrong. The close matters most: a `Closes #N` line does
+*not* close the issue when a workflow's `GITHUB_TOKEN` performs the merge, and
+an issue left open is one the next iteration selects again. One call with a
+meaningful exit code cannot be forgotten and asserts the close instead of
+trusting it.
+
 `setup-backlog` bootstraps a target repository: it writes the config with
 `verify` and `dependencies.style` inferred from the repository rather than
 asked, installs the workflow, creates the labels, and then *verifies* the
