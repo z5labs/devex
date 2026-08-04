@@ -1,6 +1,6 @@
 ---
 name: run-backlog
-description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the milestone", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
+description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the milestone", "work through the workspace-ci stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, and an optional `--project-value <value>` restricting the whole run to one value of the project field named by `select.project`. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
 allowed-tools: Agent, Bash, Read, Glob, Grep, TaskCreate, TaskUpdate, ScheduleWakeup
 ---
 
@@ -29,12 +29,30 @@ Run these once, before the first iteration, and stop if any fails:
    changes you did not make are a stop condition for the cycle, so they are a stop condition
    for the loop; report what is dirty and let the user decide.
 3. **Auth.** `gh auth status`. An expired token turns every iteration into the same
-   opaque failure.
+   opaque failure. If this run is scoped (below), the scopes it prints must include
+   **`read:project`** — `repo` does not imply it, and without it every iteration fails
+   identically at selection. `gh auth refresh -s read:project` grants it; report and stop
+   rather than dropping the scope and running the whole backlog.
 
 Also settle the **bound** now. It is the skill's argument when one was given; otherwise
 default to **10** iterations. Say the number in your first message. An unbounded loop
 against a large backlog is not the user asking for autonomy, it is the user losing the
 chance to look at the first result before the twentieth lands on top of it.
+
+And settle the **scope**. A repository that groups its work by a single-select field on a
+GitHub project — `Module`, `Area`, `Component`, named by `select.project` in the config — can
+have the whole run restricted to one value of it:
+
+```
+/run-backlog 5 --project-value workspace-ci
+```
+
+The argument order does not matter; the integer is the bound and `--project-value` is the
+scope. A user asking to "work through the workspace-ci stories" is asking for exactly this,
+and the value is theirs to give — do not infer one from the issues you can see. With no scope
+given, do not pass the flag at all and let the config decide, which normally means the whole
+backlog. Say the scope in your first message alongside the bound, because every outcome below
+is then a statement about that scope and not about the backlog.
 
 ## 1. The loop
 
@@ -50,6 +68,17 @@ Agent(
            first line unchanged — BACKLOG EMPTY or BLOCKED where the skill calls for it."
 )
 ```
+
+When the run is scoped, add one more line to the prompt, with the value exactly as the user
+gave it:
+
+```
+           This run is scoped: pass --project-value <value> to select-issue.sh at step 1.
+```
+
+Every iteration gets it. Dropping it on one iteration does not narrow that iteration, it
+widens it to the whole backlog — the worker selects an out-of-scope issue and merges it, and
+nothing in its report will look wrong.
 
 Check the agent types available to you before the first spawn. Depending on how the plugin
 was installed the worker may be listed as `issue-worker` or as `backlog:issue-worker`; use
@@ -67,7 +96,7 @@ Read the worker's final message and act on its first line:
 
 | first line | do |
 | --- | --- |
-| `BACKLOG EMPTY` | **Halt.** The backlog holds no matching open issues. This is success, not failure. |
+| `BACKLOG EMPTY` | **Halt.** The backlog holds no matching open issues. This is success, not failure. Under a scope it means *that scope* is drained, and the rest of the backlog is untouched — say which. |
 | `BLOCKED …` | **Halt.** Report the worker's reason verbatim. |
 | anything else | Record a one-line outcome and continue to the next iteration. |
 
@@ -97,12 +126,17 @@ end.
   block is a request for a human, which is the one thing a loop cannot supply.
 - **Never widen the bound mid-run** because the backlog turned out to be longer. Finish,
   report, and let the user re-run.
+- **Never drop the scope mid-run**, and never respond to a worker that halted on a project
+  failure by re-spawning it unscoped. Both turn "work the workspace-ci stories" into "work
+  the backlog", which is the one failure a scoped run exists to prevent and the one the
+  report will not show.
 
 ## 3. Report
 
-Close with the iteration table, the reason the loop stopped in its own words
-(`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure), and — if anything merged
-without a review because `review.required` is `false` — that fact, once, for the whole run.
+Close with the iteration table, the scope the run was under if it had one, the reason the
+loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure),
+and — if anything merged without a review because `review.required` is `false` — that fact,
+once, for the whole run.
 
 ## Running it on a schedule
 

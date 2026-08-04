@@ -104,6 +104,15 @@ sample — and getting it wrong means work happens in the wrong order rather tha
   Exactly one open milestone with open issues is a reasonable inference; anything else is
   `null`, which means "every open issue with the label".
 - `select.limit` — `200`.
+- `select.project` — **omit it unless the user asks.** It scopes selection to one value of a
+  single-select field on a GitHub project (`Module`, `Area`, `Component`), which is worth
+  having only where the repository actually groups its work that way; absent, selection makes
+  no project API call at all. When it is wanted, `gh project list --owner <owner>` gives the
+  number and `gh project field-list <number> --owner <owner>` gives the field names — both
+  need the `read:project` token scope, which `repo` does not include, so say so in the report
+  along with `gh auth refresh -s read:project`. Leave `value` as `null`: the scope belongs on
+  the run (`select-issue.sh --project-value <value>`), not on the file, because "just this
+  module today" is not a permanent description of the backlog.
 - `merge.label` / `merge.workflow` — `auto-merge` and `auto-merge.yaml`, matching the asset
   step 3 installs. If you change either, change both, plus the `github.event.label.name`
   guard inside the workflow.
