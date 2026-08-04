@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/z5labs/devex/main/plugins/backlog/assets/backlog.schema.json",
+  "title": "backlog.json",
+  "description": "Per-repository configuration for the backlog plugin, read from `.claude/backlog.json`. It holds everything the issue-to-merge cycle needs that genuinely differs between repositories — and deliberately nothing that can be read from the repository itself. The repo slug and the default branch are absent on purpose: `backlog:next-issue` resolves both from `gh repo view --json nameWithOwner,defaultBranchRef`, so a fork, a transfer or a rename cannot leave this file describing a repository it is no longer in.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["select", "dependencies", "verify", "merge", "review", "worktreeDir"],
+  "properties": {
+    "select": {
+      "type": "object",
+      "description": "Which open issues make up the backlog.",
+      "additionalProperties": false,
+      "required": ["label", "milestone", "limit"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "default": "story",
+          "description": "The issue label that marks an issue as backlog work. Issues without it are never selected."
+        },
+        "milestone": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Restrict the backlog to a single milestone by title. `null` means every open issue carrying the label, whatever milestone it is in — and the `--milestone` flag is then omitted from `gh issue list` entirely rather than passed empty."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 200,
+          "description": "The `--limit` passed to `gh issue list`. Always passed explicitly: gh's default page size is 30, and on a backlog larger than that the eligible issues simply fall off the end of the list without any error."
+        }
+      }
+    },
+    "dependencies": {
+      "type": "object",
+      "description": "How this repository declares that one issue blocks another. GitHub's native blocked-by field is not consulted — it has been observed empty on repositories whose issue bodies do declare ordering in prose, which reads as an unblocked backlog and is not one.",
+      "additionalProperties": false,
+      "required": ["style"],
+      "properties": {
+        "style": {
+          "enum": ["blocked-by", "depends-on", "none"],
+          "default": "blocked-by",
+          "description": "`blocked-by`: a line containing `Blocked by:` followed by `- #N` list items. `depends-on`: `Depends on #N` written inline, conventionally under a `Related Issues` heading. `none`: the backlog declares no ordering, so every open issue carrying the label is eligible and bodies are not parsed for dependencies at all."
+        }
+      }
+    },
+    "verify": {
+      "type": "array",
+      "description": "Shell commands that must every one succeed, in this order, inside the worktree, before a pull request is opened. Keep this the same set CI runs: the whole value of the list is that a local pass predicts a green pull request, and a command CI runs that is missing here turns into a red pull request the cycle then has to iterate on.",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "merge": {
+      "type": "object",
+      "description": "How the finished pull request is handed to GitHub. The cycle never merges anything itself.",
+      "additionalProperties": false,
+      "required": ["label", "workflow"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "default": "auto-merge",
+          "description": "The label whose `labeled` event the merge workflow listens for. Applying it is the cycle's assertion that checks are green and the review completed."
+        },
+        "workflow": {
+          "type": "string",
+          "minLength": 1,
+          "default": "auto-merge.yaml",
+          "description": "The workflow file name, as `gh run list --workflow` expects it. Used to tell a queued run apart from a broken one when the pull request still reads `OPEN not-armed`."
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "description": "Whether an automated review gates the merge. Only Copilot is modelled. There is deliberately no `reviewer` key — a field with exactly one legal value is an invitation to assume the other values work.",
+      "additionalProperties": false,
+      "required": ["required"],
+      "properties": {
+        "required": {
+          "type": "boolean",
+          "default": true,
+          "description": "`true`: request a Copilot review, wait for it, address it, and refuse to label the pull request if it declines or never arrives. `false`: skip the review steps entirely, for a repository where Copilot code review is not enabled. That is a deliberate downgrade rather than a silent one — the run's report has to say the pull request merged without a review."
+        }
+      }
+    },
+    "worktreeDir": {
+      "type": "string",
+      "minLength": 1,
+      "default": ".claude/worktrees",
+      "description": "Directory, relative to the repository root, that per-issue worktrees are created under. Add it to `.gitignore`; a worktree checked into the repository it lives in is a loop no tool will thank you for."
+    }
+  }
+}

@@ -5,9 +5,41 @@ published by the [`z5labs-devex` marketplace](../.claude-plugin/marketplace.json
 Keeping them here keeps the plugin catalog cleanly separate from the Dagger
 tooling (`daggerverse/`, `ci/`) and the docs (`docs/`).
 
-> The first plugin, **[`daggerverse`](daggerverse/)**, houses the
-> `plan-dagger-module` skill — a paced design workflow that drafts story
-> issues for a new daggerverse module.
+| Plugin | Provides |
+| ------ | -------- |
+| **[`backlog`](backlog/)** | `next-issue`, `run-backlog` and `setup-backlog` — an unattended issue-to-merge cycle for any GitHub repository, configured per repo by `.claude/backlog.json`. |
+| **[`daggerverse`](daggerverse/)** | `plan-dagger-module` — a paced design workflow that drafts story issues for a new daggerverse module. |
+
+## `backlog`
+
+Takes one story issue from the backlog to a merged pull request — select,
+worktree, implement, verify, PR, wait for checks, get a Copilot review and
+answer it, label for auto merge, close the issue, clean up — then stops.
+`run-backlog` repeats that with a fresh `issue-worker` subagent per iteration,
+so each issue starts from clean context, and halts on `BACKLOG EMPTY`, on
+`BLOCKED`, or at a bounded iteration count.
+
+Nothing repository-specific lives in the skills. Six knobs live in
+`.claude/backlog.json` — which label and milestone form the backlog, how issue
+bodies declare dependencies, the commands that must pass before a pull request
+opens, the merge label and workflow, whether a review is required, and where
+worktrees go — described by
+[`assets/backlog.schema.json`](backlog/assets/backlog.schema.json). The repo
+slug and default branch are deliberately *not* among them: they are read from
+`gh repo view`, so a fork or a rename cannot leave the config describing a
+repository it is no longer in.
+
+The cycle never runs `gh pr merge`. It labels the pull request and
+[`assets/auto-merge.yaml`](backlog/assets/auto-merge.yaml) hands the merge to
+GitHub, gated by the default branch's protection rules — which is what puts the
+merge policy somewhere readable and what lets the loop run unattended at all.
+
+`setup-backlog` bootstraps a target repository: it writes the config with
+`verify` and `dependencies.style` inferred from the repository rather than
+asked, installs the workflow, creates the labels, and then *verifies* the
+environment — squash-only merging, the default branch's required status checks,
+and whether Copilot code review is really enabled — reporting what it cannot fix
+without repository-admin rights.
 
 ## Convention
 
