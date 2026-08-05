@@ -292,6 +292,12 @@ type ModuleSourceID string
 // A unique identifier for an object.
 type ObjectTypeDefID string
 
+// A unique identifier for an object.
+type OciID string
+
+// A unique identifier for an object.
+type OciRegistryID string
+
 // The platform config OS and architecture in a Container.
 //
 // The format is [os]/[platform]/[version] (e.g., "darwin/arm64/v7", "windows/amd64", "linux/arm64").
@@ -13256,6 +13262,26 @@ func (r *Query) LoadObjectTypeDefFromID(id ObjectTypeDefID) *ObjectTypeDef {
 	q = q.Arg("id", id)
 
 	return &ObjectTypeDef{
+		query: q,
+	}
+}
+
+// Load a Oci from its ID.
+func (r *Query) LoadOciFromID(id OciID) *Oci {
+	q := r.query.Select("loadOciFromID")
+	q = q.Arg("id", id)
+
+	return &Oci{
+		query: q,
+	}
+}
+
+// Load a OciRegistry from its ID.
+func (r *Query) LoadOciRegistryFromID(id OciRegistryID) *OciRegistry {
+	q := r.query.Select("loadOciRegistryFromID")
+	q = q.Arg("id", id)
+
+	return &OciRegistry{
 		query: q,
 	}
 }

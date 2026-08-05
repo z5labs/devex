@@ -83,6 +83,44 @@ func (m *Z5labs) GoApp(
 	registryService *dagger.Service,
 	// +optional
 	insecure bool,
+	// The CI provider's OIDC token request endpoint —
+	// `ACTIONS_ID_TOKEN_REQUEST_URL` on GitHub Actions, and whatever the
+	// equivalent is elsewhere. Required for any run that publishes.
+	//
+	// +optional
+	idTokenRequestUrl string,
+	// The bearer token for that endpoint —
+	// `ACTIONS_ID_TOKEN_REQUEST_TOKEN` on GitHub Actions. A secret,
+	// because it is a credential for minting identity tokens. Required
+	// for any run that publishes.
+	//
+	// +optional
+	idTokenRequestToken *dagger.Secret,
+	// A Dagger-hosted OIDC token endpoint, reached over the session
+	// network instead of the public one. When set, its engine-assigned
+	// endpoint replaces the host in idTokenRequestUrl; the path and query
+	// stay the caller's, because those are part of the provider's
+	// protocol.
+	//
+	// This exists for the same reason registryService does: a service's
+	// address is not known until the engine assigns one, so it cannot be
+	// written into a URL ahead of time. It is used by the test suite,
+	// which runs a real token endpoint, and by anyone whose issuer is
+	// itself a Dagger service.
+	//
+	// +optional
+	idTokenService *dagger.Service,
+	// A PEM-encoded EC private key to sign the provenance with, instead
+	// of an ephemeral key certified by the public sigstore CA.
+	//
+	// This selects the signing mode and nothing else: the workload
+	// identity token is still exchanged, and the predicate still says
+	// only what that token's claims say. Use it for a build that cannot
+	// reach a public CA. Leaving it unset is keyless signing and is what
+	// a normal CI publish should do.
+	//
+	// +optional
+	signingKey *dagger.Secret,
 ) *GoApp {
 	if len(platforms) == 0 {
 		platforms = []string{"linux/amd64", "linux/arm64"}
@@ -99,6 +137,11 @@ func (m *Z5labs) GoApp(
 		Platforms:       platforms,
 		RegistryService: registryService,
 		Insecure:        insecure,
+
+		IDTokenRequestURL:   idTokenRequestUrl,
+		IDTokenRequestToken: idTokenRequestToken,
+		IDTokenService:      idTokenService,
+		SigningKey:          signingKey,
 	}
 }
 

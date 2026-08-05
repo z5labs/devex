@@ -521,6 +521,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Go).Container(&parent, ctx, source)
+		case "CycloneDx":
+			var parent Go
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var binary *dagger.File
+			if inputArgs["binary"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["binary"]), &binary)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg binary", err))
+				}
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Go).CycloneDx(&parent, ctx, binary, source)
 		case "Env":
 			var parent Go
 			err = json.Unmarshal(parentJSON, &parent)
@@ -647,6 +668,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Go).Run(&parent, ctx, source, pkg, args)
+		case "Spdx":
+			var parent Go
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var binary *dagger.File
+			if inputArgs["binary"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["binary"]), &binary)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg binary", err))
+				}
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Go).Spdx(&parent, ctx, binary, source)
 		case "Test":
 			var parent Go
 			err = json.Unmarshal(parentJSON, &parent)

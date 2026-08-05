@@ -227,6 +227,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppBuildFailsWithoutGitMetadata(&parent, ctx)
+		case "GoAppCiAnnotatesEveryPlatformVariant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiAnnotatesEveryPlatformVariant(&parent, ctx)
+		case "GoAppCiAttachesSbomsAndProvenance":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiAttachesSbomsAndProvenance(&parent, ctx)
 		case "GoAppCiErrorsWhenPublishOnMatchesButCredsMissing":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +297,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiRefusesPlaintextRegistryUnlessInsecure(&parent, ctx)
+		case "GoAppCiRefusesToPublishWithoutProvenanceMachinery":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiRefusesToPublishWithoutProvenanceMachinery(&parent, ctx)
 		case "GoAppCiRejectsMissingGitDir":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

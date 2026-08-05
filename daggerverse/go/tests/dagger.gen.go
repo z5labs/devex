@@ -549,6 +549,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).ContainerInfersVersionFromGoMod(&parent, ctx, goImageTag)
+		case "CycloneDxDocumentIsCompliant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).CycloneDxDocumentIsCompliant(&parent, ctx, goImageTag)
 		case "EnvContainsGoroot":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -661,6 +675,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).RunHelloPrintsHello(&parent, ctx, goImageTag)
+		case "SbomDescribesTheBinaryNotTheSourceTree":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).SbomDescribesTheBinaryNotTheSourceTree(&parent, ctx, goImageTag)
+		case "SbomFormatsAgreeOnComponents":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).SbomFormatsAgreeOnComponents(&parent, ctx, goImageTag)
+		case "SbomResolvesDependencyLicences":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).SbomResolvesDependencyLicences(&parent, ctx, goImageTag)
+		case "SpdxDocumentIsCompliant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).SpdxDocumentIsCompliant(&parent, ctx, goImageTag)
 		case "TestHelloPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

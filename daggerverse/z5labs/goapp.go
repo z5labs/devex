@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
@@ -33,6 +34,14 @@ type GoApp struct {
 	RegistryService *dagger.Service
 	// +private
 	Insecure bool
+	// +private
+	IDTokenRequestURL string
+	// +private
+	IDTokenRequestToken *dagger.Secret
+	// +private
+	SigningKey *dagger.Secret
+	// +private
+	IDTokenService *dagger.Service
 }
 
 // Ci runs the standardized GoApp pipeline: verify .git exists, run the
@@ -51,6 +60,15 @@ type GoApp struct {
 // reference what was published: an attestation, a deployment manifest or
 // a release note has to name an immutable artifact, and a tag is not one.
 //
+// Every published image carries the standard OCI source annotations —
+// revision, source, created, and version on a tag build — on each
+// platform variant, and every published digest carries three
+// attestations: an SPDX and a CycloneDX SBOM per platform, produced by
+// the `go` module from the binaries this pipeline compiled, and a signed
+// SLSA provenance statement whose build identity comes from an exchanged
+// workload identity token. A publish that cannot produce provenance
+// fails rather than publishing without it.
+//
 // Publish is a side-effecting operation against an external registry, so
 // the whole pipeline is uncached — re-runs (e.g. after a retry, or after
 // a new ref appears within the same engine session) must actually push.
@@ -68,15 +86,24 @@ func (a *GoApp) Ci(ctx context.Context) (string, error) {
 	if err := sharedCheck(ctx, a.Source, a.LintConfig); err != nil {
 		return "", err
 	}
+	annotations, err := a.ociAnnotations(ctx)
+	if err != nil {
+		return "", err
+	}
 	// Build a scratch image per platform. Force evaluation via Sync so
 	// build failures surface here, not during a later publish step.
+	// The binaries are kept, not only the images: an SBOM describes the
+	// compiled artifact, and recovering it from a published image would
+	// mean pulling back bytes this pipeline already has in hand.
 	variants := make([]*dagger.Container, 0, len(a.Platforms))
+	binaries := make(map[string]*dagger.File, len(a.Platforms))
 	for _, p := range a.Platforms {
 		bin, err := a.buildBinaryForPlatform(ctx, p, binaryName)
 		if err != nil {
 			return "", err
 		}
-		img := a.imageForPlatform(p, binaryName, bin)
+		binaries[p] = bin
+		img := a.imageForPlatform(p, binaryName, bin, annotations)
 		if _, err := img.Sync(ctx); err != nil {
 			return "", fmt.Errorf("build %s: %v", p, err)
 		}
@@ -94,6 +121,15 @@ func (a *GoApp) Ci(ctx context.Context) (string, error) {
 	}
 	if a.Registry == "" {
 		return "", nil
+	}
+	// Provenance is resolved before the first byte is pushed, so a run
+	// that cannot produce it fails without leaving a half-attested image
+	// behind. It is also why this is not an "if configured" branch: an
+	// attestation step that can be omitted is one that will be, and the
+	// image published without it looks exactly like one published with.
+	sgn, err := a.newSigner(ctx)
+	if err != nil {
+		return "", err
 	}
 	shortSha, commitISO, err := a.shortShaAndCommitTime(ctx)
 	if err != nil {
@@ -114,6 +150,7 @@ func (a *GoApp) Ci(ctx context.Context) (string, error) {
 		Insecure: a.Insecure,
 	})
 	digest := ""
+	tags := make([]string, 0, len(matches))
 	for _, ref := range matches {
 		tag, ok := imageTagFor(ref, shortSha, commitISO)
 		if !ok {
@@ -127,8 +164,73 @@ func (a *GoApp) Ci(ctx context.Context) (string, error) {
 			return "", fmt.Errorf("publish %s:%s: %v", binaryName, tag, err)
 		}
 		digest = pushed
+		tags = append(tags, tag)
+	}
+	if digest == "" {
+		return "", nil
+	}
+	version, _, _, err := a.buildIdentity(ctx)
+	if err != nil {
+		return "", err
+	}
+	// Every tag named the same bytes, so one set of attestations covers
+	// them all: they anchor to the digest, which is what a tag resolves
+	// to and what a consumer should be pinning anyway.
+	facts := buildFacts{
+		Repository: binaryName,
+		Tags:       tags,
+		Digest:     digest,
+		Platforms:  a.Platforms,
+		Pkg:        a.resolvedPkg(),
+		BinaryName: binaryName,
+		SourceURI:  annotations[annotationSource],
+		Commit:     annotations[annotationRevision],
+		Version:    version,
+	}
+	if err := a.attachAttestations(ctx, registry, sgn, facts, binaries); err != nil {
+		return "", err
 	}
 	return digest, nil
+}
+
+// newSigner resolves the identity this publish signs its provenance
+// with, and refuses the publish when the machinery to do so was not
+// supplied.
+//
+// Refusing rather than skipping is the decision this function exists to
+// make. An unattested image is indistinguishable from an attested one
+// until someone goes looking, so "provenance when configured" is
+// provenance nobody can rely on — and the reason GoApp exists at all is
+// that a build step living outside the standard pipeline drifts out of
+// it. The error names the missing inputs and how to obtain them, because
+// the failure a caller hits is almost always a missing permission rather
+// than a missing argument.
+func (a *GoApp) newSigner(ctx context.Context) (*signer, error) {
+	var missing []string
+	if strings.TrimSpace(a.IDTokenRequestURL) == "" {
+		missing = append(missing, "idTokenRequestUrl")
+	}
+	if a.IDTokenRequestToken == nil {
+		missing = append(missing, "idTokenRequestToken")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf(
+			"publishing requires provenance and provenance requires a workload identity token, but %s %s not set; "+
+				"on GitHub Actions grant `permissions: id-token: write` and pass ACTIONS_ID_TOKEN_REQUEST_URL and "+
+				"ACTIONS_ID_TOKEN_REQUEST_TOKEN, or on any other CI the equivalent OIDC token request endpoint and its bearer token",
+			strings.Join(missing, " and "), pluralIsAre(len(missing)))
+	}
+	return newSigner(ctx, a.IDTokenRequestURL, a.IDTokenRequestToken, a.SigningKey, a.IDTokenService)
+}
+
+// pluralIsAre keeps the refusal message grammatical whether one input is
+// missing or both. A message that reads like a template is one people
+// stop reading.
+func pluralIsAre(n int) string {
+	if n == 1 {
+		return "is"
+	}
+	return "are"
 }
 
 // requireGitWorkingTree confirms source is a git working tree by
@@ -366,13 +468,23 @@ const (
 // commit is the short HEAD SHA. Both values are functions of the commit
 // alone, which is what makes two builds of one commit byte-identical.
 func (a *GoApp) stampValues(ctx context.Context) (version, commit string, err error) {
+	version, commit, _, err = a.buildIdentity(ctx)
+	return version, commit, err
+}
+
+// buildIdentity is stampValues plus the one fact its callers cannot
+// recover from its result: whether version came from a tag pointing at
+// HEAD. "v1.2.3" and "abc1234-2026-01-01T00-00-00Z" are both just
+// strings once returned, and the OCI version annotation is meaningful
+// only for the first kind.
+func (a *GoApp) buildIdentity(ctx context.Context) (version, commit string, fromTag bool, err error) {
 	shortSha, commitISO, err := a.shortShaAndCommitTime(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("could not derive build stamp from source: %v", err)
+		return "", "", false, fmt.Errorf("could not derive build stamp from source: %v", err)
 	}
 	refs, err := a.collectRefs(ctx)
 	if err != nil {
-		return "", "", fmt.Errorf("could not derive build stamp from source: %v", err)
+		return "", "", false, fmt.Errorf("could not derive build stamp from source: %v", err)
 	}
 	for _, ref := range refs {
 		if !strings.HasPrefix(ref, "refs/tags/") {
@@ -382,19 +494,34 @@ func (a *GoApp) stampValues(ctx context.Context) (version, commit string, err er
 		if !ok {
 			continue
 		}
-		return tag, shortSha, nil
+		return tag, shortSha, true, nil
 	}
-	return shortSha + "-" + commitISO, shortSha, nil
+	return shortSha + "-" + commitISO, shortSha, false, nil
 }
 
 // imageForPlatform packages binary as a scratch image pinned to
 // platform, with /app/<binaryName> as the entrypoint. The platform
 // option creates an empty container; we do not call From("scratch")
 // because Docker's "scratch" is a base name, not a pullable image.
-func (a *GoApp) imageForPlatform(platform, binaryName string, binary *dagger.File) *dagger.Container {
-	return dag.Container(dagger.ContainerOpts{Platform: dagger.Platform(platform)}).
+//
+// annotations are applied per variant rather than to the manifest list
+// Ci assembles from them: a caller pulls one platform, and an annotation
+// that lived only on the index would be invisible to everything that
+// resolved a platform first. Keys are applied in sorted order so two
+// builds of one commit produce the same manifest bytes.
+func (a *GoApp) imageForPlatform(platform, binaryName string, binary *dagger.File, annotations map[string]string) *dagger.Container {
+	ctr := dag.Container(dagger.ContainerOpts{Platform: dagger.Platform(platform)}).
 		WithFile("/app/"+binaryName, binary).
 		WithEntrypoint([]string{"/app/" + binaryName})
+	keys := make([]string, 0, len(annotations))
+	for k := range annotations {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		ctr = ctr.WithAnnotation(k, annotations[k])
+	}
+	return ctr
 }
 
 // parsePlatform splits a Dagger platform string ("goos/goarch" or

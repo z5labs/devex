@@ -75,17 +75,21 @@ func (r *Z5labs) UnmarshalJSON(bs []byte) error {
 
 func (r GoApp) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Source          *dagger.Directory
-		Pkg             string
-		BinaryName      string
-		PublishOn       string
-		Registry        string
-		AuthUsername    string
-		Auth            *dagger.Secret
-		LintConfig      *dagger.File
-		Platforms       []string
-		RegistryService *dagger.Service
-		Insecure        bool
+		Source              *dagger.Directory
+		Pkg                 string
+		BinaryName          string
+		PublishOn           string
+		Registry            string
+		AuthUsername        string
+		Auth                *dagger.Secret
+		LintConfig          *dagger.File
+		Platforms           []string
+		RegistryService     *dagger.Service
+		Insecure            bool
+		IDTokenRequestURL   string
+		IDTokenRequestToken *dagger.Secret
+		SigningKey          *dagger.Secret
+		IDTokenService      *dagger.Service
 	}
 	concrete.Source = r.Source
 	concrete.Pkg = r.Pkg
@@ -98,22 +102,30 @@ func (r GoApp) MarshalJSON() ([]byte, error) {
 	concrete.Platforms = r.Platforms
 	concrete.RegistryService = r.RegistryService
 	concrete.Insecure = r.Insecure
+	concrete.IDTokenRequestURL = r.IDTokenRequestURL
+	concrete.IDTokenRequestToken = r.IDTokenRequestToken
+	concrete.SigningKey = r.SigningKey
+	concrete.IDTokenService = r.IDTokenService
 	return json.Marshal(&concrete)
 }
 
 func (r *GoApp) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Source          *dagger.Directory
-		Pkg             string
-		BinaryName      string
-		PublishOn       string
-		Registry        string
-		AuthUsername    string
-		Auth            *dagger.Secret
-		LintConfig      *dagger.File
-		Platforms       []string
-		RegistryService *dagger.Service
-		Insecure        bool
+		Source              *dagger.Directory
+		Pkg                 string
+		BinaryName          string
+		PublishOn           string
+		Registry            string
+		AuthUsername        string
+		Auth                *dagger.Secret
+		LintConfig          *dagger.File
+		Platforms           []string
+		RegistryService     *dagger.Service
+		Insecure            bool
+		IDTokenRequestURL   string
+		IDTokenRequestToken *dagger.Secret
+		SigningKey          *dagger.Secret
+		IDTokenService      *dagger.Service
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -130,6 +142,10 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 	r.Platforms = concrete.Platforms
 	r.RegistryService = concrete.RegistryService
 	r.Insecure = concrete.Insecure
+	r.IDTokenRequestURL = concrete.IDTokenRequestURL
+	r.IDTokenRequestToken = concrete.IDTokenRequestToken
+	r.SigningKey = concrete.SigningKey
+	r.IDTokenService = concrete.IDTokenService
 	return nil
 }
 
@@ -429,7 +445,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg insecure", err))
 				}
 			}
-			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, platforms, registryService, insecure), nil
+			var idTokenRequestUrl string
+			if inputArgs["idTokenRequestUrl"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["idTokenRequestUrl"]), &idTokenRequestUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestUrl", err))
+				}
+			}
+			var idTokenRequestToken *dagger.Secret
+			if inputArgs["idTokenRequestToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["idTokenRequestToken"]), &idTokenRequestToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestToken", err))
+				}
+			}
+			var idTokenService *dagger.Service
+			if inputArgs["idTokenService"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["idTokenService"]), &idTokenService)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenService", err))
+				}
+			}
+			var signingKey *dagger.Secret
+			if inputArgs["signingKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["signingKey"]), &signingKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg signingKey", err))
+				}
+			}
+			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, platforms, registryService, insecure, idTokenRequestUrl, idTokenRequestToken, idTokenService, signingKey), nil
 		case "GoLib":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
