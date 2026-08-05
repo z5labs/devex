@@ -81,17 +81,18 @@ type Change struct {
 // repoDir is a working-tree root containing a .git directory. Renamed paths
 // contribute both their old and new names (conservative — the change could affect
 // the module on either side), with the old name marked Deleted. base and head are
-// full commit SHAs. The result is sorted by path.
+// revisions in every form git's rev-parse takes — see resolveCommit. The result is
+// sorted by path.
 func Changes(repoDir, base, head string) ([]Change, error) {
 	repo, err := git.PlainOpen(repoDir)
 	if err != nil {
 		return nil, fmt.Errorf("open repo %q: %w", repoDir, err)
 	}
-	baseCommit, err := repo.CommitObject(plumbing.NewHash(base))
+	baseCommit, err := resolveCommit(repo, base)
 	if err != nil {
 		return nil, fmt.Errorf("resolve base %q: %w", base, err)
 	}
-	headCommit, err := repo.CommitObject(plumbing.NewHash(head))
+	headCommit, err := resolveCommit(repo, head)
 	if err != nil {
 		return nil, fmt.Errorf("resolve head %q: %w", head, err)
 	}
@@ -143,4 +144,28 @@ func Changes(repoDir, base, head string) ([]Change, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
+}
+
+// resolveCommit turns a revision into the commit it names, accepting everything
+// git's rev-parse does: a full or abbreviated commit SHA, a branch or tag name,
+// HEAD, and any of those carrying git's ~ and ^ suffixes. An annotated tag is
+// dereferenced to the commit it points at.
+//
+// It goes through go-git's rev-parse rather than hashing the string directly
+// because plumbing.NewHash zero-fills anything that is not forty hex digits: a
+// branch name used to arrive as the all-zeros object id and fail as though its
+// commit were missing. A commit SHA is still the form CI supplies — it is what
+// the event payload carries — but anyone running the planner by hand has `main`
+// and `HEAD`, not the SHAs those name.
+//
+// An unresolvable revision is an error, which Changes' caller turns into "no
+// usable diff, run everything" rather than a failure. That is the same fail-safe
+// an unusable diff range takes, and it is what keeps a typo costing time instead
+// of correctness.
+func resolveCommit(repo *git.Repository, rev string) (*object.Commit, error) {
+	hash, err := repo.ResolveRevision(plumbing.Revision(rev))
+	if err != nil {
+		return nil, err
+	}
+	return repo.CommitObject(*hash)
 }

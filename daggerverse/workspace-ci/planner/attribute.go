@@ -24,10 +24,17 @@ const RootModule = "."
 // github.event.before for the first push to a new branch.
 const zeroSHA = "0000000000000000000000000000000000000000"
 
-// DiffRange validates a (base, head) commit pair for change detection. It
+// DiffRange validates a (base, head) revision pair for change detection. It
 // returns ok=false — meaning "no usable diff, run everything" — when either side
 // is empty or is the all-zeros SHA (new branch / no base). Callers diff
 // base...head (three-dot, merge-base) to obtain a change set.
+//
+// Anything else is passed through for the caller to resolve against the
+// repository, so a branch, a tag or HEAD reaches git untouched. The all-zeros SHA
+// is rejected here rather than left to that resolution on purpose: it is a
+// sentinel GitHub sends and not a revision anybody means, so "no usable base"
+// stays a decision this package makes and not an accident of what git happens to
+// do with forty zeros.
 func DiffRange(base, head string) (b, h string, ok bool) {
 	if base == "" || head == "" || base == zeroSHA || head == zeroSHA {
 		return "", "", false

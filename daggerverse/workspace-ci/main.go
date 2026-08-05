@@ -202,9 +202,13 @@ const (
 // a pass may be recorded under (empty means never memoize), and the step and job
 // budgets in minutes.
 //
-// base and head are the commit SHAs to diff, three-dot (merge-base) like a PR's
-// change set. An empty or all-zeros base — a new branch, a missing base — means
-// "run everything".
+// base and head are the revisions to diff, three-dot (merge-base) like a PR's
+// change set. Either may be written in any form git's rev-parse takes — a full or
+// abbreviated commit SHA, a branch or tag name, HEAD, or those with ~ and ^
+// suffixes — so CI can pass the SHAs its event payload carries and a person can
+// pass `--base=main --head=HEAD`. Either side empty or all-zeros — a new branch,
+// a missing base — means "run everything", and so does a revision this repository
+// cannot resolve.
 //
 // A plan that cannot read the workspace is an error, never an empty plan: an empty
 // matrix skips the run job and passes the gate having run nothing. Everything else
@@ -221,9 +225,10 @@ const (
 // +cache="never"
 func (m *WorkspaceCi) Plan(
 	ctx context.Context,
-	// The commit the change is measured from.
+	// The revision the change is measured from: a commit SHA, a branch or tag
+	// name, HEAD, or any of those with git's ~ and ^ suffixes.
 	base string,
-	// The commit the change is measured to.
+	// The revision the change is measured to, in the same forms as base.
 	head string,
 	// +optional
 	// +default="JSON"
@@ -278,9 +283,10 @@ func (m *WorkspaceCi) Plan(
 // +cache="never"
 func (m *WorkspaceCi) AffectedModules(
 	ctx context.Context,
-	// The commit the change is measured from.
+	// The revision the change is measured from: a commit SHA, a branch or tag
+	// name, HEAD, or any of those with git's ~ and ^ suffixes.
 	base string,
-	// The commit the change is measured to.
+	// The revision the change is measured to, in the same forms as base.
 	head string,
 	// The repository to plan for. Defaults to the calling workspace.
 	//

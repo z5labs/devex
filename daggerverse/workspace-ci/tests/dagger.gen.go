@@ -234,6 +234,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).NewRejectsMemoTokenWithoutRepo(&parent, ctx)
+		case "PlanAcceptsSymbolicRevisions":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanAcceptsSymbolicRevisions(&parent, ctx)
 		case "PlanAlwaysRunsUnhashableLeg":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -311,6 +318,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanRefusesRecordedPassesWhenGlobalInputChanged(&parent, ctx)
+		case "PlanRunsEverythingOnAnUnresolvableRevision":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRunsEverythingOnAnUnresolvableRevision(&parent, ctx)
 		case "PlanRunsEverythingOnAnUnusableDiffRange":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

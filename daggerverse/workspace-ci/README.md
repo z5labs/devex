@@ -10,7 +10,18 @@ a CI system needs one call and at most a format shim.
 # from anywhere in your workspace
 dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan \
   --base="$BASE_SHA" --head="$HEAD_SHA"
+
+# or by hand, where you have names rather than SHAs
+dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan \
+  --base=main --head=HEAD
 ```
+
+`base` and `head` take any revision `git rev-parse` does: a full or abbreviated
+commit SHA, a branch or tag name, `HEAD`, and any of those with `~` and `^`
+suffixes. CI passes the SHAs its event payload carries; a person passes the names
+they already have. A revision the repository cannot resolve runs everything — see
+[What the planner will not do](#what-the-planner-will-not-do) — so a typo costs a
+run its time, not its coverage.
 
 ```json
 [
@@ -233,6 +244,7 @@ else fails safe towards running too much.
 | --- | --- |
 | no `dagger.json` anywhere | **error** |
 | the diff range is unusable (new branch, all-zeros base) | everything runs |
+| a revision names no commit here (typo, deleted branch, shallow clone) | everything runs |
 | `.git` cannot be read | everything runs, nothing is memoized |
 | a module's dependencies cannot be read | that module always runs |
 | a module's source context cannot be read | everything under it counts as an input |
