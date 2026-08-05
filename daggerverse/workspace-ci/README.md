@@ -236,6 +236,37 @@ Each named module costs one load, which is the thing this path exists to avoid �
 so name the ones that need it, not every module with more than one check. A name
 that matches no module in the plan is reported on stderr rather than ignored.
 
+### Budgeting a coarse leg
+
+`--timeouts` is a JSON object of check-step budgets in minutes. Three key shapes
+match a leg, and the most specific one that does wins:
+
+| key | reaches |
+| --- | --- |
+| `<module-dir>` | every leg of that module, coarse and per-check alike |
+| `<module-dir>:*` | that module's coarse run-everything leg alone |
+| `<module-dir>:<check>` | that one per-check leg alone |
+
+The middle shape exists because a coarse leg's `name` **is** its module directory
+— there is no check to name it after — so a bare module key cannot mean "the
+coarse leg only". Without it, raising a module's budget to fit its whole suite
+also raises every per-check leg that module contributes on the narrow path, and
+those are bounded by one check rather than by the sum of them. That is the
+difference between fast-failing a stuck check in six minutes and in fifteen.
+
+```jsonc
+{
+  "daggerverse/kafka/tests:*": 15,  // the whole suite in one engine
+  "daggerverse/kafka/tests:tls": 8  // one check that is slow on its own
+}                                   // every other check: the default
+```
+
+`*` is matched literally, not as a wildcard — a check name comes from a Go method
+identifier, so no real leg can be spelled `<module-dir>:*`. A table with no `:*`
+key resolves exactly as it did before the shape existed. A key that matches no leg
+is silently unused, as before: the loud failure is reserved for a table that could
+not be read at all, or one carrying a non-positive budget.
+
 **It will not return an empty plan.** A workspace it cannot read is an error: an
 empty matrix skips the run job and passes the gate having run nothing. Everything
 else fails safe towards running too much.

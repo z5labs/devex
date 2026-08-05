@@ -60,23 +60,35 @@ jobs:
       # module's checks run concurrently and share their container builds — most
       # coarse legs too.
       #
+      # Three key shapes: `<dir>` covers every leg of a module, `<dir>:*` covers only
+      # that module's coarse run-everything leg, and `<dir>:<check>` covers one
+      # per-check leg. The middle shape exists because a coarse leg's name *is* the
+      # module directory (#306), so a bare module key cannot mean "the coarse leg
+      # only" and a whole-suite budget would otherwise be inherited by legs that each
+      # run a single check.
+      #
+      # What the entries below are for:
+      #
       #   .                        the root module's `generated` runs codegen for
       #                            every module in the workspace, paying in one leg
       #                            the module-build cost the others spread across
-      #                            themselves (#184) — ~5m on a cold engine. Its two
-      #                            per-check keys tighten the checks that do no such
-      #                            sweep.
+      #                            themselves (#184) — ~5m on a cold engine. This
+      #                            stays a bare module key: the only per-check leg
+      #                            that inherits it is `.:generated`, which does that
+      #                            same sweep, and the two that do not are tightened
+      #                            below it.
       #   daggerverse/workspace-ci declares that same whole-workspace `generated` as
       #                            its own check, so its coarse leg repeats the
       #                            sweep; measured at 5m12s against the 6m default.
-      #
-      # A module key covers that module's coarse leg AND its per-check legs, since a
-      # coarse leg's name *is* the module directory (#306). Neither key above names a
-      # module that also produces per-check legs worth tightening, so nothing here is
-      # bound more loosely than it needs to be.
+      #                            Here the coarse budget is bound to `:*` and to
+      #                            `:generated`, the two legs that actually sweep, so
+      #                            `:selection-self-test` and `:memo-store-self-test`
+      #                            — both in-process, no engine work — fall back to
+      #                            the default instead of carrying 15.
       timeouts: >-
         {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
-        "daggerverse/workspace-ci": 15}
+        "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
+        "daggerverse/workspace-ci:generated-self-test": 8}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the

@@ -93,8 +93,11 @@ func New(
 	// +optional
 	splitModules []string,
 	// Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's
-	// display name or by a module directory (which covers every leg of that
-	// module). It is JSON because Dagger function parameters cannot be Go maps.
+	// display name, by a module directory (which covers every leg of that module),
+	// or by "<module-dir>:*" (which covers that module's coarse run-everything leg
+	// and none of its per-check legs, since a coarse leg's display name *is* its
+	// module directory). It is JSON because Dagger function parameters cannot be Go
+	// maps.
 	//
 	// +optional
 	// +default="{}"

@@ -102,7 +102,9 @@ on:
       timeouts:
         description: >-
           Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's
-          display name or by a module directory (which covers every leg of that module).
+          display name, by a module directory (which covers every leg of that module),
+          or by "<module-dir>:*" (which covers that module's coarse run-everything leg
+          alone, since a coarse leg's display name is its module directory).
         type: string
         default: "{}"
       default-timeout:

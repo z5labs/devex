@@ -97,6 +97,96 @@ func TestTimeoutsApply(t *testing.T) {
 	}
 }
 
+// TestIsCoarse pins the property the coarse key shape rests on: a run-everything leg
+// is exactly a leg whose name is its module, and no per-check leg can be one.
+func TestIsCoarse(t *testing.T) {
+	if !ModuleEntry("mods/a").IsCoarse() {
+		t.Error("a run-everything leg did not report as coarse")
+	}
+	if CheckEntry("mods/a", "a", "ok").IsCoarse() {
+		t.Error("a per-check leg reported as coarse")
+	}
+	// The one leg name that could be mistaken for a module directory is a check
+	// whose module is the workspace root, and even that keeps the colon.
+	if CheckEntry(".", "ci", "generated").IsCoarse() {
+		t.Error("a root-module per-check leg reported as coarse")
+	}
+}
+
+// TestTimeoutsApplyCoarseKey pins the whole point of the <module-dir>:* shape (#306):
+// a module whose whole suite needs a long budget can say so without dragging the
+// per-check legs it contributes on the narrow path up with it.
+func TestTimeoutsApplyCoarseKey(t *testing.T) {
+	// A module that produces both leg shapes at once is not what a single plan
+	// emits, but it is what makes the two resolutions comparable in one table.
+	entries := []Entry{
+		ModuleEntry("mods/a"),
+		CheckEntry("mods/a", "a", "ok"),
+		CheckEntry("mods/a", "a", "slow"),
+		ModuleEntry("mods/b"),
+	}
+
+	for _, tc := range []struct {
+		name string
+		t    Timeouts
+		want map[string]int
+	}{
+		{
+			name: "the coarse key alone leaves the per-check legs on the default",
+			t:    Timeouts{CoarseKey("mods/a"): 15},
+			want: map[string]int{"mods/a": 15, "mods/a:ok": 6, "mods/a:slow": 6, "mods/b": 6},
+		},
+		{
+			name: "the coarse key beats the module key on the coarse leg only",
+			t:    Timeouts{"mods/a": 9, CoarseKey("mods/a"): 15},
+			want: map[string]int{"mods/a": 15, "mods/a:ok": 9, "mods/a:slow": 9, "mods/b": 6},
+		},
+		{
+			name: "a per-check key still wins on its own leg",
+			t:    Timeouts{"mods/a": 9, CoarseKey("mods/a"): 15, "mods/a:slow": 20},
+			want: map[string]int{"mods/a": 15, "mods/a:ok": 9, "mods/a:slow": 20, "mods/b": 6},
+		},
+		{
+			name: "a coarse key for a module with no coarse leg reaches nothing",
+			t:    Timeouts{CoarseKey("mods/a"): 15, CoarseKey("mods/c"): 30},
+			want: map[string]int{"mods/a": 15, "mods/a:ok": 6, "mods/a:slow": 6, "mods/b": 6},
+		},
+		{
+			// AC: a table with no coarse key resolves exactly as it did before the
+			// shape existed — the module key still covers the coarse leg.
+			name: "a table with no coarse key is unchanged",
+			t:    Timeouts{"mods/a": 9},
+			want: map[string]int{"mods/a": 9, "mods/a:ok": 9, "mods/a:slow": 9, "mods/b": 6},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, e := range tc.t.Apply(entries, 6) {
+				if e.Timeout != tc.want[e.Name] {
+					t.Errorf("%q got a step budget of %d, want %d", e.Name, e.Timeout, tc.want[e.Name])
+				}
+				if e.JobTimeout != e.Timeout+JobTimeoutHeadroom {
+					t.Errorf("%q got a job budget of %d, want %d", e.Name, e.JobTimeout, e.Timeout+JobTimeoutHeadroom)
+				}
+			}
+		})
+	}
+}
+
+// TestParseTimeoutsCoarseKey pins that the coarse shape survives the JSON round trip
+// the table crosses the module boundary as, including its validation.
+func TestParseTimeoutsCoarseKey(t *testing.T) {
+	got, err := ParseTimeouts(`{"daggerverse/kafka/tests:*": 15}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[CoarseKey("daggerverse/kafka/tests")] != 15 {
+		t.Errorf("parsed %v", got)
+	}
+	if _, err := ParseTimeouts(`{"daggerverse/kafka/tests:*": 0}`); err == nil {
+		t.Error("a non-positive coarse budget was accepted")
+	}
+}
+
 // TestRender pins the two formats and, above all, that an empty plan renders as an
 // empty array: `null` survives a workflow's non-empty test and then breaks
 // fromJSON.
