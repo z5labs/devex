@@ -206,8 +206,8 @@ const (
 // change set. Either may be written in any form git's rev-parse takes — a full or
 // abbreviated commit SHA, a branch or tag name, HEAD, or those with ~ and ^
 // suffixes — so CI can pass the SHAs its event payload carries and a person can
-// pass `--base=main --head=HEAD`. An empty or all-zeros base — a new branch, a
-// missing base — means "run everything", and so does a revision this repository
+// pass `--base=main --head=HEAD`. Either side empty or all-zeros — a new branch,
+// a missing base — means "run everything", and so does a revision this repository
 // cannot resolve.
 //
 // A plan that cannot read the workspace is an error, never an empty plan: an empty

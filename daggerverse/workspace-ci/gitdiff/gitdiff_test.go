@@ -65,6 +65,17 @@ func newTestRepo(t *testing.T) testRepo {
 			t.Fatalf("set %s: %v", ref, err)
 		}
 	}
+
+	// An annotated tag on the same commit. It is a tag *object* rather than a
+	// reference straight to the commit, so resolving it has to peel one level —
+	// which is a separate path through rev-parse from the lightweight tag above
+	// and would otherwise go untested.
+	if _, err := repo.CreateTag("v0.2.0", plumbing.NewHash(tr.commits[0]), &git.CreateTagOptions{
+		Tagger:  &signature,
+		Message: "annotated v0.2.0",
+	}); err != nil {
+		t.Fatalf("annotated tag: %v", err)
+	}
 	return tr
 }
 
@@ -88,7 +99,8 @@ func TestChangesAcceptsSymbolicRevisions(t *testing.T) {
 	for _, tc := range []struct{ name, base, head string }{
 		{"full shas", tr.commits[0], tr.commits[2]},
 		{"branch and head", "base-branch", "HEAD"},
-		{"tag and head", "v0.1.0", "HEAD"},
+		{"lightweight tag and head", "v0.1.0", "HEAD"},
+		{"annotated tag and head", "v0.2.0", "HEAD"},
 		{"head relative", "HEAD~2", "HEAD"},
 		{"branch and sha", "base-branch", tr.commits[2]},
 		{"sha and branch tip", tr.commits[0], "HEAD~0"},
