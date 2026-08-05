@@ -918,30 +918,35 @@ const (
 	GoBuildModeArchive GoBuildMode = "ARCHIVE" // go (../../../../../../daggerverse/go/buildmode.go:37:2)
 
 	// BuildModeCArchive builds the listed main package into a C archive
-	// (`c-archive`), alongside a generated header. Only the functions
-	// carrying a cgo `//export` comment are callable. Needs cgo, so it
-	// cannot be combined with disableCgo.
-	GoBuildModeCArchive GoBuildMode = "C_ARCHIVE" // go (../../../../../../daggerverse/go/buildmode.go:42:2)
+	// (`c-archive`). Only the functions carrying a cgo `//export` comment are
+	// callable, and it is those exports rather than the mode that need cgo —
+	// so this is not rejected alongside disableCgo the way race is. With cgo
+	// off, a package whose exports live in cgo files fails to build at all
+	// (`build constraints exclude all Go files`), and a pure-Go main package
+	// still produces an archive, but one exporting nothing and carrying no
+	// generated header. The archive/header pair is a consequence of having
+	// cgo exports, not of asking for this mode.
+	GoBuildModeCArchive GoBuildMode = "C_ARCHIVE" // go (../../../../../../daggerverse/go/buildmode.go:47:2)
 
 	// BuildModeCShared builds the listed main package into a C shared
-	// library (`c-shared`), alongside a generated header — the same exported
-	// surface as C_ARCHIVE, linked dynamically instead. Needs cgo.
-	GoBuildModeCShared GoBuildMode = "C_SHARED" // go (../../../../../../daggerverse/go/buildmode.go:46:2)
+	// library (`c-shared`) — the same exported surface as C_ARCHIVE, linked
+	// dynamically instead, and with the same relationship to cgo.
+	GoBuildModeCShared GoBuildMode = "C_SHARED" // go (../../../../../../daggerverse/go/buildmode.go:51:2)
 
 	// BuildModeExe builds the listed main packages into executables
 	// (`exe`), forcing a position-dependent executable on a toolchain whose
 	// default for the target is PIE.
-	GoBuildModeExe GoBuildMode = "EXE" // go (../../../../../../daggerverse/go/buildmode.go:50:2)
+	GoBuildModeExe GoBuildMode = "EXE" // go (../../../../../../daggerverse/go/buildmode.go:55:2)
 
 	// BuildModePie builds the listed main packages into position
 	// independent executables (`pie`), which is what a hardened runtime
 	// wanting ASLR requires.
-	GoBuildModePie GoBuildMode = "PIE" // go (../../../../../../daggerverse/go/buildmode.go:54:2)
+	GoBuildModePie GoBuildMode = "PIE" // go (../../../../../../daggerverse/go/buildmode.go:59:2)
 
 	// BuildModePlugin builds the listed main packages into a shared library
 	// loadable at run time with `plugin.Open` (`plugin`). The plugin and
 	// its host have to be built by the same toolchain from the same
 	// dependency versions or the load fails.
-	GoBuildModePlugin GoBuildMode = "PLUGIN" // go (../../../../../../daggerverse/go/buildmode.go:59:2)
+	GoBuildModePlugin GoBuildMode = "PLUGIN" // go (../../../../../../daggerverse/go/buildmode.go:64:2)
 
 )

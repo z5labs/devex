@@ -36,13 +36,18 @@ const (
 	// produces nothing.
 	BuildModeArchive BuildMode = "ARCHIVE"
 	// BuildModeCArchive builds the listed main package into a C archive
-	// (`c-archive`), alongside a generated header. Only the functions
-	// carrying a cgo `//export` comment are callable. Needs cgo, so it
-	// cannot be combined with disableCgo.
+	// (`c-archive`). Only the functions carrying a cgo `//export` comment are
+	// callable, and it is those exports rather than the mode that need cgo —
+	// so this is not rejected alongside disableCgo the way race is. With cgo
+	// off, a package whose exports live in cgo files fails to build at all
+	// (`build constraints exclude all Go files`), and a pure-Go main package
+	// still produces an archive, but one exporting nothing and carrying no
+	// generated header. The archive/header pair is a consequence of having
+	// cgo exports, not of asking for this mode.
 	BuildModeCArchive BuildMode = "C_ARCHIVE"
 	// BuildModeCShared builds the listed main package into a C shared
-	// library (`c-shared`), alongside a generated header — the same exported
-	// surface as C_ARCHIVE, linked dynamically instead. Needs cgo.
+	// library (`c-shared`) — the same exported surface as C_ARCHIVE, linked
+	// dynamically instead, and with the same relationship to cgo.
 	BuildModeCShared BuildMode = "C_SHARED"
 	// BuildModeExe builds the listed main packages into executables
 	// (`exe`), forcing a position-dependent executable on a toolchain whose

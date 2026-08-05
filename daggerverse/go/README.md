@@ -81,11 +81,21 @@ SDK derives each name from the constant identifier in SCREAMING_SNAKE_CASE, so
 | Member | `go build` | Emits |
 |---|---|---|
 | `ARCHIVE` | `archive` | `.a` per listed non-main package; main packages are ignored. |
-| `C_ARCHIVE` | `c-archive` | A C archive plus a generated header; only cgo `//export` functions are callable. Needs cgo. |
-| `C_SHARED` | `c-shared` | The same exported surface as `C_ARCHIVE`, linked dynamically. Needs cgo. |
+| `C_ARCHIVE` | `c-archive` | A C archive plus a generated header; only cgo `//export` functions are callable. |
+| `C_SHARED` | `c-shared` | The same exported surface as `C_ARCHIVE`, linked dynamically. |
 | `EXE` | `exe` | Executables, position-dependent even where PIE is the toolchain default. |
 | `PIE` | `pie` | Position independent executables, which a runtime wanting ASLR requires. |
 | `PLUGIN` | `plugin` | A shared library loadable with `plugin.Open`; host and plugin must come from the same toolchain and dependency versions. |
+
+Only `race` is rejected alongside `disableCgo`; no buildmode is. That asymmetry
+is measured rather than assumed: `go build -race` refuses outright with `-race
+requires cgo; enable cgo by setting CGO_ENABLED=1`, whereas `c-archive` and
+`c-shared` build fine with `CGO_ENABLED=0` given a pure-Go main package. What
+needs cgo for those two is the `//export` directives in the *source*, which
+`Build` cannot inspect — so with cgo off, a package whose exports live in cgo
+files fails with `build constraints exclude all Go files`, and a pure-Go one
+yields a library exporting nothing and no generated header. Rejecting the
+pairing would break the second case, which works today.
 
 Leaving `buildmode` unset leaves the flag off entirely, so `go build` picks its
 own default. Two of `go build`'s modes are deliberately absent: `default` is
