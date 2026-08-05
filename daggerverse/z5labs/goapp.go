@@ -325,19 +325,79 @@ func (a *GoApp) resolvedPkg() string {
 // buildBinaryForPlatform cross-compiles source against platform
 // (formatted "<goos>/<goarch>") and returns the resulting binary as a
 // *dagger.File. CGO is disabled and the binary is built with -trimpath
-// and -s -w for reproducibility and size.
-func (a *GoApp) buildBinaryForPlatform(_ context.Context, platform, binaryName string) (*dagger.File, error) {
-	goos, goarch, err := parsePlatform(platform)
+// and -s -w for reproducibility and size, and stamped with the version
+// and commit derived from HEAD.
+//
+// Stamping happens here, in the per-variant compile, and nowhere else:
+// Ci collapses its per-platform images into a single manifest list
+// before publishing, so a stamp applied at the image or publish layer
+// would be applied once to an artifact that already merged the variants.
+func (a *GoApp) buildBinaryForPlatform(ctx context.Context, platform, binaryName string) (*dagger.File, error) {
+	// Validate here rather than leaving it to Go.Build: Build's error
+	// surfaces only when the returned directory is evaluated, which is
+	// several steps further from the caller that supplied the platform.
+	if _, _, err := parsePlatform(platform); err != nil {
+		return nil, err
+	}
+	version, commit, err := a.stampValues(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := "/out/" + binaryName
-	ctr := dag.Go().Container(a.Source).
-		WithEnvVariable("GOOS", goos).
-		WithEnvVariable("GOARCH", goarch).
-		WithEnvVariable("CGO_ENABLED", "0").
-		WithExec([]string{"go", "build", "-trimpath", "-ldflags", "-s -w", "-o", out, a.resolvedPkg()})
-	return ctr.File(out), nil
+	return dag.Go().Build(a.Source, dagger.GoBuildOpts{
+		Pkg:        a.resolvedPkg(),
+		Output:     binaryName,
+		Trimpath:   true,
+		Strip:      true,
+		DisableCgo: true,
+		Platform:   platform,
+		Stamps: []string{
+			stampVersionVar + "=" + version,
+			stampCommitVar + "=" + commit,
+		},
+	}).File(binaryName), nil
+}
+
+// stampVersionVar and stampCommitVar are the linker symbols every binary
+// GoApp builds is stamped with. They are fixed by the module rather than
+// chosen per application, so every z5labs Go application answers "which
+// build am I running" the same way.
+const (
+	stampVersionVar = "main.version"
+	stampCommitVar  = "main.commit"
+)
+
+// stampValues returns the version and commit stamped into every binary
+// this GoApp builds, both derived from HEAD and from nothing else.
+//
+// version follows the same rule as imageTagFor, so a binary's reported
+// version and the tag of the image carrying it agree by construction: a
+// tag pointing at HEAD gives the stripped tag name, anything else gives
+// "<shortSha>-<isoCommitTime>". The refs are read unfiltered — publishOn
+// decides what gets published, not what gets stamped, so a build that
+// will never publish is stamped exactly like one that will.
+//
+// commit is the short HEAD SHA. Both values are functions of the commit
+// alone, which is what makes two builds of one commit byte-identical.
+func (a *GoApp) stampValues(ctx context.Context) (version, commit string, err error) {
+	shortSha, commitISO, err := a.shortShaAndCommitTime(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("could not derive build stamp from source: %v", err)
+	}
+	refs, err := a.collectRefs(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("could not derive build stamp from source: %v", err)
+	}
+	for _, ref := range refs {
+		if !strings.HasPrefix(ref, "refs/tags/") {
+			continue
+		}
+		tag, ok := imageTagFor(ref, shortSha, commitISO)
+		if !ok {
+			continue
+		}
+		return tag, shortSha, nil
+	}
+	return shortSha + "-" + commitISO, shortSha, nil
 }
 
 // imageForPlatform packages binary as a scratch image pinned to

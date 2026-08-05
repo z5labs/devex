@@ -9,7 +9,9 @@ import (
 
 // Builder produces the same image GoApp.Ci would publish, single-arch
 // (host platform). Used for local development to verify the artifact
-// before pushing.
+// before pushing. Both of its functions route through the same
+// per-platform build Ci uses, so the binary carries the same version and
+// commit stamp and a local build is the same artifact.
 type Builder struct {
 	// +private
 	App *GoApp

@@ -220,6 +220,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).BuilderContainerProducesScratchImageWithBinary(&parent, ctx)
+		case "GoAppBuildFailsWithoutGitMetadata":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppBuildFailsWithoutGitMetadata(&parent, ctx)
 		case "GoAppCiErrorsWhenPublishOnMatchesButCredsMissing":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -262,6 +269,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiPublishesToAllMatchingTags(&parent, ctx)
+		case "GoAppCiRebuildIsByteIdenticalPerPlatform":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiRebuildIsByteIdenticalPerPlatform(&parent, ctx)
 		case "GoAppCiRejectsMissingGitDir":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -276,6 +290,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiSkipsPublishWhenNoRefMatches(&parent, ctx)
+		case "GoAppCiStampedBinaryMatchesImageTagAndBuilder":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiStampedBinaryMatchesImageTagAndBuilder(&parent, ctx)
+		case "GoAppCiStampsEveryPlatformVariant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiStampsEveryPlatformVariant(&parent, ctx)
 		case "GoAppCiTagBeatsBranch":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +311,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiTagBeatsBranch(&parent, ctx)
+		case "GoAppStampsWhenPublishOnDoesNotMatch":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppStampsWhenPublishOnDoesNotMatch(&parent, ctx)
 		case "GoLibCiFailsForFailingTest":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

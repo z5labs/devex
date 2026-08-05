@@ -241,6 +241,90 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).BuildMultipkgDotSlashEllipsis(&parent, ctx, goImageTag)
+		case "BuildPlatformCrossCompiles":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildPlatformCrossCompiles(&parent, ctx, goImageTag)
+		case "BuildRejectsMalformedStamps":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildRejectsMalformedStamps(&parent, ctx, goImageTag)
+		case "BuildStampsReachTheBinary":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildStampsReachTheBinary(&parent, ctx, goImageTag)
+		case "BuildStripShrinksTheBinary":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildStripShrinksTheBinary(&parent, ctx, goImageTag)
+		case "BuildTagsSelectTaggedFiles":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildTagsSelectTaggedFiles(&parent, ctx, goImageTag)
+		case "BuildTrimpathRemovesSourcePaths":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).BuildTrimpathRemovesSourcePaths(&parent, ctx, goImageTag)
 		case "CiCheckRunsEnabledChecksAndSkipsBuild":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

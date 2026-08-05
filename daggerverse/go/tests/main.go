@@ -94,6 +94,24 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("BuildMultipkgDotSlashEllipsis", func(ctx context.Context) error {
 		return t.BuildMultipkgDotSlashEllipsis(ctx, goImageTag)
 	})
+	jobs = jobs.WithJob("BuildRejectsMalformedStamps", func(ctx context.Context) error {
+		return t.BuildRejectsMalformedStamps(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildStampsReachTheBinary", func(ctx context.Context) error {
+		return t.BuildStampsReachTheBinary(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildTagsSelectTaggedFiles", func(ctx context.Context) error {
+		return t.BuildTagsSelectTaggedFiles(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildTrimpathRemovesSourcePaths", func(ctx context.Context) error {
+		return t.BuildTrimpathRemovesSourcePaths(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildStripShrinksTheBinary", func(ctx context.Context) error {
+		return t.BuildStripShrinksTheBinary(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildPlatformCrossCompiles", func(ctx context.Context) error {
+		return t.BuildPlatformCrossCompiles(ctx, goImageTag)
+	})
 	jobs = jobs.WithJob("TestMultipkgPkgArgVariants", func(ctx context.Context) error {
 		return t.TestMultipkgPkgArgVariants(ctx, goImageTag)
 	})
@@ -392,6 +410,183 @@ func (t *Tests) CiRunHelloDefaultsProduceModuleNameBinary(ctx context.Context, g
 // helloDir returns the on-disk hello fixture as a *dagger.Directory.
 func helloDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/hello")
+}
+
+// stampedDir returns the stamped fixture: a main package whose version and
+// commit are package-level vars for `-X` to assign, and whose flavor
+// constant is selected by the `fancy` build tag.
+func stampedDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/stamped")
+}
+
+// alpineImage is the minimal container built binaries are executed in.
+// ":latest" is a moving target, so the tag is pinned.
+const alpineImage = "alpine:3.22"
+
+// runBuiltBinary executes a freshly built linux binary in a minimal
+// container and returns its stdout.
+func runBuiltBinary(ctx context.Context, bin *dagger.File) (string, error) {
+	return dag.Container().From(alpineImage).
+		WithFile("/bin/app", bin, dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithExec([]string{"/bin/app"}).
+		Stdout(ctx)
+}
+
+// BuildRejectsMalformedStamps asserts Build rejects a stamp with no "=" and
+// a stamp whose importpath.Name is empty, and that each message names the
+// offending element rather than reporting a generic parse failure.
+func (t *Tests) BuildRejectsMalformedStamps(ctx context.Context, goImageTag string) error {
+	for _, stamp := range []string{"main.version", "=v1.0.0"} {
+		_, err := dag.Go(dagger.GoOpts{Version: goImageTag}).
+			Build(stampedDir(), dagger.GoBuildOpts{
+				Pkg:    ".",
+				Output: "stamped",
+				Stamps: []string{stamp},
+			}).
+			Entries(ctx)
+		if err == nil {
+			return fmt.Errorf("expected Build to reject stamp %q, got nil error", stamp)
+		}
+		if !strings.Contains(err.Error(), stamp) {
+			return fmt.Errorf("expected error for stamp %q to name it, got: %s", stamp, err.Error())
+		}
+	}
+	return nil
+}
+
+// BuildStampsReachTheBinary asserts -X stamps are applied and that a stamp
+// value containing "=" arrives unmangled: only the first "=" separates the
+// variable name from its value.
+func (t *Tests) BuildStampsReachTheBinary(ctx context.Context, goImageTag string) error {
+	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
+		Pkg:        ".",
+		Output:     "stamped",
+		Trimpath:   true,
+		Strip:      true,
+		DisableCgo: true,
+		Stamps:     []string{"main.version=v1.2.3", "main.commit=sha=deadbeef"},
+	})
+	got, err := runBuiltBinary(ctx, out.File("stamped"))
+	if err != nil {
+		return fmt.Errorf("run stamped binary: %w", err)
+	}
+	const want = "version=v1.2.3 commit=sha=deadbeef flavor=plain\n"
+	if got != want {
+		return fmt.Errorf("expected %q, got %q", want, got)
+	}
+	return nil
+}
+
+// BuildTagsSelectTaggedFiles asserts tags reaches `go build -tags`: the
+// stamped fixture reports flavor=fancy only when the `fancy` tag is set.
+func (t *Tests) BuildTagsSelectTaggedFiles(ctx context.Context, goImageTag string) error {
+	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
+		Pkg:        ".",
+		Output:     "stamped",
+		DisableCgo: true,
+		Tags:       []string{"fancy"},
+	})
+	got, err := runBuiltBinary(ctx, out.File("stamped"))
+	if err != nil {
+		return fmt.Errorf("run tagged binary: %w", err)
+	}
+	if !strings.Contains(got, "flavor=fancy") {
+		return fmt.Errorf("expected flavor=fancy with the fancy tag, got %q", got)
+	}
+	return nil
+}
+
+// BuildTrimpathRemovesSourcePaths asserts trimpath reaches `go build
+// -trimpath`: the build's own /src mount point is recorded in an untrimmed
+// binary and absent from a trimmed one.
+func (t *Tests) BuildTrimpathRemovesSourcePaths(ctx context.Context, goImageTag string) error {
+	for _, tc := range []struct {
+		trimpath bool
+		want     bool
+	}{
+		{trimpath: false, want: true},
+		{trimpath: true, want: false},
+	} {
+		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
+			Pkg:        ".",
+			Output:     "stamped",
+			DisableCgo: true,
+			Trimpath:   tc.trimpath,
+		})
+		found, err := binaryContains(ctx, out.File("stamped"), "/src/main.go")
+		if err != nil {
+			return fmt.Errorf("scan binary (trimpath=%v): %w", tc.trimpath, err)
+		}
+		if found != tc.want {
+			return fmt.Errorf("trimpath=%v: expected /src/main.go present=%v, got %v", tc.trimpath, tc.want, found)
+		}
+	}
+	return nil
+}
+
+// BuildStripShrinksTheBinary asserts strip reaches `go build -ldflags "-s
+// -w"`: dropping the symbol table and DWARF info makes the output smaller.
+func (t *Tests) BuildStripShrinksTheBinary(ctx context.Context, goImageTag string) error {
+	sizes := make(map[bool]int, 2)
+	for _, strip := range []bool{false, true} {
+		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
+			Pkg:        ".",
+			Output:     "stamped",
+			DisableCgo: true,
+			Strip:      strip,
+		})
+		size, err := out.File("stamped").Size(ctx)
+		if err != nil {
+			return fmt.Errorf("size (strip=%v): %w", strip, err)
+		}
+		sizes[strip] = size
+	}
+	if sizes[true] >= sizes[false] {
+		return fmt.Errorf("expected stripped binary to be smaller, got %d stripped vs %d unstripped", sizes[true], sizes[false])
+	}
+	return nil
+}
+
+// BuildPlatformCrossCompiles asserts platform reaches GOOS/GOARCH: the
+// binary built for linux/arm64 carries the aarch64 machine type in its ELF
+// header (e_machine == 0xb7 at offset 18), which an amd64 build does not.
+func (t *Tests) BuildPlatformCrossCompiles(ctx context.Context, goImageTag string) error {
+	for _, tc := range []struct{ platform, wantMachine string }{
+		{"linux/arm64", "b7"},
+		{"linux/amd64", "3e"},
+	} {
+		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
+			Pkg:        ".",
+			Output:     "stamped",
+			DisableCgo: true,
+			Platform:   tc.platform,
+		})
+		got, err := dag.Container().From(alpineImage).
+			WithFile("/bin/app", out.File("stamped")).
+			WithExec([]string{"od", "-An", "-t", "x1", "-j", "18", "-N", "1", "/bin/app"}).
+			Stdout(ctx)
+		if err != nil {
+			return fmt.Errorf("read ELF header (%s): %w", tc.platform, err)
+		}
+		if strings.TrimSpace(got) != tc.wantMachine {
+			return fmt.Errorf("%s: expected e_machine %q, got %q", tc.platform, tc.wantMachine, strings.TrimSpace(got))
+		}
+	}
+	return nil
+}
+
+// binaryContains reports whether the raw bytes of bin contain needle.
+// grep -a treats the binary as text so a match is reported rather than
+// swallowed by the "binary file matches" shortcut.
+func binaryContains(ctx context.Context, bin *dagger.File, needle string) (bool, error) {
+	out, err := dag.Container().From(alpineImage).
+		WithFile("/bin/app", bin).
+		WithExec([]string{"sh", "-c", `grep -a -q -- "$1" /bin/app && echo yes || echo no`, "sh", needle}).
+		Stdout(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "yes", nil
 }
 
 // multipkgDir returns the multi-package fixture (main + pkg/foo subpackage).

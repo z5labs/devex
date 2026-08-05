@@ -102,20 +102,70 @@ func (r *Go) WithGraphQLQuery(q *querybuilder.Selection) *Go {
 
 // GoBuildOpts contains options for Go.Build
 type GoBuildOpts struct {
-
+	//
+	// Package(s) to build, in `go build` package-list syntax.
+	//
+	//
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:230:2)
-
-	Output string // go (../../../../../daggerverse/go/main.go:232:2)
-
-	Flags []string // go (../../../../../daggerverse/go/main.go:234:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:240:2)
+	//
+	// Name of the binary written under /out. Empty means `-o /out/`, which
+	// lets go build name each binary after its main package.
+	//
+	Output string // go (../../../../../daggerverse/go/main.go:245:2)
+	//
+	// Pass -trimpath: strip the build's local file system paths out of the
+	// binary, so the output does not depend on where it was compiled.
+	//
+	Trimpath bool // go (../../../../../daggerverse/go/main.go:250:2)
+	//
+	// Pass -ldflags "-s -w": drop the symbol table and the DWARF debug
+	// info. Smaller binary, no usable stack symbolization or debugger.
+	//
+	Strip bool // go (../../../../../daggerverse/go/main.go:255:2)
+	//
+	// Link-time variable assignments, each `importpath.Name=value`,
+	// rendered as `-ldflags "-X importpath.Name=value"`. This is how a
+	// binary learns its own version or commit. Only the first `=` splits
+	// name from value, so a value may itself contain `=`. An element with
+	// no `=`, or with an empty name, is rejected. The linker silently
+	// ignores a stamp naming a variable that does not exist, or one that
+	// is not a package-level string.
+	//
+	Stamps []string // go (../../../../../daggerverse/go/main.go:265:2)
+	//
+	// Build tags, passed as `-tags a,b,c`. Selects which `//go:build`
+	// files are compiled in.
+	//
+	Tags []string // go (../../../../../daggerverse/go/main.go:270:2)
+	//
+	// Target platform as `GOOS/GOARCH[/variant]`, e.g. "linux/arm64".
+	// Sets GOOS and GOARCH for a cross-compile; empty builds for the
+	// toolchain container's own platform. Any variant segment is ignored —
+	// GOARM/GOAMD64 are left unset.
+	//
+	Platform string // go (../../../../../daggerverse/go/main.go:277:2)
+	//
+	// Set CGO_ENABLED=0. Produces a statically linked binary with no libc
+	// dependency, which is what a scratch image needs, at the cost of the
+	// cgo-backed net and os/user implementations.
+	//
+	DisableCgo bool // go (../../../../../daggerverse/go/main.go:283:2)
 }
 
-// Build runs `go build -o /out/[output] [flags] pkg` against the supplied
-// source and returns /out as a *dagger.Directory. pkg defaults to `./...`;
-// when output is empty, `-o /out/` is used so go build picks names per its
-// own rules (one binary per main package).
-func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:226:1)
+// Build runs `go build` against the supplied source and returns /out as a
+// *dagger.Directory. pkg defaults to `./...`; when output is empty, `-o
+// /out/` is used so go build picks names per its own rules (one binary per
+// main package).
+//
+// Every flag this function can pass is a named input with its own doc
+// comment, so `dagger functions` describes what each one does to the
+// output. There is deliberately no raw `flags []string` escape hatch: a bag
+// of strings cannot be validated, cannot be documented per flag, and makes
+// every caller re-learn the same spellings. Container() is the escape hatch
+// for anything not named here — it hands back the prepared container so a
+// caller can run whatever `go build` invocation it likes.
+func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:234:1)
 	assertNotNil("source", source)
 	q := r.query.Select("build")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -127,9 +177,29 @@ func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (.
 		if !querybuilder.IsZeroValue(opts[i].Output) {
 			q = q.Arg("output", opts[i].Output)
 		}
-		// `flags` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Flags) {
-			q = q.Arg("flags", opts[i].Flags)
+		// `trimpath` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Trimpath) {
+			q = q.Arg("trimpath", opts[i].Trimpath)
+		}
+		// `strip` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Strip) {
+			q = q.Arg("strip", opts[i].Strip)
+		}
+		// `stamps` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Stamps) {
+			q = q.Arg("stamps", opts[i].Stamps)
+		}
+		// `tags` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tags) {
+			q = q.Arg("tags", opts[i].Tags)
+		}
+		// `platform` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Platform) {
+			q = q.Arg("platform", opts[i].Platform)
+		}
+		// `disableCgo` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DisableCgo) {
+			q = q.Arg("disableCgo", opts[i].DisableCgo)
 		}
 	}
 	q = q.Arg("source", source)
@@ -170,7 +240,7 @@ func (r *Go) Container(source *Directory) *Container { // go (../../../../../dag
 }
 
 // Env runs `go env` in a source-less base container and returns its stdout.
-func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:319:1)
+func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:448:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -185,7 +255,7 @@ func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../da
 // Fmt runs `gofmt -l -d .` against the supplied source. Returns the diff
 // of any unformatted files; non-empty output is also returned as an error so
 // CI fails fast on formatting violations.
-func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:283:1)
+func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:412:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return *r.fmt, nil
@@ -360,17 +430,17 @@ func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoR
 type GoTestOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:259:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:388:2)
 
-	Race bool // go (../../../../../daggerverse/go/main.go:261:2)
+	Race bool // go (../../../../../daggerverse/go/main.go:390:2)
 
-	Flags []string // go (../../../../../daggerverse/go/main.go:263:2)
+	Flags []string // go (../../../../../daggerverse/go/main.go:392:2)
 }
 
 // Test runs `go test -count=1 [-race] [flags] pkg` against the supplied
 // source and returns the combined stdout. -count=1 is always passed to
 // bypass Go's internal test cache.
-func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:255:1)
+func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:384:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -400,7 +470,7 @@ func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (s
 
 // ToolVersion runs `go version` in a source-less base container and returns
 // the trimmed output (e.g. "go version go1.23.0 linux/amd64").
-func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:327:1)
+func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:456:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}
@@ -431,12 +501,12 @@ func (r *Go) Version(ctx context.Context) (string, error) { // go (../../../../.
 type GoVetOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:306:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:435:2)
 }
 
 // Vet runs `go vet pkg` against the supplied source. pkg defaults to
 // `./...`. Returns a non-nil error when vet reports any issue.
-func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:302:1)
+func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:431:1)
 	assertNotNil("source", source)
 	if r.vet != nil {
 		return nil
