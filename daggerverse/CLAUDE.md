@@ -36,6 +36,57 @@ If module A depends on module B (e.g. `tests/` depends on `..`), run
 - `<module>/tests/` — a separate module that depends on `..` and exposes test
   functions discoverable via `dagger call <test-name>` or `dagger call all`.
 
+## SBOM production belongs to the ecosystem module
+
+An SBOM is produced by the module that owns the ecosystem — `go` for Go
+binaries, `java` for JVM artifacts, and so on. There is no shared `sbom` module,
+and no generic scanner either above the ecosystem modules or inside one.
+
+Generic scanners exist because ecosystem tooling is written in a dozen different
+languages, so no one format project can add native support everywhere. That
+constraint does not apply here: every module is Go, so a module can import the
+formats' own Go libraries, map its ecosystem data onto their types, and write
+the document itself. A scanner would be re-deriving from the outside what the
+module already holds.
+
+Conventions for these functions:
+
+- **Name the format, not the concept.** `CycloneDx()` / `Spdx()`, never
+  `Sbom(format string)`. A stringly-typed switch has no per-format doc comment
+  and no compile-time meaning — the same reason build flags are named inputs
+  rather than a `[]string`.
+- **Map onto the format's own Go library; do not serialize by hand.** Spec
+  conformance is the library's job and the mapping is yours. Hand-rolled
+  SPDX or CycloneDX output means owning a spec revision forever.
+- **Resolve the dependency graph once, render every format from it.** Two
+  formats derived from two separate resolutions can disagree about a component
+  or a licence, and nothing downstream can adjudicate which is right. One
+  resolution makes them consistent by construction.
+- **The document's subject is the built artifact; its inputs may include the
+  source.** The document must describe what shipped, not the tree that was
+  present. But a compiled artifact carries no licence text — Go binaries embed
+  module paths, versions and hashes only — so licence resolution needs the
+  module cache or source. Taking source as an input is not the same as
+  describing it.
+- **Return a `*dagger.File`.** The consumer attaches or publishes it; it should
+  not have to re-serialize. Write it with `dag.CurrentModule().WorkdirFile`,
+  per the runtime-I/O pattern used elsewhere in this repo.
+- **Keep documents comparable across modules.** Same spec version, same subject
+  identification, describing the built artifact. Two ecosystem modules emitting
+  structurally different SPDX is the cost of this layout, and the only thing
+  preventing it is this convention.
+- **Test for a compliant document, not a well-formed one.** The library
+  guarantees valid syntax; it does not guarantee the fields a consumer requires
+  are populated. Assert the required elements are present.
+
+Licence identification is probabilistic — classifiers report coverage, not
+verdicts. SPDX models this properly with declared vs concluded licences; decide
+what a low-confidence match becomes rather than emitting whatever the classifier
+returned.
+
+Generation and attachment stay separate concerns. Whatever pushes bytes to a
+registry does not know that those bytes are an SBOM.
+
 ## Function name mangling
 
 Go method names get re-cased for the GraphQL API: acronyms become uppercase in
