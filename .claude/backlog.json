@@ -2,7 +2,13 @@
   "select": {
     "label": "story",
     "milestone": null,
-    "limit": 200
+    "limit": 200,
+    "project": {
+      "owner": "z5labs",
+      "number": 14,
+      "field": "Module",
+      "value": null
+    }
   },
   "dependencies": {
     "style": "native"

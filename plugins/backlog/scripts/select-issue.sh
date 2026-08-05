@@ -2,7 +2,9 @@
 #
 # select-issue.sh — pick the next eligible backlog issue, as one call.
 #
-# Usage: select-issue.sh [--project-value <value> | --no-project-filter]
+# Usage: select-issue.sh [--project-owner <login>] [--project-number <n>]
+#                        [--project-field <name>] [--project-value <value>]
+#        select-issue.sh --no-project-filter
 #        select-issue.sh --extract <blocked-by|depends-on|none> [file]
 #        select-issue.sh --native-deps <repo> [file]
 #        select-issue.sh --project-items <repo> <field> <value> [file]
@@ -491,38 +493,76 @@ project_fetch() { # <owner> <number> <field> ; needs ERRFILE
 # today" is a property of one run, and a config-only knob would mean editing
 # .claude/backlog.json before and after every scoped run.
 #
-# Two flags rather than one with an empty-string sentinel. `--project-value ''`
+# Every piece of the scope gets a flag, for the same reason the value does. The
+# *axis* is as much a property of one run as the value on it: a board routinely
+# carries more than one single-select worth scoping by — devex's own project 14
+# has both `Status` and `Module` — and "work the In Progress stories" is the same
+# kind of request as "work the workspace-ci stories". Pinning the axis in the
+# config would make only the second one expressible.
+#
+# `--project-owner` and `--project-number` are the weakest case: they describe
+# the repository's board rather than a run, and the config stays their normal
+# home. They exist so a scope can be assembled from flags alone on a repository
+# whose config carries no `select.project` at all — without them, scoping such a
+# repository at all costs an edit and a commit to a tracked file, which is the
+# cost every flag here exists to avoid.
+#
+# Nothing new has to validate `--project-field`. `project_query` reads `fields`
+# rather than `field(name: $field)`, so an unknown name already fails the run at
+# exit 4 with the list of real field names; the flag inherits that check
+# unchanged rather than growing a second one that could disagree with it.
+#
+# Separate flags rather than one with an empty-string sentinel. `--project-value ''`
 # would have to mean "no scope", which is the same conflation `--milestone ''`
 # is avoided for below.
+OPT_PROJECT_OWNER=""
+OPT_PROJECT_OWNER_SET=0
+OPT_PROJECT_NUMBER=""
+OPT_PROJECT_NUMBER_SET=0
+OPT_PROJECT_FIELD=""
+OPT_PROJECT_FIELD_SET=0
 OPT_PROJECT_VALUE=""
 OPT_PROJECT_VALUE_SET=0
 OPT_NO_PROJECT=0
+GIVEN=""   # the project flags this run named, for the messages below
+
+USAGE='usage: select-issue.sh [--project-owner <login>] [--project-number <n>] [--project-field <name>] [--project-value <value>] | --no-project-filter'
+
+set_project_opt() { # <flag> <value>
+  [ -n "$2" ] \
+    || fail 4 "$1 needs a non-empty value; to run unscoped, pass --no-project-filter or nothing at all"
+  case "$1" in
+    --project-owner)  OPT_PROJECT_OWNER=$2;  OPT_PROJECT_OWNER_SET=1 ;;
+    --project-number) OPT_PROJECT_NUMBER=$2; OPT_PROJECT_NUMBER_SET=1 ;;
+    --project-field)  OPT_PROJECT_FIELD=$2;  OPT_PROJECT_FIELD_SET=1 ;;
+    --project-value)  OPT_PROJECT_VALUE=$2;  OPT_PROJECT_VALUE_SET=1 ;;
+  esac
+  GIVEN="$GIVEN $1"
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --project-value)
-      [ $# -ge 2 ] || fail 4 "--project-value needs a value"
-      OPT_PROJECT_VALUE=$2
-      OPT_PROJECT_VALUE_SET=1
+    --project-owner|--project-number|--project-field|--project-value)
+      [ $# -ge 2 ] || fail 4 "$1 needs a value"
+      set_project_opt "$1" "$2"
       shift 2 ;;
-    --project-value=*)
-      OPT_PROJECT_VALUE=${1#*=}
-      OPT_PROJECT_VALUE_SET=1
+    --project-owner=*|--project-number=*|--project-field=*|--project-value=*)
+      set_project_opt "${1%%=*}" "${1#*=}"
       shift ;;
     --no-project-filter)
       OPT_NO_PROJECT=1
       shift ;;
     *)
-      fail 4 "unknown argument '$1'; usage: select-issue.sh [--project-value <value> | --no-project-filter]" ;;
+      fail 4 "unknown argument '$1'; $USAGE" ;;
   esac
 done
 
-if [ "$OPT_PROJECT_VALUE_SET" -eq 1 ]; then
-  [ -n "$OPT_PROJECT_VALUE" ] \
-    || fail 4 "--project-value needs a non-empty value; to run unscoped, pass --no-project-filter or nothing at all"
-  [ "$OPT_NO_PROJECT" -eq 0 ] \
-    || fail 4 "--project-value and --no-project-filter cannot both be given"
-fi
+# `--no-project-filter` is "run unscoped", so it contradicts every flag that
+# describes a scope — not just the value. Accepting `--project-field X
+# --no-project-filter` would have to silently discard one of the two, and
+# discarding either is a run that is not the run that was asked for.
+[ "$OPT_NO_PROJECT" -eq 1 ] && [ -n "$GIVEN" ] \
+  && fail 4 "--no-project-filter cannot be combined with$GIVEN"
 
 # ----------------------------------------------------------------- config -----
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
@@ -575,20 +615,43 @@ case "$PROJECT_KIND" in
   *) fail 4 "$CFG: select.project must be an object or null (found a $PROJECT_KIND)" ;;
 esac
 
-[ "$OPT_PROJECT_VALUE_SET" -eq 1 ] && PROJECT_VALUE=$OPT_PROJECT_VALUE
+# Piece by piece, so a run can override the axis, the value, or the board itself
+# without any of the three implying the others. A repository whose config has no
+# select.project at all assembles the whole scope here.
+[ "$OPT_PROJECT_OWNER_SET" -eq 1 ]  && PROJECT_OWNER=$OPT_PROJECT_OWNER
+[ "$OPT_PROJECT_NUMBER_SET" -eq 1 ] && PROJECT_NUMBER=$OPT_PROJECT_NUMBER
+[ "$OPT_PROJECT_FIELD_SET" -eq 1 ]  && PROJECT_FIELD=$OPT_PROJECT_FIELD
+[ "$OPT_PROJECT_VALUE_SET" -eq 1 ]  && PROJECT_VALUE=$OPT_PROJECT_VALUE
 [ "$OPT_NO_PROJECT" -eq 1 ] && PROJECT_VALUE=""
 
 # Validated up front rather than at the point of use: a scope that cannot be
 # resolved has to stop selection, not degrade it to the unscoped backlog.
+#
+# Every message names both places a piece can come from. "Add owner, number and
+# field to the config" stopped being the whole answer once each of them had a
+# flag, and a run told to edit a tracked file it does not need to edit will edit
+# it.
+MISSING=""
+[ -n "$PROJECT_OWNER" ]  || MISSING="$MISSING owner (select.project.owner or --project-owner);"
+[ -n "$PROJECT_NUMBER" ] || MISSING="$MISSING number (select.project.number or --project-number);"
+[ -n "$PROJECT_FIELD" ]  || MISSING="$MISSING field (select.project.field or --project-field);"
+
 if [ -n "$PROJECT_VALUE" ]; then
-  [ "$PROJECT_KIND" = object ] \
-    || fail 4 "a project scope of '$PROJECT_VALUE' was requested but $CFG has no select.project; add owner, number and field to it"
-  [ -n "$PROJECT_OWNER" ] || fail 4 "$CFG: select.project.owner is missing or empty"
-  [ -n "$PROJECT_FIELD" ] || fail 4 "$CFG: select.project.field is missing or empty"
+  [ -z "$MISSING" ] \
+    || fail 4 "a project scope of '$PROJECT_VALUE' was requested but the scope is incomplete; missing:${MISSING%;}"
+  NUMBER_SRC="$CFG: select.project.number"
+  [ "$OPT_PROJECT_NUMBER_SET" -eq 1 ] && NUMBER_SRC="--project-number"
   case "$PROJECT_NUMBER" in
-    ''|*[!0-9]*) fail 4 "$CFG: select.project.number must be a positive integer (found '${PROJECT_NUMBER:-null}')" ;;
-    0)           fail 4 "$CFG: select.project.number must be at least 1" ;;
+    *[!0-9]*) fail 4 "$NUMBER_SRC must be a positive integer (found '$PROJECT_NUMBER')" ;;
+    0)        fail 4 "$NUMBER_SRC must be at least 1" ;;
   esac
+elif [ -n "$GIVEN" ]; then
+  # Naming a board or an axis with nothing to match on it is not an unscoped run
+  # — it is a scoped run missing its value, and answering it with the whole
+  # backlog is the silent widening every other failure here is written to avoid.
+  # `--no-project-filter` is the way to say "unscoped", and it is refused above
+  # in combination with these flags precisely so this case cannot be ambiguous.
+  fail 4 "the project scope names$GIVEN but no value to scope by; add --project-value <value> or set select.project.value"
 fi
 
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \

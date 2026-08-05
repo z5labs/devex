@@ -33,30 +33,31 @@
         "project": {
           "type": ["object", "null"],
           "default": null,
-          "description": "Optionally narrow the backlog to one value of a GitHub Projects v2 single-select field — \"just the workspace-ci stories\" — on a repository that groups its work by a project field rather than by labels or milestones. Absent or `null` means no such scoping, and `scripts/select-issue.sh` then makes no project API call at all. Reading a project field rather than a convention in the issue body is deliberate: the data already exists on every issue the project holds, a single-select cannot hold a typo'd value however the issue was filed (`gh issue create --body` bypasses issue templates entirely), and the value comes back as data rather than as prose to parse. The cost is that membership lives outside the repository, so a renamed field or a deleted project takes the scoping with it — acceptable because the filter is optional and its failure mode is `select-issue.sh` refusing to select, never a silent fall back to the unscoped backlog. Requires the `read:project` token scope (`gh auth refresh -s read:project`).",
+          "description": "Optionally narrow the backlog to one value of a GitHub Projects v2 single-select field — \"just the workspace-ci stories\" — on a repository that groups its work by a project field rather than by labels or milestones. Absent or `null` means no such scoping, and `scripts/select-issue.sh` then makes no project API call at all. Reading a project field rather than a convention in the issue body is deliberate: the data already exists on every issue the project holds, a single-select cannot hold a typo'd value however the issue was filed (`gh issue create --body` bypasses issue templates entirely), and the value comes back as data rather than as prose to parse. The cost is that membership lives outside the repository, so a renamed field or a deleted project takes the scoping with it — acceptable because the filter is optional and its failure mode is `select-issue.sh` refusing to select, never a silent fall back to the unscoped backlog. Requires the `read:project` token scope (`gh auth refresh -s read:project`). Every key below has a matching `select-issue.sh` flag that overrides it for one run, so a complete scope can be assembled on the command line and this whole block stays optional — including on a repository that has never carried one. What belongs here is what stays true between runs: the board, and the axis the backlog is usually grouped by.",
           "additionalProperties": false,
-          "required": ["owner", "number", "field"],
+          "required": ["owner", "number"],
           "properties": {
             "owner": {
               "type": "string",
               "minLength": 1,
-              "description": "The organisation or user login that owns the project. An organisation is tried first and a user only after GitHub reports the login is not one, because a project number is scoped to its owner."
+              "description": "The organisation or user login that owns the project. An organisation is tried first and a user only after GitHub reports the login is not one, because a project number is scoped to its owner. Required whenever this block is present, and with `number` it is the reason the block is worth having: which board the repository's work lives on is a property of the repository, not of a run. `select-issue.sh --project-owner <login>` overrides it anyway, so a repository with no block at all can still be scoped — that flag is for the one-off, not for the normal path."
             },
             "number": {
               "type": "integer",
               "minimum": 1,
-              "description": "The project number, as it appears in the project's URL (`/orgs/<owner>/projects/<number>`)."
+              "description": "The project number, as it appears in the project's URL (`/orgs/<owner>/projects/<number>`). Overridable per run by `select-issue.sh --project-number <n>`, on the same terms as `owner`."
             },
             "field": {
-              "type": "string",
+              "type": ["string", "null"],
               "minLength": 1,
-              "description": "The single-select field to read, by name — `Module`, `Area`, `Component`. It must be a single-select field: any other field type is a hard failure rather than a scope that quietly matches nothing. The name is matched exactly, and the failure names every field the project has."
+              "default": null,
+              "description": "The single-select field to read, by name — `Module`, `Area`, `Component`. It must be a single-select field: any other field type is a hard failure rather than a scope that quietly matches nothing. The name is matched exactly, and the failure names every field the project has. This is the axis the backlog is *usually* grouped by, not the only one it can be: `select-issue.sh --project-field <name>` picks another for one run, because a board routinely carries more than one single-select worth scoping by and \"work the In Progress stories\" is the same kind of request as \"work the workspace-ci stories\". Optional for that reason — a run that always names its own axis needs nothing here — but a scope with neither this nor the flag is a hard failure naming both, never a fall back to the unscoped backlog."
             },
             "value": {
               "type": ["string", "null"],
               "minLength": 1,
               "default": null,
-              "description": "The field value the backlog is restricted to, matched exactly against the field's declared options. `null` means no scoping by default — the usual setting, because \"just workspace-ci today\" is a property of one run rather than a permanent description of the backlog. `select-issue.sh --project-value <value>` overrides this per run and `--no-project-filter` clears it, so a scoped run needs no edit to this file. A value that is not one of the field's options fails with the list of options rather than selecting from an empty backlog, which would read as a drained one and stop the loop looking like success."
+              "description": "The field value the backlog is restricted to, matched exactly against the field's declared options. `null` means no scoping by default — the usual setting, because \"just workspace-ci today\" is a property of one run rather than a permanent description of the backlog. `select-issue.sh --project-value <value>` overrides this per run and `--no-project-filter` clears it, so a scoped run needs no edit to this file. `--no-project-filter` is refused alongside any other project flag: it means \"run unscoped\", so combining it with a flag that describes a scope would have to discard one of the two silently. A value that is not one of the field's options fails with the list of options rather than selecting from an empty backlog, which would read as a drained one and stop the loop looking like success."
             }
           }
         }
