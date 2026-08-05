@@ -82,6 +82,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PasswordBeatsTokenAndDockerConfig", t.PasswordBeatsTokenAndDockerConfig)
 	jobs = jobs.WithJob("TokenBeatsDockerConfig", t.TokenBeatsDockerConfig)
 	jobs = jobs.WithJob("AnonymousAccessNeedsNoCredentials", t.AnonymousAccessNeedsNoCredentials)
+	jobs = jobs.WithJob("VerifiesAgainstPrivateCa", t.VerifiesAgainstPrivateCa)
+	jobs = jobs.WithJob("AuthenticatesWithClientCertificate", t.AuthenticatesWithClientCertificate)
+	jobs = jobs.WithJob("ClientCertificateNeedsBothHalves", t.ClientCertificateNeedsBothHalves)
+	jobs = jobs.WithJob("InsecureStaysIndependentOfCertificates", t.InsecureStaysIndependentOfCertificates)
 
 	return jobs.Run(ctx)
 }

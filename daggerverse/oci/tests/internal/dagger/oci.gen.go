@@ -19,7 +19,7 @@ func (r *Binding) AsOci() *Oci { // oci (../../../../../daggerverse/oci/main.go:
 }
 
 // Retrieve the binding value, as type OciRegistry
-func (r *Binding) AsOciRegistry() *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:121:6)
+func (r *Binding) AsOciRegistry() *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	q := r.query.Select("asOciRegistry")
 
 	return &OciRegistry{
@@ -52,7 +52,7 @@ func (r *Env) WithOciOutput(name string, description string) *Env { // oci (../.
 }
 
 // Create or update a binding of type OciRegistry in the environment
-func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:121:6)
+func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOciRegistryInput")
 	q = q.Arg("name", name)
@@ -65,7 +65,7 @@ func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description 
 }
 
 // Declare a desired OciRegistry output to be assigned in the environment
-func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:121:6)
+func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	q := r.query.Select("withOciRegistryOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -166,32 +166,51 @@ type OciRegistryOpts struct {
 	//
 	// Username for basic authentication. Omit for an anonymous client.
 	//
-	Username string // oci (../../../../../daggerverse/oci/main.go:78:2)
+	Username string // oci (../../../../../daggerverse/oci/main.go:83:2)
 	//
 	// Password or token for basic authentication.
 	//
-	Password *Secret // oci (../../../../../daggerverse/oci/main.go:82:2)
+	Password *Secret // oci (../../../../../daggerverse/oci/main.go:87:2)
 	//
 	// A bearer token to send as-is, for a registry that issued one. Used
 	// only when no username or password was given.
 	//
-	BearerToken *Secret // oci (../../../../../daggerverse/oci/main.go:87:2)
+	BearerToken *Secret // oci (../../../../../daggerverse/oci/main.go:92:2)
 	//
 	// A Docker config file — the contents of ~/.docker/config.json — to read
 	// this host's credentials out of. Used only when nothing more specific
 	// was given. Credential helpers named by the file are not run; a host
 	// that resolves through one fails naming it.
 	//
-	DockerConfig *Secret // oci (../../../../../daggerverse/oci/main.go:94:2)
+	DockerConfig *Secret // oci (../../../../../daggerverse/oci/main.go:99:2)
 	//
 	// A Dagger-hosted registry to reach over the session network instead of
 	// over the public network.
 	//
-	Service *Service // oci (../../../../../daggerverse/oci/main.go:99:2)
+	Service *Service // oci (../../../../../daggerverse/oci/main.go:104:2)
 	//
 	// Talk plain HTTP and skip TLS verification. Off by default.
 	//
-	Insecure bool // oci (../../../../../daggerverse/oci/main.go:103:2)
+	Insecure bool // oci (../../../../../daggerverse/oci/main.go:108:2)
+	//
+	// A PEM-encoded certificate authority to verify this registry's
+	// certificate against, for a registry fronted by a private CA. It is
+	// added to the system trust store, not substituted for it, and it does
+	// not switch verification off.
+	//
+	CaCert *File // oci (../../../../../daggerverse/oci/main.go:115:2)
+	//
+	// A PEM-encoded client certificate to authenticate with, for a registry
+	// that authenticates callers by mutual TLS. Must be given together with
+	// clientKey.
+	//
+	ClientCert *File // oci (../../../../../daggerverse/oci/main.go:121:2)
+	//
+	// The PEM-encoded private key for clientCert. It crosses as a secret
+	// rather than a file because it is key material. Must be given together
+	// with clientCert.
+	//
+	ClientKey *Secret // oci (../../../../../daggerverse/oci/main.go:127:2)
 }
 
 // Registry binds one registry host and its credentials. service, when
@@ -211,7 +230,12 @@ type OciRegistryOpts struct {
 // that inference is a test affordance leaking into production behaviour. It
 // is spelled insecure rather than tlsVerify because a bool defaulting to
 // true is unsettable from the CLI.
-func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:71:1)
+//
+// caCert, clientCert and clientKey are the TLS material, and all three are
+// independent of insecure. A registry fronted by a private CA is reached by
+// naming that CA, with verification still on — turning verification off to
+// work around a missing trust anchor is the outcome this exists to remove.
+func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:76:1)
 	q := r.query.Select("registry")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `username` optional argument
@@ -238,6 +262,18 @@ func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // o
 		if !querybuilder.IsZeroValue(opts[i].Insecure) {
 			q = q.Arg("insecure", opts[i].Insecure)
 		}
+		// `caCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CaCert) {
+			q = q.Arg("caCert", opts[i].CaCert)
+		}
+		// `clientCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientCert) {
+			q = q.Arg("clientCert", opts[i].ClientCert)
+		}
+		// `clientKey` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientKey) {
+			q = q.Arg("clientKey", opts[i].ClientKey)
+		}
 	}
 	q = q.Arg("host", host)
 
@@ -259,7 +295,7 @@ func (r *Oci) AsNode() Node {
 // Every method carries a never-cache directive on its own doc-comment line:
 // registry state is mutable and pushes are side-effecting, so the directive
 // repeats on each chained method rather than living only on the factory.
-type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:121:6)
+type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	query *querybuilder.Selection
 
 	attach       *string
@@ -332,7 +368,7 @@ func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string
 // Blobs are tried first and manifests second, because the two live at
 // different registry endpoints and a caller holding a digest out of a
 // manifest's layer list has no reason to know which it is.
-func (r *OciRegistry) Fetch(repository string, digest string) *File { // oci (../../../../../daggerverse/oci/inspect.go:33:1)
+func (r *OciRegistry) Fetch(repository string, digest string) *File { // oci (../../../../../daggerverse/oci/inspect.go:29:1)
 	q := r.query.Select("fetch")
 	q = q.Arg("repository", repository)
 	q = q.Arg("digest", digest)
@@ -343,7 +379,7 @@ func (r *OciRegistry) Fetch(repository string, digest string) *File { // oci (..
 }
 
 // Host is the registry host this handle was built for.
-func (r *OciRegistry) Host(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:123:2)
+func (r *OciRegistry) Host(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:150:2)
 	if r.host != nil {
 		return *r.host, nil
 	}
@@ -405,7 +441,7 @@ func (r *OciRegistry) UnmarshalJSON(bs []byte) error {
 }
 
 // Insecure reports whether this handle talks plain HTTP.
-func (r *OciRegistry) Insecure(ctx context.Context) (bool, error) { // oci (../../../../../daggerverse/oci/main.go:127:2)
+func (r *OciRegistry) Insecure(ctx context.Context) (bool, error) { // oci (../../../../../daggerverse/oci/main.go:154:2)
 	if r.insecure != nil {
 		return *r.insecure, nil
 	}
@@ -421,7 +457,7 @@ func (r *OciRegistry) Insecure(ctx context.Context) (bool, error) { // oci (../.
 // rather than parsed because annotations, platforms and referrer subjects are
 // all read back out of it, and re-encoding through a Go type would drop
 // whatever this module does not model.
-func (r *OciRegistry) Manifest(ctx context.Context, repository string, reference string) (string, error) { // oci (../../../../../daggerverse/oci/inspect.go:132:1)
+func (r *OciRegistry) Manifest(ctx context.Context, repository string, reference string) (string, error) { // oci (../../../../../daggerverse/oci/inspect.go:128:1)
 	if r.manifest != nil {
 		return *r.manifest, nil
 	}
@@ -522,7 +558,7 @@ func (r *OciRegistry) Referrers(ctx context.Context, repository string, subject 
 }
 
 // Resolve returns the digest a tag currently points at.
-func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/inspect.go:96:1)
+func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/inspect.go:92:1)
 	if r.resolve != nil {
 		return *r.resolve, nil
 	}
@@ -537,7 +573,7 @@ func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string
 }
 
 // Username is the basic-auth user, empty for an anonymous client.
-func (r *OciRegistry) Username(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:125:2)
+func (r *OciRegistry) Username(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:152:2)
 	if r.username != nil {
 		return *r.username, nil
 	}

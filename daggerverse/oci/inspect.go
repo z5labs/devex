@@ -3,19 +3,15 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"dagger/oci/internal/dagger"
-
-	"github.com/google/go-containerregistry/pkg/v1/remote"
 )
 
 // maxFetchBytes bounds what Fetch will pull into memory. A registry serves
@@ -167,20 +163,6 @@ func (reg *Registry) Manifest(
 		return "", c.scrub(fmt.Errorf("read manifest %q from %s: %v", reference, repository, err))
 	}
 	return string(data), nil
-}
-
-// insecureTransport is go-containerregistry's default transport with
-// certificate verification switched off. It only matters for a registry
-// serving HTTPS with a certificate this runtime does not trust; a plain-HTTP
-// registry never reaches a TLS handshake.
-func insecureTransport() http.RoundTripper {
-	tr, ok := remote.DefaultTransport.(*http.Transport)
-	if !ok {
-		return remote.DefaultTransport
-	}
-	clone := tr.Clone()
-	clone.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // opt-in via insecure
-	return clone
 }
 
 // writeWorkdirFile writes content to a content-addressed subdir of the

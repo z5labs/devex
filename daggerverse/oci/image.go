@@ -265,8 +265,8 @@ func (c *conn) remoteOptions(ctx context.Context) []remote.Option {
 	} else {
 		opts = append(opts, remote.WithAuth(authn.Anonymous))
 	}
-	if c.insecure {
-		opts = append(opts, remote.WithTransport(insecureTransport()))
+	if cfg := c.tlsClientConfig(); cfg != nil {
+		opts = append(opts, remote.WithTransport(tlsTransport(cfg)))
 	}
 	return opts
 }

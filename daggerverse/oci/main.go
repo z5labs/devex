@@ -67,6 +67,11 @@ func (m *Oci) CredentialResolutionSelfTest(ctx context.Context) error {
 // is spelled insecure rather than tlsVerify because a bool defaulting to
 // true is unsettable from the CLI.
 //
+// caCert, clientCert and clientKey are the TLS material, and all three are
+// independent of insecure. A registry fronted by a private CA is reached by
+// naming that CA, with verification still on — turning verification off to
+// work around a missing trust anchor is the outcome this exists to remove.
+//
 // +cache="never"
 func (m *Oci) Registry(
 	// Registry host, as it appears in an image reference: "ghcr.io",
@@ -101,6 +106,25 @@ func (m *Oci) Registry(
 	//
 	// +optional
 	insecure bool,
+	// A PEM-encoded certificate authority to verify this registry's
+	// certificate against, for a registry fronted by a private CA. It is
+	// added to the system trust store, not substituted for it, and it does
+	// not switch verification off.
+	//
+	// +optional
+	caCert *dagger.File,
+	// A PEM-encoded client certificate to authenticate with, for a registry
+	// that authenticates callers by mutual TLS. Must be given together with
+	// clientKey.
+	//
+	// +optional
+	clientCert *dagger.File,
+	// The PEM-encoded private key for clientCert. It crosses as a secret
+	// rather than a file because it is key material. Must be given together
+	// with clientCert.
+	//
+	// +optional
+	clientKey *dagger.Secret,
 ) *Registry {
 	return &Registry{
 		Host:         host,
@@ -110,6 +134,9 @@ func (m *Oci) Registry(
 		DockerConfig: dockerConfig,
 		Service:      service,
 		Insecure:     insecure,
+		CaCert:       caCert,
+		ClientCert:   clientCert,
+		ClientKey:    clientKey,
 	}
 }
 
@@ -142,6 +169,18 @@ type Registry struct {
 	//
 	// +private
 	Service *dagger.Service
+	// CaCert is a PEM certificate authority to verify this registry against.
+	//
+	// +private
+	CaCert *dagger.File
+	// ClientCert is a PEM client certificate to authenticate with.
+	//
+	// +private
+	ClientCert *dagger.File
+	// ClientKey is the private key for ClientCert.
+	//
+	// +private
+	ClientKey *dagger.Secret
 }
 
 // conn is a resolved connection: the address actually dialled, the
@@ -152,6 +191,9 @@ type conn struct {
 	addr     string
 	insecure bool
 	cred     credential
+	// tlsConfig is the caller's TLS material — a private CA, a client
+	// certificate, or both — and is nil when none was supplied.
+	tlsConfig *tls.Config
 	// redact holds the plaintext values that must never appear in an error
 	// leaving this module — including credentials that lost the precedence
 	// contest, because a value the caller handed over is secret whether or
@@ -184,8 +226,19 @@ func (reg *Registry) connect(ctx context.Context) (*conn, error) {
 		return nil, errors.New("registry: host is required when no service is given")
 	}
 
+	// TLS material is resolved before credentials because a half-supplied
+	// client certificate is a misconfiguration of the call, and a caller
+	// should hear about that rather than about whatever the registry says to
+	// a connection that should never have been attempted.
+	tlsConfig, tlsRedact, err := reg.tlsMaterial(ctx)
+	c.redact = append(c.redact, tlsRedact...)
+	if err != nil {
+		return nil, c.scrub(err)
+	}
+	c.tlsConfig = tlsConfig
+
 	cred, redact, err := reg.credential(ctx, c.addr)
-	c.redact = redact
+	c.redact = append(c.redact, redact...)
 	if err != nil {
 		return nil, c.scrub(err)
 	}
@@ -235,15 +288,14 @@ func (c *conn) scrub(err error) error {
 }
 
 // httpClient builds the HTTP client used for every oras request on this
-// connection: retrying, credential-carrying, and TLS-lenient when insecure.
+// connection: retrying, credential-carrying, and carrying whatever TLS
+// configuration insecure and the caller's certificates worked out to.
 func (c *conn) httpClient() *orasauth.Client {
 	var base orasauth.Client
 	base.Client = orasretry.DefaultClient
-	if c.insecure {
+	if cfg := c.tlsClientConfig(); cfg != nil {
 		base.Client = &http.Client{
-			Transport: orasretry.NewTransport(&http.Transport{
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // opt-in via insecure
-			}),
+			Transport: orasretry.NewTransport(&http.Transport{TLSClientConfig: cfg}),
 		}
 	}
 	base.Cache = orasauth.NewCache()

@@ -248,6 +248,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AuthenticatesWithBearerToken(&parent, ctx)
+		case "AuthenticatesWithClientCertificate":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AuthenticatesWithClientCertificate(&parent, ctx)
+		case "ClientCertificateNeedsBothHalves":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).ClientCertificateNeedsBothHalves(&parent, ctx)
 		case "CopyPreservesAllManifests":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -269,6 +283,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).DockerConfigCredentialsDoNotLeak(&parent, ctx)
+		case "InsecureStaysIndependentOfCertificates":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).InsecureStaysIndependentOfCertificates(&parent, ctx)
 		case "PasswordBeatsTokenAndDockerConfig":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -353,6 +374,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).TokenBeatsDockerConfig(&parent, ctx)
+		case "VerifiesAgainstPrivateCa":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).VerifiesAgainstPrivateCa(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
