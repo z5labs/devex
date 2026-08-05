@@ -276,6 +276,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiRebuildIsByteIdenticalPerPlatform(&parent, ctx)
+		case "GoAppCiRefusesPlaintextRegistryUnlessInsecure":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiRefusesPlaintextRegistryUnlessInsecure(&parent, ctx)
 		case "GoAppCiRejectsMissingGitDir":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -283,6 +290,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiRejectsMissingGitDir(&parent, ctx)
+		case "GoAppCiReturnsThePushedDigest":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiReturnsThePushedDigest(&parent, ctx)
 		case "GoAppCiSkipsPublishWhenNoRefMatches":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

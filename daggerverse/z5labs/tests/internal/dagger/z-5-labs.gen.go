@@ -169,25 +169,27 @@ func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
 type Z5LabsGoAppOpts struct {
 
 	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:56:2)
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:65:2)
 
-	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:58:2)
+	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:67:2)
 
 	// Default: "^refs/heads/main$"
-	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:61:2)
+	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:70:2)
 
-	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:63:2)
+	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:72:2)
 
 	// Default: "ci"
-	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:66:2)
+	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:75:2)
 
-	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:68:2)
+	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:77:2)
 
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:70:2)
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:79:2)
 
-	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:72:2)
+	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:81:2)
 
-	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:74:2)
+	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:83:2)
+
+	Insecure bool // z5labs (../../../../../daggerverse/z5labs/main.go:85:2)
 }
 
 // GoApp wires up an opinionated CI/release pipeline for a `package main`
@@ -218,11 +220,20 @@ type Z5LabsGoAppOpts struct {
 //
 // platforms defaults to ["linux/amd64","linux/arm64"].
 //
-// registryService, when non-nil, is bound as the "registry" alias on the
-// publishing container — used by tests against a local registry:2
-// service and by callers whose private registry is itself a Dagger
-// service.
-func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:52:1)
+// registryService, when non-nil, is a Dagger-hosted registry reached over
+// the session network instead of over the public network — used by tests
+// against a local registry service and by callers whose private registry
+// is itself a Dagger service. Its endpoint is assigned by the engine, so
+// it replaces registry as the address published to; registry is still
+// what decides that a publish happens at all.
+//
+// insecure means plain HTTP and no TLS verification, and it is off unless
+// the caller asks for it. It is deliberately not inferred from
+// registryService being set: that inference made a caller who supplied a
+// service for their own reasons silently publish over an unverified
+// connection. It is spelled insecure rather than tlsVerify because a bool
+// defaulting to true cannot be turned off from the CLI.
+func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:61:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goApp")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -262,6 +273,10 @@ func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp 
 		if !querybuilder.IsZeroValue(opts[i].RegistryService) {
 			q = q.Arg("registryService", opts[i].RegistryService)
 		}
+		// `insecure` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Insecure) {
+			q = q.Arg("insecure", opts[i].Insecure)
+		}
 	}
 	q = q.Arg("source", source)
 
@@ -272,12 +287,12 @@ func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp 
 
 // Z5LabsGoLibOpts contains options for Z5Labs.GoLib
 type Z5LabsGoLibOpts struct {
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:98:2)
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:110:2)
 }
 
 // GoLib wires up the checks-only pipeline for a Go library. v1 has no
 // publish equivalent for libraries.
-func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:95:1)
+func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:107:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goLib")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -447,7 +462,7 @@ func (r *Z5LabsBuilder) AsNode() Node {
 type Z5LabsGoApp struct { // z5labs (../../../../../daggerverse/z5labs/goapp.go:13:6)
 	query *querybuilder.Selection
 
-	ci *Void
+	ci *string
 	id *ID
 }
 
@@ -459,7 +474,7 @@ func (r *Z5LabsGoApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoApp {
 
 // Builder returns the local-dev sibling that produces the same image CI
 // would publish, single-arch (host platform).
-func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/goapp.go:289:1)
+func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/goapp.go:276:1)
 	q := r.query.Select("builder")
 
 	return &Z5LabsBuilder{
@@ -472,16 +487,30 @@ func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../dagge
 // image per platform, then conditionally publish per the publishOn
 // filter.
 //
+// It returns the digest of what was published — the manifest list naming
+// every platform variant, or the single image manifest when only one
+// platform was built. Every matching ref publishes the same bytes under
+// its own tag, so one digest describes them all. A run that publishes
+// nothing — no ref matched, or no registry was configured — returns the
+// empty string rather than an error.
+//
+// Returning the digest rather than only an error is what lets a caller
+// reference what was published: an attestation, a deployment manifest or
+// a release note has to name an immutable artifact, and a tag is not one.
+//
 // Publish is a side-effecting operation against an external registry, so
 // the whole pipeline is uncached — re-runs (e.g. after a retry, or after
 // a new ref appears within the same engine session) must actually push.
-func (r *Z5LabsGoApp) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/goapp.go:47:1)
+func (r *Z5LabsGoApp) Ci(ctx context.Context) (string, error) { // z5labs (../../../../../daggerverse/z5labs/goapp.go:60:1)
 	if r.ci != nil {
-		return nil
+		return *r.ci, nil
 	}
 	q := r.query.Select("ci")
 
-	return q.Execute(ctx)
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // A unique identifier for this Z5LabsGoApp.

@@ -45,10 +45,19 @@ type Z5labs struct{}
 //
 // platforms defaults to ["linux/amd64","linux/arm64"].
 //
-// registryService, when non-nil, is bound as the "registry" alias on the
-// publishing container — used by tests against a local registry:2
-// service and by callers whose private registry is itself a Dagger
-// service.
+// registryService, when non-nil, is a Dagger-hosted registry reached over
+// the session network instead of over the public network — used by tests
+// against a local registry service and by callers whose private registry
+// is itself a Dagger service. Its endpoint is assigned by the engine, so
+// it replaces registry as the address published to; registry is still
+// what decides that a publish happens at all.
+//
+// insecure means plain HTTP and no TLS verification, and it is off unless
+// the caller asks for it. It is deliberately not inferred from
+// registryService being set: that inference made a caller who supplied a
+// service for their own reasons silently publish over an unverified
+// connection. It is spelled insecure rather than tlsVerify because a bool
+// defaulting to true cannot be turned off from the CLI.
 func (m *Z5labs) GoApp(
 	source *dagger.Directory,
 	// +optional
@@ -72,6 +81,8 @@ func (m *Z5labs) GoApp(
 	platforms []string,
 	// +optional
 	registryService *dagger.Service,
+	// +optional
+	insecure bool,
 ) *GoApp {
 	if len(platforms) == 0 {
 		platforms = []string{"linux/amd64", "linux/arm64"}
@@ -87,6 +98,7 @@ func (m *Z5labs) GoApp(
 		LintConfig:      lintConfig,
 		Platforms:       platforms,
 		RegistryService: registryService,
+		Insecure:        insecure,
 	}
 }
 

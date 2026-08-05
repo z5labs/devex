@@ -24,8 +24,10 @@ const registryAlias = "registry"
 // repo (envoy, otel, grafana-stack). ":latest" is a moving target.
 const curlImage = "curlimages/curl:8.10.1"
 
-// skopeoImage matches the pin the module itself publishes with. Tests use
-// skopeo to read individual platform variants back out of the registry.
+// skopeoImage is what these tests read individual platform variants back
+// out of the registry with. The module under test no longer uses skopeo —
+// it publishes through the oci module — so this pin is the test harness's
+// alone and is free to move independently. ":latest" is a moving target.
 const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
 
 // hostPlatform is the platform Builder builds for. Test module code runs
@@ -103,6 +105,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoAppCiPublishesOnMatchingBranch", t.GoAppCiPublishesOnMatchingBranch)
 	jobs = jobs.WithJob("GoAppCiPublishesOnMatchingTag", t.GoAppCiPublishesOnMatchingTag)
 	jobs = jobs.WithJob("GoAppCiPublishesToAllMatchingTags", t.GoAppCiPublishesToAllMatchingTags)
+	jobs = jobs.WithJob("GoAppCiReturnsThePushedDigest", t.GoAppCiReturnsThePushedDigest)
+	jobs = jobs.WithJob("GoAppCiRefusesPlaintextRegistryUnlessInsecure", t.GoAppCiRefusesPlaintextRegistryUnlessInsecure)
 	jobs = jobs.WithJob("GoAppCiNormalizesRemoteOriginRefs", t.GoAppCiNormalizesRemoteOriginRefs)
 	jobs = jobs.WithJob("GoAppCiTagBeatsBranch", t.GoAppCiTagBeatsBranch)
 	jobs = jobs.WithJob("GoAppBuildFailsWithoutGitMetadata", t.GoAppBuildFailsWithoutGitMetadata)
@@ -167,6 +171,36 @@ func curlProbeManifest(ctx context.Context, svc *dagger.Service, host, user, pwd
 	return strconv.Atoi(strings.TrimSpace(out))
 }
 
+// curlManifestDigest returns the digest the registry itself reports for
+// image:tag, read from the Docker-Content-Digest response header. It is the
+// registry's view of what it stored, which is what makes it an independent
+// check on a digest the module under test reported.
+//
+// The Accept headers matter: a registry serves whichever manifest kind the
+// client will take, and the digest of a manifest list is not the digest of
+// any image inside it. Naming the index types first is what makes this the
+// digest of what was actually pushed.
+func curlManifestDigest(ctx context.Context, svc *dagger.Service, host, user, pwd, image, tag string) (string, error) {
+	out, err := dag.Container().From(curlImage).
+		WithServiceBinding(host, svc).
+		WithExec([]string{"sh", "-c", fmt.Sprintf(
+			`curl -fsS -o /dev/null -D - -H 'Accept: application/vnd.oci.image.index.v1+json' -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
+			user, pwd, host, image, tag,
+		)}).
+		Stdout(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		name, value, ok := strings.Cut(line, ":")
+		if !ok || !strings.EqualFold(strings.TrimSpace(name), "docker-content-digest") {
+			continue
+		}
+		return strings.TrimSpace(value), nil
+	}
+	return "", fmt.Errorf("no Docker-Content-Digest header in response headers: %q", out)
+}
+
 // GoLibCiPassesForValidSource asserts that GoLib.Ci against a clean,
 // vet-clean, gofmt-clean library fixture returns no error.
 func (t *Tests) GoLibCiPassesForValidSource(ctx context.Context) error {
@@ -194,8 +228,9 @@ func (t *Tests) GoAppCiPublishesOnMatchingTag(ctx context.Context) error {
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
 	}
 	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", "v1.2.3")
@@ -226,8 +261,9 @@ func (t *Tests) GoAppCiPublishesToAllMatchingTags(ctx context.Context) error {
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
 	}
 	for _, want := range []string{"v1.0.0", "v1.0.1"} {
@@ -238,6 +274,89 @@ func (t *Tests) GoAppCiPublishesToAllMatchingTags(ctx context.Context) error {
 		if code != 200 {
 			return fmt.Errorf("expected manifest %s to return 200, got %d", want, code)
 		}
+	}
+	return nil
+}
+
+// GoAppCiReturnsThePushedDigest asserts Ci reports the digest of what it
+// published, and that the digest is the registry's own rather than a value
+// this pipeline computed for itself. A caller anchoring an attestation, a
+// deployment or a release note to it has to be naming the artifact the
+// registry actually holds; a tag is not an immutable name and Ci returning
+// only an error left callers with no other way to say which bytes shipped.
+func (t *Tests) GoAppCiReturnsThePushedDigest(ctx context.Context) error {
+	const tag = "v2.0.0"
+	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	const host = registryAlias
+	digest, err := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		PublishOn:       "^refs/tags/v.+",
+		Registry:        host + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+		Insecure:        true,
+	}).Ci(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci: %v", err)
+	}
+	if !strings.HasPrefix(digest, "sha256:") {
+		return fmt.Errorf("expected Ci to return a sha256 digest, got %q", digest)
+	}
+	stored, err := curlManifestDigest(ctx, svc, host, "ci", pwdHex, "hello", tag)
+	if err != nil {
+		return fmt.Errorf("read stored digest: %v", err)
+	}
+	if stored != digest {
+		return fmt.Errorf("Ci reported digest %s, the registry holds %s for tag %s", digest, stored, tag)
+	}
+	return nil
+}
+
+// GoAppCiRefusesPlaintextRegistryUnlessInsecure asserts TLS verification is
+// not inferred from registryService being set.
+//
+// The publish path used to disable verification whenever a service was
+// present, so a caller who supplied one for their own reasons — a private
+// registry that happens to be a Dagger service — silently published over an
+// unverified connection they never asked for. Verification is now the
+// caller's explicit choice, and with insecure left off a plain-HTTP registry
+// is refused rather than accommodated.
+func (t *Tests) GoAppCiRefusesPlaintextRegistryUnlessInsecure(ctx context.Context) error {
+	const tag = "v3.0.0"
+	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	const host = registryAlias
+	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		PublishOn:       "^refs/tags/v.+",
+		Registry:        host + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+	}).Ci(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Ci to refuse a plain-HTTP registry with insecure off, got nil")
+	}
+	// The refusal has to mean nothing was pushed, not that the push
+	// succeeded and the report was wrong.
+	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", tag)
+	if err != nil {
+		return fmt.Errorf("curl probe: %v", err)
+	}
+	if code == 200 {
+		return fmt.Errorf("Ci reported a failure but manifest %s is present in the registry", tag)
 	}
 	return nil
 }
@@ -275,8 +394,9 @@ func (t *Tests) GoAppCiNormalizesRemoteOriginRefs(ctx context.Context) error {
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
 	}
 	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
@@ -317,8 +437,9 @@ func (t *Tests) GoAppCiTagBeatsBranch(ctx context.Context) error {
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
 	}
 	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
@@ -362,8 +483,9 @@ func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("first Ci: %v", err)
 	}
 	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
@@ -385,7 +507,7 @@ func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
 		return fmt.Errorf("expected manifest GET for tag %q to return 200, got %d (all tags: %v)", tag, code, tags)
 	}
 	// Idempotence: second run produces the same tag (commit-time, not build-time).
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("second Ci: %v", err)
 	}
 	tags2, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
@@ -452,7 +574,7 @@ func (t *Tests) GoAppCiErrorsWhenPublishOnMatchesButCredsMissing(ctx context.Con
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
-	err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
 		PublishOn: "^refs/heads/main$",
 		Registry:  "registry:5000",
 	}).Ci(ctx)
@@ -475,7 +597,7 @@ func (t *Tests) GoAppCiSkipsPublishWhenNoRefMatches(ctx context.Context) error {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
 	auth := dag.SetSecret("z5labs-skip-publish-auth", "dummy")
-	err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
 		PublishOn:    "^refs/heads/main$",
 		Registry:     "registry:5000",
 		Auth:         auth,
@@ -494,7 +616,7 @@ func (t *Tests) GoAppCiPassesForValidSource(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
-	if err := dag.Z5Labs().GoApp(src).Ci(ctx); err != nil {
+	if _, err := dag.Z5Labs().GoApp(src).Ci(ctx); err != nil {
 		return fmt.Errorf("GoApp.Ci on git-backed hello: %v", err)
 	}
 	return nil
@@ -524,7 +646,7 @@ func gitFixture(ctx context.Context, base *dagger.Directory, branch string, tags
 // GoAppCiRejectsMissingGitDir asserts GoApp.Ci fails fast when source
 // has no .git directory.
 func (t *Tests) GoAppCiRejectsMissingGitDir(ctx context.Context) error {
-	err := dag.Z5Labs().GoApp(helloDir()).Ci(ctx)
+	_, err := dag.Z5Labs().GoApp(helloDir()).Ci(ctx)
 	if err == nil {
 		return fmt.Errorf("expected GoApp.Ci to error on missing .git, got nil")
 	}
@@ -686,12 +808,13 @@ func (t *Tests) GoAppCiStampsEveryPlatformVariant(ctx context.Context) error {
 	}
 	const host = registryAlias
 	platforms := []string{"linux/amd64", "linux/arm64"}
-	err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
 		PublishOn:       "^refs/tags/v.+",
 		Registry:        host + ":5000",
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 		Platforms:       platforms,
 	}).Ci(ctx)
 	if err != nil {
@@ -781,12 +904,13 @@ func (t *Tests) GoAppCiRebuildIsByteIdenticalPerPlatform(ctx context.Context) er
 		if err != nil {
 			return fmt.Errorf("pinnedGitFixture %s: %v", nonce, err)
 		}
-		err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
 			PublishOn:       "^refs/heads/main$",
 			Registry:        host + ":5000",
 			AuthUsername:    "ci",
 			Auth:            secret,
 			RegistryService: svc,
+			Insecure:        true,
 			Platforms:       platforms,
 		}).Ci(ctx)
 		if err != nil {
@@ -848,9 +972,10 @@ func (t *Tests) GoAppCiStampedBinaryMatchesImageTagAndBuilder(ctx context.Contex
 		AuthUsername:    "ci",
 		Auth:            secret,
 		RegistryService: svc,
+		Insecure:        true,
 		Platforms:       []string{hostPlatform()},
 	})
-	if err := app.Ci(ctx); err != nil {
+	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
 	}
 	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "stamped")

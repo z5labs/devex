@@ -8,6 +8,10 @@
     {
       "name": "go",
       "source": "../go"
+    },
+    {
+      "name": "oci",
+      "source": "../oci"
     }
   ],
   "codegen": {
