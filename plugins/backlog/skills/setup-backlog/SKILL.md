@@ -369,8 +369,8 @@ Core list, language-agnostic:
 {
   "permissions": {
     "allow": [
-      "Read", "Glob", "Grep", "Agent", "Skill",
-      "Monitor", "TaskCreate", "TaskUpdate", "ScheduleWakeup",
+      "Read", "Glob", "Grep", "Agent", "Skill", "SendMessage",
+      "TaskCreate", "TaskUpdate", "ScheduleWakeup",
       "EnterWorktree", "ExitWorktree",
       "Edit(**)",
       "Bash(git status*)", "Bash(git diff*)", "Bash(git log*)", "Bash(git show*)",

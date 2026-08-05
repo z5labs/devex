@@ -17,7 +17,10 @@ worktree, implement, verify, PR, wait for checks, get a Copilot review and
 answer it, label for auto merge, close the issue, clean up — then stops.
 `run-backlog` repeats that with a fresh `issue-worker` subagent per iteration,
 so each issue starts from clean context, and halts on `BACKLOG EMPTY`, on
-`BLOCKED`, or at a bounded iteration count.
+`BLOCKED`, or at a bounded iteration count. A worker that hands back control
+with its issue unfinished says `IN FLIGHT` and is *resumed* rather than
+replaced — a fresh worker would take a different issue and leave the first one's
+pull request open for good.
 
 Nothing repository-specific lives in the skills. The knobs live in
 `.claude/backlog.json` — which label, milestone and optional project field value
@@ -34,7 +37,7 @@ The cycle never runs `gh pr merge`. It labels the pull request and
 GitHub, gated by the default branch's protection rules — which is what puts the
 merge policy somewhere readable and what lets the loop run unattended at all.
 
-Three parts of the cycle are scripts rather than numbered steps, for the same
+Four parts of the cycle are scripts rather than numbered steps, for the same
 reason: they carry no judgment, and a procedure an agent retypes cannot be
 tested.
 
@@ -73,6 +76,25 @@ response — a repository that writes its ordering in prose would come back
 arrived at from the other direction. So a body parse that finds nothing never
 escalates to it, and `setup-backlog` reports that typed dependencies exist
 rather than inferring the style from their absence.
+
+Waiting for CI is
+[`scripts/await-checks.sh`](backlog/scripts/await-checks.sh) — `0 settled / 1
+failed / 2 still running / 3 no checks reported`. It replaced `gh pr checks
+--watch` handed to a background monitor, which was the cycle's one real
+deadlock. A monitor reports *after* the turn that armed it, and a worker
+subagent ends its turn by **returning** to its caller — so the wait died with
+the agent, and the resumed worker held for an event that could never arrive
+while the rule against busy-waiting stopped it checking by hand. One measured
+iteration cost about 2.4M tokens across thirteen resume nudges, against a
+300–375k band, and one of those resumes made no tool calls at all. All three
+waits are now bounded, blocking calls sharing one contract: exit 2 means "not
+finished, call me again", in the same turn.
+
+Its judgment is one function — fail-fast over pending siblings, `skipping` as
+settled, an unreadable or empty response as *not reported yet* rather than as an
+answer — exposed as `--classify` on stdin and pinned offline by
+[`scripts/await-checks_test.sh`](backlog/scripts/await-checks_test.sh). A red
+check read as pending is a wait that times out; read as settled, it is a merge.
 
 The review gate is
 [`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request, wait,

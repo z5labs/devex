@@ -1,7 +1,7 @@
 ---
 name: run-backlog
 description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the milestone", "work through the workspace-ci stories", "work the In Progress stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, and optional `--project-value <value>`, `--project-field <name>`, `--project-owner <login>` and `--project-number <n>` arguments restricting the whole run to one value of one single-select field on a GitHub project. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
-allowed-tools: Agent, Bash, Read, Glob, Grep, TaskCreate, TaskUpdate, ScheduleWakeup
+allowed-tools: Agent, SendMessage, Bash, Read, Glob, Grep, TaskCreate, TaskUpdate, ScheduleWakeup
 ---
 
 # run-backlog
@@ -129,7 +129,8 @@ Read the worker's final message and act on its first line:
 | --- | --- |
 | `BACKLOG EMPTY` | **Halt.** The backlog holds no matching open issues. This is success, not failure. Under a scope it means *that scope* is drained, and the rest of the backlog is untouched — say which. |
 | `BLOCKED …` | **Halt.** Report the worker's reason verbatim. |
-| anything else | Record a one-line outcome and continue to the next iteration. |
+| `IN FLIGHT …` | **Resume that same worker.** Its issue is unfinished and its pull request is open; do not start the next iteration. See below. |
+| anything else | The iteration finished. Record a one-line outcome and continue to the next one. |
 
 Also halt if:
 
@@ -141,9 +142,40 @@ Also halt if:
 - The bound is reached. Say so plainly: a loop that stopped at its bound with work left is a
   different outcome from a drained backlog, and the user's next move differs.
 
-Record per iteration: issue number and title, pull request number, merged / blocked, and the
-token cost the agent result reports for that worker. Nothing else. Keep the running list
-short enough that you can still see all of it at the end.
+Record per iteration: issue number and title, pull request number, merged / blocked, how many
+times the worker had to be resumed, and the token cost the agent result reports for that
+worker. Nothing else. Keep the running list short enough that you can still see all of it at
+the end.
+
+### A worker that comes back mid-cycle
+
+`IN FLIGHT` is the worker saying it handed control back with its issue unfinished: a pull
+request open, a worktree on disk, the issue not closed. It is not an empty backlog, it is not
+a block, and it is not a finished iteration. The three-branch table above used to have no row
+for it, so the driver recorded an outcome and spawned the next iteration — **abandoning an
+open pull request**, with nothing in the run pointing at what happened.
+
+Resume the **same** worker. A fresh one would select a different issue and leave the first
+one's pull request open for good:
+
+```
+SendMessage(
+  <the worker's agent id or name>,
+  "Continue the cycle from where you stopped. Nothing is running on your behalf — any wait
+   from your last turn is over. Query the gate you had reached once, act on what it says,
+   and finish the iteration."
+)
+```
+
+A resume does **not** consume an iteration of the bound; no new issue was taken. It is not
+free either — it re-costs the worker's whole context, 178–192k tokens on the runs this was
+measured on — so allow **two** resumes for one worker. If it comes back `IN FLIGHT` a third
+time, halt and report `BLOCKED` naming the issue, the pull request and the gate it could not
+get past: something is wrong that a fourth nudge will not fix.
+
+A worker that returns mid-cycle *without* the sentinel is the same situation with the label
+missing. If a report names a pull request that never reached `MERGED` and does not begin
+`BLOCKED`, treat it as `IN FLIGHT` — resume it — rather than as a completed iteration.
 
 ### What an iteration should cost
 
@@ -151,19 +183,28 @@ A worker that takes one story from selection to a merged pull request costs roug
 **300–375k tokens** and 300–390 assistant turns, at about a thousand tokens a turn. Three
 consecutive iterations measured against a real repository came in at 370k / 346k / 405k.
 
-The third one did not do more work. It **busy-waited**: filled the time while a `Monitor`
-wait was outstanding with no-op `sleep` Bash calls and with reads of the wait's output file,
-106 turns of them out of 419 — about 100k tokens, a quarter of the iteration, spent to buy
-under a minute of real waiting. The two either side of it spent 0 and 2 turns that way on
-comparable work, and nothing in the three reports distinguished them.
+An iteration far outside that band is almost always about *how it waited*, and there are two
+**opposite** failures that land in the same place. Their remedies contradict each other, so it
+is worth saying which one you saw rather than just that the iteration was expensive.
 
-So an iteration well past the band is a wait that was watched rather than an issue that was
-large.
+- **It watched the wait.** The worker filled the time while a wait was outstanding with no-op
+  `sleep` calls and re-reads of the wait's output file — 106 turns out of 419 on one measured
+  iteration, about 100k tokens, a quarter of it, to buy under a minute of real waiting. The
+  iterations either side spent 0 and 2 turns that way on comparable work. Signature: a very
+  high turn count for the work done, inside a single worker. Remedy: **fewer** turns.
+- **It stopped dead at the wait.** The worker armed a wait that did not survive the turn
+  boundary, handed control back, and on resume held for an event that could never arrive. One
+  measured resume made **zero tool calls in 6.5 seconds** while CI had been green for some
+  time; that iteration needed thirteen resume nudges at 178–192k tokens each — about 2.4M
+  tokens — and it did eventually merge, which is what makes it easy to miss. Signature: many
+  resumes, each costing a full context, several of them doing almost nothing. Remedy: the
+  opposite one — **act**, with a single direct status query, exactly where the first failure
+  says to do nothing.
 
-`backlog:next-issue` forbids both improvisations by name at step 6 and `issue-worker` repeats
-the rule, so a worker doing it is a worker that departed from the cycle. Name it in the
-report when the table shows it: the iteration count and the outcomes look identical either
-way, and the cost column is the only place a run that regressed is visible.
+Both are departures from the cycle. `backlog:next-issue` step 6 addresses each by name, and
+the second is why `Monitor` is not in the worker's tools at all. Name whichever the table
+shows: the iteration count and the outcomes look identical either way, and the cost and resume
+columns are the only place a run that regressed is visible.
 
 ## 2. What you never do yourself
 
@@ -175,6 +216,10 @@ way, and the cost column is the only place a run that regressed is visible.
   by hand, halt and say so — the next spawn is likely to fail regardless.
 - **Never implement the issue in your own context** when the worker reports `BLOCKED`. The
   block is a request for a human, which is the one thing a loop cannot supply.
+- **Never spawn the next iteration over an open pull request.** A worker that came back with
+  its issue unfinished gets resumed, not replaced. The new worker would take a different
+  issue, and the first one's pull request, worktree and open issue would be left behind with
+  no one holding them.
 - **Never widen the bound mid-run** because the backlog turned out to be longer. Finish,
   report, and let the user re-run.
 - **Never drop, widen or edit any part of the scope mid-run**, and never respond to a worker
@@ -191,7 +236,8 @@ way, and the cost column is the only place a run that regressed is visible.
 ## 3. Report
 
 Close with the iteration table, the scope the run was under if it had one, the reason the
-loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure),
+loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure,
+a worker that could not be got past `IN FLIGHT`),
 and — if anything merged without a review because `review.required` is `false` — that fact,
 once, for the whole run.
 

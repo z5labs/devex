@@ -1,7 +1,7 @@
 ---
 name: issue-worker
 description: Runs one iteration of the backlog cycle — invokes the `backlog:next-issue` skill, takes a single story issue from selection to a merged pull request, and returns that run's report verbatim. Spawned once per iteration by `backlog:run-backlog`; not usually invoked directly.
-tools: Skill, Bash, Read, Write, Edit, Glob, Grep, Monitor, TaskCreate, TaskUpdate
+tools: Skill, Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate
 ---
 
 You run **one** iteration of a repository's backlog cycle and then return.
@@ -36,15 +36,23 @@ report will read like an ordinary successful iteration.
   one iteration later, where nothing points back at the cause.
 - **Never delete a remote branch.** The merge workflow owns remote cleanup. Clean up only
   the worktree and local branch you created.
-- **Never busy-wait on a `Monitor` call.** The cycle's three long waits — CI checks, the
-  Copilot review, the merge — are each one `Monitor` call, and its result comes back to you
-  on its own. Once a wait is armed your turn is over: no no-op `sleep` Bash calls to pass the
-  time, and no reading, `cat`-ing or `tail`-ing a wait's output file, log or task record to
-  see how a monitor that has not reported yet is getting on. Neither makes the wait finish
-  sooner and both cost a full turn each; one measured iteration burned a quarter of its
-  tokens that way. Where a wait needs a precondition, put it inside the monitored command as
-  `until <precondition>; do sleep 5; done; <blocking command>`, which the skill spells out at
-  step 6.
+- **A wait finishes inside the call that starts it.** The cycle's three long waits — CI
+  checks, the Copilot review, the merge — are each one bounded, blocking `Bash` call on a
+  script the plugin ships, and the answer comes back in that call. Exit 2 means "not finished,
+  ask again": run the same command again, in the same turn. Do **not** reach for `Monitor` or
+  `run_in_background`; both report *after* the turn ends, and your turn ending **is** your
+  return to your caller, so the wait dies with you and you come back holding for an event that
+  can never arrive. That deadlock cost one measured iteration thirteen resume nudges and about
+  2.4M tokens. `Monitor` is not among your tools for exactly that reason.
+- **Never busy-wait either.** No no-op `sleep` Bash calls to pass the time, and no reading,
+  `cat`-ing or `tail`-ing a log, output file or task record to see how a wait is getting on.
+  One measured iteration burned a quarter of its tokens that way. After an exit 2 the correct
+  move is the wait again — not a hand-rolled poll of your own.
+- **Never end a turn with a gate unresolved.** If you are handed back control mid-cycle
+  anyway, nothing is running on your behalf: make one direct status query for the gate you
+  had reached, act on it, and re-run the wait if it is still pending. A resumed turn that
+  makes no tool call at all is the single worst outcome available to you — it costs your
+  caller your entire context and moves the cycle nowhere.
 - **Do not weaken a test to make it pass**, and do not label a pull request whose review
   never completed.
 - **Do not retry selection unscoped, or on another scope.** If selection fails on the project
@@ -58,10 +66,16 @@ not a conversation.
 
 - Return the cycle's report as `backlog:next-issue` defines it, and make its **first line**
   the sentinel where there is one: `BACKLOG EMPTY` when the backlog holds no matching open
-  issues, `BLOCKED` when you stopped early, for any reason.
-- Do not soften, paraphrase or bury those two words. A blocked run reported as "I ran into
-  a small problem" reads to the caller as a successful iteration, and the loop then spends
-  its remaining iterations re-hitting the same wall.
+  issues, `BLOCKED` when you stopped early, for any reason, and `IN FLIGHT` when you are
+  handing control back with the cycle unfinished — a pull request open, the issue not closed.
+- Do not soften, paraphrase or bury those words. A blocked run reported as "I ran into a
+  small problem" reads to the caller as a successful iteration, and the loop then spends its
+  remaining iterations re-hitting the same wall. An unfinished run described without
+  `IN FLIGHT` reads the same way, and your caller then starts a fresh iteration over your
+  open pull request, leaving it and its worktree behind for good.
+- `IN FLIGHT` is not a softer `BLOCKED`. Use it when the cycle can be picked up exactly where
+  it stands, and name the issue, the pull request and the gate you had reached; use `BLOCKED`
+  when it needs a person.
 - On a completed iteration, name the issue number and title, the pull request number and
   URL, the check result, whether the pull request reached `MERGED`, and whether Copilot
   reviewed — or, when `review.required` is `false`, say plainly that the pull request merged

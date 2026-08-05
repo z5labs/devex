@@ -39,7 +39,11 @@
 
 set -uo pipefail
 
-POLL_COUNT=${BACKLOG_MERGE_POLL_COUNT:-40}
+# Five minutes per call, deliberately: the caller waits by BLOCKING on this
+# script, so the bound has to fit inside a single foreground call rather than
+# span turns. A merge queued behind a slow check takes longer; exit 2 is the
+# answer, and the caller runs it again in the same turn.
+POLL_COUNT=${BACKLOG_MERGE_POLL_COUNT:-20}
 POLL_SECONDS=${BACKLOG_MERGE_POLL_SECONDS:-15}
 
 fail() { local code=$1; shift; printf 'finish-issue: %s\n' "$*" >&2; exit "$code"; }
