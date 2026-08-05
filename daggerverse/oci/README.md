@@ -58,6 +58,8 @@ reg := dag.Oci().Registry("ghcr.io", dagger.OciRegistryOpts{
 | `host` | registry host, as it appears in an image reference. Ignored when `service` is set |
 | `username` | basic-auth user; omit for an anonymous client |
 | `password` | basic-auth secret |
+| `bearerToken` | a token to send as-is, for a registry that issued one |
+| `dockerConfig` | the contents of a `~/.docker/config.json`, as a secret |
 | `service` | a Dagger-hosted registry, reached over the session network |
 | `insecure` | talk plain HTTP and skip TLS verification. Off by default |
 
@@ -69,8 +71,94 @@ publish path this module replaces made that inference, which meant a test
 affordance decided production TLS behaviour. It is spelled `insecure` rather
 than `tlsVerify` because a `+default=true` bool is unsettable from the CLI.
 
-Password authentication only. Client certificates for mTLS registries, and
-credential-helper and token flows, are follow-ups.
+Client certificates for mTLS registries remain a follow-up.
+
+#### Credentials
+
+There are three ways to authenticate, and exactly one of them is used:
+
+1. **`username` / `password`.** The most specific thing a caller can say, and
+   the only source that names a user.
+2. **`bearerToken`.** Explicit, but it says nothing about which registry it is
+   for, so a caller who supplied a pair as well meant the pair.
+3. **`dockerConfig`.** A file describing many registries at once, so it is the
+   least specific and loses to anything aimed at this one.
+
+Supplying none of them is an anonymous client, which is what a public registry
+wants.
+
+A lower source is **not** consulted once a higher one has been supplied, and a
+401 does not fall through to the next. Retrying with a second credential would
+authenticate as somebody the caller did not choose, and would turn one wrong
+password into two failed attempts against a registry that may be counting
+them.
+
+```go
+reg := dag.Oci().Registry("ghcr.io", dagger.OciRegistryOpts{
+    DockerConfig: dag.SetSecret("docker-config", string(configJSON)),
+})
+```
+
+The config is searched for the host actually dialled. Keys are matched the way
+Docker wrote them rather than literally: `ghcr.io`, `https://ghcr.io` and
+`https://ghcr.io/` are the same host, and Docker Hub is found under any of
+`docker.io`, `index.docker.io`, `registry-1.docker.io`,
+`registry.hub.docker.com` and the legacy `https://index.docker.io/v1/`. Within
+an entry, `auth` (base64
+`username:password`, padded or not), explicit `username`/`password`,
+`registrytoken` and `identitytoken` are all read.
+
+A config that says nothing about the host is not an error — it is a config
+about other registries, and the caller gets anonymous access, which is the
+same answer `docker pull` would give.
+
+#### Credential helpers are not supported
+
+**Credential helpers are not run.** A helper is an external
+`docker-credential-*` binary the Docker CLI executes, and the module runtime
+holds neither `gcloud`, nor `ecr-login`, nor a macOS keychain; reaching one
+would mean shelling out to a helper container, which is the one thing this
+module does not do anywhere.
+
+A config that resolves the bound host through a helper therefore **fails**,
+naming the binary it asked for:
+
+```
+docker config resolves ghcr.io through the credential helper
+docker-credential-gcloud, which this module cannot run: no helper binaries
+exist in the module runtime. Resolve the credential in the caller and pass it
+as username/password or bearerToken
+```
+
+Falling through to anonymous instead would turn "your credential lives
+somewhere I cannot reach" into an unrelated 401 from the registry, with
+nothing in the message pointing at the cause.
+
+This bites only when a helper owns *this* host. A `credsStore` beside an entry
+that already holds a credential loses to that credential, and a `credsStore`
+with no entry for this host is ignored — that is the ordinary shape of a
+config file on any machine where somebody has run `docker login`, and treating
+it as governing every host would break every anonymous pull.
+
+#### Credentials do not reach an error
+
+No credential value appears in an error leaving this module. Every plaintext
+read while resolving one is scrubbed out of the text first, including
+credentials that lost the precedence contest and, for a Docker config, the
+entries for hosts this connection never dialled — the file arrived as one
+secret, so all of it is the caller's secret. A `auth` blob is scrubbed as well
+as the password inside it: base64 is not encryption, and the blob is the form
+the credential actually travels in. Both encodings of that blob are scrubbed,
+padded and unpadded, because the blob that leaks need not be the blob that was
+written — anything rebuilding an `Authorization` header emits the padded form,
+which is a different string carrying the identical credential.
+
+A malformed config fails without quoting itself back, because `encoding/json`
+puts the offending input in its message and the offending input is a file full
+of passwords.
+
+Nothing here reaches a container argument either: the module builds no
+containers at all.
 
 ### PushImage
 
@@ -190,5 +278,18 @@ rather than about GHCR. `registry:2.8` has no such endpoint, and
 `registry:3.0.0` was measured here too and does not register the route either.
 `requireNativeReferrersAPI` keeps that a checked fact rather than a claim in a
 comment.
+
+The bearer-token tests put an nginx gate in front of an anonymous zot, because
+no registry in this repo's test estate issues bearer tokens — zot
+authenticates with htpasswd and nothing else. The gate refuses everything
+without one exact `Authorization: Bearer` header and answers its 401 with a
+`Bearer` challenge, which is what makes both client libraries send the token
+they were given rather than falling back to basic auth.
+
+`CredentialResolutionSelfTest` is a `+check` on the module itself rather than a
+test in `tests/`. It covers how a Docker config is *read* — key matching, entry
+forms, helper refusal, what a malformed file may say — none of which touches
+the network, and all of which would otherwise need a registry per case to
+assert on a string comparison.
 
 [zot]: https://zotregistry.dev/

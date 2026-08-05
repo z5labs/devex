@@ -129,15 +129,152 @@ func (tr *testRegistry) strict() *dagger.OciRegistry {
 // assertions that have to talk to it directly rather than through the
 // module under test.
 func (tr *testRegistry) endpoint(ctx context.Context) (string, error) {
-	svc, err := tr.Service.Start(ctx)
+	return endpointOf(ctx, tr.Service)
+}
+
+// endpointOf starts a service and returns the host:port it answers on.
+//
+// The credential tests need this for a second reason beyond talking to the
+// registry directly: a docker config is keyed by host, and the host a
+// Dagger-hosted registry is reached at is assigned by the engine, so the
+// config can only be written once the service has an endpoint.
+func endpointOf(ctx context.Context, service *dagger.Service) (string, error) {
+	svc, err := service.Start(ctx)
 	if err != nil {
-		return "", fmt.Errorf("start registry: %v", err)
+		return "", fmt.Errorf("start service: %v", err)
 	}
 	ep, err := svc.Endpoint(ctx)
 	if err != nil {
-		return "", fmt.Errorf("registry endpoint: %v", err)
+		return "", fmt.Errorf("service endpoint: %v", err)
 	}
 	return ep, nil
+}
+
+// anonymousZotConfig is the same registry with the auth block removed
+// entirely: zot then allows every operation without credentials.
+const anonymousZotConfig = `{
+  "storage": { "rootDirectory": "/var/lib/registry", "dedupe": false },
+  "http": { "address": "0.0.0.0", "port": "5000" },
+  "log": { "level": "warn" }
+}`
+
+// newAnonymousRegistry stands up a registry that asks for no credentials.
+//
+// It stands in for a public registry. The alternative — pointing an anonymous
+// test at docker.io — would make a green suite depend on an unauthenticated
+// pull rate limit, and would say nothing this does not: what is under test is
+// that the module sends no Authorization header and does not fail for the
+// want of one.
+//
+// NONCE is why each caller gets its own instance. Dagger content-addresses
+// services, so two identical container definitions are one running service
+// shared across tests and across sessions; a random makes the definitions
+// differ, which keeps one test's pushes out of another's registry.
+func newAnonymousRegistry(ctx context.Context) (*dagger.Service, error) {
+	nonce, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("random sha256 (registry nonce): %v", err)
+	}
+	return dag.Container().From(registryImage()).
+		WithEnvVariable("NONCE", nonce).
+		WithNewFile("/etc/zot/config.json", anonymousZotConfig).
+		WithExposedPort(5000).
+		AsService(dagger.ContainerAsServiceOpts{
+			UseEntrypoint: true,
+			Args:          []string{"serve", "/etc/zot/config.json"},
+		}), nil
+}
+
+// proxyImage is the reverse proxy the bearer tests put in front of a
+// registry. Pinned for the same reason zot is.
+const proxyImage = "nginx:1.29-alpine"
+
+// bearerProxyTemplate gates every request on one exact bearer token and
+// forwards what survives to the registry bound as "registry".
+//
+// The 401 carries a Bearer challenge because both client libraries decide how
+// to authenticate from the WWW-Authenticate header on the first refusal. A
+// bare 401 makes them give up, and a Basic challenge makes them send basic
+// auth — so a gate without this header would test nothing about bearer
+// tokens. Neither library then calls the realm: an access token supplied by
+// the caller is sent as-is, which is exactly the flow under test.
+//
+// ${BEARER_TOKEN} is substituted by the nginx image's own entrypoint at
+// container start, from a secret environment variable. The token therefore
+// never appears in a container argument or in an image layer.
+const bearerProxyTemplate = `server {
+    listen 80;
+    server_name _;
+    client_max_body_size 0;
+
+    location / {
+        add_header WWW-Authenticate 'Bearer realm="http://bearer-proxy.invalid/token",service="registry"' always;
+        if ($http_authorization != "Bearer ${BEARER_TOKEN}") {
+            return 401;
+        }
+        proxy_pass http://registry:5000;
+        proxy_set_header Host $http_host;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+    }
+}
+`
+
+// bearerProxy is a registry reachable only with one bearer token.
+type bearerProxy struct {
+	Service *dagger.Service
+	Secret  *dagger.Secret
+	Token   string
+}
+
+// newBearerProxy puts a bearer-token gate in front of upstream.
+//
+// No registry in this repo's test estate issues bearer tokens — zot
+// authenticates with htpasswd and nothing else — so the only way to exercise
+// the flow a real token-issuing registry uses is to build the gate. What it
+// proves is narrow and exactly the acceptance criterion: a token handed to
+// Registry() arrives at the far end as `Authorization: Bearer <token>`.
+//
+// NGINX_ENVSUBST_FILTER restricts the entrypoint's substitution to
+// BEARER_TOKEN. Without it envsubst also replaces nginx's own
+// $http_authorization and $http_host with empty strings, and the gate then
+// refuses everything.
+func newBearerProxy(ctx context.Context, upstream *dagger.Service) (*bearerProxy, error) {
+	token, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("random sha256 (bearer token): %v", err)
+	}
+	nameHex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("random sha256 (bearer secret name): %v", err)
+	}
+	secret := dag.SetSecret("oci-bearer-token-"+nameHex[:16], token)
+
+	svc := dag.Container().From(proxyImage).
+		WithServiceBinding("registry", upstream).
+		WithEnvVariable("NGINX_ENVSUBST_FILTER", "BEARER_TOKEN").
+		WithSecretVariable("BEARER_TOKEN", secret).
+		WithNewFile("/etc/nginx/templates/default.conf.template", bearerProxyTemplate).
+		WithExposedPort(80).
+		AsService(dagger.ContainerAsServiceOpts{
+			UseEntrypoint: true,
+			Args:          []string{"nginx", "-g", "daemon off;"},
+		})
+
+	return &bearerProxy{Service: svc, Secret: secret, Token: token}, nil
+}
+
+// client is a handle on the gated registry. A nil token means the proxy's
+// own, which is the one that gets through.
+func (proxy *bearerProxy) client(token *dagger.Secret) *dagger.OciRegistry {
+	if token == nil {
+		token = proxy.Secret
+	}
+	return dag.Oci().Registry("bearer-proxy.invalid", dagger.OciRegistryOpts{
+		BearerToken: token,
+		Service:     proxy.Service,
+		Insecure:    true,
+	})
 }
 
 // requireNativeReferrersAPI asserts the test registry answers

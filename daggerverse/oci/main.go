@@ -30,11 +30,36 @@ import (
 // reached through Registry.
 type Oci struct{}
 
+// CredentialResolutionSelfTest checks how a Docker config is read: which
+// entry a host matches, which of an entry's forms wins, when a credential
+// helper is refused, and what a malformed config is allowed to say.
+//
+// It sits on the module rather than in tests/ because it checks unexported
+// resolution that never reaches the network, and because each case is one
+// shape of a config file — reaching them all through tests/ would mean a
+// registry per shape to assert on a string comparison. The live tests still
+// prove a resolved credential authenticates; this proves the right one was
+// resolved.
+//
+// It runs in process and needs no container, so it is cheap enough to be a
+// check of its own.
+//
+// +check
+func (m *Oci) CredentialResolutionSelfTest(ctx context.Context) error {
+	return credentialSelfCheck()
+}
+
 // Registry binds one registry host and its credentials. service, when
 // non-nil, is a Dagger-hosted registry reached by hostname rather than over
 // the public network — its endpoint replaces host as the address dialled,
 // because a session service's hostname is assigned by the engine and cannot
 // be predicted by the caller.
+//
+// There are three ways to authenticate and they have a fixed precedence:
+// username/password beats bearerToken, which beats dockerConfig, and
+// supplying none of them is an anonymous client. See Registry.credential for
+// why the order is that one and why a 401 never falls through to the next
+// source.
 //
 // insecure is explicit and defaults to off: it means plain HTTP and no TLS
 // verification. It is deliberately not inferred from service being set —
@@ -55,6 +80,18 @@ func (m *Oci) Registry(
 	//
 	// +optional
 	password *dagger.Secret,
+	// A bearer token to send as-is, for a registry that issued one. Used
+	// only when no username or password was given.
+	//
+	// +optional
+	bearerToken *dagger.Secret,
+	// A Docker config file — the contents of ~/.docker/config.json — to read
+	// this host's credentials out of. Used only when nothing more specific
+	// was given. Credential helpers named by the file are not run; a host
+	// that resolves through one fails naming it.
+	//
+	// +optional
+	dockerConfig *dagger.Secret,
 	// A Dagger-hosted registry to reach over the session network instead of
 	// over the public network.
 	//
@@ -66,11 +103,13 @@ func (m *Oci) Registry(
 	insecure bool,
 ) *Registry {
 	return &Registry{
-		Host:     host,
-		Username: username,
-		Password: password,
-		Service:  service,
-		Insecure: insecure,
+		Host:         host,
+		Username:     username,
+		Password:     password,
+		BearerToken:  bearerToken,
+		DockerConfig: dockerConfig,
+		Service:      service,
+		Insecure:     insecure,
 	}
 }
 
@@ -91,20 +130,33 @@ type Registry struct {
 	//
 	// +private
 	Password *dagger.Secret
+	// BearerToken is a token to send as-is in an Authorization header.
+	//
+	// +private
+	BearerToken *dagger.Secret
+	// DockerConfig is a ~/.docker/config.json to read credentials from.
+	//
+	// +private
+	DockerConfig *dagger.Secret
 	// Service is the Dagger-hosted registry, when there is one.
 	//
 	// +private
 	Service *dagger.Service
 }
 
-// conn is a resolved connection: the address actually dialled plus the
-// plaintext credentials. Built once per method call, because resolving a
-// service endpoint and a secret both need a context.
+// conn is a resolved connection: the address actually dialled, the
+// credential to present there, and every plaintext value read while working
+// that out. Built once per method call, because resolving a service endpoint
+// and a secret both need a context.
 type conn struct {
 	addr     string
-	username string
-	password string
 	insecure bool
+	cred     credential
+	// redact holds the plaintext values that must never appear in an error
+	// leaving this module — including credentials that lost the precedence
+	// contest, because a value the caller handed over is secret whether or
+	// not it was used.
+	redact []string
 }
 
 // connect resolves the registry address and credentials.
@@ -113,7 +165,7 @@ type conn struct {
 // Registry() takes no context: it is a pure constructor, and starting a
 // service is not.
 func (reg *Registry) connect(ctx context.Context) (*conn, error) {
-	c := &conn{username: reg.Username, insecure: reg.Insecure}
+	c := &conn{insecure: reg.Insecure}
 
 	switch {
 	case reg.Service != nil:
@@ -132,13 +184,12 @@ func (reg *Registry) connect(ctx context.Context) (*conn, error) {
 		return nil, errors.New("registry: host is required when no service is given")
 	}
 
-	if reg.Password != nil {
-		pwd, err := reg.Password.Plaintext(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("read registry password: %v", err)
-		}
-		c.password = pwd
+	cred, redact, err := reg.credential(ctx, c.addr)
+	c.redact = redact
+	if err != nil {
+		return nil, c.scrub(err)
 	}
+	c.cred = cred
 	return c, nil
 }
 
@@ -155,20 +206,32 @@ func (c *conn) ref(repository, reference string) string {
 	return c.addr + "/" + repository + sep + reference
 }
 
-// scrub removes the password from an error's text before it crosses the
-// module boundary. Registries carry credentials in an Authorization header,
-// so a leak is not expected — but a 401 body, a redirect URL, or a client
-// library that echoes its request would each be a way for one to happen, and
-// the cost of being wrong is a password in a CI log forever.
+// scrub removes every credential value from an error's text before it
+// crosses the module boundary. Registries carry credentials in an
+// Authorization header, so a leak is not expected — but a 401 body, a
+// redirect URL, or a client library that echoes its request would each be a
+// way for one to happen, and the cost of being wrong is a password in a CI
+// log forever.
+//
+// It covers all of them, not just the one that authenticated: a bearer token
+// and a Docker config are as secret as a password, and a config file holds
+// credentials for hosts this connection never dialled.
 func (c *conn) scrub(err error) error {
 	if err == nil {
 		return nil
 	}
 	msg := err.Error()
-	if c.password == "" || !strings.Contains(msg, c.password) {
+	scrubbed := msg
+	for _, secret := range c.redact {
+		if secret == "" {
+			continue
+		}
+		scrubbed = strings.ReplaceAll(scrubbed, secret, "***")
+	}
+	if scrubbed == msg {
 		return err
 	}
-	return errors.New(strings.ReplaceAll(msg, c.password, "***"))
+	return errors.New(scrubbed)
 }
 
 // httpClient builds the HTTP client used for every oras request on this
@@ -185,10 +248,12 @@ func (c *conn) httpClient() *orasauth.Client {
 	}
 	base.Cache = orasauth.NewCache()
 	base.SetUserAgent("dagger-oci-module")
-	if c.username != "" || c.password != "" {
+	if !c.cred.empty() {
 		base.Credential = orasauth.StaticCredential(c.addr, orasauth.Credential{
-			Username: c.username,
-			Password: c.password,
+			Username:     c.cred.username,
+			Password:     c.cred.password,
+			AccessToken:  c.cred.accessToken,
+			RefreshToken: c.cred.refreshToken,
 		})
 	}
 	return &base

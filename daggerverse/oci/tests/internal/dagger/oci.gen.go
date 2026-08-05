@@ -19,7 +19,7 @@ func (r *Binding) AsOci() *Oci { // oci (../../../../../daggerverse/oci/main.go:
 }
 
 // Retrieve the binding value, as type OciRegistry
-func (r *Binding) AsOciRegistry() *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:82:6)
+func (r *Binding) AsOciRegistry() *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:121:6)
 	q := r.query.Select("asOciRegistry")
 
 	return &OciRegistry{
@@ -52,7 +52,7 @@ func (r *Env) WithOciOutput(name string, description string) *Env { // oci (../.
 }
 
 // Create or update a binding of type OciRegistry in the environment
-func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:82:6)
+func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:121:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOciRegistryInput")
 	q = q.Arg("name", name)
@@ -65,7 +65,7 @@ func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description 
 }
 
 // Declare a desired OciRegistry output to be assigned in the environment
-func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:82:6)
+func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:121:6)
 	q := r.query.Select("withOciRegistryOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -80,13 +80,36 @@ func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // o
 type Oci struct { // oci (../../../../../daggerverse/oci/main.go:31:6)
 	query *querybuilder.Selection
 
-	id *ID
+	credentialResolutionSelfTest *Void
+	id                           *ID
 }
 
 func (r *Oci) WithGraphQLQuery(q *querybuilder.Selection) *Oci {
 	return &Oci{
 		query: q,
 	}
+}
+
+// CredentialResolutionSelfTest checks how a Docker config is read: which
+// entry a host matches, which of an entry's forms wins, when a credential
+// helper is refused, and what a malformed config is allowed to say.
+//
+// It sits on the module rather than in tests/ because it checks unexported
+// resolution that never reaches the network, and because each case is one
+// shape of a config file — reaching them all through tests/ would mean a
+// registry per shape to assert on a string comparison. The live tests still
+// prove a resolved credential authenticates; this proves the right one was
+// resolved.
+//
+// It runs in process and needs no container, so it is cheap enough to be a
+// check of its own.
+func (r *Oci) CredentialResolutionSelfTest(ctx context.Context) error { // oci (../../../../../daggerverse/oci/main.go:48:1)
+	if r.credentialResolutionSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("credentialResolutionSelfTest")
+
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this Oci.
@@ -143,20 +166,32 @@ type OciRegistryOpts struct {
 	//
 	// Username for basic authentication. Omit for an anonymous client.
 	//
-	Username string // oci (../../../../../daggerverse/oci/main.go:53:2)
+	Username string // oci (../../../../../daggerverse/oci/main.go:78:2)
 	//
 	// Password or token for basic authentication.
 	//
-	Password *Secret // oci (../../../../../daggerverse/oci/main.go:57:2)
+	Password *Secret // oci (../../../../../daggerverse/oci/main.go:82:2)
+	//
+	// A bearer token to send as-is, for a registry that issued one. Used
+	// only when no username or password was given.
+	//
+	BearerToken *Secret // oci (../../../../../daggerverse/oci/main.go:87:2)
+	//
+	// A Docker config file — the contents of ~/.docker/config.json — to read
+	// this host's credentials out of. Used only when nothing more specific
+	// was given. Credential helpers named by the file are not run; a host
+	// that resolves through one fails naming it.
+	//
+	DockerConfig *Secret // oci (../../../../../daggerverse/oci/main.go:94:2)
 	//
 	// A Dagger-hosted registry to reach over the session network instead of
 	// over the public network.
 	//
-	Service *Service // oci (../../../../../daggerverse/oci/main.go:62:2)
+	Service *Service // oci (../../../../../daggerverse/oci/main.go:99:2)
 	//
 	// Talk plain HTTP and skip TLS verification. Off by default.
 	//
-	Insecure bool // oci (../../../../../daggerverse/oci/main.go:66:2)
+	Insecure bool // oci (../../../../../daggerverse/oci/main.go:103:2)
 }
 
 // Registry binds one registry host and its credentials. service, when
@@ -165,12 +200,18 @@ type OciRegistryOpts struct {
 // because a session service's hostname is assigned by the engine and cannot
 // be predicted by the caller.
 //
+// There are three ways to authenticate and they have a fixed precedence:
+// username/password beats bearerToken, which beats dockerConfig, and
+// supplying none of them is an anonymous client. See Registry.credential for
+// why the order is that one and why a 401 never falls through to the next
+// source.
+//
 // insecure is explicit and defaults to off: it means plain HTTP and no TLS
 // verification. It is deliberately not inferred from service being set —
 // that inference is a test affordance leaking into production behaviour. It
 // is spelled insecure rather than tlsVerify because a bool defaulting to
 // true is unsettable from the CLI.
-func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:46:1)
+func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:71:1)
 	q := r.query.Select("registry")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `username` optional argument
@@ -180,6 +221,14 @@ func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // o
 		// `password` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Password) {
 			q = q.Arg("password", opts[i].Password)
+		}
+		// `bearerToken` optional argument
+		if !querybuilder.IsZeroValue(opts[i].BearerToken) {
+			q = q.Arg("bearerToken", opts[i].BearerToken)
+		}
+		// `dockerConfig` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DockerConfig) {
+			q = q.Arg("dockerConfig", opts[i].DockerConfig)
 		}
 		// `service` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Service) {
@@ -210,7 +259,7 @@ func (r *Oci) AsNode() Node {
 // Every method carries a never-cache directive on its own doc-comment line:
 // registry state is mutable and pushes are side-effecting, so the directive
 // repeats on each chained method rather than living only on the factory.
-type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:82:6)
+type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:121:6)
 	query *querybuilder.Selection
 
 	attach       *string
@@ -294,7 +343,7 @@ func (r *OciRegistry) Fetch(repository string, digest string) *File { // oci (..
 }
 
 // Host is the registry host this handle was built for.
-func (r *OciRegistry) Host(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:84:2)
+func (r *OciRegistry) Host(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:123:2)
 	if r.host != nil {
 		return *r.host, nil
 	}
@@ -356,7 +405,7 @@ func (r *OciRegistry) UnmarshalJSON(bs []byte) error {
 }
 
 // Insecure reports whether this handle talks plain HTTP.
-func (r *OciRegistry) Insecure(ctx context.Context) (bool, error) { // oci (../../../../../daggerverse/oci/main.go:88:2)
+func (r *OciRegistry) Insecure(ctx context.Context) (bool, error) { // oci (../../../../../daggerverse/oci/main.go:127:2)
 	if r.insecure != nil {
 		return *r.insecure, nil
 	}
@@ -488,7 +537,7 @@ func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string
 }
 
 // Username is the basic-auth user, empty for an anonymous client.
-func (r *OciRegistry) Username(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:86:2)
+func (r *OciRegistry) Username(ctx context.Context) (string, error) { // oci (../../../../../daggerverse/oci/main.go:125:2)
 	if r.username != nil {
 		return *r.username, nil
 	}

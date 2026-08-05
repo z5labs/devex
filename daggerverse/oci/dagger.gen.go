@@ -75,27 +75,33 @@ func (r *Oci) UnmarshalJSON(bs []byte) error {
 
 func (r Registry) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Host     string
-		Username string
-		Insecure bool
-		Password *dagger.Secret
-		Service  *dagger.Service
+		Host         string
+		Username     string
+		Insecure     bool
+		Password     *dagger.Secret
+		BearerToken  *dagger.Secret
+		DockerConfig *dagger.Secret
+		Service      *dagger.Service
 	}
 	concrete.Host = r.Host
 	concrete.Username = r.Username
 	concrete.Insecure = r.Insecure
 	concrete.Password = r.Password
+	concrete.BearerToken = r.BearerToken
+	concrete.DockerConfig = r.DockerConfig
 	concrete.Service = r.Service
 	return json.Marshal(&concrete)
 }
 
 func (r *Registry) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Host     string
-		Username string
-		Insecure bool
-		Password *dagger.Secret
-		Service  *dagger.Service
+		Host         string
+		Username     string
+		Insecure     bool
+		Password     *dagger.Secret
+		BearerToken  *dagger.Secret
+		DockerConfig *dagger.Secret
+		Service      *dagger.Service
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -105,6 +111,8 @@ func (r *Registry) UnmarshalJSON(bs []byte) error {
 	r.Username = concrete.Username
 	r.Insecure = concrete.Insecure
 	r.Password = concrete.Password
+	r.BearerToken = concrete.BearerToken
+	r.DockerConfig = concrete.DockerConfig
 	r.Service = concrete.Service
 	return nil
 }
@@ -228,6 +236,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 	switch parentName {
 	case "Oci":
 		switch fnName {
+		case "CredentialResolutionSelfTest":
+			var parent Oci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Oci).CredentialResolutionSelfTest(&parent, ctx)
 		case "Registry":
 			var parent Oci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -255,6 +270,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg password", err))
 				}
 			}
+			var bearerToken *dagger.Secret
+			if inputArgs["bearerToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["bearerToken"]), &bearerToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg bearerToken", err))
+				}
+			}
+			var dockerConfig *dagger.Secret
+			if inputArgs["dockerConfig"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dockerConfig"]), &dockerConfig)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dockerConfig", err))
+				}
+			}
 			var service *dagger.Service
 			if inputArgs["service"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["service"]), &service)
@@ -269,7 +298,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg insecure", err))
 				}
 			}
-			return (*Oci).Registry(&parent, host, username, password, service, insecure), nil
+			return (*Oci).Registry(&parent, host, username, password, bearerToken, dockerConfig, service, insecure), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
