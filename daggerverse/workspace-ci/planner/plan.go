@@ -49,13 +49,45 @@ func CheckEntry(moduleDir, moduleName, checkName string) Entry {
 // ModuleEntry is a leg that runs every check a module has, without the plan ever
 // having loaded it. It is what the run-everything path emits, and what a module
 // whose checks could not be enumerated falls back to.
+//
+// Its display name is the module directory, because there is no check to name it
+// after. That makes Name and Module the same string, which is the collision
+// Timeouts has a key shape of its own for; see IsCoarse and CoarseKey.
 func ModuleEntry(moduleDir string) Entry {
 	return Entry{Name: moduleDir, Module: moduleDir}
 }
 
-// Timeouts are per-leg step budgets in minutes, keyed by either a leg's display
-// name or a module directory (which covers every leg of that module).
+// IsCoarse reports whether this leg runs a module's whole suite rather than one of
+// its checks — a ModuleEntry, which is what the run-everything path emits and what
+// a module whose checks could not be enumerated falls back to.
+//
+// A coarse leg is exactly a leg whose Name is its Module: CheckEntry always names
+// a leg <module-dir>:<check>, so no per-check leg can answer true here.
+func (e Entry) IsCoarse() bool { return e.Name == e.Module }
+
+// Timeouts are per-leg step budgets in minutes. Three key shapes match a leg, and
+// Apply resolves them weakest first:
+//
+//	<module-dir>          every leg of that module, coarse and per-check alike
+//	<module-dir>:*        that module's coarse run-everything leg alone
+//	<module-dir>:<check>  that one per-check leg alone
+//
+// The middle shape is there because a coarse leg's display name *is* its module
+// directory (see ModuleEntry), so without it the only key that reaches a coarse leg
+// also reaches every per-check leg that module contributes on the narrow path. That
+// coupling is not free: a coarse leg is bounded by the sum of a module's checks,
+// less whatever concurrency and shared containers buy back, while a per-check leg is
+// bounded by one check. Binding the latter to the former is the difference between
+// fast-failing a stuck check in six minutes and in fifteen.
+//
+// A key is matched literally and `*` is not a wildcard — a check name comes from a
+// Go method identifier, so no real leg can be spelled <module-dir>:* and the coarse
+// shape cannot collide with one.
 type Timeouts map[string]int
+
+// CoarseKey is the Timeouts key that reaches a module's coarse run-everything leg
+// and none of its per-check legs.
+func CoarseKey(moduleDir string) string { return moduleDir + ":*" }
 
 // ParseTimeouts reads the JSON object form of Timeouts. Function parameters
 // cannot be Go maps, so this is how the override table crosses the module
@@ -80,8 +112,23 @@ func ParseTimeouts(raw string) (Timeouts, error) {
 	return t, nil
 }
 
-// Apply fills in each entry's Timeout and JobTimeout: the override for its name,
-// else the override for its module, else def.
+// Apply fills in each entry's Timeout and JobTimeout, taking the last of these that
+// the table carries a key for:
+//
+//	def                nothing matched
+//	t[<module-dir>]    every leg of that module
+//	t[<leg-name>]      that leg alone
+//	t[<module-dir>:*]  a coarse leg only, and only where one exists
+//
+// The coarse shape resolves last, and only for a leg where IsCoarse holds. That
+// order is what the collision needs: on a coarse leg Name and Module are the same
+// string, so the middle two lines are one key and reading the coarse shape earlier
+// would let the module-wide budget take it straight back. On a per-check leg the
+// coarse shape never matches, which is what keeps a module's whole-suite budget off
+// the legs that each run one check.
+//
+// So a caller who sets no <module-dir>:* key gets exactly the older two-shape
+// behaviour, a module budget included.
 func (t Timeouts) Apply(entries []Entry, def int) []Entry {
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
@@ -90,6 +137,9 @@ func (t Timeouts) Apply(entries []Entry, def int) []Entry {
 			e.Timeout = v
 		}
 		if v, ok := t[e.Name]; ok {
+			e.Timeout = v
+		}
+		if v, ok := t[CoarseKey(e.Module)]; ok && e.IsCoarse() {
 			e.Timeout = v
 		}
 		e.JobTimeout = e.Timeout + JobTimeoutHeadroom
