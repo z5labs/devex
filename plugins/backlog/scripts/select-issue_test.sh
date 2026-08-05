@@ -645,5 +645,202 @@ checks_fail 'a scope flag and --no-project-filter is refused' 'cannot be combine
 checks_fail 'a bad --project-number blames the flag' '--project-number must be a positive integer' - \
   --project-owner z5labs --project-number fourteen --project-field Module --project-value workspace-ci
 
+printf '\ncross-repository dependencies\n'
+
+# The dependency walk itself, end to end, under `dependencies.style` = `native`
+# — the one part of selection the `--native-deps` seam above cannot reach,
+# because the seam stops at printing references and the bug this section covers
+# is in what the walk does with them afterwards.
+#
+# A cross-repository `owner/repo#N` used to be recorded as an unmet blocker
+# without its state ever being read, so it never decayed when the dependency
+# landed: the issue holding it was unreachable for the rest of the repository's
+# life. It is silent in the ordinary case — that issue is skipped and the
+# backlog keeps moving — and only surfaces as BLOCKED once it is the last
+# candidate, at which point the report blames the dependency rather than the
+# resolver.
+#
+# `gh` answers from files here the same way it does above: the `blockedBy`
+# response is chosen by the `number=` the query was given, and an issue's state
+# by the `--repo` and number it was asked for. A state fixture that is absent is
+# a `gh` that failed, which is how the fail-closed half is exercised — that half
+# is the reason the old behaviour was written, and it has to survive the fix.
+mkdir -p "$SCRATCH/nrepo/.claude" "$SCRATCH/nbin" "$SCRATCH/deps" "$SCRATCH/states"
+
+git init -q "$SCRATCH/nrepo" >/dev/null 2>&1 \
+  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+
+cat >"$SCRATCH/nbin/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'repo view')  printf 'z5labs/devex\n' ;;
+  'issue list') cat "$STUB_ISSUES" ;;
+  'issue view')
+    # dep_state. Under style `native` the body is never read, so this is the
+    # only thing that views an issue at all.
+    n=$3 repo="" prev=""
+    for a in "$@"; do [ "$prev" = --repo ] && repo=$a; prev=$a; done
+    printf '%s#%s\n' "$repo" "$n" >>"$STUB_CALLS"
+    f="$STUB_STATES/${repo//\//_}#$n"
+    [ -f "$f" ] || { printf 'stub gh: cannot view %s#%s\n' "$repo" "$n" >&2; exit 1; }
+    cat "$f" ;;
+  'api graphql')
+    n=""
+    for a in "$@"; do case "$a" in number=*) n=${a#number=} ;; esac; done
+    f="$STUB_DEPS/$n"
+    [ -f "$f" ] || { printf 'stub gh: no blockedBy fixture for #%s\n' "$n" >&2; exit 1; }
+    cat "$f" ;;
+  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SCRATCH/nbin/gh"
+
+cat >"$SCRATCH/nrepo/.claude/backlog.json" <<'JSON'
+{
+  "select": { "label": "story", "milestone": null, "limit": 200 },
+  "dependencies": { "style": "native" },
+  "verify": ["true"],
+  "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
+  "review": { "required": true },
+  "worktreeDir": ".claude/worktrees"
+}
+JSON
+
+nreset() { rm -rf "$SCRATCH/deps" "$SCRATCH/states"; mkdir -p "$SCRATCH/deps" "$SCRATCH/states"; }
+
+ndeps()  { npage "$2" "$1" >"$SCRATCH/deps/$1"; }          # <issue> <blockedBy nodes>
+nstate() { printf '%s\n' "$3" >"$SCRATCH/states/${1//\//_}#$2"; }  # <repo> <number> <state>
+
+# nrun <issue numbers, space separated>
+nrun() {
+  : >"$SCRATCH/nissues"
+  local n
+  for n in $1; do printf '%s\tissue %s\n' "$n" "$n" >>"$SCRATCH/nissues"; done
+  : >"$SCRATCH/calls"
+  RUN_OUT=$(cd "$SCRATCH/nrepo" && PATH="$SCRATCH/nbin:$PATH" \
+    STUB_ISSUES="$SCRATCH/nissues" STUB_DEPS="$SCRATCH/deps" \
+    STUB_STATES="$SCRATCH/states" STUB_CALLS="$SCRATCH/calls" \
+    "$SUT" 2>"$SCRATCH/nerr")
+  RUN_RC=$?
+  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/nerr")
+}
+
+# checkd <name> <expected issue number> <reason substring, or - for none> <issue numbers>
+checkd() {
+  local name=$1 want=$2 reason=$3 got
+  nrun "$4"
+  got=$(printf '%s' "$RUN_OUT" | jq -r '.number // empty' 2>/dev/null)
+  if [ "$RUN_RC" -ne 0 ] || [ "$got" != "$want" ]; then
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want [#%s] exit 0, got [%s] exit %d: %s\n' \
+      "$name" "$want" "${got:-<none>}" "$RUN_RC" "$RUN_ERR"
+    return
+  fi
+  if [ "$reason" != - ]; then
+    case "$RUN_ERR" in
+      *"$reason"*) ;;
+      *) fail=$((fail + 1))
+         printf '  FAIL %-58s reason lacks [%s]: %s\n' "$name" "$reason" "$RUN_ERR"
+         return ;;
+    esac
+  fi
+  pass=$((pass + 1))
+  printf '  ok   %-58s [#%s]\n' "$name" "$got"
+}
+
+# checkd_blocked <name> <substring of the report> <issue numbers>
+checkd_blocked() {
+  local name=$1 want=$2 report
+  nrun "$3"
+  report=$(printf '%s' "$RUN_OUT" | tr '\n' ' ')
+  case "$report" in
+    *"$want"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s report lacks [%s]: %s\n' "$name" "$want" "$report"
+       return ;;
+  esac
+  if [ "$RUN_RC" -eq 11 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [exit 11]\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 11, got exit %d: %s\n' "$name" "$RUN_RC" "$report"
+  fi
+}
+
+# The reported reproduction, transposed onto this fixture's repository names:
+# every dependency of both candidates is closed, two of them elsewhere, so the
+# lowest-numbered candidate is eligible. This used to report BLOCKED on a
+# backlog that was fully workable.
+nreset
+ndeps 63 "[$(dep 328 z5labs/other),$(dep 32 z5labs/devex)]"
+ndeps 65 "[$(dep 330 z5labs/other),$(dep 64 z5labs/devex)]"
+nstate z5labs/other 328 CLOSED
+nstate z5labs/other 330 CLOSED
+nstate z5labs/devex 32  CLOSED
+nstate z5labs/devex 64  CLOSED
+checkd 'a closed cross-repository dependency no longer blocks' 63 - '63 65'
+
+# The other half of the same read: an edge elsewhere that is genuinely open is
+# still a blocker, and the report says what it is rather than that it could not
+# be looked at.
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+ndeps 65 '[]'
+nstate z5labs/other 328 OPEN
+checkd 'an open cross-repository dependency still blocks' 65 'z5labs/other#328 is OPEN' '63 65'
+
+# Fail-closed, preserved. A private repository, a token without the scope, a
+# deleted issue: the state cannot be read, so the edge stays a blocker. Calling
+# the issue eligible here is the failure the original behaviour was defending
+# against, and removing the case where it fired wrongly must not remove this.
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+ndeps 65 '[]'
+checkd 'an unreadable cross-repository dependency still blocks' 65 'z5labs/other#328 is UNREADABLE' '63 65'
+
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+checkd_blocked 'an unreadable edge is named in the BLOCKED report' \
+  'z5labs/other#328 is UNREADABLE' '63'
+
+# An issue number is only unique within its repository, so the state cache has
+# to be keyed on `owner/repo#N`. Keyed on the bare number, this repository's
+# closed #12 would answer for the other repository's open one and #63 would come
+# out eligible with a live blocker.
+nreset
+ndeps 63 "[$(dep 12 z5labs/devex),$(dep 12 z5labs/other)]"
+ndeps 65 '[]'
+nstate z5labs/devex 12 CLOSED
+nstate z5labs/other 12 OPEN
+checkd 'a cached same-repo state does not answer for elsewhere' 65 'z5labs/other#12 is OPEN' '63 65'
+
+# The same collision in the other order, which a cache keyed on the number would
+# also get wrong — and this direction is the one that reads as eligible.
+nreset
+ndeps 63 "[$(dep 12 z5labs/other),$(dep 12 z5labs/devex)]"
+ndeps 65 '[]'
+nstate z5labs/other 12 CLOSED
+nstate z5labs/devex 12 OPEN
+checkd 'a cached cross-repo state does not answer for here' 65 '#12 is OPEN' '63 65'
+
+# The cache is why a state is read once per dependency rather than once per edge
+# pointing at it. Two candidates blocked by the same issue elsewhere: one view.
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+ndeps 65 "[$(dep 328 z5labs/other)]"
+nstate z5labs/other 328 OPEN
+checkd_blocked 'both candidates blocked by one edge elsewhere' \
+  'z5labs/other#328 is OPEN' '63 65'
+CALLS=$(grep -c . "$SCRATCH/calls")
+if [ "$CALLS" -eq 1 ]; then
+  pass=$((pass + 1))
+  printf '  ok   %-58s [1 view]\n' 'a cross-repository state is read once and cached'
+else
+  fail=$((fail + 1))
+  printf '  FAIL %-58s want 1 view, got %d: %s\n' \
+    'a cross-repository state is read once and cached' "$CALLS" "$(tr '\n' ' ' <"$SCRATCH/calls")"
+fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -198,10 +198,16 @@ you *write* an issue for a `native` repository, add the edge with `gh issue edit
 carrying the label is eligible and the lowest-numbered one wins.
 
 Under both parsing styles, text inside a ``` or `~~~` fence is example text, not a
-declaration. A bare `#N` means an issue in this repository. Under all three declaring styles,
-a cross-repository `owner/repo#N` is not modelled: it makes *that issue* ineligible and is
-named in the report, rather than being skipped and the issue called eligible — but the walk
-continues, so one unresolvable reference does not starve a backlog whose other issues are
+declaration. A bare `#N` means an issue in this repository and `owner/repo#N` one anywhere
+else; under all three declaring styles both are resolved the same way, against the repository
+the reference names, and both are satisfied when that issue is CLOSED. A cross-repository
+dependency therefore decays when its blocker lands, exactly like one here — which is what
+makes a story in one repository able to wait on work in another.
+
+A dependency whose state cannot be *read* — a private repository, a token without the scope,
+a deleted issue — is `UNREADABLE` and stays a blocker. That makes *that issue* ineligible and
+is named in the report, rather than being skipped and the issue called eligible, but the walk
+continues, so one unreadable reference does not starve a backlog whose other issues are
 workable. Under `native` a dependency query that fails outright is treated the same way: that
 issue is ineligible with the error recorded, never eligible-by-default.
 

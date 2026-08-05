@@ -221,9 +221,10 @@ fi
 # Read over GraphQL rather than `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`
 # for one reason: the REST route is per-repository, so a dependency on an issue
 # elsewhere would come back described by a `repository_url` to re-derive, while
-# `blockedBy` carries `repository { nameWithOwner }` on the node. Cross-repository
-# edges are the case that has to be *named* rather than dropped, so the shape
-# that states them plainly wins.
+# `blockedBy` carries `repository { nameWithOwner }` on the node. A
+# cross-repository edge has to be *named* before it can be resolved — the
+# eligibility walk below reads its state against the repository the node names —
+# so the shape that states it plainly wins.
 NATIVE_QUERY=$(cat <<'QUERY'
 query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
   repository(owner: $owner, name: $name) {
@@ -302,8 +303,9 @@ fi
 # The only network in this section, and the only thing the seam above does not
 # cover. Every diagnostic goes to stderr and the exit status is all the caller
 # reads, because a failure here has to make *that issue* ineligible rather than
-# stop the walk — the same call the cross-repository case settles on. The one
-# thing it must never do is succeed with nothing on stdout.
+# stop the walk — the same treatment a dependency whose state cannot be read
+# settles on below. The one thing it must never do is succeed with nothing on
+# stdout.
 native_fetch() { # <repo> <issue-number>
   local owner=${1%%/*} name=${1##*/} pages
 
@@ -712,21 +714,47 @@ fi
 
 # --------------------------------------------------------------- eligible -----
 # Walk in ascending number order and take the first issue whose every declared
-# dependency is CLOSED. An issue with a dependency this script cannot resolve is
+# dependency is CLOSED. An issue with a dependency this script cannot read is
 # skipped rather than treated as eligible — but it is skipped as *ineligible*,
-# with its reason recorded, so the backlog is not starved by one unresolvable
+# with its reason recorded, so the backlog is not starved by one unreadable
 # reference while other issues are workable.
+#
+# A dependency elsewhere is read exactly like one here. `owner/repo#N` names a
+# repository `gh issue view --repo` accepts, so the only thing that ever made it
+# unresolvable was this function pinning the repository to $REPO — and an edge
+# that cannot decay does not describe a dependency, it retires the issue holding
+# it. That is the natural shape of a multi-repository backlog: stories in one
+# repository waiting on work in another, which is the case `blockedBy` carries
+# `repository { nameWithOwner }` for in the first place.
+#
+# Unreadable is still a blocker, and that is the half of the old behaviour worth
+# keeping: a private repository, a token without the scope, or a deleted issue
+# yields UNREADABLE rather than an assumption, because calling a blocked issue
+# eligible is the failure this whole step avoids.
+#
+# Keyed on `owner/repo#N` rather than the bare number. An issue number is only
+# unique within its repository, so a cache keyed on the number alone would let
+# this repository's closed #12 answer for another repository's open one — a
+# dependency resolved against the wrong issue entirely.
+#
+# The answer comes back in DEP_STATE rather than on stdout, which is the only
+# form in which the cache works at all. A function whose result is read with
+# `$(...)` runs in a subshell, so every write to STATE_CACHE was discarded the
+# moment it returned and each edge cost a fresh `gh issue view` — including the
+# repeated ones this exists to collapse, on a backlog where several issues
+# commonly wait on the same blocker.
 STATE_CACHE=""
-dep_state() { # <issue-number>
-  local hit
+DEP_STATE=""
+dep_state() { # <repo> <issue-number> ; answers in DEP_STATE
+  local key="$1#$2" hit
   case "$STATE_CACHE" in
-    *"|$1="*) hit=${STATE_CACHE##*"|$1="}; printf '%s' "${hit%%|*}"; return 0 ;;
+    *"|$key="*) hit=${STATE_CACHE##*"|$key="}; DEP_STATE=${hit%%|*}; return 0 ;;
   esac
   local s
-  s=$(gh issue view "$1" --repo "$REPO" --json state --jq .state 2>/dev/null) || s=""
+  s=$(gh issue view "$2" --repo "$1" --json state --jq .state 2>/dev/null) || s=""
   [ -n "$s" ] || s=UNREADABLE
-  STATE_CACHE="$STATE_CACHE|$1=$s|"
-  printf '%s' "$s"
+  STATE_CACHE="$STATE_CACHE|$key=$s|"
+  DEP_STATE=$s
 }
 
 [ "$STYLE" = native ] && need_errfile
@@ -766,13 +794,20 @@ while IFS=$'\t' read -r NUM TITLE; do
     case "$ref" in
       \#*)
         d=${ref#\#}
-        st=$(dep_state "$d")
-        [ "$st" = CLOSED ] || blockers="$blockers #$d is $st;"
+        dep_state "$REPO" "$d"
+        [ "$DEP_STATE" = CLOSED ] || blockers="$blockers #$d is $DEP_STATE;"
+        ;;
+      */*\#*)
+        # owner/repo#N — the same read against the repository it names.
+        dep_state "${ref%#*}" "${ref##*#}"
+        [ "$DEP_STATE" = CLOSED ] || blockers="$blockers $ref is $DEP_STATE;"
         ;;
       *)
-        # owner/repo#N. Not modelled, and guessing is worse than declining:
-        # calling the issue eligible is the failure this whole step avoids.
-        blockers="$blockers $ref is a cross-repository dependency this cycle cannot resolve;"
+        # Defensive. Both producers of $REFS print one of the two shapes above
+        # and nothing else, so this is a reference that was not recognised
+        # rather than one that was not resolvable — and an unrecognised
+        # reference is a dependency dropped, which reads as an eligible issue.
+        blockers="$blockers $ref is not a reference this cycle can resolve;"
         ;;
     esac
   done
