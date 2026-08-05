@@ -35,7 +35,9 @@ dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan \
 | `jobTimeout` | the surrounding job's budget: `timeout` plus setup headroom, computed here because most CI expression languages have no arithmetic |
 
 `affected-modules` answers the attribution half on its own — which modules a
-change reached — without loading any of them.
+change reached — without loading any of them. `record-pass` is the other end of
+`hash`: it writes the entry a later run's plan reads back, for the store this
+module owns both sides of. See [The store](#the-store).
 
 ## Formats
 
@@ -92,6 +94,11 @@ run's own `GITHUB_TOKEN`. Without `actions: read` the store simply cannot be
 read, which costs speed and never correctness. `memoize: false` turns off both
 the read and the recording.
 
+The workflow uses the `ACTIONS_CACHE` store, so its recording step is
+`actions/cache/save` as above. `GIT_REFS` is for consumers whose CI system has no
+equivalent — and for GitHub consumers who would rather have one call do both
+halves; moving the workflow onto it is tracked separately.
+
 Three things a caller owns rather than the workflow:
 
 - **Permissions.** The workflow declares none, so it inherits the calling job's
@@ -138,9 +145,11 @@ Three properties worth knowing before you wire it up:
   does not remove.
 - **`jobTimeout` is not rendered**, because a branch has no surrounding job to
   bound. Each branch carries its leg's step budget as a `timeout`.
-- **`hash` is not rendered either.** Recording a pass needs a cache the module
-  cannot write to, so memoization here means reading `--format=JSON` alongside
-  and doing the recording yourself.
+- **`hash` is not rendered either**, so memoization here means reading
+  `--format=JSON` alongside and re-associating the hashes with the branches by
+  leg name. `record-pass` now removes the harder half of that — a Jenkins
+  pipeline with a `GIT_REFS` store can do the recording with one call and no
+  cache action — but the branches still do not carry the hash to record.
 
 An empty plan emits `[:]`, an empty `Map`, which `parallel` accepts as a no-op —
 `[]` is an empty `List` and `parallel` would reject it.
@@ -161,9 +170,9 @@ consumer pinning `change-aware-ci.yml@v1.2.3` should pass
 `module: github.com/z5labs/devex/daggerverse/workspace-ci@v1.2.3` alongside it,
 or the workflow it pinned will plan with whatever the planner has since become.
 
-To also adopt `generated`, `generated-self-test` and `selection-self-test` as
-checks of your own, install this module as a **dependency of your root module**
-and declare them there:
+To also adopt `generated`, `generated-self-test`, `selection-self-test` and
+`memo-store-self-test` as checks of your own, install this module as a
+**dependency of your root module** and declare them there:
 
 ```go
 // +check
@@ -308,8 +317,23 @@ its own trust boundary.
 
 ### The store
 
-Reading is all this module does. A write needs `ACTIONS_RUNTIME_TOKEN`, which
-only a running workflow has, so recording a pass stays a CI-native step:
+There are two, chosen with `--memo-store`. They differ in exactly one way that
+matters — whether this module can write them — and that difference propagates
+into two different trust arguments, so they are spelled out separately below.
+
+Either one is pointed at with `--memo-token`, `--memo-repo` and `--memo-refs`
+(and `--memo-api` for GitHub Enterprise Server). `--memo-refs` is the list of git
+refs whose scopes may hold a pass, spelled in full, and it defaults to none: a
+scope a run can write is one that has to be chosen deliberately. You can also
+skip the store entirely and pass hashes you read yourself as
+`--known-good='["…"]'`.
+
+#### `ACTIONS_CACHE` — read here, written by the workflow
+
+The default, and what `change-aware-ci.yml` uses. An entry is a GitHub Actions
+cache key, `workspace-ci-memo-v1-<hash>`, and nothing else; nothing ever reads
+the payload back. Writing one needs `ACTIONS_RUNTIME_TOKEN`, which only a running
+workflow has, so recording stays a CI-native step:
 
 ```yaml
 - uses: actions/cache/save@v4
@@ -319,14 +343,70 @@ only a running workflow has, so recording a pass stays a CI-native step:
     key: workspace-ci-memo-v1-${{ matrix.job.hash }}
 ```
 
-The entry's whole meaning is its key; nothing ever reads the payload back. Point
-the planner at the store with `--memo-token`, `--memo-repo` and `--memo-refs`, or
-pass hashes you read yourself as `--known-good='["…"]'`.
+`record-pass` reports `UNSUPPORTED` against this store rather than pretending.
 
-That read/write asymmetry is also what bounds the trust. A run can only write
-cache entries under its own `GITHUB_REF`, so nominating the default branch and a
-PR's own scope admits no other branch and no fork — stricter than GitHub's own
-restore rules, which would also expose a stacked PR's base branch.
+That read/write asymmetry is also what bounds the trust, and **GitHub enforces
+it**: a run can only write cache entries under its own `GITHUB_REF`, so
+nominating the default branch and a PR's own scope admits no other branch and no
+fork — stricter than GitHub's own restore rules, which would also expose a
+stacked PR's base branch.
+
+#### `GIT_REFS` — read and written here
+
+A store this module owns both sides of, so `record-pass` works and a CI system
+with no equivalent of `actions/cache/save` can memoize at all. An entry is a git
+ref in `--memo-repo` and, again, nothing else:
+
+```
+refs/workspace-ci-memo/v1/<scope>/<input-hash>/<unix-seconds>
+```
+
+`<scope>` is the hex encoding of the recording run's ref — hex because a raw ref
+name contains slashes, which would make `refs/heads/main` a path prefix of
+`refs/heads/main/feature` and let a branch anyone can create read and poison the
+default branch's scope. Decode one with `printf %s <scope> | xxd -r -p`. The
+timestamp is in the name because GitHub's ref listing carries no date, and a TTL
+read on every plan must not cost an API call per entry. The ref points at the
+commit that passed, so `git log` on it shows what proved the hash.
+
+Recording is one call per green leg:
+
+```
+dagger -m <planner> call \
+  --memo-store=GIT_REFS --memo-token=env:GH_TOKEN \
+  --memo-repo="$REPO" --memo-refs="$REF" \
+  record-pass --hash="$HASH" --ref="$REF" --commit="$SHA"
+```
+
+It prints one word — `RECORDED`, `ALREADY_RECORDED`, `REFUSED`, `SKIPPED`,
+`UNSUPPORTED` or `FAILED` — and **never fails**. Recording happens after the work
+is already green, so a store outage has to cost a later run its time and nothing
+else; a caller who wants it loud compares the word. Recording a hash the store
+already holds writes nothing and does not refresh its timestamp, because doing so
+would extend a TTL whose whole job is to bound how long a pass may be honoured.
+An empty hash — a leg the planner could not hash — records nothing. The one hard
+error is a call that names no ref, because with no ref there is no scope to judge
+and a silent refusal would be indistinguishable from one that was judged.
+
+#### The trust argument for module-side writes
+
+This is the part that is **not** inherited from the Actions cache, and it is
+stated here rather than left implicit because the difference is easy to miss:
+
+- **GitHub isolates cache scopes. It does not isolate refs.** A token that can
+  create a ref can create any ref, including one under another branch's scope. So
+  the module refusing to write from a ref outside `--memo-refs` is a guard
+  against *accident*, not against a malicious writer, and it is the reason
+  `record-pass` returns `REFUSED` rather than writing quietly.
+- **The enforcement is the credential.** On GitHub Actions a fork pull request's
+  `GITHUB_TOKEN` is read-only, so a fork cannot record at all — the same boundary
+  the Actions cache gives, arrived at differently. Grant `contents: write` only
+  to the runs whose scopes you nominated, and protect
+  `refs/workspace-ci-memo/*` with a repository ruleset if you want the boundary
+  enforced server-side rather than by which jobs hold which token.
+- **Everything downstream is unchanged.** A ref-store entry is honoured on
+  exactly the same terms as a cache entry: the same TTL, the same per-scope
+  reads, and the same wholesale refusal below.
 
 Within a PR's own scope the writer is that PR, so the planner refuses to honour
 *any* recorded pass once a **global input** changed. Those are the only paths
@@ -383,7 +463,8 @@ hash.**
 A source-derived hash cannot see upstream drift: checks that boot real services
 from floating tags mean an identical tree does not imply an identical container.
 The answer is an explicit bound on how long a recorded pass may be honoured —
-`--memo-ttl`, 24h by default, applied against each cache entry's `created_at`.
+`--memo-ttl`, 24h by default, applied against each entry's write time — an
+Actions cache entry's `created_at`, or the timestamp in a ref entry's own name.
 
 Folding resolved image digests into the hash was rejected: it means resolving
 every module's images, which is most of the cost memoization is meant to avoid,
@@ -435,6 +516,16 @@ dependency-free module in the workspace, or whichever one `--probe-module` names
 a recorded pass depends on, against fixed in-process fixtures. It needs no engine
 and no services, so it is cheap enough to run on every leg set.
 
+`memo-store-self-test` does the same for the store this module writes: that a
+pass lands under its own ref's scope, that recording it twice writes nothing and
+refreshes no TTL, that entries read back, that one past the TTL does not, and
+that one ref's scope stays out of another's. It drives the real HTTP client
+against an in-process stub of GitHub's API, so it too needs no network, no
+credential and no services. It is a check and not only a Go test because this is
+the half of memoization that fails silently — a store that quietly takes nothing
+looks exactly like one nobody has recorded into, and a scope that leaks costs
+correctness rather than time.
+
 ## Two deliberate omissions
 
 **No `PlanShouldNotBeCached` test**, though `plan` carries `+cache="never"` and
@@ -447,10 +538,15 @@ tree the planner never read — but it is unprovable, and a test that proves
 nothing is worse than none. `generated-self-test` remains the real proof for the
 codegen half.
 
-**No end-to-end test of the memo store read.** The rules that matter — a
-known-good hash drops its leg, a global input retires every recorded pass, an
-unhashable leg is never dropped — are tested through `--known-good`, which is the
-same code path. What the store itself contributes is prefix matching, TTL
-filtering and ref scoping, which are unit-tested against a stub in `memostore`,
-because reaching the real Actions cache API from a test would mean a live GitHub
-token and a live cache.
+**No end-to-end test against a real store.** The rules that matter on the read
+side — a known-good hash drops its leg, a global input retires every recorded
+pass, an unhashable leg is never dropped — are tested through `--known-good`,
+which is the same code path. What each store itself contributes is prefix
+matching, TTL filtering, ref scoping and, for `GIT_REFS`, recording: those are
+covered against an in-process stub, in `memostore`'s Go test and in
+`memo-store-self-test`, because reaching the real APIs from a test would mean a
+live GitHub token, a live cache and refs written into a real repository. The
+`record-pass` tests in `tests/` therefore assert the decisions the module makes
+before the store is reached — which store, which ref, which hash — and prove a
+trusted ref really does go on to the store by watching it fail against one that
+cannot answer.

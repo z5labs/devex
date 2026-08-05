@@ -65,8 +65,10 @@ func (r WorkspaceCi) MarshalJSON() ([]byte, error) {
 		SplitModules   []string
 		Timeouts       string
 		DefaultTimeout int
+		MemoStore      MemoStore
 		MemoToken      *dagger.Secret
 		MemoRepo       string
+		MemoAPI        string
 		MemoRefs       []string
 		MemoTTL        int
 	}
@@ -74,8 +76,10 @@ func (r WorkspaceCi) MarshalJSON() ([]byte, error) {
 	concrete.SplitModules = r.SplitModules
 	concrete.Timeouts = r.Timeouts
 	concrete.DefaultTimeout = r.DefaultTimeout
+	concrete.MemoStore = r.MemoStore
 	concrete.MemoToken = r.MemoToken
 	concrete.MemoRepo = r.MemoRepo
+	concrete.MemoAPI = r.MemoAPI
 	concrete.MemoRefs = r.MemoRefs
 	concrete.MemoTTL = r.MemoTTL
 	return json.Marshal(&concrete)
@@ -87,8 +91,10 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 		SplitModules   []string
 		Timeouts       string
 		DefaultTimeout int
+		MemoStore      MemoStore
 		MemoToken      *dagger.Secret
 		MemoRepo       string
+		MemoAPI        string
 		MemoRefs       []string
 		MemoTTL        int
 	}
@@ -100,8 +106,10 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 	r.SplitModules = concrete.SplitModules
 	r.Timeouts = concrete.Timeouts
 	r.DefaultTimeout = concrete.DefaultTimeout
+	r.MemoStore = concrete.MemoStore
 	r.MemoToken = concrete.MemoToken
 	r.MemoRepo = concrete.MemoRepo
+	r.MemoAPI = concrete.MemoAPI
 	r.MemoRefs = concrete.MemoRefs
 	r.MemoTTL = concrete.MemoTTL
 	return nil
@@ -151,6 +159,52 @@ func (r *Format) UnmarshalJSON(bs []byte) error {
 		*r = FormatJSON
 	case "Jenkins":
 		*r = FormatJenkins
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
+func (r MemoStore) IsEnum() {}
+
+func (r MemoStore) Name() string {
+	switch r {
+	case MemoStoreActionsCache:
+		return "ActionsCache"
+	case MemoStoreGitRefs:
+		return "GitRefs"
+	}
+	return ""
+}
+
+func (r MemoStore) Value() string {
+	return string(r)
+}
+
+func (r MemoStore) MarshalJSON() ([]byte, error) {
+	if r == "" {
+		return []byte("\"\""), nil
+	}
+	name := r.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", r)
+	}
+	return json.Marshal(name)
+}
+
+func (r *MemoStore) UnmarshalJSON(bs []byte) error {
+	var s string
+	err := json.Unmarshal(bs, &s)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*r = ""
+	case "ActionsCache":
+		*r = MemoStoreActionsCache
+	case "GitRefs":
+		*r = MemoStoreGitRefs
 	default:
 		return fmt.Errorf("invalid enum value %q", s)
 	}
@@ -332,6 +386,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*WorkspaceCi).GeneratedSelfTest(&parent, ctx, probeModule)
+		case "MemoStoreSelfTest":
+			var parent WorkspaceCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*WorkspaceCi).MemoStoreSelfTest(&parent, ctx)
 		case "Plan":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
@@ -388,6 +449,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*WorkspaceCi).Plan(&parent, ctx, base, head, format, repo, workspace, knownGood, diagnostics)
+		case "RecordPass":
+			var parent WorkspaceCi
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var hash string
+			if inputArgs["hash"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["hash"]), &hash)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg hash", err))
+				}
+			}
+			var ref string
+			if inputArgs["ref"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["ref"]), &ref)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg ref", err))
+				}
+			}
+			var commit string
+			if inputArgs["commit"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["commit"]), &commit)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg commit", err))
+				}
+			}
+			return (*WorkspaceCi).RecordPass(&parent, ctx, hash, ref, commit)
 		case "SelectionSelfTest":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
@@ -429,6 +518,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg defaultTimeout", err))
 				}
 			}
+			var memoStore MemoStore
+			if inputArgs["memoStore"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["memoStore"]), &memoStore)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoStore", err))
+				}
+			}
 			var memoToken *dagger.Secret
 			if inputArgs["memoToken"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["memoToken"]), &memoToken)
@@ -441,6 +537,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				err = json.Unmarshal([]byte(inputArgs["memoRepo"]), &memoRepo)
 				if err != nil {
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoRepo", err))
+				}
+			}
+			var memoApi string
+			if inputArgs["memoAPI"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["memoAPI"]), &memoApi)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoAPI", err))
 				}
 			}
 			var memoRefs []string
@@ -457,7 +560,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg memoTTL", err))
 				}
 			}
-			return New(globalPaths, splitModules, timeouts, defaultTimeout, memoToken, memoRepo, memoRefs, memoTtl)
+			return New(globalPaths, splitModules, timeouts, defaultTimeout, memoStore, memoToken, memoRepo, memoApi, memoRefs, memoTtl)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

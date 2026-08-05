@@ -247,6 +247,15 @@ func (t *Tests) All(ctx context.Context) error {
 		"plan-splits-named-modules-on-the-run-everything-path":   t.PlanSplitsNamedModulesOnTheRunEverythingPath,
 		"new-rejects-malformed-timeouts":                         t.NewRejectsMalformedTimeouts,
 		"new-rejects-memo-token-without-repo":                    t.NewRejectsMemoTokenWithoutRepo,
+		"new-rejects-an-unknown-memo-store":                      t.NewRejectsAnUnknownMemoStore,
+		"record-pass-refuses-an-untrusted-ref":                   t.RecordPassRefusesAnUntrustedRef,
+		"record-pass-reaches-the-store-from-trusted-ref":         t.RecordPassReachesTheStoreFromTrustedRef,
+		"record-pass-never-fails-the-passing-check":              t.RecordPassNeverFailsThePassingCheck,
+		"record-pass-skips-an-unhashable-leg":                    t.RecordPassSkipsAnUnhashableLeg,
+		"record-pass-says-the-actions-cache-is-unwritable":       t.RecordPassSaysTheActionsCacheIsUnwritable,
+		"record-pass-skips-with-no-store-configured":             t.RecordPassSkipsWithNoStoreConfigured,
+		"record-pass-needs-the-runs-ref":                         t.RecordPassNeedsTheRunsRef,
+		"memo-store-self-test-passes":                            t.MemoStoreSelfTestPasses,
 		"selection-self-test-passes":                             t.SelectionSelfTestPasses,
 	} {
 		g.Go(func() error {
