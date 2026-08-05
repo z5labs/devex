@@ -139,6 +139,70 @@ func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error 
 	return nil
 }
 
+// GoAppCiRedactsCredentialsFromTheSourceAnnotation asserts a
+// credential-bearing origin remote does not travel in the published
+// image's source annotation.
+//
+// This is not hypothetical: `actions/checkout` leaves the origin URL as
+// `https://x-access-token:<token>@github.com/org/repo`, and an
+// annotation is readable by anyone who can pull the image. So the host
+// and path have to survive — the annotation is useless without them —
+// while the userinfo must not.
+func (t *Tests) GoAppCiRedactsCredentialsFromTheSourceAnnotation(ctx context.Context) error {
+	const tag = "v7.0.0"
+	token, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("random sha256 (fake checkout token): %v", err)
+	}
+	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	// Overwrite the fixture's origin with the shape a CI checkout leaves.
+	credentialed := "https://x-access-token:" + token + "@example.com/z5labs/fixture.git"
+	ctr := dag.Go().Container(src).
+		WithEnvVariable("NONCE", token).
+		WithExec([]string{"git", "remote", "set-url", "origin", credentialed})
+	if _, err := ctr.Sync(ctx); err != nil {
+		return fmt.Errorf("set credentialed origin: %v", err)
+	}
+	src = ctr.Directory("/src")
+
+	svc, _, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
+		PublishOn:       "^refs/tags/v.+",
+		Registry:        registryAlias + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+		Insecure:        true,
+		Platforms:       []string{hostPlatform()},
+	})).Ci(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci: %v", err)
+	}
+
+	image, err := fetchManifest(ctx, testRegistry(svc, secret), "hello", digest)
+	if err != nil {
+		return err
+	}
+	source := image.Annotations["org.opencontainers.image.source"]
+	if strings.Contains(source, token) {
+		return fmt.Errorf("the source annotation carries the checkout token")
+	}
+	if source != "https://example.com/z5labs/fixture.git" {
+		return fmt.Errorf("expected the redacted origin, got %q", source)
+	}
+	return nil
+}
+
 // GoAppCiAttachesSbomsAndProvenance asserts that a publish leaves an
 // SPDX document, a CycloneDX document and a signed provenance statement
 // attached to the digest it returned, each retrievable from the registry
@@ -355,28 +419,55 @@ func checkStatement(statement map[string]any, digest string, claims map[string]a
 	if !ok || len(subjects) != 1 {
 		return fmt.Errorf("expected exactly 1 subject, got %v", statement["subject"])
 	}
-	subject, _ := subjects[0].(map[string]any)
-	digests, _ := subject["digest"].(map[string]any)
+	subject, err := object(subjects[0], "subject[0]")
+	if err != nil {
+		return err
+	}
+	digests, err := object(subject["digest"], "subject[0].digest")
+	if err != nil {
+		return err
+	}
 	_, encoded, _ := strings.Cut(digest, ":")
 	if got := digests["sha256"]; got != encoded {
 		return fmt.Errorf("expected the statement's subject to be %s, got %v", digest, got)
 	}
 
-	predicate, _ := statement["predicate"].(map[string]any)
-	runDetails, _ := predicate["runDetails"].(map[string]any)
-	builder, _ := runDetails["builder"].(map[string]any)
+	predicate, err := object(statement["predicate"], "predicate")
+	if err != nil {
+		return err
+	}
+	runDetails, err := object(predicate["runDetails"], "predicate.runDetails")
+	if err != nil {
+		return err
+	}
+	builder, err := object(runDetails["builder"], "predicate.runDetails.builder")
+	if err != nil {
+		return err
+	}
 	wantBuilder := fmt.Sprintf("%v#%v", claims["iss"], claims["sub"])
 	if got := builder["id"]; got != wantBuilder {
 		return fmt.Errorf("expected builder id %q, got %v", wantBuilder, got)
 	}
-	metadata, _ := runDetails["metadata"].(map[string]any)
+	metadata, err := object(runDetails["metadata"], "predicate.runDetails.metadata")
+	if err != nil {
+		return err
+	}
 	if got := metadata["invocationId"]; got != claims["run_id"] {
 		return fmt.Errorf("expected invocationId %v, got %v", claims["run_id"], got)
 	}
 
-	definition, _ := predicate["buildDefinition"].(map[string]any)
-	external, _ := definition["externalParameters"].(map[string]any)
-	workflow, _ := external["workflow"].(map[string]any)
+	definition, err := object(predicate["buildDefinition"], "predicate.buildDefinition")
+	if err != nil {
+		return err
+	}
+	external, err := object(definition["externalParameters"], "predicate.buildDefinition.externalParameters")
+	if err != nil {
+		return err
+	}
+	workflow, err := object(external["workflow"], "predicate.buildDefinition.externalParameters.workflow")
+	if err != nil {
+		return err
+	}
 	if got := workflow["repository"]; got != claims["repository"] {
 		return fmt.Errorf("expected repository %v, got %v", claims["repository"], got)
 	}
@@ -384,6 +475,23 @@ func checkStatement(statement map[string]any, digest string, claims map[string]a
 		return fmt.Errorf("expected workflow ref %v, got %v", claims["job_workflow_ref"], got)
 	}
 	return nil
+}
+
+// object narrows one decoded JSON value to an object, naming the path it
+// was reached by.
+//
+// Walking a statement with `value, _ := x.(map[string]any)` does not
+// panic — Go reads a nil map happily — but it does turn a document with
+// the wrong shape into a complaint about a field being `<nil>`, several
+// levels below where the shape actually went wrong. Naming the path is
+// the difference between "expected builder id X, got <nil>" and
+// "predicate.runDetails is not an object".
+func object(value any, path string) (map[string]any, error) {
+	out, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s is not an object, got %T (%v)", path, value, value)
+	}
+	return out, nil
 }
 
 // headFullSha returns the unabbreviated HEAD SHA of a git-backed source.

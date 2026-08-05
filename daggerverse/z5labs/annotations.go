@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"strings"
 )
 
@@ -90,11 +91,40 @@ printf 'source=%s\n' "$(git config --get remote.origin.url || true)"
 		}
 		fields[key] = value
 	}
+	// The failures below name the field and not the output. `git config
+	// --get remote.origin.url` routinely returns a URL with credentials
+	// in it — `https://x-access-token:<token>@host/org/repo` is what a
+	// GitHub Actions checkout leaves behind — and an error message is
+	// the least controlled output this module has.
 	if fields["sha"] == "" {
-		return "", "", "", fmt.Errorf("read git state for image annotations: no HEAD commit in %q", out)
+		return "", "", "", fmt.Errorf("read git state for image annotations: HEAD names no commit")
 	}
 	if fields["created"] == "" {
-		return "", "", "", fmt.Errorf("read git state for image annotations: no commit time in %q", out)
+		return "", "", "", fmt.Errorf("read git state for image annotations: HEAD carries no commit time")
 	}
-	return fields["sha"], fields["created"], fields["source"], nil
+	return fields["sha"], fields["created"], redactURLCredentials(fields["source"]), nil
+}
+
+// redactURLCredentials strips any userinfo from a URL.
+//
+// The origin remote is published as org.opencontainers.image.source, on
+// a manifest anyone who can pull the image can read — and a CI checkout
+// leaves credentials in that remote as a matter of course, so the
+// annotation is a credential-exfiltration path unless the userinfo comes
+// off. A URL that carried credentials keeps its host and path and loses
+// only the part that was never meant to travel.
+//
+// Anything that does not parse as a URL is returned unchanged: an SSH
+// remote is spelled `git@host:org/repo`, which is not a URL and carries
+// a username that is part of the address rather than a secret.
+func redactURLCredentials(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.User == nil {
+		return raw
+	}
+	parsed.User = nil
+	return parsed.String()
 }
