@@ -1,4 +1,9 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(bash .github/scripts/verify-affected-modules.sh)"
+    ]
+  },
   "enabledPlugins": {
     "daggerverse@z5labs-devex": true,
     "backlog@z5labs-devex": true

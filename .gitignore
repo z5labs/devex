@@ -1,0 +1,6 @@
+# Per-issue worktrees created by the backlog loop (`worktreeDir` in
+# .claude/backlog.json). They live inside the repository so a run can find
+# them without a path outside it, which means the repository has to be told
+# not to track its own checkouts: an untracked worktree reads as a dirty tree,
+# and a dirty tree is one of the cycle's stop conditions.
+.claude/worktrees/
