@@ -248,12 +248,19 @@ func (c *conn) nameOptions() []name.Option {
 }
 
 // remoteOptions builds the go-containerregistry options for this connection.
+//
+// RegistryToken is go-containerregistry's name for a bearer token sent as-is,
+// and IdentityToken its name for an OAuth2 refresh token — the same two
+// things oras calls AccessToken and RefreshToken. The mapping lives here so
+// that credential resolution never has to know which library will be used.
 func (c *conn) remoteOptions(ctx context.Context) []remote.Option {
 	opts := []remote.Option{remote.WithContext(ctx)}
-	if c.username != "" || c.password != "" {
+	if !c.cred.empty() {
 		opts = append(opts, remote.WithAuth(authn.FromConfig(authn.AuthConfig{
-			Username: c.username,
-			Password: c.password,
+			Username:      c.cred.username,
+			Password:      c.cred.password,
+			RegistryToken: c.cred.accessToken,
+			IdentityToken: c.cred.refreshToken,
 		})))
 	} else {
 		opts = append(opts, remote.WithAuth(authn.Anonymous))

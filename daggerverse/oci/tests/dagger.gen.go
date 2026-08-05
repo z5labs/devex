@@ -213,6 +213,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AnnotationsSurvivePush(&parent, ctx)
+		case "AnonymousAccessNeedsNoCredentials":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AnonymousAccessNeedsNoCredentials(&parent, ctx)
 		case "AttachFailsForUnknownSubject":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -227,6 +234,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AttachThenFetchRoundTripsContent(&parent, ctx)
+		case "AuthenticatesFromDockerConfig":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AuthenticatesFromDockerConfig(&parent, ctx)
+		case "AuthenticatesWithBearerToken":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AuthenticatesWithBearerToken(&parent, ctx)
 		case "CopyPreservesAllManifests":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -234,6 +255,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CopyPreservesAllManifests(&parent, ctx)
+		case "DockerConfigCredentialHelperIsNotSupported":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DockerConfigCredentialHelperIsNotSupported(&parent, ctx)
+		case "DockerConfigCredentialsDoNotLeak":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).DockerConfigCredentialsDoNotLeak(&parent, ctx)
+		case "PasswordBeatsTokenAndDockerConfig":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PasswordBeatsTokenAndDockerConfig(&parent, ctx)
 		case "PushArtifactThenFetchRoundTripsContent":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -304,6 +346,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ResolveIsNotCached(&parent, ctx)
+		case "TokenBeatsDockerConfig":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TokenBeatsDockerConfig(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

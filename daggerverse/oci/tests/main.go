@@ -75,6 +75,13 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PushFailsAgainstPlaintextRegistryByDefault", t.PushFailsAgainstPlaintextRegistryByDefault)
 	jobs = jobs.WithJob("PushSucceedsAgainstPlaintextRegistryWhenInsecure", t.PushSucceedsAgainstPlaintextRegistryWhenInsecure)
 	jobs = jobs.WithJob("PushFailsWithBadCredentials", t.PushFailsWithBadCredentials)
+	jobs = jobs.WithJob("AuthenticatesFromDockerConfig", t.AuthenticatesFromDockerConfig)
+	jobs = jobs.WithJob("DockerConfigCredentialsDoNotLeak", t.DockerConfigCredentialsDoNotLeak)
+	jobs = jobs.WithJob("DockerConfigCredentialHelperIsNotSupported", t.DockerConfigCredentialHelperIsNotSupported)
+	jobs = jobs.WithJob("AuthenticatesWithBearerToken", t.AuthenticatesWithBearerToken)
+	jobs = jobs.WithJob("PasswordBeatsTokenAndDockerConfig", t.PasswordBeatsTokenAndDockerConfig)
+	jobs = jobs.WithJob("TokenBeatsDockerConfig", t.TokenBeatsDockerConfig)
+	jobs = jobs.WithJob("AnonymousAccessNeedsNoCredentials", t.AnonymousAccessNeedsNoCredentials)
 
 	return jobs.Run(ctx)
 }
