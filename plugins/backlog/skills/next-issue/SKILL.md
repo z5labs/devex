@@ -93,31 +93,55 @@ you did not expect can be explained without re-running anything.
 ### Scoping the run to one project field value
 
 Some repositories group work by a single-select field on a GitHub project — `Module`, `Area`,
-`Component` — rather than by labels or milestones. Where `.claude/backlog.json` carries
-`select.project`, one run can be restricted to a single value of that field:
+`Component`, `Status` — rather than by labels or milestones. One run can be restricted to a
+single value of one such field:
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/select-issue.sh" --project-value <value>
 ```
 
-Pass the flag when, and only when, you were asked for a scoped run — the user named one, or
-`backlog:run-backlog` put one in your prompt. Otherwise call the script with no arguments and
-let `select.project.value` decide, which is normally `null` and means the whole backlog.
-`--no-project-filter` is the other direction: run unscoped even though the config pins a
-value.
+A scope is four things, and each one has a flag that overrides `.claude/backlog.json` for
+this run only:
+
+| flag | overrides | when you pass it |
+| --- | --- | --- |
+| `--project-value <value>` | `select.project.value` | you were asked for a scoped run |
+| `--project-field <name>` | `select.project.field` | you were asked to scope by an axis other than the configured one — `Status` where the config says `Module` |
+| `--project-owner <login>` | `select.project.owner` | the config has no `select.project` at all, or names a different board |
+| `--project-number <n>` | `select.project.number` | same |
+
+The usual scoped call is `--project-value` alone: the config already names the board and the
+axis, and only the value is a property of this run. `--project-field` is the next most common,
+because a board routinely carries more than one single-select worth scoping by. `--project-owner`
+and `--project-number` are for the repository whose config carries no `select.project` — with
+them a complete scope can be assembled on the command line, so scoping never requires editing
+a tracked file.
+
+Pass a flag when, and only when, you were asked for that scope — the user named it, or
+`backlog:run-backlog` put it in your prompt. **Never infer one from the issues you can see.**
+With nothing asked for, call the script with no arguments and let the config decide, which
+normally means `value` is `null` and the whole backlog is in play. `--no-project-filter` is
+the other direction: run unscoped even though the config pins a value. It cannot be combined
+with any of the four flags above — "unscoped" and "scoped like this" is not a request the
+script will guess at.
 
 The scope is applied before the dependency walk, so the walk sees only in-scope issues and a
 blocker outside the scope cannot hold up the one you were asked to work.
 
-Two things to know when it fails:
+Three things to know when it fails:
 
-- It needs the **`read:project`** token scope, which `repo` does not include.
+- It needs the **`read:project`** token scope, which `repo` does not include, and it needs it
+  however the scope was assembled — a scope built entirely from flags reads the same API.
   `gh auth refresh -s read:project` grants it.
 - Every project failure is exit 4 — a token without that scope, an unknown project, a field
   that does not exist or is not a single-select, a value that is not one of the field's
-  options, `--project-value` with no `select.project` in the config. **Do not retry without
-  the flag.** Selecting from the whole backlog when a scope was asked for gets work done in
-  the wrong order, which is worse than selecting nothing; report `BLOCKED` with the message.
+  options, an axis named with no value to match on it. **Do not retry without the flag.**
+  Selecting from the whole backlog when a scope was asked for gets work done in the wrong
+  order, which is worse than selecting nothing; report `BLOCKED` with the message.
+- A scope that cannot be assembled names the piece that is missing and both places it could
+  have come from — `missing: field (select.project.field or --project-field)`. Supply it on
+  the command line. Do not edit `.claude/backlog.json` to get past it: the config describes
+  the repository's backlog, and a run is not entitled to rewrite that to describe itself.
 
 Exit 10 under a scope is not a failure — the scope is genuinely drained. Say which scope in
 the report, so a finished module reads differently from a finished backlog.
@@ -647,7 +671,8 @@ state you saw.
 
 Finish with a short status: issue number and title, pull request number and URL, check
 result, whether the pull request reached `MERGED`, and any judgment call that shaped the
-public API. If the run was scoped with `--project-value`, name the scope — an outcome from a
+public API. If the run was scoped, name the scope in full — the field as well as the value,
+because the same value can exist on more than one of a board's fields. An outcome from a
 scoped backlog says nothing about the rest of it.
 
 - When `review.required` is `true`: whether Copilot reviewed and what it flagged.
@@ -663,7 +688,8 @@ Stop and report — do not push through — if any of these happen:
 
 - `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
   unknown `dependencies.style`, has an empty `verify`, or a requested project scope could not
-  be resolved. Never re-run it without `--project-value` to get past the last of those.
+  be resolved. Never re-run it with a project flag dropped, widened or edited to get past the
+  last of those, and never edit `.claude/backlog.json` to get past it either.
 - The same CI failure survives three fix attempts.
 - Acceptance criteria are ambiguous enough that two readings produce materially different
   public APIs.

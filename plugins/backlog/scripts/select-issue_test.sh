@@ -482,5 +482,168 @@ checkp_fail 'an unresolvable project is refused' z5labs/devex Module workspace-c
 checkp_fail 'an empty response is refused' z5labs/devex Module workspace-ci \
   'returned no response' ''
 
+printf '\nscope assembly\n'
+
+# Where the scope came from, as opposed to what a project response means. Every
+# case here runs the *whole* script — flags, config, the merge of the two,
+# selection — against a scratch repository and a `gh` that answers from files, so
+# the rules that decide which scope a run is under are exercised with no network
+# at all. That matters most for the case the seam above cannot reach: a complete
+# scope assembled from flags alone, against a config carrying no `select.project`.
+#
+# `dependencies.style` is `none` in every case, so the walk takes the first
+# in-scope candidate and never reads a body. Three answers are therefore
+# distinguishable — unscoped picks 288, `Module = workspace-ci` picks 291,
+# `Status = Todo` picks 302 — and each case asserts which of the three it got.
+# An assertion that could not tell a dropped scope from an applied one would pass
+# for the bug these flags are most able to introduce.
+SCRATCH=$(mktemp -d) || { printf 'cannot create a scratch directory\n' >&2; exit 1; }
+trap 'rm -rf "$SCRATCH"' EXIT
+
+git init -q "$SCRATCH/repo" >/dev/null 2>&1 \
+  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+mkdir -p "$SCRATCH/repo/.claude" "$SCRATCH/bin" "$SCRATCH/pages"
+
+# The three gh calls this path makes, answered from files. The project response
+# is chosen by the `field=` the query was given, which is what lets a case prove
+# the flag reached the *query* rather than only the message. Anything else is a
+# loud failure: `gh issue view` would mean the dependency walk read a body under
+# style `none`.
+cat >"$SCRATCH/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'repo view')  printf 'z5labs/devex\n' ;;
+  'issue list') cat "$STUB_ISSUES" ;;
+  'api graphql')
+    f=""
+    for a in "$@"; do case "$a" in field=*) f=${a#field=} ;; esac; done
+    if [ -n "$f" ] && [ -f "$STUB_PAGES/$f" ]; then cat "$STUB_PAGES/$f"; else cat "$STUB_PAGES/default"; fi ;;
+  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SCRATCH/bin/gh"
+
+printf '288\tthe first\n291\tthe second\n302\tthe third\n' >"$SCRATCH/issues"
+
+page "[$(issue_item 288 z5labs/devex pdf),
+       $(issue_item 291 z5labs/devex workspace-ci),
+       $(issue_item 302 z5labs/devex workspace-ci)]" >"$SCRATCH/pages/Module"
+page "[$(issue_item 288 z5labs/devex Done),
+       $(issue_item 291 z5labs/devex Done),
+       $(issue_item 302 z5labs/devex Todo)]" >"$SCRATCH/pages/Status"
+# A field the project does not have still gets the project's field list back,
+# which is the whole reason `project_query` reads `fields` rather than
+# `field(name:)`.
+page '[]' >"$SCRATCH/pages/default"
+
+# run_sut <select.project json, or - for none> [args...]
+run_sut() {
+  local project=$1
+  shift
+  local block=""
+  [ "$project" = - ] || block=",
+    \"project\": $project"
+  cat >"$SCRATCH/repo/.claude/backlog.json" <<JSON
+{
+  "select": { "label": "story", "milestone": null, "limit": 200$block },
+  "dependencies": { "style": "none" },
+  "verify": ["true"],
+  "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
+  "review": { "required": true },
+  "worktreeDir": ".claude/worktrees"
+}
+JSON
+  RUN_OUT=$(cd "$SCRATCH/repo" && PATH="$SCRATCH/bin:$PATH" \
+    STUB_ISSUES="$SCRATCH/issues" STUB_PAGES="$SCRATCH/pages" \
+    "$SUT" "$@" 2>"$SCRATCH/err")
+  RUN_RC=$?
+  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/err")
+}
+
+# checks <name> <expected issue number> <select.project json|-> [args...]
+checks() {
+  local name=$1 want=$2
+  shift 2
+  run_sut "$@"
+  local got
+  got=$(printf '%s' "$RUN_OUT" | jq -r '.number // empty' 2>/dev/null)
+  if [ "$RUN_RC" -eq 0 ] && [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [#%s]\n' "$name" "$got"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want [#%s] exit 0, got [%s] exit %d: %s\n' \
+      "$name" "$want" "${got:-<none>}" "$RUN_RC" "$RUN_ERR"
+  fi
+}
+
+# checks_fail <name> <substring of the message> <select.project json|-> [args...]
+checks_fail() {
+  local name=$1 want=$2
+  shift 2
+  run_sut "$@"
+  case "$RUN_ERR" in
+    *"$want"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s message lacks [%s]: %s\n' "$name" "$want" "$RUN_ERR"
+       return ;;
+  esac
+  if [ "$RUN_RC" -eq 4 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [exit 4]\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 4, got exit %d\n' "$name" "$RUN_RC"
+  fi
+}
+
+BOARD='{"owner":"z5labs","number":14,"field":"Status","value":null}'
+PINNED='{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}'
+
+# The case the config-only design could not express at all: no select.project in
+# the file, a complete scope on the command line.
+checks 'a scope assembled from flags alone' 291 - \
+  --project-owner z5labs --project-number 14 --project-field Module --project-value workspace-ci
+
+checks 'the =value form assembles the same scope' 291 - \
+  --project-owner=z5labs --project-number=14 --project-field=Module --project-value=workspace-ci
+
+# 291 rather than 302 is the assertion: the flag reached the query, and the
+# configured Status axis did not.
+checks '--project-field overrides the configured field' 291 "$BOARD" \
+  --project-field Module --project-value workspace-ci
+
+checks '--project-value alone keeps the configured field' 302 "$BOARD" \
+  --project-value Todo
+
+checks 'a fully configured scope still needs no flags' 302 "$PINNED"
+
+checks '--no-project-filter drops the configured scope' 288 "$PINNED" \
+  --no-project-filter
+
+# The existing `fields` lookup, reached through the flag rather than the config.
+# No second code path, and no second list of field names to disagree with it.
+checks_fail 'an unknown --project-field names the fields' 'Title, Status, Module' "$BOARD" \
+  --project-field Modul --project-value workspace-ci
+
+# Each of these would otherwise be a run silently widened to another dimension,
+# or to the whole backlog. All three say which piece is missing.
+checks_fail 'a scope with nothing behind it names all three' 'owner (select.project.owner or --project-owner)' - \
+  --project-value workspace-ci
+
+checks_fail 'a config missing only the field says so' 'field (select.project.field or --project-field)' \
+  '{"owner":"z5labs","number":14}' --project-value workspace-ci
+
+checks_fail 'an axis with no value is not an unscoped run' 'no value to scope by' "$BOARD" \
+  --project-field Module
+
+checks_fail 'a scope flag and --no-project-filter is refused' 'cannot be combined with' "$BOARD" \
+  --project-field Module --no-project-filter
+
+# The message names the flag, not the config key, when the flag is where the bad
+# number came from.
+checks_fail 'a bad --project-number blames the flag' '--project-number must be a positive integer' - \
+  --project-owner z5labs --project-number fourteen --project-field Module --project-value workspace-ci
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -129,14 +129,21 @@ either way and let the user choose; do not switch the style on their behalf.
   `null`, which means "every open issue with the label".
 - `select.limit` — `200`.
 - `select.project` — **omit it unless the user asks.** It scopes selection to one value of a
-  single-select field on a GitHub project (`Module`, `Area`, `Component`), which is worth
-  having only where the repository actually groups its work that way; absent, selection makes
-  no project API call at all. When it is wanted, `gh project list --owner <owner>` gives the
-  number and `gh project field-list <number> --owner <owner>` gives the field names — both
+  single-select field on a GitHub project (`Module`, `Area`, `Component`, `Status`), which is
+  worth having only where the repository actually groups its work that way; absent, selection
+  makes no project API call at all. When it is wanted, `gh project list --owner <owner>` gives
+  the number and `gh project field-list <number> --owner <owner>` gives the field names — both
   need the `read:project` token scope, which `repo` does not include, so say so in the report
-  along with `gh auth refresh -s read:project`. Leave `value` as `null`: the scope belongs on
-  the run (`select-issue.sh --project-value <value>`), not on the file, because "just this
-  module today" is not a permanent description of the backlog.
+  along with `gh auth refresh -s read:project`.
+
+  Write `owner` and `number` — which board the work lives on is a property of the repository,
+  and they are the only keys the block requires. Write `field` as the axis the backlog is
+  *usually* grouped by, and leave `value` as `null`. Both of those are per-run choices that
+  `select-issue.sh --project-field <name>` and `--project-value <value>` override, because
+  neither "just this module today" nor "the In Progress ones today" is a permanent
+  description of the backlog. Every key here has such a flag, `--project-owner` and
+  `--project-number` included, so writing this block is a convenience and never a
+  prerequisite for a scoped run.
 - `merge.label` / `merge.workflow` — `auto-merge` and `auto-merge.yaml`, matching the asset
   step 3 installs. If you change either, change both, plus the `github.event.label.name`
   guard inside the workflow.
