@@ -65,8 +65,9 @@ func ModuleEntry(moduleDir string) Entry {
 // a leg <module-dir>:<check>, so no per-check leg can answer true here.
 func (e Entry) IsCoarse() bool { return e.Name == e.Module }
 
-// Timeouts are per-leg step budgets in minutes. Three key shapes match a leg, and
-// Apply resolves them weakest first:
+// Timeouts are per-leg step budgets in minutes. Three key shapes reach a leg —
+// listed here by what each one covers, widest first, which is not the order Apply
+// resolves them in; Apply documents that:
 //
 //	<module-dir>          every leg of that module, coarse and per-check alike
 //	<module-dir>:*        that module's coarse run-everything leg alone
