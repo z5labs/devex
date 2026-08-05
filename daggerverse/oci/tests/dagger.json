@@ -12,6 +12,14 @@
     {
       "name": "random",
       "source": "../../random"
+    },
+    {
+      "name": "crypto",
+      "source": "../../crypto"
+    },
+    {
+      "name": "certificate-management",
+      "source": "../../certificate-management"
     }
   ],
   "codegen": {

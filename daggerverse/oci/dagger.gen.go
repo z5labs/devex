@@ -82,6 +82,9 @@ func (r Registry) MarshalJSON() ([]byte, error) {
 		BearerToken  *dagger.Secret
 		DockerConfig *dagger.Secret
 		Service      *dagger.Service
+		CaCert       *dagger.File
+		ClientCert   *dagger.File
+		ClientKey    *dagger.Secret
 	}
 	concrete.Host = r.Host
 	concrete.Username = r.Username
@@ -90,6 +93,9 @@ func (r Registry) MarshalJSON() ([]byte, error) {
 	concrete.BearerToken = r.BearerToken
 	concrete.DockerConfig = r.DockerConfig
 	concrete.Service = r.Service
+	concrete.CaCert = r.CaCert
+	concrete.ClientCert = r.ClientCert
+	concrete.ClientKey = r.ClientKey
 	return json.Marshal(&concrete)
 }
 
@@ -102,6 +108,9 @@ func (r *Registry) UnmarshalJSON(bs []byte) error {
 		BearerToken  *dagger.Secret
 		DockerConfig *dagger.Secret
 		Service      *dagger.Service
+		CaCert       *dagger.File
+		ClientCert   *dagger.File
+		ClientKey    *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -114,6 +123,9 @@ func (r *Registry) UnmarshalJSON(bs []byte) error {
 	r.BearerToken = concrete.BearerToken
 	r.DockerConfig = concrete.DockerConfig
 	r.Service = concrete.Service
+	r.CaCert = concrete.CaCert
+	r.ClientCert = concrete.ClientCert
+	r.ClientKey = concrete.ClientKey
 	return nil
 }
 
@@ -298,7 +310,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg insecure", err))
 				}
 			}
-			return (*Oci).Registry(&parent, host, username, password, bearerToken, dockerConfig, service, insecure), nil
+			var caCert *dagger.File
+			if inputArgs["caCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["caCert"]), &caCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg caCert", err))
+				}
+			}
+			var clientCert *dagger.File
+			if inputArgs["clientCert"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientCert"]), &clientCert)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientCert", err))
+				}
+			}
+			var clientKey *dagger.Secret
+			if inputArgs["clientKey"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["clientKey"]), &clientKey)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg clientKey", err))
+				}
+			}
+			return (*Oci).Registry(&parent, host, username, password, bearerToken, dockerConfig, service, insecure, caCert, clientCert, clientKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

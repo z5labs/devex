@@ -56,6 +56,15 @@ const zotConfig = `{
   "log": { "level": "warn" }
 }`
 
+// The paths inside a zot container that every variant of the test registry
+// agrees on. They are constants so the config that names them and the mount
+// that puts them there cannot drift apart.
+const (
+	zotConfigPath  = "/etc/zot/config.json"
+	htpasswdPath   = "/etc/zot/htpasswd"
+	zotStoragePath = "/var/lib/registry"
+)
+
 // testRegistry is one running registry plus the credentials for it.
 type testRegistry struct {
 	Service  *dagger.Service
@@ -63,17 +72,20 @@ type testRegistry struct {
 	Password string
 }
 
-// newRegistry stands up a zot registry with htpasswd auth, over plain HTTP.
-func newRegistry(ctx context.Context) (*testRegistry, error) {
+// newHtpasswd mints a fresh password for registryUser and renders the
+// htpasswd file zot authenticates against, returning the file, the password
+// as a secret, and its plaintext for the few assertions that go straight at
+// the registry.
+func newHtpasswd(ctx context.Context) (*dagger.File, *dagger.Secret, string, error) {
 	pwd, err := dag.Random().Sha256(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("random sha256 (password): %v", err)
+		return nil, nil, "", fmt.Errorf("random sha256 (password): %v", err)
 	}
 	// Secret names surface in trace UIs and logs, so the name is derived
 	// from an independent random rather than from the password.
 	nameHex, err := dag.Random().Sha256(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("random sha256 (secret name): %v", err)
+		return nil, nil, "", fmt.Errorf("random sha256 (secret name): %v", err)
 	}
 	secret := dag.SetSecret("oci-registry-pwd-"+nameHex[:16], pwd)
 
@@ -82,19 +94,29 @@ func newRegistry(ctx context.Context) (*testRegistry, error) {
 	// Dagger deliberately excludes secret values from cache keys, so without
 	// it this exec would return an earlier session's htpasswd file, built
 	// for an earlier session's password.
-	htpasswd := dag.Container().From("httpd:2.4-alpine").
+	file := dag.Container().From("httpd:2.4-alpine").
 		WithEnvVariable("NONCE", nameHex).
 		WithSecretVariable("REGISTRY_PASSWORD", secret).
 		WithExec([]string{"sh", "-c", `htpasswd -Bbn ` + registryUser + ` "$REGISTRY_PASSWORD" > /tmp/htpasswd`}).
 		File("/tmp/htpasswd")
 
+	return file, secret, pwd, nil
+}
+
+// newRegistry stands up a zot registry with htpasswd auth, over plain HTTP.
+func newRegistry(ctx context.Context) (*testRegistry, error) {
+	htpasswd, secret, pwd, err := newHtpasswd(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	svc := dag.Container().From(registryImage()).
-		WithMountedFile("/etc/zot/htpasswd", htpasswd).
-		WithNewFile("/etc/zot/config.json", zotConfig).
+		WithMountedFile(htpasswdPath, htpasswd).
+		WithNewFile(zotConfigPath, zotConfig).
 		WithExposedPort(5000).
 		AsService(dagger.ContainerAsServiceOpts{
 			UseEntrypoint: true,
-			Args:          []string{"serve", "/etc/zot/config.json"},
+			Args:          []string{"serve", zotConfigPath},
 		})
 
 	return &testRegistry{Service: svc, Secret: secret, Password: pwd}, nil
@@ -177,11 +199,11 @@ func newAnonymousRegistry(ctx context.Context) (*dagger.Service, error) {
 	}
 	return dag.Container().From(registryImage()).
 		WithEnvVariable("NONCE", nonce).
-		WithNewFile("/etc/zot/config.json", anonymousZotConfig).
+		WithNewFile(zotConfigPath, anonymousZotConfig).
 		WithExposedPort(5000).
 		AsService(dagger.ContainerAsServiceOpts{
 			UseEntrypoint: true,
-			Args:          []string{"serve", "/etc/zot/config.json"},
+			Args:          []string{"serve", zotConfigPath},
 		}), nil
 }
 
