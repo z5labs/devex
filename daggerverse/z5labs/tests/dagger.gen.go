@@ -241,6 +241,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppCiAttachesSbomsAndProvenance(&parent, ctx)
+		case "GoAppCiAttestsTwoSegmentBinaryNames":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoAppCiAttestsTwoSegmentBinaryNames(&parent, ctx)
 		case "GoAppCiErrorsWhenPublishOnMatchesButCredsMissing":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

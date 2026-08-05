@@ -124,6 +124,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoAppCiRebuildIsByteIdenticalPerPlatform", t.GoAppCiRebuildIsByteIdenticalPerPlatform)
 	jobs = jobs.WithJob("GoAppCiAnnotatesEveryPlatformVariant", t.GoAppCiAnnotatesEveryPlatformVariant)
 	jobs = jobs.WithJob("GoAppCiAttachesSbomsAndProvenance", t.GoAppCiAttachesSbomsAndProvenance)
+	jobs = jobs.WithJob("GoAppCiAttestsTwoSegmentBinaryNames", t.GoAppCiAttestsTwoSegmentBinaryNames)
 	jobs = jobs.WithJob("GoAppCiRefusesToPublishWithoutProvenanceMachinery", t.GoAppCiRefusesToPublishWithoutProvenanceMachinery)
 	jobs = jobs.WithJob("GoAppCiRedactsCredentialsFromTheSourceAnnotation", t.GoAppCiRedactsCredentialsFromTheSourceAnnotation)
 
