@@ -134,6 +134,10 @@ const (
 	// FormatGithubActions is a single-line JSON array, ready to write to
 	// GITHUB_OUTPUT and expand with fromJSON as a matrix.
 	FormatGithubActions Format = "GITHUB_ACTIONS"
+	// FormatJenkins is Groovy: a map of leg name to closure, which is what a
+	// declarative pipeline's parallel step takes. Write it to a file, `load` it,
+	// and hand the result straight to `parallel`.
+	FormatJenkins Format = "JENKINS"
 )
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -357,18 +361,22 @@ func (m *WorkspaceCi) memoize(
 	return run, skipped, true, len(known), nil
 }
 
-// SelectionSelfTest verifies the change -> modules -> legs mapping, and the
-// properties a recorded pass depends on, against fixed fixtures — so a regression
-// in either fails CI rather than silently under-running a consumer's checks. It
-// runs in-process and needs no services, so it is cheap enough to run on every leg
-// set.
+// SelectionSelfTest verifies the change -> modules -> legs mapping, the properties
+// a recorded pass depends on, and the shape each format renders a plan in, against
+// fixed fixtures — so a regression in any of them fails CI rather than silently
+// under-running a consumer's checks or handing their CI system something it cannot
+// parse. It runs in-process and needs no services, so it is cheap enough to run on
+// every leg set.
 //
 // +check
 func (m *WorkspaceCi) SelectionSelfTest(ctx context.Context) error {
 	if err := planner.SelfCheck(); err != nil {
 		return err
 	}
-	return planner.HashSelfCheck()
+	if err := planner.HashSelfCheck(); err != nil {
+		return err
+	}
+	return planner.RenderSelfCheck()
 }
 
 // parseKnownGood turns a JSON array of recorded input hashes into a set. An

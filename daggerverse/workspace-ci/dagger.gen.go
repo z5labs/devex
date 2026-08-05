@@ -115,6 +115,8 @@ func (r Format) Name() string {
 		return "GithubActions"
 	case FormatJSON:
 		return "JSON"
+	case FormatJenkins:
+		return "Jenkins"
 	}
 	return ""
 }
@@ -147,6 +149,8 @@ func (r *Format) UnmarshalJSON(bs []byte) error {
 		*r = FormatGithubActions
 	case "JSON":
 		*r = FormatJSON
+	case "Jenkins":
+		*r = FormatJenkins
 	default:
 		return fmt.Errorf("invalid enum value %q", s)
 	}

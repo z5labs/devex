@@ -34,12 +34,64 @@ dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan \
 | `timeout` | the check step's budget, in minutes |
 | `jobTimeout` | the surrounding job's budget: `timeout` plus setup headroom, computed here because most CI expression languages have no arithmetic |
 
-`--format=GITHUB_ACTIONS` emits the same array on one line, ready to write to
-`GITHUB_OUTPUT` and expand with `fromJSON` as a matrix. (The CLI takes the enum
-member name, hence the spelling.) Other CI systems are follow-ups.
-
 `affected-modules` answers the attribution half on its own — which modules a
 change reached — without loading any of them.
+
+## Formats
+
+`--format` takes the enum member name, hence the spelling of each below.
+
+| `--format=` | emits |
+| --- | --- |
+| `JSON` | the canonical form: the indented array above. The default |
+| `GITHUB_ACTIONS` | the same array on one line, ready to write to `GITHUB_OUTPUT` and expand with `fromJSON` as a matrix |
+| `JENKINS` | Groovy: a map of leg name to closure, ready to hand to a declarative pipeline's `parallel` step |
+
+Other CI systems are follow-ups.
+
+### Jenkins
+
+A plan is data in every other format because every other CI system takes data.
+Jenkins' `parallel` step takes `Map<String, Closure>` and nothing else, so a JSON
+plan has to be turned into closures by a `collectEntries` the consumer writes and
+maintains. `JENKINS` emits the closures.
+
+```groovy
+stage('run') {
+  steps {
+    sh "dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan --base=${BASE_SHA} --head=${HEAD_SHA} --format=JENKINS > plan.groovy"
+    script { parallel load('plan.groovy') }
+  }
+}
+```
+
+```groovy
+[
+  'daggerverse/pdf/tests:all': {
+    stage('daggerverse/pdf/tests:all') {
+      timeout(time: 6, unit: 'MINUTES') {
+        sh 'dagger -m \'daggerverse/pdf/tests\' check \'tests:all\''
+      }
+    }
+  }
+]
+```
+
+Three properties worth knowing before you wire it up:
+
+- **A branch allocates no `node`.** The pipeline's own `agent` directive already
+  decided where work runs; an emitted `node` would override that choice and need
+  a checkout of its own. Branches therefore run in parallel on one agent. To put
+  each on its own, wrap the closure — that wrapper is the one thing this format
+  does not remove.
+- **`jobTimeout` is not rendered**, because a branch has no surrounding job to
+  bound. Each branch carries its leg's step budget as a `timeout`.
+- **`hash` is not rendered either.** Recording a pass needs a cache the module
+  cannot write to, so memoization here means reading `--format=JSON` alongside
+  and doing the recording yourself.
+
+An empty plan emits `[:]`, an empty `Map`, which `parallel` accepts as a no-op —
+`[]` is an empty `List` and `parallel` would reject it.
 
 ## Consuming it
 

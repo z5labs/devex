@@ -20,6 +20,15 @@ func TestHashSelfCheck(t *testing.T) {
 	}
 }
 
+// TestRenderSelfCheck runs the render fixtures the module exposes as a check. The
+// golden shapes live in RenderSelfCheck rather than here so a format regression
+// fails a CI leg and not only a `go test` nobody runs in CI.
+func TestRenderSelfCheck(t *testing.T) {
+	if err := RenderSelfCheck(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestKebab pins dagger's casing rule, which is what maps a toolchain name onto
 // the binding file dagger generates for it. The digit boundary is the one that
 // surprises: toolchain z5labs-tests becomes z-5-labs-tests.gen.go.

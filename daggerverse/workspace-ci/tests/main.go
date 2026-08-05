@@ -242,6 +242,7 @@ func (t *Tests) All(ctx context.Context) error {
 		"plan-loads-only-affected-modules":                       t.PlanLoadsOnlyAffectedModules,
 		"affected-modules-reports-what-change-reached":           t.AffectedModulesReportsWhatChangeReached,
 		"plan-emits-github-actions-matrix":                       t.PlanEmitsGithubActionsMatrix,
+		"plan-emits-jenkins-parallel-stages":                     t.PlanEmitsJenkinsParallelStages,
 		"plan-applies-timeout-overrides":                         t.PlanAppliesTimeoutOverrides,
 		"plan-splits-named-modules-on-the-run-everything-path":   t.PlanSplitsNamedModulesOnTheRunEverythingPath,
 		"new-rejects-malformed-timeouts":                         t.NewRejectsMalformedTimeouts,
