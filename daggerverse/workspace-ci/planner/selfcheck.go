@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 )
 
 // SelfCheck exercises the change -> modules -> legs mapping against a fixed
@@ -279,6 +280,102 @@ func HashSelfCheck() error {
 		return errors.New("an unreadable root context still produced a global hash")
 	}
 	return nil
+}
+
+// jenkinsGolden is the Jenkins form of the two-leg plan RenderSelfCheck renders:
+// one leg that runs a single check and one that runs a whole module. It is written
+// out in full rather than asserted piecewise because the shape *is* the contract —
+// a consumer hands it to `parallel` unread, so a stray brace or a mis-escaped quote
+// is a pipeline that will not parse, and nothing between here and Jenkins would
+// notice.
+const jenkinsGolden = `[
+  'mods/app/tests:all': {
+    stage('mods/app/tests:all') {
+      timeout(time: 6, unit: 'MINUTES') {
+        sh 'dagger -m \'mods/app/tests\' check \'tests:all\''
+      }
+    }
+  },
+  'mods/other': {
+    stage('mods/other') {
+      timeout(time: 6, unit: 'MINUTES') {
+        sh 'dagger -m \'mods/other\' check'
+      }
+    }
+  }
+]
+`
+
+// RenderSelfCheck pins what each format emits for a known plan, so a regression in
+// one fails CI rather than a consumer's pipeline. Like the other self-checks it is
+// pure: no engine, no git, no services.
+//
+// The empty plan is checked for every format because each one has a different
+// wrong answer that survives a superficial test — `null` breaks fromJSON after
+// passing a workflow's non-empty test, and `[]` is an empty List that Jenkins'
+// parallel step rejects where an empty Map is a no-op.
+func RenderSelfCheck() error {
+	var errs []error
+	fail := func(format string, err error) { errs = append(errs, fmt.Errorf("%s: %w", format, err)) }
+
+	for _, tc := range []struct {
+		format Format
+		want   string
+	}{
+		{FormatJSON, "[]"},
+		{FormatGithubActions, "[]"},
+		{FormatJenkins, jenkinsPreamble + "[:]\n"},
+	} {
+		got, err := Render(nil, tc.format)
+		if err != nil {
+			fail(string(tc.format), err)
+			continue
+		}
+		if got != tc.want {
+			fail(string(tc.format), fmt.Errorf("an empty plan rendered as %q, want %q", got, tc.want))
+		}
+	}
+
+	legs := Timeouts{}.Apply([]Entry{
+		CheckEntry(fxTests, "tests", "all"),
+		ModuleEntry(fxOther),
+	}, 6)
+	got, err := Render(legs, FormatJenkins)
+	if err != nil {
+		fail("JENKINS", err)
+	} else if want := jenkinsPreamble + jenkinsGolden; got != want {
+		fail("JENKINS", fmt.Errorf("rendered\n%s\nwant\n%s", got, want))
+	}
+
+	// A leg whose budget was never applied must render without a timeout at all:
+	// `timeout(time: 0)` aborts the branch the instant it starts, which would look
+	// like every check failing.
+	unbounded, err := Render([]Entry{CheckEntry(fxOther, "other", "ok")}, FormatJenkins)
+	if err != nil {
+		fail("JENKINS", err)
+	} else if strings.Contains(unbounded, "timeout(") {
+		fail("JENKINS", errors.New("a leg with no budget still rendered a timeout"))
+	}
+
+	// The two escapers, which is where a leg name carrying a quote or a backslash
+	// stops being data and starts being syntax.
+	for _, tc := range []struct{ name, got, want string }{
+		{"groovyString quote", groovyString(`a'b`), `'a\'b'`},
+		{"groovyString backslash", groovyString(`a\b`), `'a\\b'`},
+		{"groovyString newline", groovyString("a\nb"), `'a\nb'`},
+		{"groovyString dollar", groovyString(`a$b`), `'a$b'`},
+		{"shellQuote quote", shellQuote(`a'b`), `'a'\''b'`},
+		{"shellQuote plain", shellQuote(`a b`), `'a b'`},
+	} {
+		if tc.got != tc.want {
+			fail(tc.name, fmt.Errorf("got %s, want %s", tc.got, tc.want))
+		}
+	}
+
+	if _, err := Render(legs, Format("yaml")); err == nil {
+		errs = append(errs, errors.New("an unknown format was accepted"))
+	}
+	return errors.Join(errs...)
 }
 
 func pathSet(paths ...string) map[string]bool {

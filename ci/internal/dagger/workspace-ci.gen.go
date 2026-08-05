@@ -165,12 +165,12 @@ type WorkspaceCiAffectedModulesOpts struct {
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:231:2)
+	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:235:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../daggerverse/workspace-ci/main.go:236:2)
+	Workspace *Workspace // workspace-ci (../../../daggerverse/workspace-ci/main.go:240:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -179,7 +179,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:222:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:226:1)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
 	}
@@ -313,16 +313,16 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 type WorkspaceCiPlanOpts struct {
 
 	// Default: JSON
-	Format WorkspaceCiFormat // workspace-ci (../../../daggerverse/workspace-ci/main.go:173:2)
+	Format WorkspaceCiFormat // workspace-ci (../../../daggerverse/workspace-ci/main.go:177:2)
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:177:2)
+	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:181:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../daggerverse/workspace-ci/main.go:182:2)
+	Workspace *Workspace // workspace-ci (../../../daggerverse/workspace-ci/main.go:186:2)
 	//
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
@@ -332,14 +332,14 @@ type WorkspaceCiPlanOpts struct {
 	//
 	//
 	// Default: "[]"
-	KnownGood string // workspace-ci (../../../daggerverse/workspace-ci/main.go:191:2)
+	KnownGood string // workspace-ci (../../../daggerverse/workspace-ci/main.go:195:2)
 	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../daggerverse/workspace-ci/main.go:198:2)
+	Diagnostics bool // workspace-ci (../../../daggerverse/workspace-ci/main.go:202:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -366,7 +366,7 @@ type WorkspaceCiPlanOpts struct {
 // explicitly is also the escape hatch for a caller whose .git is a file rather
 // than a directory (a git worktree), which would otherwise degrade to running
 // everything.
-func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:165:1)
+func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:169:1)
 	if r.plan != nil {
 		return *r.plan, nil
 	}
@@ -402,12 +402,13 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 	return response, q.Execute(ctx)
 }
 
-// SelectionSelfTest verifies the change -> modules -> legs mapping, and the
-// properties a recorded pass depends on, against fixed fixtures — so a regression
-// in either fails CI rather than silently under-running a consumer's checks. It
-// runs in-process and needs no services, so it is cheap enough to run on every leg
-// set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../daggerverse/workspace-ci/main.go:367:1)
+// SelectionSelfTest verifies the change -> modules -> legs mapping, the properties
+// a recorded pass depends on, and the shape each format renders a plan in, against
+// fixed fixtures — so a regression in any of them fails CI rather than silently
+// under-running a consumer's checks or handing their CI system something it cannot
+// parse. It runs in-process and needs no services, so it is cheap enough to run on
+// every leg set.
+func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../daggerverse/workspace-ci/main.go:372:1)
 	if r.selectionSelfTest != nil {
 		return nil
 	}
@@ -440,6 +441,8 @@ func (v WorkspaceCiFormat) Name() string {
 		return "GITHUB_ACTIONS"
 	case WorkspaceCiFormatJson:
 		return "JSON"
+	case WorkspaceCiFormatJenkins:
+		return "JENKINS"
 	default:
 		return ""
 	}
@@ -470,6 +473,8 @@ func (v *WorkspaceCiFormat) UnmarshalJSON(dt []byte) error {
 		*v = ""
 	case "GITHUB_ACTIONS":
 		*v = WorkspaceCiFormatGithubActions
+	case "JENKINS":
+		*v = WorkspaceCiFormatJenkins
 	case "JSON":
 		*v = WorkspaceCiFormatJson
 	default:
@@ -485,5 +490,10 @@ const (
 
 	// FormatJSON is the canonical form: an indented JSON array of legs.
 	WorkspaceCiFormatJson WorkspaceCiFormat = "JSON" // workspace-ci (../../../daggerverse/workspace-ci/main.go:133:2)
+
+	// FormatJenkins is Groovy: a map of leg name to closure, which is what a
+	// declarative pipeline's parallel step takes. Write it to a file, `load` it,
+	// and hand the result straight to `parallel`.
+	WorkspaceCiFormatJenkins WorkspaceCiFormat = "JENKINS" // workspace-ci (../../../daggerverse/workspace-ci/main.go:140:2)
 
 )

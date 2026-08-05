@@ -113,16 +113,22 @@ const (
 	// FormatGithubActions is a single-line JSON array, ready to write to
 	// GITHUB_OUTPUT and expand with fromJSON as a matrix.
 	FormatGithubActions Format = "GITHUB_ACTIONS"
+	// FormatJenkins is Groovy: a map of leg name to closure, ready to hand
+	// straight to a declarative pipeline's parallel step.
+	FormatJenkins Format = "JENKINS"
 )
 
 // Render serializes a plan. A nil slice would marshal to `null`, which survives a
 // workflow's non-empty test and then breaks fromJSON, so an empty plan renders as
-// `[]`.
+// `[]` — and as `[:]` in the Jenkins form, where `[]` is an empty List rather than
+// an empty Map and parallel would reject it.
 func Render(entries []Entry, format Format) (string, error) {
 	if entries == nil {
 		entries = []Entry{}
 	}
 	switch format {
+	case FormatJenkins:
+		return renderJenkins(entries), nil
 	case FormatGithubActions:
 		b, err := json.Marshal(entries)
 		if err != nil {
@@ -136,6 +142,6 @@ func Render(entries []Entry, format Format) (string, error) {
 		}
 		return string(b), nil
 	default:
-		return "", fmt.Errorf("unknown format %q; want one of %q, %q", format, FormatJSON, FormatGithubActions)
+		return "", fmt.Errorf("unknown format %q; want one of %q, %q, %q", format, FormatJSON, FormatGithubActions, FormatJenkins)
 	}
 }
