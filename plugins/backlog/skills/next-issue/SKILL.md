@@ -297,19 +297,64 @@ CI outlasts the Bash tool — the call is killed mid-wait, and a wait that never
 exactly like a pull request whose checks failed. Every wait in this cycle goes through
 `Monitor` for that reason; step 7 and step 10 are the same.
 
-Do **not** use Bash `run_in_background` either. It has been observed exiting immediately
-without ever polling, which looks like a completed wait and reports whatever the first sample
-happened to be.
+Set `timeout_ms` to cover the monitored command's own wait. It defaults to five minutes,
+while the scripts steps 7 and 10 monitor wait up to ten, so `660000` covers every wait in
+this cycle with room to spare. A monitor killed halfway through a wait that would have
+succeeded reads as a failed wait.
+
+### Waiting is not something you do
+
+This is the first of the cycle's three waits, and the rule is the same for all of them.
+
+A `Monitor` call is the wait. Its result comes back to you on its own — the command's output
+arrives as notifications and its exit is reported when it ends — so there is nothing to
+collect, nothing to check, and nothing you can do that makes it arrive sooner. Once the wait
+is armed, **your turn is over.** The next thing you do is read what came back.
+
+Two improvisations have been measured on real runs, and both are forbidden by name:
+
+- **No no-op `sleep` Bash calls to pass the time.** `sleep 0.5; echo ok` and its variants
+  advance nothing — the monitored command is a separate process and it is not waiting on you
+  — while each one costs a full assistant turn. One measured iteration spent 106 turns, about
+  a quarter of its entire token cost, on that loop to buy under a minute of real waiting; the
+  two iterations either side of it spent 0 and 2.
+- **No peeking.** Do not `Read`, `cat` or `tail` a wait's output file, log or task record to
+  see how a `Monitor` that has not reported yet is getting on, and do not re-run the
+  underlying command by hand to check on it. Its output reaches you in full when it ends.
+
+The `Bash` tool's own description states the same rule from the other side: *foreground
+`sleep` is blocked; use `Monitor` with an until-loop to wait on a condition.*
+
+And do **not** reach for Bash `run_in_background` when a wait feels unreliable. It is not a
+more observable `Monitor`; it is a wait that has been observed exiting immediately without
+ever polling, reporting whatever the first sample happened to be as though the wait had
+completed. `Monitor` is the tool that actually waits. Where a wait needs a precondition, the
+precondition goes inside the monitored command — see `no checks reported` below — never into
+a turn of your own.
 
 - Exit 0 → green, continue.
 - Failure → read the logs (`gh run view <id> --log-failed`), fix, push, and re-watch. After
   **three** failed attempts on the same root cause, stop and report instead of looping.
-- `no checks reported` → nothing gates this pull request. Workflows queue for a few seconds
-  after a push, so re-check once after a short wait before concluding anything. If there
-  are still none, do not silently treat it as a pass: record `no checks reported` in the
-  report and continue. This is the same gap `backlog:setup-backlog` reports when the default
-  branch has no required status check, seen from the other side — with no required check,
-  the label in step 9 merges the pull request the instant it lands.
+- `no checks reported` → most often the workflows have not been created yet; runs queue for a
+  few seconds after a push. Do not re-check by hand and do not sleep between checks. Put the
+  precondition inside the `Monitor` command, so one call waits for the checks to appear and
+  then watches them:
+
+  ```
+  until gh pr checks <pr> --repo <repo> >/dev/null 2>&1; do sleep 5; done; gh pr checks <pr> --repo <repo> --watch --fail-fast
+  ```
+
+  `until <precondition>; do sleep 5; done; <blocking command>` is the sanctioned shape for
+  every "wait for X to exist, then wait for X to finish" in this cycle. The `sleep` is inside
+  the monitored command rather than in a turn of yours, and the whole wait costs one call.
+  `timeout_ms` bounds it, so a precondition that never becomes true ends the monitor instead
+  of hanging the cycle.
+
+  If that call ends with the checks still unreported, nothing gates this pull request. Do not
+  silently treat it as a pass: record `no checks reported` in the report and continue. This is
+  the same gap `backlog:setup-backlog` reports when the default branch has no required status
+  check, seen from the other side — with no required check, the label in step 9 merges the
+  pull request the instant it lands.
 
 ## 7. The Copilot review — one call
 
@@ -317,8 +362,11 @@ happened to be.
 Nothing here is optional when it is `true`.
 
 Requesting the review, waiting for it, and deciding whether what landed *is* a review are one
-call. Pass it as the `command` of a `Monitor` call — the wait runs up to ten minutes, past the
-Bash tool's ceiling — and not to Bash with `run_in_background`:
+call. Pass it as the `command` of a `Monitor` call with `timeout_ms` of `660000` — the wait
+runs up to ten minutes, past both the Bash tool's ceiling and `Monitor`'s default — and not to
+Bash with `run_in_background`. This is the longest wait in the cycle and the one that has
+attracted busy-waiting; step 6's rule holds unchanged here. Arm it, end your turn, and read
+the exit code when it arrives:
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr>
@@ -359,7 +407,9 @@ debugging session:
   hard-coded.
 - The wait polls the **timeline**, not `pulls/<pr>/reviews`. The reviews endpoint has been
   seen empty for forty minutes after Copilot had in fact submitted, so polling it times out
-  on a pull request that *was* reviewed.
+  on a pull request that *was* reviewed. That is why the polling lives in the script and is
+  aimed at the timeline; a check of your own, against whichever endpoint, is the mistake this
+  finding is made of.
 - `--paginate`, because the timeline returns thirty events per page and a pull request with a
   few pushes and check runs pushes the `reviewed` event off page one.
 - A case-insensitive `copilot` login filter, without which the repository owner glancing at
@@ -368,6 +418,11 @@ debugging session:
 Re-running is safe: a Copilot review already on the pull request is classified and returned
 without requesting another, and the newest review wins, so an old decline sitting beside a
 newer completed review is not misread.
+
+Every finding above is a reason the wait is *inside* a script rather than in your hands. None
+of them is a reason to look in on the script while it runs — a review that has not landed yet
+reads exactly like one that never will, from your side, and the script is the thing that can
+tell those apart. Re-run it after an exit 2; do not check on it before one.
 
 ## 8. Address the review
 
@@ -473,7 +528,15 @@ gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit
 that workflow in the whole repository — anyone labelling another pull request while yours is
 queued hands you their result, and it reads as a verdict on yours.
 
-Wait for it to leave `queued` and `in_progress`. A `success` conclusion with the pull
+If it has not completed, waiting for it is a `Monitor` call in the form step 6 gives, not a
+sequence of Bash calls of your own:
+
+```
+until [ "$(gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit 1 --json status --jq '.[0].status // ""')" = completed ]; do sleep 5; done
+gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit 1 --json conclusion --jq '.[0].conclusion'
+```
+
+A `success` conclusion with the pull
 request still open means auto merge is armed and waiting on a check. A `failure` conclusion
 means the workflow itself is broken — report it, with the output of
 `gh run view <id> --log-failed`, rather than falling back to a manual merge, which is what
@@ -483,8 +546,11 @@ this whole step exists to avoid.
 
 Everything after the label is mechanism, not judgment: wait for the merge, close the issue,
 verify it closed, drop the worktree, delete the local branch. Run it as one script rather
-than as five steps. Pass it as the `command` of a `Monitor` call — the wait runs up to ten
-minutes, past the Bash tool's ceiling — and not to Bash with `run_in_background`:
+than as five steps. Pass it as the `command` of a `Monitor` call with `timeout_ms` of
+`660000` — the wait runs up to ten minutes, past both the Bash tool's ceiling and `Monitor`'s
+default — and not to Bash with `run_in_background`. Step 6's rule holds here too: arm it, end
+your turn, and read the exit code when it arrives. Do not sleep, and do not read the pull
+request or the worktree to see how far it has got.
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/finish-issue.sh" <n> <pr> issue-<n>

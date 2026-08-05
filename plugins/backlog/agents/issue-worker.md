@@ -34,6 +34,15 @@ your report will read like an ordinary successful iteration.
   one iteration later, where nothing points back at the cause.
 - **Never delete a remote branch.** The merge workflow owns remote cleanup. Clean up only
   the worktree and local branch you created.
+- **Never busy-wait on a `Monitor` call.** The cycle's three long waits — CI checks, the
+  Copilot review, the merge — are each one `Monitor` call, and its result comes back to you
+  on its own. Once a wait is armed your turn is over: no no-op `sleep` Bash calls to pass the
+  time, and no reading, `cat`-ing or `tail`-ing a wait's output file, log or task record to
+  see how a monitor that has not reported yet is getting on. Neither makes the wait finish
+  sooner and both cost a full turn each; one measured iteration burned a quarter of its
+  tokens that way. Where a wait needs a precondition, put it inside the monitored command as
+  `until <precondition>; do sleep 5; done; <blocking command>`, which the skill spells out at
+  step 6.
 - **Do not weaken a test to make it pass**, and do not label a pull request whose review
   never completed.
 - **Do not retry selection unscoped.** If selection fails on the project scope you were

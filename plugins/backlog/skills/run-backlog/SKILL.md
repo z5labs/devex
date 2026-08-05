@@ -110,9 +110,29 @@ Also halt if:
 - The bound is reached. Say so plainly: a loop that stopped at its bound with work left is a
   different outcome from a drained backlog, and the user's next move differs.
 
-Record per iteration: issue number and title, pull request number, and merged / blocked.
-Nothing else. Keep the running list short enough that you can still see all of it at the
-end.
+Record per iteration: issue number and title, pull request number, merged / blocked, and the
+token cost the agent result reports for that worker. Nothing else. Keep the running list
+short enough that you can still see all of it at the end.
+
+### What an iteration should cost
+
+A worker that takes one story from selection to a merged pull request costs roughly
+**300–375k tokens** and 300–390 assistant turns, at about a thousand tokens a turn. Three
+consecutive iterations measured against a real repository came in at 370k / 346k / 405k.
+
+The third one did not do more work. It **busy-waited**: filled the time while a `Monitor`
+wait was outstanding with no-op `sleep` Bash calls and with reads of the wait's output file,
+106 turns of them out of 419 — about 100k tokens, a quarter of the iteration, spent to buy
+under a minute of real waiting. The two either side of it spent 0 and 2 turns that way on
+comparable work, and nothing in the three reports distinguished them.
+
+So an iteration well past the band is a wait that was watched rather than an issue that was
+large.
+
+`backlog:next-issue` forbids both improvisations by name at step 6 and `issue-worker` repeats
+the rule, so a worker doing it is a worker that departed from the cycle. Name it in the
+report when the table shows it: the iteration count and the outcomes look identical either
+way, and the cost column is the only place a run that regressed is visible.
 
 ## 2. What you never do yourself
 
@@ -137,6 +157,10 @@ Close with the iteration table, the scope the run was under if it had one, the r
 loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure),
 and — if anything merged without a review because `review.required` is `false` — that fact,
 once, for the whole run.
+
+The table carries the token cost per iteration, so keep that column in the closing report
+rather than summarising it away. It is what makes the next run comparable to this one, and
+the only signal that separates an expensive iteration from a busy-waiting one.
 
 ## Running it on a schedule
 
