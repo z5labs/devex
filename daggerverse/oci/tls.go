@@ -116,6 +116,23 @@ func (c *conn) tlsClientConfig() *tls.Config {
 	return cfg
 }
 
+// orasTransport is net/http's default transport with cfg applied.
+//
+// It is a clone rather than a bare http.Transport because a zero-valued one
+// carries none of net/http's defaults — no ProxyFromEnvironment, no dial or
+// idle-connection timeouts, no HTTP/2 — and a registry client that quietly
+// stopped honouring HTTPS_PROXY would fail in exactly the environments least
+// able to diagnose it.
+func orasTransport(cfg *tls.Config) http.RoundTripper {
+	tr, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{TLSClientConfig: cfg}
+	}
+	clone := tr.Clone()
+	clone.TLSClientConfig = cfg
+	return clone
+}
+
 // tlsTransport is go-containerregistry's default transport with cfg applied.
 //
 // It is a clone of that default rather than a bare http.Transport because the

@@ -294,9 +294,7 @@ func (c *conn) httpClient() *orasauth.Client {
 	var base orasauth.Client
 	base.Client = orasretry.DefaultClient
 	if cfg := c.tlsClientConfig(); cfg != nil {
-		base.Client = &http.Client{
-			Transport: orasretry.NewTransport(&http.Transport{TLSClientConfig: cfg}),
-		}
+		base.Client = &http.Client{Transport: orasretry.NewTransport(orasTransport(cfg))}
 	}
 	base.Cache = orasauth.NewCache()
 	base.SetUserAgent("dagger-oci-module")
