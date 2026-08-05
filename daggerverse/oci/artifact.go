@@ -206,7 +206,7 @@ func (reg *Registry) Attach(
 //
 // It returns JSON rather than a typed object for two reasons: codegen has no
 // map type, so annotations could not be modelled; and a module object
-// returned from a `+cache="never"` call detaches in Dagger v0.21, so lazily
+// returned from a never-cached call detaches in Dagger v0.21, so lazily
 // reading its fields fails.
 //
 // +cache="never"

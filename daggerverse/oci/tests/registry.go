@@ -200,8 +200,10 @@ func (tr *testRegistry) deleteManifest(ctx context.Context, repo, digest string)
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
+	// The dist-spec says 202 Accepted; 200 is tolerated because a registry
+	// that deletes synchronously has still done what was asked.
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("DELETE %s returned %d, want 202 (body %s)", url, resp.StatusCode, string(body))
+		return fmt.Errorf("DELETE %s returned %d, want 200 or 202 (body %s)", url, resp.StatusCode, string(body))
 	}
 	return nil
 }

@@ -39,8 +39,8 @@ type Oci struct{}
 // insecure is explicit and defaults to off: it means plain HTTP and no TLS
 // verification. It is deliberately not inferred from service being set —
 // that inference is a test affordance leaking into production behaviour. It
-// is spelled insecure rather than tlsVerify because a `+default=true` bool
-// is unsettable from the CLI.
+// is spelled insecure rather than tlsVerify because a bool defaulting to
+// true is unsettable from the CLI.
 //
 // +cache="never"
 func (m *Oci) Registry(
@@ -76,9 +76,9 @@ func (m *Oci) Registry(
 
 // Registry is an authenticated handle on one registry host.
 //
-// Every method carries `+cache="never"` on its own doc-comment line: registry
-// state is mutable and pushes are side-effecting, so the directive repeats on
-// each chained method rather than living only on the factory.
+// Every method carries a never-cache directive on its own doc-comment line:
+// registry state is mutable and pushes are side-effecting, so the directive
+// repeats on each chained method rather than living only on the factory.
 type Registry struct {
 	// Host is the registry host this handle was built for.
 	Host string

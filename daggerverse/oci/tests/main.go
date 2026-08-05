@@ -83,9 +83,9 @@ func (t *Tests) All(
 // now, not what it held the first time it was asked.
 //
 // Registry state is mutable and Dagger caches function results for a week by
-// default, so without `+cache="never"` the second Resolve would replay the
-// first one's answer — and every caller reading a moving tag would act on a
-// digest that had already been superseded.
+// default, so without a never-cache directive the second Resolve would replay
+// the first one's answer — and every caller reading a moving tag would act on
+// a digest that had already been superseded.
 func (t *Tests) ResolveIsNotCached(ctx context.Context) error {
 	reg, err := newRegistry(ctx)
 	if err != nil {

@@ -168,7 +168,8 @@ type OciRegistryOpts struct {
 // insecure is explicit and defaults to off: it means plain HTTP and no TLS
 // verification. It is deliberately not inferred from service being set —
 // that inference is a test affordance leaking into production behaviour. It
-// is spelled insecure rather than tlsVerify because a `is unsettable from the CLI.
+// is spelled insecure rather than tlsVerify because a bool defaulting to
+// true is unsettable from the CLI.
 func (r *Oci) Registry(host string, opts ...OciRegistryOpts) *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:46:1)
 	q := r.query.Select("registry")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -206,8 +207,9 @@ func (r *Oci) AsNode() Node {
 
 // Registry is an authenticated handle on one registry host.
 //
-// Every method carries `state is mutable and pushes are side-effecting, so the directive repeats on
-// each chained method rather than living only on the factory.
+// Every method carries a never-cache directive on its own doc-comment line:
+// registry state is mutable and pushes are side-effecting, so the directive
+// repeats on each chained method rather than living only on the factory.
 type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:82:6)
 	query *querybuilder.Selection
 
@@ -448,7 +450,8 @@ type OciRegistryReferrersOpts struct {
 //
 // It returns JSON rather than a typed object for two reasons: codegen has no
 // map type, so annotations could not be modelled; and a module object
-// returned from a `reading its fields fails.
+// returned from a never-cached call detaches in Dagger v0.21, so lazily
+// reading its fields fails.
 func (r *OciRegistry) Referrers(ctx context.Context, repository string, subject string, opts ...OciRegistryReferrersOpts) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:213:1)
 	if r.referrers != nil {
 		return *r.referrers, nil
