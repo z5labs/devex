@@ -135,10 +135,10 @@ belongs there, not here.
 ### The conventions it reads
 
 Useful when you are *writing* an issue body, and what `backlog:setup-backlog` infers
-`dependencies.style` from. GitHub's own native blocked-by field is **not** consulted: it has
-been observed empty on repositories whose issue bodies do declare ordering in prose, and an
-empty native field reads as an unblocked backlog — the one wrong answer that gets work done
-in the wrong order rather than not at all.
+`dependencies.style` from. Two of the four styles read the body, `native` reads GitHub's
+typed dependencies instead, and `none` reads neither — which one applies is whatever
+`.claude/backlog.json` declares. **There is no fallback between them in either direction**;
+see `native` below for why.
 
 **`blocked-by`** — a line that *opens* with `Blocked by:` (a heading, bold, or plain), then
 `- #N` list items. The phrase has to start the line and end at a colon or the line end, which
@@ -154,14 +154,32 @@ heading. The reference has to follow the phrase immediately, so `Depends on the 
 landing, see #99` is not a dependency on 99. A phrase negated in the same clause — `no longer
 depends on #17` — is a note that a dependency was removed, not a live one.
 
+**`native`** — GitHub's own typed issue dependencies, the `blockedBy` edges you write with
+`gh issue edit <n> --add-blocked-by <n>`. The body is not read at all under this style. A
+typed edge cannot be written ambiguously, it renders as a real relationship on the issue, and
+it survives a rewording of the body — so where a repository has populated them, they are
+strictly better than anything parsed out of prose.
+
+The reason this is **declared and never fallen back to**: an unpopulated edge set and an
+unblocked issue are the same response. A repository that writes its ordering in prose and has
+never touched typed dependencies would come back "nothing blocks this" for every issue —
+which reads as an unblocked backlog and is the one wrong answer that gets work done in the
+wrong order rather than not at all. So a body parse finding nothing never escalates to
+`native`, and `native` coming back empty never falls back to reading the body. Each style
+answers wrongly for a repository using the other, and the config is what says which. When
+you *write* an issue for a `native` repository, add the edge with `gh issue edit`; a
+`Blocked by:` line in the body is decoration there and blocks nothing.
+
 **`none`** — the backlog declares no ordering. Bodies are not parsed at all; every open issue
 carrying the label is eligible and the lowest-numbered one wins.
 
 Under both parsing styles, text inside a ``` or `~~~` fence is example text, not a
-declaration. A bare `#N` means an issue in this repository. A cross-repository `owner/repo#N`
-is not modelled: it makes *that issue* ineligible and is named in the report, rather than
-being skipped and the issue called eligible — but the walk continues, so one unresolvable
-reference does not starve a backlog whose other issues are workable.
+declaration. A bare `#N` means an issue in this repository. Under all three declaring styles,
+a cross-repository `owner/repo#N` is not modelled: it makes *that issue* ineligible and is
+named in the report, rather than being skipped and the issue called eligible — but the walk
+continues, so one unresolvable reference does not starve a backlog whose other issues are
+workable. Under `native` a dependency query that fails outright is treated the same way: that
+issue is ineligible with the error recorded, never eligible-by-default.
 
 ### Read the issue
 

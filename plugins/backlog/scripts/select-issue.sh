@@ -4,6 +4,7 @@
 #
 # Usage: select-issue.sh [--project-value <value> | --no-project-filter]
 #        select-issue.sh --extract <blocked-by|depends-on|none> [file]
+#        select-issue.sh --native-deps <repo> [file]
 #        select-issue.sh --project-items <repo> <field> <value> [file]
 #
 # Why this is a script and not a numbered step.
@@ -33,6 +34,11 @@
 # `--extract` exposes the extraction alone, reading a body from a file or stdin
 # and printing one reference per line. It needs no network, which is what lets
 # `select-issue_test.sh` hold the fixture corpus these bugs came from.
+#
+# `--native-deps` is the same seam for the `native` style, which takes the edges
+# from GitHub's typed issue dependencies instead of from the body. It reads the
+# GraphQL pages and prints references in exactly the form `--extract` does, so
+# the eligibility walk below is one code path for every style.
 #
 # `--project-items` is the same seam for the project scope below: it reads the
 # GraphQL pages from a file or stdin and prints the in-scope issue numbers, so
@@ -187,11 +193,123 @@ if [ "${1:-}" = --extract ]; then
   [ $# -ge 2 ] || fail 4 "usage: select-issue.sh --extract <blocked-by|depends-on|none> [file]"
   case "$2" in
     blocked-by|depends-on|none) ;;
+    # `native` is a configured style but not a body extraction: under it the
+    # body is never read at all. Accepting it here would answer "no references"
+    # for a body that declares none *and* for an issue whose typed edges say
+    # otherwise, which is the conflation the style exists to remove.
+    native) fail 4 "the native style does not parse the body; use --native-deps <repo> to read its typed dependencies" ;;
     *) fail 4 "unknown style '$2'; expected blocked-by, depends-on or none" ;;
   esac
   if [ -n "${3:-}" ]; then extract_refs "$2" <"$3"; else extract_refs "$2"; fi
   exit 0
 fi
+
+# ----------------------------------------------------------------- native -----
+# GitHub's typed issue dependencies — `gh issue edit <n> --add-blocked-by`, the
+# `addBlockedBy` GraphQL mutation, `POST .../dependencies/blocked_by`. A typed
+# edge cannot be written ambiguously, it survives a rewording of the body, and
+# it removes every failure mode the extraction above is scarred by.
+#
+# This is opt-in and is never reached by fallback. A repository that has not
+# populated dependencies answers "no blockers" for every issue, which reads as
+# an unblocked backlog and is not one — the same wrong answer, arrived at from
+# the other direction. So `dependencies.style` has to *declare* `native`, and a
+# body parse that finds nothing never escalates to it.
+#
+# Read over GraphQL rather than `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`
+# for one reason: the REST route is per-repository, so a dependency on an issue
+# elsewhere would come back described by a `repository_url` to re-derive, while
+# `blockedBy` carries `repository { nameWithOwner }` on the node. Cross-repository
+# edges are the case that has to be *named* rather than dropped, so the shape
+# that states them plainly wins.
+NATIVE_QUERY=$(cat <<'QUERY'
+query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      number
+      blockedBy(first: 100, after: $endCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes { number repository { nameWithOwner } }
+      }
+    }
+  }
+}
+QUERY
+)
+
+# `--paginate` prints one whole response per page, concatenated, which `jq -s`
+# reads as a stream of documents — the same shape the project query returns.
+NATIVE_JQ_DEF='
+def issues: [ .[] | .data?.repository?.issue? ] | map(select(. != null));
+def nodes:  [ issues[].blockedBy.nodes[]? ];
+'
+
+# Prints one reference per line, first-seen order, deduped, in the same two
+# shapes `--extract` prints: `#14` for this repository, `owner/repo#N` for
+# anywhere else. Reads the pages on stdin so the test can hold them as
+# fixtures; the network lives in native_fetch alone.
+native_deps() { # <repo>
+  local repo=$1
+  local pages status
+
+  pages=$(cat)
+  [ -n "$pages" ] || fail 4 "the blocked-by query returned no response"
+
+  status=$(printf '%s' "$pages" | jq -s -r "$NATIVE_JQ_DEF"'
+    if (issues | length) == 0 then "NO-ISSUE"
+    elif ([ issues[] | select(.blockedBy != null) ] | length) == 0 then "NO-FIELD"
+    elif (nodes | map(select(.number == null or .repository.nameWithOwner == null)) | length) > 0 then "BAD-NODE"
+    else "OK" end') \
+    || fail 4 "the blocked-by query response does not parse as JSON"
+
+  case "$status" in
+    OK) ;;
+    NO-ISSUE)
+      fail 4 "the blocked-by query resolved to no issue; check the repository and issue number" ;;
+    # An issue that exists but carries no `blockedBy` connection is a GitHub
+    # that does not serve typed dependencies. Reading that as an empty edge set
+    # would make every issue eligible, which is the one failure this style is
+    # declared to avoid.
+    NO-FIELD)
+      fail 4 "the blocked-by query returned an issue with no blockedBy connection; this GitHub does not serve typed issue dependencies" ;;
+    # Defensive, and deliberately fatal rather than a filter: a node that cannot
+    # be named is a dependency dropped, and a dropped dependency is a silently
+    # eligible issue.
+    BAD-NODE)
+      fail 4 "the blocked-by query returned a dependency with no number or repository" ;;
+    *)
+      fail 4 "the blocked-by query response could not be read" ;;
+  esac
+
+  printf '%s' "$pages" | jq -s -r --arg repo "$repo" "$NATIVE_JQ_DEF"'
+    nodes
+    | map(if .repository.nameWithOwner == $repo then "#\(.number)"
+          else "\(.repository.nameWithOwner)#\(.number)" end)
+    | reduce .[] as $r ([]; if index($r) then . else . + [$r] end)
+    | .[]' \
+    || fail 4 "the blocked-by query response could not be read"
+}
+
+if [ "${1:-}" = --native-deps ]; then
+  command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
+  [ $# -ge 2 ] || fail 4 "usage: select-issue.sh --native-deps <repo> [file]"
+  if [ -n "${3:-}" ]; then native_deps "$2" <"$3"; else native_deps "$2"; fi
+  exit 0
+fi
+
+# The only network in this section, and the only thing the seam above does not
+# cover. Every diagnostic goes to stderr and the exit status is all the caller
+# reads, because a failure here has to make *that issue* ineligible rather than
+# stop the walk — the same call the cross-repository case settles on. The one
+# thing it must never do is succeed with nothing on stdout.
+native_fetch() { # <repo> <issue-number>
+  local owner=${1%%/*} name=${1##*/} pages
+
+  pages=$(gh api graphql --paginate \
+            -F owner="$owner" -F name="$name" -F number="$2" \
+            -f query="$NATIVE_QUERY") || return 1
+  printf '%s' "$pages" | native_deps "$1"
+}
 
 # ---------------------------------------------------------------- project -----
 # Optional scoping by one value of a GitHub Projects v2 single-select field —
@@ -334,31 +452,37 @@ fi
 # that exists.
 #
 # gh's stderr goes to a file rather than into the captured output, which would
-# corrupt the JSON. The caller owns that file: this runs inside a command
+# corrupt the JSON. The caller owns that file: these run inside a command
 # substitution, whose subshell does not run the EXIT trap and cannot hand a path
-# back to be cleaned up.
-PROJECT_ERRFILE=""
-trap '[ -n "$PROJECT_ERRFILE" ] && rm -f "$PROJECT_ERRFILE"; true' EXIT
+# back to be cleaned up. One file serves both network callers below, created on
+# first use so an ordinary run makes no temporary file at all.
+ERRFILE=""
+trap '[ -n "$ERRFILE" ] && rm -f "$ERRFILE"; true' EXIT
 
-project_fetch() { # <owner> <number> <field> ; needs PROJECT_ERRFILE
+need_errfile() {
+  [ -n "$ERRFILE" ] && return 0
+  ERRFILE=$(mktemp) || fail 4 "cannot create a temporary file for a GitHub query"
+}
+
+project_fetch() { # <owner> <number> <field> ; needs ERRFILE
   local owner=$1 number=$2 field=$3
   local root out rc message
 
   for root in organization user; do
     out=$(gh api graphql --paginate \
             -F owner="$owner" -F number="$number" -F field="$field" \
-            -f query="$(project_query "$root")" 2>"$PROJECT_ERRFILE")
+            -f query="$(project_query "$root")" 2>"$ERRFILE")
     rc=$?
     if [ "$rc" -eq 0 ]; then printf '%s' "$out"; return 0; fi
-    if grep -qiE 'read:project|not been granted|INSUFFICIENT_SCOPES' "$PROJECT_ERRFILE"; then
-      note "$(cat "$PROJECT_ERRFILE")"
+    if grep -qiE 'read:project|not been granted|INSUFFICIENT_SCOPES' "$ERRFILE"; then
+      note "$(cat "$ERRFILE")"
       fail 4 "the GitHub token cannot read projects; run 'gh auth refresh -s read:project' and retry"
     fi
-    grep -qiE 'could not resolve to an organization' "$PROJECT_ERRFILE" && continue
+    grep -qiE 'could not resolve to an organization' "$ERRFILE" && continue
     break
   done
 
-  message=$(tr '\n' ' ' <"$PROJECT_ERRFILE")
+  message=$(tr '\n' ' ' <"$ERRFILE")
   fail 4 "cannot read project number $number owned by '$owner': ${message:-gh api graphql failed}"
 }
 
@@ -424,8 +548,8 @@ case "$LIMIT" in
   0)           fail 4 "$CFG: select.limit must be at least 1" ;;
 esac
 case "$STYLE" in
-  blocked-by|depends-on|none) ;;
-  *) fail 4 "$CFG: dependencies.style must be one of blocked-by, depends-on, none (found '${STYLE:-null}'); run backlog:setup-backlog" ;;
+  blocked-by|depends-on|native|none) ;;
+  *) fail 4 "$CFG: dependencies.style must be one of blocked-by, depends-on, native, none (found '${STYLE:-null}'); run backlog:setup-backlog" ;;
 esac
 # Checked here rather than at step 4, where an empty list is indistinguishable
 # from a list that passed: a config with no verify commands opens a pull request
@@ -508,7 +632,7 @@ if [ -n "$PROJECT_VALUE" ]; then
   # subshell, and without this the script would carry on with an empty scope —
   # which is the unscoped-selection failure this whole section exists to make
   # impossible.
-  PROJECT_ERRFILE=$(mktemp) || fail 4 "cannot create a temporary file for the project query"
+  need_errfile
   PROJECT_PAGES=$(project_fetch "$PROJECT_OWNER" "$PROJECT_NUMBER" "$PROJECT_FIELD") || exit $?
   IN_SCOPE=$(project_items "$REPO" "$PROJECT_FIELD" "$PROJECT_VALUE" <<<"$PROJECT_PAGES") || exit $?
 
@@ -542,6 +666,8 @@ dep_state() { # <issue-number>
   printf '%s' "$s"
 }
 
+[ "$STYLE" = native ] && need_errfile
+
 REASONS=""
 while IFS=$'\t' read -r NUM TITLE; do
   [ -n "$NUM" ] || continue
@@ -552,10 +678,27 @@ while IFS=$'\t' read -r NUM TITLE; do
     exit 0
   fi
 
-  BODY=$(gh issue view "$NUM" --repo "$REPO" --json body --jq .body 2>/dev/null) || BODY=""
-  REFS=$(printf '%s\n' "$BODY" | extract_refs "$STYLE")
-
+  # Exactly one of these two runs, chosen by the declared style and by nothing
+  # else. There is deliberately no path from one to the other: a body parse that
+  # finds nothing must not escalate to the typed edges, and typed edges that
+  # come back empty must not fall back to reading the body. Either fallback
+  # turns a repository that has not adopted the other convention into one where
+  # every issue reads as eligible.
   blockers=""
+  if [ "$STYLE" = native ]; then
+    if ! REFS=$(native_fetch "$REPO" "$NUM" 2>"$ERRFILE"); then
+      # Unreadable, not unblocked. Ineligible with the reason recorded, and the
+      # walk continues — one issue whose dependencies cannot be read does not
+      # starve a backlog whose other issues are workable.
+      REFS=""
+      native_err=$(tr '\n' ' ' <"$ERRFILE")
+      blockers=" its native dependencies could not be read: ${native_err:-gh api graphql failed};"
+    fi
+  else
+    BODY=$(gh issue view "$NUM" --repo "$REPO" --json body --jq .body 2>/dev/null) || BODY=""
+    REFS=$(printf '%s\n' "$BODY" | extract_refs "$STYLE")
+  fi
+
   for ref in $REFS; do
     case "$ref" in
       \#*)

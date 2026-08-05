@@ -62,6 +62,18 @@ repository's issues because an org-level project spans repositories. Every way
 it can fail is exit 4: falling back to the unfiltered backlog when a scope was
 asked for is the same class of failure as a silently eligible issue.
 
+A repository that has adopted GitHub's typed issue dependencies can declare
+`dependencies.style: "native"` and stop having its bodies parsed at all: the
+`blockedBy` edges are read over GraphQL, and a typed edge cannot be written
+ambiguously, survives a rewording of the body, and removes the whole class of
+defect the paragraph above catalogues. It is opt-in and never reached by
+fallback, because an unpopulated edge set and an unblocked issue are the same
+response — a repository that writes its ordering in prose would come back
+"nothing blocks this" for every issue, which is the silently-eligible failure
+arrived at from the other direction. So a body parse that finds nothing never
+escalates to it, and `setup-backlog` reports that typed dependencies exist
+rather than inferring the style from their absence.
+
 The review gate is
 [`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request, wait,
 and classify what landed, as `0 completed / 1 declined / 2 timed out / 3 could

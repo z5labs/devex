@@ -95,6 +95,30 @@ backlog that has simply not declared any ordering *yet* is the one inference wor
 double-checking with the user, because it is indistinguishable from a convention you did not
 sample — and getting it wrong means work happens in the wrong order rather than not at all.
 
+**Never infer `native`.** The fourth style reads GitHub's typed issue dependencies instead of
+the body, and it is the better one where a repository has populated them — but an
+unpopulated edge set and an unblocked issue are the same response, so a repository that has
+not adopted them would come back "nothing blocks this" for every issue. Only the operator can
+say which of those two a quiet repository is, so `native` is written into the config
+deliberately or not at all.
+
+What you *can* do is tell the user it is available, with evidence. This counts the typed
+edges across the backlog you already listed:
+
+```
+for n in <the numbers you listed>; do
+  printf '%s %s\n' "$n" "$(gh api "repos/<repo>/issues/$n/dependencies/blocked_by" --jq length)"
+done
+```
+
+The REST route is enough to count; `select-issue.sh` reads the same edges over GraphQL
+because it needs the owning repository named on each one, which this shape does not carry.
+
+A repository with edges already populated on issues whose bodies *also* declare ordering in
+prose is the clear case for `native`, and worth raising. A repository with none anywhere is
+not evidence against it — it is evidence that nobody has written any yet. Report the counts
+either way and let the user choose; do not switch the style on their behalf.
+
 ### The rest
 
 - `select.label` — the label the backlog uses. `gh label list --json name --jq '.[].name'`;
