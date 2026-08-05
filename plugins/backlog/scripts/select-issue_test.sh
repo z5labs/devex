@@ -2,7 +2,7 @@
 #
 # select-issue_test.sh — the fixture corpus for select-issue.sh.
 #
-# Two halves, both offline.
+# Three halves, all offline.
 #
 # **Extraction.** Every case is an issue body that a real backlog can contain.
 # The ones marked REGRESSION were extracted wrongly by the awk/sed/grep
@@ -10,6 +10,12 @@
 # `skills/next-issue/SKILL.md` as prose for an agent to retype and check against
 # a table by eye. Three of them produced a *silently eligible* issue, which is
 # the failure that gets work done in the wrong order rather than not at all.
+#
+# **Native dependencies.** Every case is a GraphQL response the `blockedBy`
+# query can return, fed to `--native-deps`. The style takes its edges from
+# GitHub rather than from the body, so its corpus is responses rather than
+# markdown — but it prints the same two reference shapes, which is what keeps
+# the eligibility walk one code path across every style.
 #
 # **Project scoping.** Every case is a GraphQL response `gh api graphql
 # --paginate` can return for the project query, fed to `--project-items`. The
@@ -219,6 +225,134 @@ check 'parses nothing' none '' \
 - #12
 
 Depends on #17.'
+
+printf '\nnative dependencies\n'
+
+# The `native` style takes its edges from GitHub's typed issue dependencies
+# instead of the body, so its corpus is GraphQL responses rather than markdown —
+# fixtured the same way, and read through the same `--native-deps` seam the walk
+# uses, so nothing here needs the network.
+#
+# The failures carry the weight. Every one of them would otherwise resolve to an
+# empty reference list, and an empty reference list is indistinguishable from an
+# issue with no blockers — which is precisely the wrong answer this style exists
+# to remove, arrived at from the other direction.
+
+npage() { # <blockedBy nodes json array> [issue number]
+  printf '{"data":{"repository":{"issue":{"number":%s,' "${2:-42}"
+  printf '"blockedBy":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":%s}}}}}' "$1"
+}
+
+dep() { # <number> <repo>
+  printf '{"number":%s,"repository":{"nameWithOwner":"%s"}}' "$1" "$2"
+}
+
+# checkn <name> <repo> <expected refs, space separated> <pages>
+checkn() {
+  local name=$1 repo=$2 want=$3 pages=$4 got rc
+  got=$(printf '%s' "$pages" | "$SUT" --native-deps "$repo" 2>/dev/null)
+  rc=$?
+  got=$(printf '%s' "$got" | tr '\n' ' ')
+  got=${got% }
+  if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [%s]\n' "$name" "${got:-<none>}"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want [%s] exit 0, got [%s] exit %d\n' "$name" "$want" "$got" "$rc"
+  fi
+}
+
+# checkn_fail <name> <repo> <substring of the message> <pages>
+checkn_fail() {
+  local name=$1 repo=$2 want=$3 pages=$4 err rc
+  err=$(printf '%s' "$pages" | "$SUT" --native-deps "$repo" 2>&1 >/dev/null)
+  rc=$?
+  case "$err" in
+    *"$want"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s message lacks [%s]: %s\n' "$name" "$want" "$err"
+       return ;;
+  esac
+  if [ "$rc" -eq 4 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [exit 4]\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 4, got exit %d\n' "$name" "$rc"
+  fi
+}
+
+# The same two references the documented body fixture yields under `blocked-by`,
+# in the same printed form — that sameness is what lets the eligibility walk stay
+# one code path across every style.
+checkn 'the documented fixture, as typed edges' z5labs/devex '#12 #14' \
+  "$(npage "[$(dep 12 z5labs/devex),$(dep 14 z5labs/devex)]")"
+
+# The honest empty, and the reason the style has to be declared rather than
+# fallen back to: on a repository that has not populated dependencies this is
+# every issue's answer, and it reads as an unblocked backlog.
+checkn 'no dependencies is an empty edge set, not an error' z5labs/devex '' \
+  "$(npage '[]')"
+
+# A cross-repository edge is reported in the form it was written, so the caller
+# can tell "issue 14 here" from "something I cannot resolve" — the same
+# distinction the body extractor draws, and the same one that makes the issue
+# ineligible rather than silently eligible.
+checkn 'a cross-repository edge is named, not dropped' z5labs/devex 'z5labs/other#42 #14' \
+  "$(npage "[$(dep 42 z5labs/other),$(dep 14 z5labs/devex)]")"
+
+# An issue number is only unique within its repository. Keyed on the number
+# alone, `z5labs/other#12` would collapse into `#12` and be resolved against
+# this repository's issue 12 — a dependency on the wrong issue entirely.
+checkn 'the same number in two repositories stays two edges' z5labs/devex '#12 z5labs/other#12' \
+  "$(npage "[$(dep 12 z5labs/devex),$(dep 12 z5labs/other)]")"
+
+# `--paginate` prints one whole response per page, concatenated. Reading only the
+# first would drop every dependency past 100 — an issue that looks less blocked
+# than it is.
+checkn 'every page contributes, deduped, order preserved' z5labs/devex '#12 #14 #19' \
+  "$(npage "[$(dep 12 z5labs/devex),$(dep 14 z5labs/devex)]")
+$(npage "[$(dep 14 z5labs/devex),$(dep 19 z5labs/devex)]")"
+
+# The four failures, each of which would otherwise print nothing and exit 0.
+checkn_fail 'an empty response is refused' z5labs/devex \
+  'returned no response' ''
+
+checkn_fail 'a missing issue is refused' z5labs/devex \
+  'resolved to no issue' \
+  '{"data":{"repository":{"issue":null}}}'
+
+# An issue that exists but carries no `blockedBy` connection is a GitHub that
+# does not serve typed dependencies at all. Reading it as "no blockers" is the
+# whole failure mode.
+checkn_fail 'an issue with no blockedBy connection is refused' z5labs/devex \
+  'does not serve typed issue dependencies' \
+  '{"data":{"repository":{"issue":{"number":42}}}}'
+
+checkn_fail 'a node that cannot be named is refused, not filtered' z5labs/devex \
+  'no number or repository' \
+  "$(npage '[{"number":12,"repository":null}]')"
+
+checkn_fail 'a response that is not JSON is refused' z5labs/devex \
+  'does not parse as JSON' 'not json at all'
+
+# `native` is a configured style but never a body extraction. Accepting it here
+# would answer "no references" for a body that declares none, which is exactly
+# the fallback the style is declared to avoid.
+printf '\nnative is not a body style\n'
+NATIVE_EXTRACT_ERR=$(printf 'Blocked by:\n- #12\n' | "$SUT" --extract native 2>&1 >/dev/null)
+NATIVE_EXTRACT_RC=$?
+case "$NATIVE_EXTRACT_ERR" in
+  *'--native-deps'*)
+    if [ "$NATIVE_EXTRACT_RC" -eq 4 ]; then
+      pass=$((pass + 1)); printf '  ok   %-58s [exit 4]\n' '--extract native points at --native-deps'
+    else
+      fail=$((fail + 1)); printf '  FAIL %-58s want exit 4, got exit %d\n' '--extract native points at --native-deps' "$NATIVE_EXTRACT_RC"
+    fi ;;
+  *) fail=$((fail + 1))
+     printf '  FAIL %-58s message lacks [--native-deps]: %s\n' '--extract native points at --native-deps' "$NATIVE_EXTRACT_ERR" ;;
+esac
 
 printf '\nproject scoping\n'
 
