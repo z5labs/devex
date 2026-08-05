@@ -60,7 +60,7 @@ func (m *GoExamples) BuildBinary(
 	pkg string,
 ) *dagger.File {
 	return dag.Go().
-		Build(sourceOrSample(source), dagger.GoBuildOpts{Pkg: pkg, Output: "app"}).
+		Build(sourceOrSample(source), dagger.GoBuildOpts{Pkg: pkg, ArtifactName: "app"}).
 		File("app")
 }
 

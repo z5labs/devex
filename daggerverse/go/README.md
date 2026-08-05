@@ -22,7 +22,7 @@ and use that version; if no directive is present the image falls back to
 | Name | Purpose |
 |---|---|
 | `Container(source)` | Prepared base container — escape hatch when a Go command isn't covered by the typed helpers. Returns `*Container` lazily; the underlying constructor takes ctx + returns error in source so go.mod inspection can run. |
-| `Build(source, pkg, output, trimpath, strip, stamps, tags, platform, disableCgo)` | `go build -o /out/[output] ...`; returns `/out` as a `*Directory`. `pkg` defaults to `./...`. Every flag is a named input — see [Build flags](#build-flags). |
+| `Build(source, pkg, artifactName, trimpath, strip, stamps, tags, platform, disableCgo, race, buildmode)` | `go build -o /out/[artifactName] ...`; returns `/out` as a `*Directory`. `pkg` defaults to `./...`. Every flag is a named input — see [Build flags](#build-flags). |
 | `Test(source, pkg, race, flags)` | `go test -count=1 [-race] ...`; returns combined stdout. |
 | `Vet(source, pkg)` | `go vet pkg`. |
 | `Fmt(source)` | `gofmt -l -d .`; non-empty diff is also returned as an error. |
@@ -52,11 +52,63 @@ spelling:
 | `tags` | `-tags a,b,c`. |
 | `platform` | `GOOS`/`GOARCH` for a cross-compile, as `GOOS/GOARCH[/variant]`. |
 | `disableCgo` | `CGO_ENABLED=0`. |
+| `race` | `-race` — links Go's data-race detector into the output. |
+| `buildmode` | `-buildmode=<mode>` — what the linker emits, as a `BuildMode` enum. |
 
 `stamps` elements are `importpath.Name=value`; only the first `=` splits name
 from value, so a value may contain `=`. An element with no `=`, or an empty
 name, is rejected with a message naming it. A value containing whitespace is
 quoted for you, since `cmd/go` splits the `-ldflags` value on whitespace.
+
+`race` costs roughly 2-20x the CPU and 5-10x the memory of an ordinary build,
+so the result is a binary for an integration test rather than one to ship. It
+needs cgo, which makes two pairings worth knowing:
+
+- **`race` with `disableCgo` is rejected** with a message naming both, rather
+  than left for the linker to fail on. `-race` links the race runtime through
+  cgo, so `CGO_ENABLED=0` cannot work; pass one or the other.
+- **`race` with `platform`** needs a C cross-compiler for the target in the
+  toolchain image. The `golang` image ships one for its own platform only, so
+  a race-enabled cross-compile fails there — use `Container(source)` with an
+  image that has the cross toolchain.
+
+`buildmode` is a `BuildMode` enum rather than a string because the set is
+closed and each member has a different output shape. Members surface as
+`ARCHIVE`, `C_ARCHIVE`, `C_SHARED`, `EXE`, `PIE` and `PLUGIN` — the Dagger Go
+SDK derives each name from the constant identifier in SCREAMING_SNAKE_CASE, so
+`go build`'s hyphenated spellings are mapped internally rather than typed:
+
+| Member | `go build` | Emits |
+|---|---|---|
+| `ARCHIVE` | `archive` | `.a` per listed non-main package; main packages are ignored. |
+| `C_ARCHIVE` | `c-archive` | A C archive plus a generated header; only cgo `//export` functions are callable. |
+| `C_SHARED` | `c-shared` | The same exported surface as `C_ARCHIVE`, linked dynamically. |
+| `EXE` | `exe` | Executables, position-dependent even where PIE is the toolchain default. |
+| `PIE` | `pie` | Position independent executables, which a runtime wanting ASLR requires. |
+| `PLUGIN` | `plugin` | A shared library loadable with `plugin.Open`; host and plugin must come from the same toolchain and dependency versions. |
+
+Only `race` is rejected alongside `disableCgo`; no buildmode is. That asymmetry
+is measured rather than assumed: `go build -race` refuses outright with `-race
+requires cgo; enable cgo by setting CGO_ENABLED=1`, whereas `c-archive` and
+`c-shared` build fine with `CGO_ENABLED=0` given a pure-Go main package. What
+needs cgo for those two is the `//export` directives in the *source*, which
+`Build` cannot inspect — so with cgo off, a package whose exports live in cgo
+files fails with `build constraints exclude all Go files`, and a pure-Go one
+yields a library exporting nothing and no generated header. Rejecting the
+pairing would break the second case, which works today.
+
+Leaving `buildmode` unset leaves the flag off entirely, so `go build` picks its
+own default. Two of `go build`'s modes are deliberately absent: `default` is
+what omitting the input already means, and `shared` is only half a feature
+without a `-linkshared` counterpart on the consuming build, which `Build` does
+not have — use `Container(source)` if you are building against a shared std.
+
+The name written under `/out` is `artifactName`, not `output`: the Dagger CLI
+reserves `--output/-o` for exporting a call's result, and a function parameter
+called `output` collides with it badly enough that `dagger call build` fails to
+parse its own flags before running anything. `Ci.WithBuild`'s `binaryName`
+dodges the same collision; `Build`'s is not always a binary, because
+`buildmode` can make it an archive or a shared library.
 
 There is deliberately no raw-flag escape hatch on `Build`: if a flag is worth
 passing it is worth naming, and a bag of strings can be neither validated nor
@@ -77,6 +129,14 @@ dagger -m daggerverse/go call container \
 
 # Test all packages in a Go source tree
 dagger -m daggerverse/go call test --source=. --pkg=./...
+
+# Build a C archive: /out holds libgreet.a and the generated libgreet.h
+dagger -m daggerverse/go call build --source=path/to/project --pkg=. \
+    --artifact-name=libgreet.a --buildmode=C_ARCHIVE entries
+
+# Build a race-enabled binary for an integration test
+dagger -m daggerverse/go call build --source=path/to/project --pkg=. \
+    --artifact-name=myapp --race=true export --path=./out
 ```
 
 ## Go SDK quick reference
@@ -85,14 +145,25 @@ dagger -m daggerverse/go call test --source=. --pkg=./...
 g := dag.Go() // or dag.Go(dagger.GoOpts{Version: "1.23"})
 
 // Build returns the /out directory containing the produced binaries.
-out := g.Build(src, dagger.GoBuildOpts{Pkg: "./...", Output: "myapp"})
+out := g.Build(src, dagger.GoBuildOpts{Pkg: "./...", ArtifactName: "myapp"})
 
 // A release build: static, reproducible, and told its own version.
 rel := g.Build(src, dagger.GoBuildOpts{
-    Pkg: ".", Output: "myapp",
+    Pkg: ".", ArtifactName: "myapp",
     Trimpath: true, Strip: true, DisableCgo: true,
     Platform: "linux/arm64",
     Stamps:   []string{"main.version=v1.2.3"},
+})
+
+// A binary for an integration test, with the race detector linked in.
+racy := g.Build(src, dagger.GoBuildOpts{
+    Pkg: ".", ArtifactName: "myapp", Race: true,
+})
+
+// A C archive: /out holds libmyapp.a and the generated libmyapp.h.
+lib := g.Build(src, dagger.GoBuildOpts{
+    Pkg: ".", ArtifactName: "libmyapp.a",
+    Buildmode: dagger.GoBuildModeCArchive,
 })
 
 // Test returns combined stdout.

@@ -344,12 +344,12 @@ func (a *GoApp) buildBinaryForPlatform(ctx context.Context, platform, binaryName
 		return nil, err
 	}
 	return dag.Go().Build(a.Source, dagger.GoBuildOpts{
-		Pkg:        a.resolvedPkg(),
-		Output:     binaryName,
-		Trimpath:   true,
-		Strip:      true,
-		DisableCgo: true,
-		Platform:   platform,
+		Pkg:          a.resolvedPkg(),
+		ArtifactName: binaryName,
+		Trimpath:     true,
+		Strip:        true,
+		DisableCgo:   true,
+		Platform:     platform,
 		Stamps: []string{
 			stampVersionVar + "=" + version,
 			stampCommitVar + "=" + commit,
