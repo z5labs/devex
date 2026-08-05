@@ -62,6 +62,9 @@ reg := dag.Oci().Registry("ghcr.io", dagger.OciRegistryOpts{
 | `dockerConfig` | the contents of a `~/.docker/config.json`, as a secret |
 | `service` | a Dagger-hosted registry, reached over the session network |
 | `insecure` | talk plain HTTP and skip TLS verification. Off by default |
+| `caCert` | a PEM certificate authority to verify this registry against |
+| `clientCert` | a PEM client certificate to authenticate with |
+| `clientKey` | the private key for `clientCert`, as a secret |
 
 `service` replaces `host` as the address dialled, because a session service's
 hostname is assigned by the engine and cannot be predicted by the caller.
@@ -71,7 +74,46 @@ publish path this module replaces made that inference, which meant a test
 affordance decided production TLS behaviour. It is spelled `insecure` rather
 than `tlsVerify` because a `+default=true` bool is unsettable from the CLI.
 
-Client certificates for mTLS registries remain a follow-up.
+#### TLS
+
+A registry fronted by a private CA is reached by naming that CA, with
+verification still on:
+
+```go
+reg := dag.Oci().Registry("registry.internal:5000", dagger.OciRegistryOpts{
+    Username: "ci",
+    Password: token,
+    CaCert:   ca,
+})
+```
+
+The certificate is **added** to the system trust store, not substituted for
+it. A caller naming a private CA is supplying one more trust anchor, not
+declaring that every public CA has become untrustworthy — and `Copy` reads its
+source through this same connection when the source is this registry.
+
+A registry that authenticates callers by mutual TLS takes both halves of a
+client certificate:
+
+```go
+reg := dag.Oci().Registry("registry.internal:5000", dagger.OciRegistryOpts{
+    CaCert:     ca,
+    ClientCert: cert,
+    ClientKey:  key,
+})
+```
+
+`clientKey` is a secret and `caCert` / `clientCert` are files, because a
+certificate is public and a private key is not. Supplying one half of the pair
+without the other is refused, naming the half that is missing: the alternative
+is falling back to anonymous TLS and letting a caller who believed they were
+authenticating discover otherwise from a 401 much later.
+
+All three are **independent of `insecure`.** Supplying a CA is not a reason to
+stop verifying, and skipping verification is not a reason to ignore a client
+certificate. A knob whose realistic use is "turn off security" is worse than
+the gap it fills, which is why the trust anchor exists rather than a broader
+`insecure`.
 
 #### Credentials
 
