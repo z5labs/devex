@@ -266,6 +266,83 @@ func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
 	return checkStatement(statement, digest, prov.Claims)
 }
 
+// GoAppCiAttestsTwoSegmentBinaryNames asserts a publish whose binary name
+// carries a "/" still lands all three attestations.
+//
+// A two-segment binary name is not an edge case, it is the only working
+// GHCR configuration: GHCR has no single-segment repositories, so
+// `ghcr.io/<name>` cannot exist and the owner has to be folded into the
+// binary name — folding it into the registry instead breaks the attach,
+// because the oci module keys its credential on the registry address.
+//
+// It is checked end to end because the break was not in the push: the
+// provenance envelope is written to the module's own filesystem before it
+// is attached, and the helper that wrote it treated the name as a single
+// path element. That failed only after the image and both SBOMs had
+// already been pushed, leaving a published image with no provenance and a
+// red build (devex#363). The SBOMs go through Dagger's Directory.withFile
+// and were never affected, so they are asserted here too — the point is
+// that the whole publish survives the name, not one document of it.
+func (t *Tests) GoAppCiAttestsTwoSegmentBinaryNames(ctx context.Context) error {
+	const (
+		tag        = "v8.0.0"
+		repository = "z5labs/hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	headSha, err := headFullSha(ctx, src)
+	if err != nil {
+		return err
+	}
+	svc, _, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, headSha)
+	if err != nil {
+		return err
+	}
+	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
+		BinaryName:      repository,
+		PublishOn:       "^refs/tags/v.+",
+		Registry:        registryAlias + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+		Insecure:        true,
+		Platforms:       []string{hostPlatform()},
+	})).Ci(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci: %v", err)
+	}
+
+	registry := testRegistry(svc, secret)
+	for _, artifactType := range []string{spdxArtifactType, cycloneDxArtifactType, provenanceArtifactType} {
+		found, err := referrersOf(ctx, registry, repository, digest, artifactType)
+		if err != nil {
+			return err
+		}
+		if len(found) != 1 {
+			return fmt.Errorf("expected exactly 1 referrer of type %s on %s/%s, got %d", artifactType, repository, digest, len(found))
+		}
+	}
+
+	// The envelope is verified rather than counted: the bug replaced the
+	// bytes with an error, so a referrer that is present but unreadable
+	// would be the same failure wearing a different shape.
+	envelope, err := attachedDocument(ctx, registry, repository, digest, provenanceArtifactType)
+	if err != nil {
+		return err
+	}
+	statement, err := verifyEnvelope(envelope, prov.Public)
+	if err != nil {
+		return err
+	}
+	return checkStatement(statement, digest, prov.Claims)
+}
+
 // GoAppCiRefusesToPublishWithoutProvenanceMachinery asserts a publish
 // that cannot produce provenance fails, and fails before pushing.
 //

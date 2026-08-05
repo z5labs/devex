@@ -23,14 +23,25 @@ func resolvedLintConfig(_ context.Context, override *dagger.File) (*dagger.File,
 
 // writeWorkdirFile writes content to a content-addressed subdir of the
 // module's scratch workdir and returns it as a *dagger.File.
+//
+// name may carry path separators. The provenance envelope is named after
+// the binary, and a binary name is "<owner>/<repo>" for any registry
+// without single-segment repositories — GHCR, which is the shape this
+// module's own guidance leads to. So the directory created is the
+// parent of the final path rather than the content-addressed dir alone,
+// and the temp pattern is name's last element: os.CreateTemp rejects any
+// pattern containing a separator, by documented design.
 func writeWorkdirFile(name string, content []byte) (*dagger.File, error) {
 	sum := sha256.Sum256(content)
 	dir := "out-" + hex.EncodeToString(sum[:])
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	path := filepath.Join(dir, name)
+	parent := filepath.Dir(path)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
 		return nil, err
 	}
-	path := filepath.Join(dir, name)
-	tmp, err := os.CreateTemp(dir, "."+name+"-*")
+	// The temp file is created in the same directory it is renamed into,
+	// so the rename stays within one filesystem and lands atomically.
+	tmp, err := os.CreateTemp(parent, "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return nil, err
 	}
