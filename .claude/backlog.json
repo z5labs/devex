@@ -1,0 +1,22 @@
+{
+  "select": {
+    "label": "story",
+    "milestone": null,
+    "limit": 200
+  },
+  "dependencies": {
+    "style": "native"
+  },
+  "verify": [
+    "dagger check",
+    "b=\"origin/$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)\"; for m in $(git diff --name-only \"$b...HEAD\" -- 'daggerverse/*' | cut -d/ -f1,2 | sort -u); do dagger -m \"$m\" check || exit 1; if [ -d \"$m/tests\" ]; then dagger -m \"$m/tests\" check || exit 1; fi; done"
+  ],
+  "merge": {
+    "label": "auto-merge",
+    "workflow": "auto-merge.yaml"
+  },
+  "review": {
+    "required": true
+  },
+  "worktreeDir": ".claude/worktrees"
+}

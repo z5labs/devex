@@ -1,6 +1,7 @@
 name: Story
 description: Represents stories
 title: "story(subject): short description"
+labels: ["story"]
 body:
   - type: textarea
     id: description
