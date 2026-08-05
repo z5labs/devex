@@ -191,7 +191,7 @@ func TestParseTimeoutsCoarseKey(t *testing.T) {
 // empty array: `null` survives a workflow's non-empty test and then breaks
 // fromJSON.
 func TestRender(t *testing.T) {
-	empty, err := Render(nil, FormatGithubActions)
+	empty, err := Render(nil, FormatGithubActions, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRender(t *testing.T) {
 	}
 
 	entries := []Entry{CheckEntry("mods/a", "a", "ok")}
-	oneLine, err := Render(entries, FormatGithubActions)
+	oneLine, err := Render(entries, FormatGithubActions, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,14 +212,14 @@ func TestRender(t *testing.T) {
 		t.Fatalf("the github-actions form is not a JSON array: %v", err)
 	}
 
-	canonical, err := Render(entries, FormatJSON)
+	canonical, err := Render(entries, FormatJSON, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(canonical, "\n") {
 		t.Errorf("the canonical form is not indented: %q", canonical)
 	}
-	if _, err := Render(entries, Format("yaml")); err == nil {
+	if _, err := Render(entries, Format("yaml"), ""); err == nil {
 		t.Error("an unknown format was accepted")
 	}
 }

@@ -306,6 +306,44 @@ const jenkinsGolden = `[
 ]
 `
 
+// selfCheckRecordCommand stands in for what a Jenkinsfile passes as
+// --record-command: a `record-pass` call complete but for the hash, whose ref and
+// commit come from the pipeline's own environment.
+const selfCheckRecordCommand = `dagger -m workspace-ci --memo-store=GIT_REFS call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT"`
+
+// jenkinsRecordGolden is the Jenkins form of a two-leg plan rendered with
+// selfCheckRecordCommand, where only the first leg carries a hash.
+//
+// Three things it pins, each of which is a way memoization here goes wrong
+// silently: the recording runs *after* the check, so a check that throws skips it;
+// it sits *outside* the timeout, so a check that uses its whole budget does not
+// take the recording down with it; and the leg with no hash — the plan's way of
+// saying never memoize this — renders no recording at all.
+const jenkinsRecordGolden = `[
+  'mods/app/tests:all': {
+    stage('mods/app/tests:all') {
+      timeout(time: 6, unit: 'MINUTES') {
+        sh 'dagger -m \'mods/app/tests\' check \'tests:all\''
+      }
+      sh 'dagger -m workspace-ci --memo-store=GIT_REFS call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT" --hash=\'abc123\''
+    }
+  },
+  'mods/other': {
+    stage('mods/other') {
+      timeout(time: 6, unit: 'MINUTES') {
+        sh 'dagger -m \'mods/other\' check'
+      }
+    }
+  }
+]
+`
+
+// withHash is the plan's way of saying a leg may be memoized under hash.
+func withHash(e Entry, hash string) Entry {
+	e.Hash = hash
+	return e
+}
+
 // RenderSelfCheck pins what each format emits for a known plan, so a regression in
 // one fails CI rather than a consumer's pipeline. Like the other self-checks it is
 // pure: no engine, no git, no services.
@@ -326,7 +364,7 @@ func RenderSelfCheck() error {
 		{FormatGithubActions, "[]"},
 		{FormatJenkins, jenkinsPreamble + "[:]\n"},
 	} {
-		got, err := Render(nil, tc.format)
+		got, err := Render(nil, tc.format, "")
 		if err != nil {
 			fail(string(tc.format), err)
 			continue
@@ -340,17 +378,41 @@ func RenderSelfCheck() error {
 		CheckEntry(fxTests, "tests", "all"),
 		ModuleEntry(fxOther),
 	}, 6)
-	got, err := Render(legs, FormatJenkins)
+	got, err := Render(legs, FormatJenkins, "")
 	if err != nil {
 		fail("JENKINS", err)
 	} else if want := jenkinsPreamble + jenkinsGolden; got != want {
 		fail("JENKINS", fmt.Errorf("rendered\n%s\nwant\n%s", got, want))
 	}
 
+	// The same two legs with a record command, one of them memoizable and one not.
+	// Pinned in full for the same reason as the plain form: this one is what a
+	// pipeline runs after a green check, so a stray brace here writes to the store
+	// or fails a branch that passed.
+	recorded := Timeouts{}.Apply([]Entry{
+		withHash(CheckEntry(fxTests, "tests", "all"), "abc123"),
+		ModuleEntry(fxOther),
+	}, 6)
+	got, err = Render(recorded, FormatJenkins, selfCheckRecordCommand)
+	if err != nil {
+		fail("JENKINS", err)
+	} else if want := jenkinsPreamble + jenkinsRecordGolden; got != want {
+		fail("JENKINS", fmt.Errorf("with a record command, rendered\n%s\nwant\n%s", got, want))
+	}
+
+	// A record command reaches no other format, because no other format renders
+	// behaviour to attach it to. Silently dropping it would leave a caller
+	// believing they had configured recording.
+	for _, f := range []Format{FormatJSON, FormatGithubActions, ""} {
+		if _, err := Render(recorded, f, selfCheckRecordCommand); err == nil {
+			fail(string(f), errors.New("a record command was accepted by a format that cannot render one"))
+		}
+	}
+
 	// A leg whose budget was never applied must render without a timeout at all:
 	// `timeout(time: 0)` aborts the branch the instant it starts, which would look
 	// like every check failing.
-	unbounded, err := Render([]Entry{CheckEntry(fxOther, "other", "ok")}, FormatJenkins)
+	unbounded, err := Render([]Entry{CheckEntry(fxOther, "other", "ok")}, FormatJenkins, "")
 	if err != nil {
 		fail("JENKINS", err)
 	} else if strings.Contains(unbounded, "timeout(") {
@@ -372,7 +434,7 @@ func RenderSelfCheck() error {
 		}
 	}
 
-	if _, err := Render(legs, Format("yaml")); err == nil {
+	if _, err := Render(legs, Format("yaml"), ""); err == nil {
 		errs = append(errs, errors.New("an unknown format was accepted"))
 	}
 	return errors.Join(errs...)

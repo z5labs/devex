@@ -196,12 +196,12 @@ type WorkspaceCiAffectedModulesOpts struct {
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:297:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:317:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:302:2)
+	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:322:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -210,7 +210,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:287:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:307:1)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
 	}
@@ -351,7 +351,7 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 // later run its full time and looks exactly like a workspace nobody has recorded
 // against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
 // runs in-process and needs no network, no credential and no services.
-func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:495:1)
+func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:515:1)
 	if r.memoStoreSelfTest != nil {
 		return nil
 	}
@@ -385,12 +385,32 @@ type WorkspaceCiPlanOpts struct {
 	// Default: "[]"
 	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:256:2)
 	//
+	// The command a JENKINS branch runs to record its own pass, with
+	// `--hash=<that leg's hash>` appended — conventionally a `record-pass` call
+	// complete but for the hash:
+	//
+	// 	dagger -m <this module> --memo-store=GIT_REFS --memo-repo=<repo>
+	// 	  --memo-token=env:GH_TOKEN --memo-refs=refs/heads/main
+	// 	  call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT"
+	//
+	// It is a whole command rather than a set of fields because the credential is
+	// in it: rendering a token into a plan a pipeline writes to disk and `load`s is
+	// not something this module should ever do, and the pipeline already knows how
+	// to name its own. Nothing is rendered for a leg with no hash, and nothing runs
+	// for a branch whose check failed — see README.md.
+	//
+	// Only the JENKINS form takes one; every other format carries each leg's hash
+	// as data for the surrounding job to record, so passing it with those is an
+	// error rather than a silent no-op.
+	//
+	RecordCommand string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:276:2)
+	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:263:2)
+	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:283:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -443,6 +463,10 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 		if !querybuilder.IsZeroValue(opts[i].KnownGood) {
 			q = q.Arg("knownGood", opts[i].KnownGood)
 		}
+		// `recordCommand` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RecordCommand) {
+			q = q.Arg("recordCommand", opts[i].RecordCommand)
+		}
 		// `diagnostics` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Diagnostics) {
 			q = q.Arg("diagnostics", opts[i].Diagnostics)
@@ -477,7 +501,7 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 // thing: a call that named no ref, because with no ref there is no scope to judge
 // and refusing silently would be indistinguishable from a scope that was judged
 // and rejected.
-func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:340:1)
+func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:360:1)
 	if r.recordPass != nil {
 		return *r.recordPass, nil
 	}
@@ -498,7 +522,7 @@ func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, c
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:472:1)
+func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:492:1)
 	if r.selectionSelfTest != nil {
 		return nil
 	}

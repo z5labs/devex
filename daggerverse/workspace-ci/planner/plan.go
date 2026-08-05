@@ -173,13 +173,24 @@ const (
 // workflow's non-empty test and then breaks fromJSON, so an empty plan renders as
 // `[]` — and as `[:]` in the Jenkins form, where `[]` is an empty List rather than
 // an empty Map and parallel would reject it.
-func Render(entries []Entry, format Format) (string, error) {
+//
+// recordCommand is the command a Jenkins branch runs to record its own pass, with
+// `--hash=<that leg's hash>` appended. It is meaningful only for FormatJenkins,
+// because that is the only format whose legs are behaviour rather than data: a
+// JSON or GitHub Actions leg carries its `hash` for the surrounding job to record,
+// and a closure has no surrounding job. Passing it with any other format is an
+// error rather than a no-op — a caller who believes they configured recording and
+// got a plan that records nothing would find out one green run too late.
+func Render(entries []Entry, format Format, recordCommand string) (string, error) {
 	if entries == nil {
 		entries = []Entry{}
 	}
+	if recordCommand != "" && format != FormatJenkins {
+		return "", fmt.Errorf("a record command is only rendered into the %s form, but the format is %q; every other format carries each leg's hash as data for the surrounding job to record", FormatJenkins, format)
+	}
 	switch format {
 	case FormatJenkins:
-		return renderJenkins(entries), nil
+		return renderJenkins(entries, recordCommand), nil
 	case FormatGithubActions:
 		b, err := json.Marshal(entries)
 		if err != nil {
