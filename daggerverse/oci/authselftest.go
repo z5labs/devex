@@ -46,13 +46,15 @@ func checkHostNormalization() error {
 		{"http://localhost:5000", "localhost:5000"},
 		{"  GHCR.IO  ", "ghcr.io"},
 		{"registry.example.com:5000/v2/", "registry.example.com:5000"},
-		// The four names Docker Hub answers to. `docker login` has written
-		// each of them at some point in its history, and a user looking at
-		// their own config file cannot tell which they got.
+		// Every name Docker Hub answers to. `docker login` has written each
+		// of them at some point in its history, and a user looking at their
+		// own config file cannot tell which they got. The list here and the
+		// one in the README are the same list.
 		{"docker.io", "docker.io"},
 		{"index.docker.io", "docker.io"},
 		{"https://index.docker.io/v1/", "docker.io"},
 		{"registry-1.docker.io", "docker.io"},
+		{"registry.hub.docker.com", "docker.io"},
 	}
 	var failures []error
 	for _, tc := range cases {
@@ -305,7 +307,8 @@ func checkEveryCredentialIsRedacted() error {
 	  "auths": {
 	    "ghcr.io": {"auth":"Z2g6Z2hw"},
 	    "quay.io": {"username":"q","password":"quay-password"},
-	    "gcr.io": {"identitytoken":"gcr-refresh","registrytoken":"gcr-bearer"}
+	    "gcr.io": {"identitytoken":"gcr-refresh","registrytoken":"gcr-bearer"},
+	    "unpadded.example.com": {"auth":"dXNlcjpwYXM"}
 	  }
 	}`
 
@@ -320,8 +323,17 @@ func checkEveryCredentialIsRedacted() error {
 
 	var failures []error
 	// "ghp" is the matched host's password, "Z2g6Z2hw" the blob it travelled
-	// in, and the rest belong to hosts that lost the lookup.
-	for _, want := range []string{"ghp", "Z2g6Z2hw", "quay-password", "gcr-refresh", "gcr-bearer"} {
+	// in, and the next three belong to hosts that lost the lookup.
+	//
+	// The last two are the same credential in both encodings. The file holds
+	// it unpadded; anything that rebuilds an Authorization header from it
+	// emits the padded form, which is a different string carrying the
+	// identical credential, so scrubbing only what the file happened to
+	// contain would let it through.
+	for _, want := range []string{
+		"ghp", "Z2g6Z2hw", "quay-password", "gcr-refresh", "gcr-bearer",
+		"dXNlcjpwYXM", "dXNlcjpwYXM=",
+	} {
 		if !indexed[want] {
 			failures = append(failures, fmt.Errorf("%q is not in the redaction list %q", want, redact))
 		}

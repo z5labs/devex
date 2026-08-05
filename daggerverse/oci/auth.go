@@ -264,6 +264,16 @@ func dockerConfigSecrets(cfg dockerConfigFile) []string {
 		if err != nil {
 			continue
 		}
+		// Both canonical encodings of the same credential, because the blob
+		// that leaks need not be the blob that was written. An unpadded
+		// value in the file is re-encoded padded by anything that rebuilds
+		// the Authorization header, and that padded string is a different
+		// string carrying the identical credential — it would not match
+		// entry.Auth and would survive scrubbing. Whichever of the two the
+		// file already held is a harmless duplicate.
+		secrets = append(secrets,
+			base64.StdEncoding.EncodeToString([]byte(decoded)),
+			base64.RawStdEncoding.EncodeToString([]byte(decoded)))
 		if _, pass, ok := strings.Cut(decoded, ":"); ok {
 			secrets = append(secrets, pass)
 		}

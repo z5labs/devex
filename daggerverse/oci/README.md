@@ -102,8 +102,9 @@ reg := dag.Oci().Registry("ghcr.io", dagger.OciRegistryOpts{
 The config is searched for the host actually dialled. Keys are matched the way
 Docker wrote them rather than literally: `ghcr.io`, `https://ghcr.io` and
 `https://ghcr.io/` are the same host, and Docker Hub is found under any of
-`docker.io`, `index.docker.io`, `registry-1.docker.io` and the legacy
-`https://index.docker.io/v1/`. Within an entry, `auth` (base64
+`docker.io`, `index.docker.io`, `registry-1.docker.io`,
+`registry.hub.docker.com` and the legacy `https://index.docker.io/v1/`. Within
+an entry, `auth` (base64
 `username:password`, padded or not), explicit `username`/`password`,
 `registrytoken` and `identitytoken` are all read.
 
@@ -147,7 +148,10 @@ credentials that lost the precedence contest and, for a Docker config, the
 entries for hosts this connection never dialled — the file arrived as one
 secret, so all of it is the caller's secret. A `auth` blob is scrubbed as well
 as the password inside it: base64 is not encryption, and the blob is the form
-the credential actually travels in.
+the credential actually travels in. Both encodings of that blob are scrubbed,
+padded and unpadded, because the blob that leaks need not be the blob that was
+written — anything rebuilding an `Authorization` header emits the padded form,
+which is a different string carrying the identical credential.
 
 A malformed config fails without quoting itself back, because `encoding/json`
 puts the offending input in its message and the offending input is a file full
