@@ -25,6 +25,7 @@ import (
 	"dagger/workspace-ci/gitdiff"
 	"dagger/workspace-ci/internal/dagger"
 	"dagger/workspace-ci/planner"
+	"dagger/workspace-ci/refstore"
 )
 
 // WorkspaceCi plans CI for the workspace it is invoked from.
@@ -38,14 +39,40 @@ type WorkspaceCi struct {
 	// +private
 	DefaultTimeout int
 	// +private
+	MemoStore MemoStore
+	// +private
 	MemoToken *dagger.Secret
 	// +private
 	MemoRepo string
+	// +private
+	MemoAPI string
 	// +private
 	MemoRefs []string
 	// +private
 	MemoTTL int
 }
+
+// MemoStore is where recorded passes live, and decides whether this module can
+// record one at all.
+//
+// Note on rendered names: as with Format, the CLI takes the enum member the SDK
+// derives from the constant identifier, so the values are spelled to match.
+type MemoStore string
+
+const (
+	// MemoStoreActionsCache is GitHub's Actions cache, an entry being the key
+	// workspace-ci-memo-v1-<hash> and nothing else. This module reads it and can
+	// never write it: a cache write needs ACTIONS_RUNTIME_TOKEN, which only a
+	// running workflow holds, so recording stays an actions/cache/save step and
+	// RecordPass reports UNSUPPORTED.
+	MemoStoreActionsCache MemoStore = "ACTIONS_CACHE"
+	// MemoStoreGitRefs is a namespace of git refs in memoRepo, which an ordinary
+	// repository token both reads and writes — so RecordPass works, and a CI
+	// system with no equivalent of actions/cache/save can memoize. Its trust
+	// argument is not the Actions cache's and is spelled out in README.md: GitHub
+	// isolates cache scopes for you, and it does not isolate refs.
+	MemoStoreGitRefs MemoStore = "GIT_REFS"
+)
 
 // New configures a planner.
 func New(
@@ -77,18 +104,35 @@ func New(
 	// +optional
 	// +default=6
 	defaultTimeout int,
-	// A credential for reading the memoization store: a GitHub token with
-	// actions:read on memoRepo. Nothing is ever written from here — see README.md.
+	// Where recorded passes live. ACTIONS_CACHE is read-only from this module and
+	// leaves recording to an actions/cache/save step; GIT_REFS is a store the
+	// module owns both sides of, so RecordPass can write it from anywhere a token
+	// reaches. See README.md — the two have different trust arguments.
+	//
+	// +optional
+	// +default="ACTIONS_CACHE"
+	memoStore MemoStore,
+	// A credential for the memoization store: a GitHub token on memoRepo with
+	// actions:read for ACTIONS_CACHE, or contents:read for GIT_REFS — plus
+	// contents:write if this run is to record anything.
 	//
 	// +optional
 	memoToken *dagger.Secret,
-	// The owner/name whose Actions cache holds the memoization store.
+	// The owner/name whose Actions cache, or whose git refs, hold the memoization
+	// store.
 	//
 	// +optional
 	memoRepo string,
-	// The git refs whose cache scopes may be trusted to hold recorded passes.
-	// Defaults to none, which reads nothing: a scope a run can write is a scope
-	// that must be chosen deliberately.
+	// The GitHub API root the store is reached through. Defaults to
+	// https://api.github.com; set it for GitHub Enterprise Server.
+	//
+	// +optional
+	memoAPI string,
+	// The git refs whose scopes may be trusted to hold recorded passes, spelled in
+	// full (refs/heads/main, refs/pull/12/merge). They are the refs a plan reads,
+	// and the only refs RecordPass will write from. Defaults to none, which reads
+	// nothing and records nothing: a scope a run can write is a scope that must be
+	// chosen deliberately.
 	//
 	// +optional
 	memoRefs []string,
@@ -105,6 +149,13 @@ func New(
 	if memoToken != nil && memoRepo == "" {
 		return nil, fmt.Errorf("memoToken needs memoRepo: a token with no repository to read cannot be scoped, and silently reading nothing would look like a workspace with no recorded passes")
 	}
+	switch memoStore {
+	case "", MemoStoreActionsCache:
+		memoStore = MemoStoreActionsCache
+	case MemoStoreGitRefs:
+	default:
+		return nil, fmt.Errorf("memoStore %q is not a store this module knows: use %s or %s", memoStore, MemoStoreActionsCache, MemoStoreGitRefs)
+	}
 	if len(globalPaths) == 0 {
 		globalPaths = planner.GlobalPathsDefault()
 	}
@@ -113,8 +164,10 @@ func New(
 		SplitModules:   splitModules,
 		Timeouts:       timeouts,
 		DefaultTimeout: defaultTimeout,
+		MemoStore:      memoStore,
 		MemoToken:      memoToken,
 		MemoRepo:       memoRepo,
+		MemoAPI:        memoAPI,
 		MemoRefs:       memoRefs,
 		MemoTTL:        memoTTL,
 	}, nil
@@ -253,6 +306,44 @@ func (m *WorkspaceCi) AffectedModules(
 	return string(out), nil
 }
 
+// RecordPass records that the leg whose inputs hashed to hash passed, so a later
+// run that computes the same hash can skip it. It is the write half of what Plan
+// reads, for the stores this module owns both sides of.
+//
+// It reports what it did, as one word, and **never fails a check that passed**.
+// Recording happens after the work is already green, so a store that will not
+// take the entry has to cost a later run its time and nothing else. A caller who
+// wants a store problem to be loud should compare the returned word:
+//
+//	RECORDED         a new entry now names this hash
+//	ALREADY_RECORDED an earlier run got there; nothing was written or refreshed
+//	REFUSED          ref is not one of memoRefs, so this scope is not writable
+//	SKIPPED          nothing to record: an empty hash, or no store configured
+//	UNSUPPORTED      the configured store cannot be written from this module
+//	FAILED           the store would not take the entry; stderr says why
+//
+// The error return is not how a store problem is reported. It carries exactly one
+// thing: a call that named no ref, because with no ref there is no scope to judge
+// and refusing silently would be indistinguishable from a scope that was judged
+// and rejected.
+//
+// +cache="never"
+func (m *WorkspaceCi) RecordPass(
+	ctx context.Context,
+	// The leg's input hash, exactly as Plan emitted it. An empty hash is a leg
+	// that may never be memoized, and recording one is a no-op.
+	hash string,
+	// The git ref the run that passed is on, spelled the way memoRefs spells it —
+	// refs/heads/main, refs/pull/12/merge. Nothing is written unless it is one of
+	// them.
+	ref string,
+	// The commit whose checks passed. The entry points at it, so `git log` on a
+	// recorded ref shows what proved the hash.
+	commit string,
+) (string, error) {
+	return m.recordPass(ctx, hash, ref, commit)
+}
+
 // planReport is what Plan reports when asked to explain itself.
 //
 // It is unexported on purpose: an exported struct in package main is a Dagger
@@ -377,6 +468,23 @@ func (m *WorkspaceCi) SelectionSelfTest(ctx context.Context) error {
 		return err
 	}
 	return planner.RenderSelfCheck()
+}
+
+// MemoStoreSelfTest verifies the store this module owns both sides of — that a
+// pass is recorded under its own ref's scope, that recording the same hash twice
+// writes nothing and refreshes no TTL, that entries read back, that one older
+// than the TTL does not, and that one ref's scope stays out of another's — against
+// an in-process stub of GitHub's API.
+//
+// It is a check rather than only a Go test because this is the half of
+// memoization that fails silently: a store that quietly takes nothing costs every
+// later run its full time and looks exactly like a workspace nobody has recorded
+// against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
+// runs in-process and needs no network, no credential and no services.
+//
+// +check
+func (m *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error {
+	return refstore.SelfCheck()
 }
 
 // parseKnownGood turns a JSON array of recorded input hashes into a set. An

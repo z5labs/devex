@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type WorkspaceCi
-func (r *Binding) AsWorkspaceCi() *WorkspaceCi { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:31:6)
+func (r *Binding) AsWorkspaceCi() *WorkspaceCi { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
 	q := r.query.Select("asWorkspaceCi")
 
 	return &WorkspaceCi{
@@ -20,7 +20,7 @@ func (r *Binding) AsWorkspaceCi() *WorkspaceCi { // workspace-ci (../../../../..
 }
 
 // Create or update a binding of type WorkspaceCi in the environment
-func (r *Env) WithWorkspaceCiInput(name string, value *WorkspaceCi, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:31:6)
+func (r *Env) WithWorkspaceCiInput(name string, value *WorkspaceCi, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withWorkspaceCiInput")
 	q = q.Arg("name", name)
@@ -33,7 +33,7 @@ func (r *Env) WithWorkspaceCiInput(name string, value *WorkspaceCi, description 
 }
 
 // Declare a desired WorkspaceCi output to be assigned in the environment
-func (r *Env) WithWorkspaceCiOutput(name string, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:31:6)
+func (r *Env) WithWorkspaceCiOutput(name string, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
 	q := r.query.Select("withWorkspaceCiOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -51,7 +51,7 @@ type WorkspaceCiOpts struct {
 	// source context, so nothing else would attribute them. Defaults to
 	// .github/workflows/, which costs nothing in a workspace that has none.
 	//
-	GlobalPaths []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:58:2)
+	GlobalPaths []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:85:2)
 	//
 	// Repo-relative directories of modules whose checks must each get their own leg
 	// even when everything runs. The run-everything path otherwise emits one leg per
@@ -60,7 +60,7 @@ type WorkspaceCiOpts struct {
 	// single runner. Splitting a module costs loading it — the one thing that path
 	// exists to avoid — so name only the modules that need it.
 	//
-	SplitModules []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:67:2)
+	SplitModules []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:94:2)
 	//
 	// Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's
 	// display name or by a module directory (which covers every leg of that
@@ -68,39 +68,57 @@ type WorkspaceCiOpts struct {
 	//
 	//
 	// Default: "{}"
-	Timeouts string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:74:2)
+	Timeouts string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:101:2)
 	//
 	// The check-step budget in minutes for a leg with no override.
 	//
 	//
 	// Default: 6
-	DefaultTimeout int // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:79:2)
+	DefaultTimeout int // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:106:2)
 	//
-	// A credential for reading the memoization store: a GitHub token with
-	// actions:read on memoRepo. Nothing is ever written from here — see README.md.
+	// Where recorded passes live. ACTIONS_CACHE is read-only from this module and
+	// leaves recording to an actions/cache/save step; GIT_REFS is a store the
+	// module owns both sides of, so RecordPass can write it from anywhere a token
+	// reaches. See README.md — the two have different trust arguments.
 	//
-	MemoToken *Secret // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:84:2)
 	//
-	// The owner/name whose Actions cache holds the memoization store.
+	// Default: ACTIONS_CACHE
+	MemoStore WorkspaceCiMemoStore // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:114:2)
 	//
-	MemoRepo string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:88:2)
+	// A credential for the memoization store: a GitHub token on memoRepo with
+	// actions:read for ACTIONS_CACHE, or contents:read for GIT_REFS — plus
+	// contents:write if this run is to record anything.
 	//
-	// The git refs whose cache scopes may be trusted to hold recorded passes.
-	// Defaults to none, which reads nothing: a scope a run can write is a scope
-	// that must be chosen deliberately.
+	MemoToken *Secret // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:120:2)
 	//
-	MemoRefs []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:94:2)
+	// The owner/name whose Actions cache, or whose git refs, hold the memoization
+	// store.
+	//
+	MemoRepo string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:125:2)
+	//
+	// The GitHub API root the store is reached through. Defaults to
+	// https://api.github.com; set it for GitHub Enterprise Server.
+	//
+	MemoAPI string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:130:2)
+	//
+	// The git refs whose scopes may be trusted to hold recorded passes, spelled in
+	// full (refs/heads/main, refs/pull/12/merge). They are the refs a plan reads,
+	// and the only refs RecordPass will write from. Defaults to none, which reads
+	// nothing and records nothing: a scope a run can write is a scope that must be
+	// chosen deliberately.
+	//
+	MemoRefs []string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:138:2)
 	//
 	// How long, in seconds, a recorded pass may be honoured. This is the answer to
 	// base-image drift, which a source-derived hash cannot see.
 	//
 	//
 	// Default: 86400
-	MemoTTL int // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:100:2)
+	MemoTTL int // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:144:2)
 }
 
 // New configures a planner.
-func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:51:1)
+func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:78:1)
 	q := r.query.Select("workspaceCi")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `globalPaths` optional argument
@@ -119,6 +137,10 @@ func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace
 		if !querybuilder.IsZeroValue(opts[i].DefaultTimeout) {
 			q = q.Arg("defaultTimeout", opts[i].DefaultTimeout)
 		}
+		// `memoStore` optional argument
+		if !querybuilder.IsZeroValue(opts[i].MemoStore) {
+			q = q.Arg("memoStore", opts[i].MemoStore)
+		}
 		// `memoToken` optional argument
 		if !querybuilder.IsZeroValue(opts[i].MemoToken) {
 			q = q.Arg("memoToken", opts[i].MemoToken)
@@ -126,6 +148,10 @@ func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace
 		// `memoRepo` optional argument
 		if !querybuilder.IsZeroValue(opts[i].MemoRepo) {
 			q = q.Arg("memoRepo", opts[i].MemoRepo)
+		}
+		// `memoApi` optional argument
+		if !querybuilder.IsZeroValue(opts[i].MemoAPI) {
+			q = q.Arg("memoApi", opts[i].MemoAPI)
 		}
 		// `memoRefs` optional argument
 		if !querybuilder.IsZeroValue(opts[i].MemoRefs) {
@@ -143,14 +169,16 @@ func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace
 }
 
 // WorkspaceCi plans CI for the workspace it is invoked from.
-type WorkspaceCi struct { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:31:6)
+type WorkspaceCi struct { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
 	query *querybuilder.Selection
 
 	affectedModules   *string
 	generated         *Void
 	generatedSelfTest *Void
 	id                *ID
+	memoStoreSelfTest *Void
 	plan              *string
+	recordPass        *string
 	selectionSelfTest *Void
 }
 
@@ -165,12 +193,12 @@ type WorkspaceCiAffectedModulesOpts struct {
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:235:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:288:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:240:2)
+	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:293:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -179,7 +207,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:226:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:279:1)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
 	}
@@ -309,20 +337,40 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// MemoStoreSelfTest verifies the store this module owns both sides of — that a
+// pass is recorded under its own ref's scope, that recording the same hash twice
+// writes nothing and refreshes no TTL, that entries read back, that one older
+// than the TTL does not, and that one ref's scope stays out of another's — against
+// an in-process stub of GitHub's API.
+//
+// It is a check rather than only a Go test because this is the half of
+// memoization that fails silently: a store that quietly takes nothing costs every
+// later run its full time and looks exactly like a workspace nobody has recorded
+// against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
+// runs in-process and needs no network, no credential and no services.
+func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:486:1)
+	if r.memoStoreSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("memoStoreSelfTest")
+
+	return q.Execute(ctx)
+}
+
 // WorkspaceCiPlanOpts contains options for WorkspaceCi.Plan
 type WorkspaceCiPlanOpts struct {
 
 	// Default: JSON
-	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:177:2)
+	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:230:2)
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:181:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:234:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:186:2)
+	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:239:2)
 	//
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
@@ -332,14 +380,14 @@ type WorkspaceCiPlanOpts struct {
 	//
 	//
 	// Default: "[]"
-	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:195:2)
+	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:248:2)
 	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:202:2)
+	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:255:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -366,7 +414,7 @@ type WorkspaceCiPlanOpts struct {
 // explicitly is also the escape hatch for a caller whose .git is a file rather
 // than a directory (a git worktree), which would otherwise degrade to running
 // everything.
-func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:169:1)
+func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:222:1)
 	if r.plan != nil {
 		return *r.plan, nil
 	}
@@ -402,13 +450,48 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 	return response, q.Execute(ctx)
 }
 
+// RecordPass records that the leg whose inputs hashed to hash passed, so a later
+// run that computes the same hash can skip it. It is the write half of what Plan
+// reads, for the stores this module owns both sides of.
+//
+// It reports what it did, as one word, and **never fails a check that passed**.
+// Recording happens after the work is already green, so a store that will not
+// take the entry has to cost a later run its time and nothing else. A caller who
+// wants a store problem to be loud should compare the returned word:
+//
+//	RECORDED         a new entry now names this hash
+//	ALREADY_RECORDED an earlier run got there; nothing was written or refreshed
+//	REFUSED          ref is not one of memoRefs, so this scope is not writable
+//	SKIPPED          nothing to record: an empty hash, or no store configured
+//	UNSUPPORTED      the configured store cannot be written from this module
+//	FAILED           the store would not take the entry; stderr says why
+//
+// The error return is not how a store problem is reported. It carries exactly one
+// thing: a call that named no ref, because with no ref there is no scope to judge
+// and refusing silently would be indistinguishable from a scope that was judged
+// and rejected.
+func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:331:1)
+	if r.recordPass != nil {
+		return *r.recordPass, nil
+	}
+	q := r.query.Select("recordPass")
+	q = q.Arg("hash", hash)
+	q = q.Arg("ref", ref)
+	q = q.Arg("commit", commit)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // SelectionSelfTest verifies the change -> modules -> legs mapping, the properties
 // a recorded pass depends on, and the shape each format renders a plan in, against
 // fixed fixtures — so a regression in any of them fails CI rather than silently
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:372:1)
+func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:463:1)
 	if r.selectionSelfTest != nil {
 		return nil
 	}
@@ -431,7 +514,7 @@ func (r *WorkspaceCi) AsNode() Node {
 // the *constant identifier* in SCREAMING_SNAKE_CASE, and the CLI takes that member
 // name rather than the value — hence `--format=GITHUB_ACTIONS`. The values here are
 // spelled to match, so there is only ever one spelling to remember.
-type WorkspaceCiFormat string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:129:6)
+type WorkspaceCiFormat string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:182:6)
 
 func (WorkspaceCiFormat) IsEnum() {}
 
@@ -486,14 +569,84 @@ func (v *WorkspaceCiFormat) UnmarshalJSON(dt []byte) error {
 const (
 	// FormatGithubActions is a single-line JSON array, ready to write to
 	// GITHUB_OUTPUT and expand with fromJSON as a matrix.
-	WorkspaceCiFormatGithubActions WorkspaceCiFormat = "GITHUB_ACTIONS" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:136:2)
+	WorkspaceCiFormatGithubActions WorkspaceCiFormat = "GITHUB_ACTIONS" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:189:2)
 
 	// FormatJSON is the canonical form: an indented JSON array of legs.
-	WorkspaceCiFormatJson WorkspaceCiFormat = "JSON" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:133:2)
+	WorkspaceCiFormatJson WorkspaceCiFormat = "JSON" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:186:2)
 
 	// FormatJenkins is Groovy: a map of leg name to closure, which is what a
 	// declarative pipeline's parallel step takes. Write it to a file, `load` it,
 	// and hand the result straight to `parallel`.
-	WorkspaceCiFormatJenkins WorkspaceCiFormat = "JENKINS" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:140:2)
+	WorkspaceCiFormatJenkins WorkspaceCiFormat = "JENKINS" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:193:2)
+
+)
+
+// MemoStore is where recorded passes live, and decides whether this module can
+// record one at all.
+//
+// Note on rendered names: as with Format, the CLI takes the enum member the SDK
+// derives from the constant identifier, so the values are spelled to match.
+type WorkspaceCiMemoStore string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:60:6)
+
+func (WorkspaceCiMemoStore) IsEnum() {}
+
+func (v WorkspaceCiMemoStore) Name() string {
+	switch v {
+	case WorkspaceCiMemoStoreActionsCache:
+		return "ACTIONS_CACHE"
+	case WorkspaceCiMemoStoreGitRefs:
+		return "GIT_REFS"
+	default:
+		return ""
+	}
+}
+
+func (v WorkspaceCiMemoStore) Value() string {
+	return string(v)
+}
+
+func (v *WorkspaceCiMemoStore) MarshalJSON() ([]byte, error) {
+	if *v == "" {
+		return []byte(`""`), nil
+	}
+	name := v.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", *v)
+	}
+	return json.Marshal(name)
+}
+
+func (v *WorkspaceCiMemoStore) UnmarshalJSON(dt []byte) error {
+	var s string
+	if err := json.Unmarshal(dt, &s); err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*v = ""
+	case "ACTIONS_CACHE":
+		*v = WorkspaceCiMemoStoreActionsCache
+	case "GIT_REFS":
+		*v = WorkspaceCiMemoStoreGitRefs
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
+const (
+	// MemoStoreActionsCache is GitHub's Actions cache, an entry being the key
+	// workspace-ci-memo-v1-<hash> and nothing else. This module reads it and can
+	// never write it: a cache write needs ACTIONS_RUNTIME_TOKEN, which only a
+	// running workflow holds, so recording stays an actions/cache/save step and
+	// RecordPass reports UNSUPPORTED.
+	WorkspaceCiMemoStoreActionsCache WorkspaceCiMemoStore = "ACTIONS_CACHE" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:68:2)
+
+	// MemoStoreGitRefs is a namespace of git refs in memoRepo, which an ordinary
+	// repository token both reads and writes — so RecordPass works, and a CI
+	// system with no equivalent of actions/cache/save can memoize. Its trust
+	// argument is not the Actions cache's and is spelled out in README.md: GitHub
+	// isolates cache scopes for you, and it does not isolate refs.
+	WorkspaceCiMemoStoreGitRefs WorkspaceCiMemoStore = "GIT_REFS" // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:74:2)
 
 )

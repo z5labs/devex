@@ -206,6 +206,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).All(&parent, ctx)
+		case "MemoStoreSelfTestPasses":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).MemoStoreSelfTestPasses(&parent, ctx)
+		case "NewRejectsAnUnknownMemoStore":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).NewRejectsAnUnknownMemoStore(&parent, ctx)
 		case "NewRejectsMalformedTimeouts":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -325,6 +339,55 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanSplitsNamedModulesOnTheRunEverythingPath(&parent, ctx)
+		case "RecordPassNeedsTheRunsRef":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassNeedsTheRunsRef(&parent, ctx)
+		case "RecordPassNeverFailsThePassingCheck":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassNeverFailsThePassingCheck(&parent, ctx)
+		case "RecordPassReachesTheStoreFromTrustedRef":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassReachesTheStoreFromTrustedRef(&parent, ctx)
+		case "RecordPassRefusesAnUntrustedRef":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassRefusesAnUntrustedRef(&parent, ctx)
+		case "RecordPassSaysTheActionsCacheIsUnwritable":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassSaysTheActionsCacheIsUnwritable(&parent, ctx)
+		case "RecordPassSkipsAnUnhashableLeg":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassSkipsAnUnhashableLeg(&parent, ctx)
+		case "RecordPassSkipsWithNoStoreConfigured":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RecordPassSkipsWithNoStoreConfigured(&parent, ctx)
 		case "SelectionSelfTestPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
