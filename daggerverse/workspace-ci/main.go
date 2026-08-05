@@ -254,6 +254,26 @@ func (m *WorkspaceCi) Plan(
 	// +optional
 	// +default="[]"
 	knownGood string,
+	// The command a JENKINS branch runs to record its own pass, with
+	// `--hash=<that leg's hash>` appended — conventionally a `record-pass` call
+	// complete but for the hash:
+	//
+	//	dagger -m <this module> --memo-store=GIT_REFS --memo-repo=<repo>
+	//	  --memo-token=env:GH_TOKEN --memo-refs=refs/heads/main
+	//	  call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT"
+	//
+	// It is a whole command rather than a set of fields because the credential is
+	// in it: rendering a token into a plan a pipeline writes to disk and `load`s is
+	// not something this module should ever do, and the pipeline already knows how
+	// to name its own. Nothing is rendered for a leg with no hash, and nothing runs
+	// for a branch whose check failed — see README.md.
+	//
+	// Only the JENKINS form takes one; every other format carries each leg's hash
+	// as data for the surrounding job to record, so passing it with those is an
+	// error rather than a silent no-op.
+	//
+	// +optional
+	recordCommand string,
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
@@ -273,7 +293,7 @@ func (m *WorkspaceCi) Plan(
 		}
 		return string(out), nil
 	}
-	return planner.Render(result.Plan, planner.Format(format))
+	return planner.Render(result.Plan, planner.Format(format), recordCommand)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the

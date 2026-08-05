@@ -311,6 +311,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanLoadsOnlyAffectedModules(&parent, ctx)
+		case "PlanRecordsPassesFromJenkinsBranches":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRecordsPassesFromJenkinsBranches(&parent, ctx)
+		case "PlanRefusesRecordCommandForDataFormats":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRefusesRecordCommandForDataFormats(&parent, ctx)
 		case "PlanRefusesRecordedPassesWhenGlobalInputChanged":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

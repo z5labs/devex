@@ -238,6 +238,191 @@ func (t *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 	return nil
 }
 
+// jenkinsRecordProbe is jenkinsProbe with the one thing that separates a branch
+// that records from a branch that records *when it should*: it runs every branch
+// twice, once where every step succeeds and once where the leg's check throws,
+// which is what a Jenkins `sh` does on a non-zero exit.
+//
+// Failing the first `sh` is the whole model of a failed check — the check is the
+// first step a branch runs — and it needs no knowledge of the command's text, so
+// the probe cannot accidentally agree with the renderer about what a check looks
+// like.
+const jenkinsRecordProbe = `import groovy.json.JsonOutput
+
+class Recorder {
+    boolean failFirst = false
+    List<String> commands = []
+
+    def stage(String name, Closure body) { run(body) }
+
+    def timeout(Map args, Closure body) { run(body) }
+
+    def sh(String cmd) {
+        commands << cmd
+        if (failFirst && commands.size() == 1) {
+            throw new RuntimeException("check failed: ${cmd}")
+        }
+    }
+
+    private run(Closure body) {
+        body.delegate = this
+        body.resolveStrategy = Closure.DELEGATE_ONLY
+        body()
+    }
+}
+
+def plan = evaluate(new File('/w/plan.groovy'))
+assert plan instanceof Map : "the plan is a ${plan.getClass()}, not a Map"
+
+def out = [:]
+plan.each { name, branch ->
+    assert branch instanceof Closure : "${name} is a ${branch.getClass()}, not a Closure"
+    def outcomes = [:]
+    ['pass', 'fail'].each { mode ->
+        def rec = new Recorder(failFirst: mode == 'fail')
+        def threw = false
+        branch.delegate = rec
+        branch.resolveStrategy = Closure.DELEGATE_ONLY
+        try {
+            branch()
+        } catch (Throwable t) {
+            threw = true
+        }
+        outcomes[mode] = [commands: rec.commands, threw: threw]
+    }
+    out[name] = outcomes
+}
+println JsonOutput.toJson(out)
+`
+
+// branchOutcome is what jenkinsRecordProbe saw one branch do under one outcome.
+type branchOutcome struct {
+	Commands []string `json:"commands"`
+	Threw    bool     `json:"threw"`
+}
+
+// jenkinsRecordCommand is what a Jenkinsfile passes as --record-command: a
+// record-pass call complete but for the hash. It is never run here — the probe
+// stands in for `sh` — so the ref and commit are the pipeline-side spellings a
+// consumer would use rather than anything this fixture has.
+const jenkinsRecordCommand = `dagger -m workspace-ci --memo-store=GIT_REFS call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT"`
+
+// PlanRecordsPassesFromJenkinsBranches proves the memoization half of the Jenkins
+// form: a branch records its own leg's hash when the leg passes, and records
+// nothing when it fails.
+//
+// Both outcomes are asserted because only one of them is a property of what was
+// rendered. That the recording runs on success is visible in the text; that it
+// does *not* run on failure is a property of Groovy — `sh` throws, the closure
+// unwinds, the step after it is never reached — and rearranging the render into
+// something that still looks right would break it silently. So the plan is
+// evaluated in a real Groovy runtime with a failing step, exactly as with a
+// failing check.
+//
+// The leg the plan refuses to hash is the other half: a plan says "never memoize
+// this" with an empty hash, and a branch that recorded one anyway would write an
+// entry no later run could ever match — or, worse, one keyed on nothing.
+func (t *Tests) PlanRecordsPassesFromJenkinsBranches(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	ci := dag.WorkspaceCi()
+	base, head := fx.before(cTouchA), fx.at(cTouchA)
+	raw, err := ci.Plan(ctx, base, head, dagger.WorkspaceCiPlanOpts{
+		Repo:          fx.dir,
+		Format:        dagger.WorkspaceCiFormatJenkins,
+		RecordCommand: jenkinsRecordCommand,
+	})
+	if err != nil {
+		return err
+	}
+	got, err := explainRange(ctx, ci, fx, base, head, "")
+	if err != nil {
+		return err
+	}
+	if len(got.Plan) == 0 {
+		return fmt.Errorf("the fixture planned no legs, so there is nothing to render")
+	}
+
+	stdout, err := dag.Container().
+		From(groovyImage).
+		WithWorkdir("/w").
+		WithMountedDirectory("/w", dag.Directory().
+			WithNewFile("plan.groovy", raw).
+			WithNewFile("probe.groovy", jenkinsRecordProbe)).
+		WithExec([]string{"groovy", "/w/probe.groovy"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("the jenkins plan is not usable Groovy: %w\n%s", err, raw)
+	}
+	var branches map[string]map[string]branchOutcome
+	if err := json.Unmarshal([]byte(stdout), &branches); err != nil {
+		return fmt.Errorf("parse the probe's report %q: %w", stdout, err)
+	}
+
+	var memoizable, unmemoizable int
+	for _, l := range got.Plan {
+		b, ok := branches[l.Name]
+		if !ok {
+			return fmt.Errorf("leg %q has no parallel branch; got %v", l.Name, slices.Sorted(maps.Keys(branches)))
+		}
+		check := "dagger -m '" + l.Module + "' check"
+		if l.Filter != "" {
+			check += " '" + l.Filter + "'"
+		}
+		wantPass := []string{check}
+		if l.Hash != "" {
+			memoizable++
+			wantPass = append(wantPass, jenkinsRecordCommand+" --hash='"+l.Hash+"'")
+		} else {
+			unmemoizable++
+		}
+		if pass := b["pass"]; !slices.Equal(pass.Commands, wantPass) || pass.Threw {
+			return fmt.Errorf("branch %q ran %q (threw=%v) when its check passed, want %q", l.Name, pass.Commands, pass.Threw, wantPass)
+		}
+		fail := b["fail"]
+		if !slices.Equal(fail.Commands, []string{check}) {
+			return fmt.Errorf("branch %q ran %q after its check failed, want only %q — a failed leg must record nothing", l.Name, fail.Commands, check)
+		}
+		if !fail.Threw {
+			return fmt.Errorf("branch %q swallowed its check's failure, so the leg would report as passing", l.Name)
+		}
+	}
+	// Neither half of the assertion above says anything if the plan happened to
+	// contain only one kind of leg.
+	if memoizable == 0 || unmemoizable == 0 {
+		return fmt.Errorf("the fixture planned %d memoizable and %d unmemoizable legs; both are needed to tell a rendered recording from a missing one", memoizable, unmemoizable)
+	}
+	return nil
+}
+
+// PlanRefusesRecordCommandForDataFormats proves the option is not silently
+// dropped by the formats that cannot render one. JSON and GITHUB_ACTIONS carry
+// each leg's hash as data for a surrounding job to record; accepting a record
+// command there would hand back a plan that records nothing, which a consumer
+// would discover as a memoization store that never fills up.
+func (t *Tests) PlanRefusesRecordCommandForDataFormats(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, format := range []dagger.WorkspaceCiFormat{dagger.WorkspaceCiFormatJson, dagger.WorkspaceCiFormatGithubActions} {
+		_, err := dag.WorkspaceCi().Plan(ctx, fx.before(cTouchA), fx.at(cTouchA), dagger.WorkspaceCiPlanOpts{
+			Repo:          fx.dir,
+			Format:        format,
+			RecordCommand: jenkinsRecordCommand,
+		})
+		if err == nil {
+			return fmt.Errorf("--format=%s accepted a record command it cannot render", format)
+		}
+		if !strings.Contains(err.Error(), "record command") {
+			return fmt.Errorf("--format=%s failed for an unrelated reason: %w", format, err)
+		}
+	}
+	return nil
+}
+
 // PlanAppliesTimeoutOverrides proves the timeout table: an override keyed by a
 // leg's name beats one keyed by its module, both beat the default, and the job
 // budget always follows the step budget.

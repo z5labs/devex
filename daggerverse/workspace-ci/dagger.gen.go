@@ -441,6 +441,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg knownGood", err))
 				}
 			}
+			var recordCommand string
+			if inputArgs["recordCommand"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["recordCommand"]), &recordCommand)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg recordCommand", err))
+				}
+			}
 			var diagnostics bool
 			if inputArgs["diagnostics"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["diagnostics"]), &diagnostics)
@@ -448,7 +455,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg diagnostics", err))
 				}
 			}
-			return (*WorkspaceCi).Plan(&parent, ctx, base, head, format, repo, workspace, knownGood, diagnostics)
+			return (*WorkspaceCi).Plan(&parent, ctx, base, head, format, repo, workspace, knownGood, recordCommand, diagnostics)
 		case "RecordPass":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)

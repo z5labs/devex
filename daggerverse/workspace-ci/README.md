@@ -156,14 +156,70 @@ Three properties worth knowing before you wire it up:
   does not remove.
 - **`jobTimeout` is not rendered**, because a branch has no surrounding job to
   bound. Each branch carries its leg's step budget as a `timeout`.
-- **`hash` is not rendered either**, so memoization here means reading
-  `--format=JSON` alongside and re-associating the hashes with the branches by
-  leg name. `record-pass` now removes the harder half of that — a Jenkins
-  pipeline with a `GIT_REFS` store can do the recording with one call and no
-  cache action — but the branches still do not carry the hash to record.
+- **`hash` is not rendered as data**, because a closure is not data. It reaches a
+  branch as a `record-pass` call instead; see below.
 
 An empty plan emits `[:]`, an empty `Map`, which `parallel` accepts as a no-op —
 `[]` is an empty `List` and `parallel` would reject it.
+
+#### Memoizing
+
+`--record-command` is a command each branch runs after its check, with
+`--hash=<that leg's hash>` appended. Conventionally it is a `record-pass` call
+complete but for the hash, which is the whole of what a Jenkins pipeline needs to
+memoize:
+
+```groovy
+environment {
+  RECORD = "dagger -m github.com/z5labs/devex/daggerverse/workspace-ci" +
+           " --memo-store=GIT_REFS --memo-repo=${REPO}" +
+           " --memo-token=env:GH_TOKEN --memo-refs=refs/heads/main" +
+           " call record-pass --ref=refs/heads/main --commit=\$GIT_COMMIT"
+}
+stage('run') {
+  steps {
+    sh "dagger -m github.com/z5labs/devex/daggerverse/workspace-ci call plan --base=${BASE_SHA} --head=${HEAD_SHA} --format=JENKINS --record-command=\"\$RECORD\" > plan.groovy"
+    script { parallel load('plan.groovy') }
+  }
+}
+```
+
+```groovy
+'daggerverse/pdf/tests:all': {
+  stage('daggerverse/pdf/tests:all') {
+    timeout(time: 6, unit: 'MINUTES') {
+      sh 'dagger -m \'daggerverse/pdf/tests\' check \'tests:all\''
+    }
+    sh 'dagger … call record-pass --ref=refs/heads/main --commit=$GIT_COMMIT --hash=\'9f2c…\''
+  }
+}
+```
+
+Four properties of that shape, in the order they matter:
+
+- **A failed branch records nothing.** A Jenkins `sh` throws on a non-zero exit,
+  so a check that fails unwinds the closure before the recording is reached. It
+  is not a conditional the renderer emits and it is not one you can get wrong.
+- **The recording sits outside the `timeout`.** A check that spends its whole
+  budget would otherwise have its recording aborted mid-write. This is the same
+  headroom `jobTimeout` buys the formats that have a job.
+- **A leg with no hash renders no recording**, which is how a plan says this leg
+  may never be memoized.
+- **It is a whole command, not a set of fields**, because the credential is in it.
+  A plan is written to disk and `load`ed, so a token rendered into one is a token
+  on the agent's filesystem; the pipeline names its own instead. It also means the
+  store, the trusted refs and the ref this run is on are spelled exactly once, in
+  the Jenkinsfile, rather than half here and half there.
+
+The module still writes nothing while planning: `--record-command` is rendered,
+never run. What runs it is the pipeline, under its own credentials, and what it
+runs is `record-pass` — so the trust posture is the one [The store](#the-store)
+describes, unchanged. `GIT_REFS` is the store to use, since `ACTIONS_CACHE` cannot
+be written from outside a workflow and `record-pass` reports `UNSUPPORTED` there.
+
+Only `JENKINS` takes a `--record-command`; the other formats carry each leg's
+`hash` as data for the surrounding job to record, and passing one to them is an
+error rather than a no-op.
 
 ## Consuming it
 
