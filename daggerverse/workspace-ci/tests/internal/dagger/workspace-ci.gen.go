@@ -193,12 +193,12 @@ type WorkspaceCiAffectedModulesOpts struct {
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:288:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:294:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:293:2)
+	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:299:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -207,7 +207,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:279:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:284:1)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
 	}
@@ -348,7 +348,7 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 // later run its full time and looks exactly like a workspace nobody has recorded
 // against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
 // runs in-process and needs no network, no credential and no services.
-func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:486:1)
+func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:492:1)
 	if r.memoStoreSelfTest != nil {
 		return nil
 	}
@@ -361,16 +361,16 @@ func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspac
 type WorkspaceCiPlanOpts struct {
 
 	// Default: JSON
-	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:230:2)
+	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:235:2)
 	//
 	// The repository to plan for. Defaults to the calling workspace.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:234:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:239:2)
 	//
 	// The workspace to read repo from when repo is omitted. Defaults to the
 	// caller's.
 	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:239:2)
+	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:244:2)
 	//
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
@@ -380,14 +380,14 @@ type WorkspaceCiPlanOpts struct {
 	//
 	//
 	// Default: "[]"
-	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:248:2)
+	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:253:2)
 	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:255:2)
+	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:260:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -399,9 +399,13 @@ type WorkspaceCiPlanOpts struct {
 // a pass may be recorded under (empty means never memoize), and the step and job
 // budgets in minutes.
 //
-// base and head are the commit SHAs to diff, three-dot (merge-base) like a PR's
-// change set. An empty or all-zeros base — a new branch, a missing base — means
-// "run everything".
+// base and head are the revisions to diff, three-dot (merge-base) like a PR's
+// change set. Either may be written in any form git's rev-parse takes — a full or
+// abbreviated commit SHA, a branch or tag name, HEAD, or those with ~ and ^
+// suffixes — so CI can pass the SHAs its event payload carries and a person can
+// pass `--base=main --head=HEAD`. An empty or all-zeros base — a new branch, a
+// missing base — means "run everything", and so does a revision this repository
+// cannot resolve.
 //
 // A plan that cannot read the workspace is an error, never an empty plan: an empty
 // matrix skips the run job and passes the gate having run nothing. Everything else
@@ -414,7 +418,7 @@ type WorkspaceCiPlanOpts struct {
 // explicitly is also the escape hatch for a caller whose .git is a file rather
 // than a directory (a git worktree), which would otherwise degrade to running
 // everything.
-func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:222:1)
+func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:226:1)
 	if r.plan != nil {
 		return *r.plan, nil
 	}
@@ -470,7 +474,7 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 // thing: a call that named no ref, because with no ref there is no scope to judge
 // and refusing silently would be indistinguishable from a scope that was judged
 // and rejected.
-func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:331:1)
+func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:337:1)
 	if r.recordPass != nil {
 		return *r.recordPass, nil
 	}
@@ -491,7 +495,7 @@ func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, c
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:463:1)
+func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:469:1)
 	if r.selectionSelfTest != nil {
 		return nil
 	}

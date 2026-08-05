@@ -188,20 +188,125 @@ func (t *Tests) PlanRunsEverythingOnGlobalPathChange(ctx context.Context) error 
 // PlanRunsEverythingOnAnUnusableDiffRange proves the fail-safe: a base that cannot
 // be diffed — a new branch, whose before-SHA GitHub sends as all zeros — runs
 // everything rather than nothing.
+//
+// The all-zeros SHA is a sentinel and not a revision, so it keeps that meaning
+// however the other side is spelled: it is rejected before the repository is
+// consulted, and a symbolic head cannot turn it into a range worth diffing.
 func (t *Tests) PlanRunsEverythingOnAnUnusableDiffRange(ctx context.Context) error {
 	fx, err := newFixture(ctx, "")
 	if err != nil {
 		return err
 	}
 	zero := strings.Repeat("0", 40)
-	got, err := explainRange(ctx, dag.WorkspaceCi(), fx, zero, fx.at(cTouchRoot), "")
+	for _, form := range []struct{ base, head string }{
+		{zero, fx.at(cTouchRoot)},
+		{zero, fxHeadBranch},
+		{zero, "HEAD"},
+		{fxBaseBranch, zero},
+		{"", fxHeadBranch},
+	} {
+		got, err := explainRange(ctx, dag.WorkspaceCi(), fx, form.base, form.head, "")
+		if err != nil {
+			return fmt.Errorf("--base=%q --head=%q: %w", form.base, form.head, err)
+		}
+		if !got.Full {
+			return fmt.Errorf("--base=%q --head=%q did not run everything: %v", form.base, form.head, names(got.Plan))
+		}
+		if err := wantLegs(got, fxRoot, fxGlobal, fxA, fxB, fxC, fxDirty); err != nil {
+			return fmt.Errorf("--base=%q --head=%q: %w", form.base, form.head, err)
+		}
+	}
+	return nil
+}
+
+// PlanAcceptsSymbolicRevisions proves a range named the way a person names one —
+// a branch, a tag, HEAD-relative, or a mixture of those and a SHA — plans exactly
+// what the equivalent pair of SHAs plans. CI passes SHAs because that is what the
+// event payload carries; anyone running Plan by hand has `main` and `HEAD`.
+//
+// The range is the single commit that touches mods/a, so the expected plan is a
+// strict subset of the workspace. That matters: a revision that does not resolve
+// falls back to running everything, which an assertion against a full plan could
+// not tell from success.
+func (t *Tests) PlanAcceptsSymbolicRevisions(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
 	if err != nil {
 		return err
 	}
-	if !got.Full {
-		return fmt.Errorf("an unusable diff range did not run everything: %v", names(got.Plan))
+	ci := dag.WorkspaceCi()
+	bySHA, err := explain(ctx, ci, fx, cTouchA, "")
+	if err != nil {
+		return err
 	}
-	return wantLegs(got, fxRoot, fxGlobal, fxA, fxB, fxC, fxDirty)
+	if err := wantLegs(bySHA, ".:root-ok", "mods/a:ok", "mods/b:ok"); err != nil {
+		return fmt.Errorf("by SHA: %w", err)
+	}
+
+	for _, form := range []struct{ base, head string }{
+		{fxBaseBranch, fxHeadBranch},
+		{fxBaseTag, fxHeadBranch},
+		{fx.rev(cInitial), fx.rev(cTouchA)},
+		{fxBaseBranch, fx.at(cTouchA)},
+		{fx.at(cInitial), fxHeadBranch},
+	} {
+		got, err := explainRange(ctx, ci, fx, form.base, form.head, "")
+		if err != nil {
+			return fmt.Errorf("--base=%s --head=%s: %w", form.base, form.head, err)
+		}
+		if got.Full {
+			return fmt.Errorf("--base=%s --head=%s ran everything, so the revisions did not resolve", form.base, form.head)
+		}
+		if have, want := names(got.Plan), names(bySHA.Plan); !slices.Equal(have, want) {
+			return fmt.Errorf("--base=%s --head=%s planned %v, want the SHA range's %v", form.base, form.head, have, want)
+		}
+	}
+
+	// The literal `HEAD` the issue's example uses. Its range is the commit that
+	// touches the root module, which legitimately runs everything, so this asserts
+	// agreement with the SHA form rather than a subset — the cases above are what
+	// prove resolution happened at all.
+	head, err := explainRange(ctx, ci, fx, fx.rev(cTouchFlow), fx.rev(cTouchRoot), "")
+	if err != nil {
+		return fmt.Errorf("--base=HEAD~1 --head=HEAD: %w", err)
+	}
+	byTipSHA, err := explain(ctx, ci, fx, cTouchRoot, "")
+	if err != nil {
+		return err
+	}
+	if have, want := names(head.Plan), names(byTipSHA.Plan); !slices.Equal(have, want) {
+		return fmt.Errorf("--base=HEAD~1 --head=HEAD planned %v, want the SHA range's %v", have, want)
+	}
+	return nil
+}
+
+// PlanRunsEverythingOnAnUnresolvableRevision proves a revision that names no
+// commit — a typo, a branch that was deleted, a shallow clone that never fetched
+// the base — runs everything rather than erroring or, worse, planning nothing.
+//
+// It is the same fail-safe an all-zeros base takes, and it is why resolution
+// failure is deliberately not promoted to an error: a name the repository cannot
+// resolve must cost a run its time, never its coverage.
+func (t *Tests) PlanRunsEverythingOnAnUnresolvableRevision(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	for _, form := range []struct{ base, head string }{
+		{"no-such-branch", fxHeadBranch},
+		{fxBaseBranch, "no-such-branch"},
+	} {
+		got, err := explainRange(ctx, dag.WorkspaceCi(), fx, form.base, form.head, "")
+		if err != nil {
+			return fmt.Errorf("--base=%s --head=%s errored instead of running everything: %w", form.base, form.head, err)
+		}
+		if !got.Full {
+			return fmt.Errorf("--base=%s --head=%s did not run everything: %v", form.base, form.head, names(got.Plan))
+		}
+		if err := wantLegs(got, fxRoot, fxGlobal, fxA, fxB, fxC, fxDirty); err != nil {
+			return fmt.Errorf("--base=%s --head=%s: %w", form.base, form.head, err)
+		}
+	}
+	return nil
 }
 
 // PlanErrorsOnWorkspaceWithNoModules proves a workspace it cannot read is an
@@ -234,6 +339,8 @@ func (t *Tests) All(ctx context.Context) error {
 		"plan-attributes-deleted-paths-to-their-module":          t.PlanAttributesDeletedPathsToTheirModule,
 		"plan-runs-everything-on-global-path-change":             t.PlanRunsEverythingOnGlobalPathChange,
 		"plan-runs-everything-on-an-unusable-diff-range":         t.PlanRunsEverythingOnAnUnusableDiffRange,
+		"plan-accepts-symbolic-revisions":                        t.PlanAcceptsSymbolicRevisions,
+		"plan-runs-everything-on-an-unresolvable-revision":       t.PlanRunsEverythingOnAnUnresolvableRevision,
 		"plan-errors-on-workspace-with-no-modules":               t.PlanErrorsOnWorkspaceWithNoModules,
 		"plan-drops-known-good-leg":                              t.PlanDropsKnownGoodLeg,
 		"plan-refuses-recorded-passes-when-global-input-changed": t.PlanRefusesRecordedPassesWhenGlobalInputChanged,

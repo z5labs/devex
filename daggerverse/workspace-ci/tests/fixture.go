@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 
 	"dagger/tests/internal/dagger"
@@ -41,6 +42,17 @@ const (
 	cTouchGlobal = "touch global"
 	cTouchFlow   = "touch workflow"
 	cTouchRoot   = "touch root"
+)
+
+// Symbolic names in the fixture's history. They exist so a test can ask for a
+// range the way a person does — `--base=main --head=feature` — and not only by
+// SHA. They name a range whose plan is a strict subset of the workspace, because
+// a revision that fails to resolve falls back to running everything and a
+// full-plan assertion could not tell that apart from success.
+const (
+	fxBaseBranch = "main"
+	fxHeadBranch = "feature"
+	fxBaseTag    = "v0.1.0"
 )
 
 // Module directories in the fixture.
@@ -161,6 +173,23 @@ func newFixture(ctx context.Context, variant string) (fixture, error) {
 		}
 	}
 
+	// Symbolic names for two of those commits. HEAD stays where the last commit
+	// left it — these are extra refs, not a checkout — so every test that reads
+	// HEAD sees exactly what it saw before.
+	for _, ref := range []struct {
+		name plumbing.ReferenceName
+		at   string
+	}{
+		{plumbing.NewBranchReferenceName(fxBaseBranch), cInitial},
+		{plumbing.NewBranchReferenceName(fxHeadBranch), cTouchA},
+		{plumbing.NewTagReferenceName(fxBaseTag), cInitial},
+	} {
+		hashRef := plumbing.NewHashReference(ref.name, plumbing.NewHash(fx.at(ref.at)))
+		if err := repo.Storer.SetReference(hashRef); err != nil {
+			return fixture{}, fmt.Errorf("name %s: %w", ref.name, err)
+		}
+	}
+
 	// An input no commit contains: a module with one of these can never be hashed
 	// from git objects, and so can never be memoized.
 	if err := write(fxDirty+"/untracked.go", "package main\n\nconst untracked = 1\n"); err != nil {
@@ -196,6 +225,23 @@ func (fx fixture) before(name string) string {
 		if n == name && i > 0 {
 			return fx.commits[fx.order[i-1]]
 		}
+	}
+	return ""
+}
+
+// rev returns the HEAD-relative revision naming the given commit — `HEAD` for the
+// tip, `HEAD~n` for anything behind it — so a test can name a commit
+// symbolically without hard-coding how long the fixture's history happens to be.
+func (fx fixture) rev(name string) string {
+	for i, n := range fx.order {
+		back := len(fx.order) - 1 - i
+		if n != name {
+			continue
+		}
+		if back == 0 {
+			return "HEAD"
+		}
+		return fmt.Sprintf("HEAD~%d", back)
 	}
 	return ""
 }
