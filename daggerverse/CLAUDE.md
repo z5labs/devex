@@ -36,6 +36,35 @@ If module A depends on module B (e.g. `tests/` depends on `..`), run
 - `<module>/tests/` — a separate module that depends on `..` and exposes test
   functions discoverable via `dagger call <test-name>` or `dagger call all`.
 
+## SBOM production belongs to the ecosystem module
+
+An SBOM is produced by the module that owns the ecosystem — `go` for Go
+binaries, `java` for JVM artifacts, and so on. There is no shared `sbom` module
+and no generic scanner sitting above them.
+
+The reason is that a generic scanner infers the ecosystem, while the ecosystem
+module already knows it: the toolchain, the dependency graph and the artifact it
+just built. Reverse-engineering that from the outside can only produce worse
+information.
+
+Conventions for these functions:
+
+- **Name the format, not the concept.** `CycloneDx()` / `Spdx()`, never
+  `Sbom(format string)`. A stringly-typed switch has no per-format doc comment
+  and no compile-time meaning — the same reason build flags are named inputs
+  rather than a `[]string`.
+- **Take the built artifact, not the source.** The document must describe what
+  shipped, not the tree that was present when it was built.
+- **Return a `*dagger.File`.** The consumer attaches or publishes it; it should
+  not have to re-serialize.
+- **Keep documents comparable across modules.** Same spec version, same subject
+  identification, describing the built artifact. Two ecosystem modules emitting
+  structurally different SPDX is the cost of this layout, and the only thing
+  preventing it is this convention.
+
+Generation and attachment stay separate concerns. Whatever pushes bytes to a
+registry does not know that those bytes are an SBOM.
+
 ## Function name mangling
 
 Go method names get re-cased for the GraphQL API: acronyms become uppercase in
