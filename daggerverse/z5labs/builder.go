@@ -31,7 +31,11 @@ func (b *Builder) Container(ctx context.Context) (*dagger.Container, error) {
 	if err != nil {
 		return nil, err
 	}
-	return b.App.imageForPlatform(plat, binaryName, bin), nil
+	annotations, err := b.App.ociAnnotations(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return b.App.imageForPlatform(plat, binaryName, bin, annotations), nil
 }
 
 // Binary returns the host-platform compiled binary as a *dagger.File.

@@ -87,6 +87,57 @@ returned.
 Generation and attachment stay separate concerns. Whatever pushes bytes to a
 registry does not know that those bytes are an SBOM.
 
+## Attaching attestations: GHCR has no referrers API
+
+Measured against `ghcr.io` on 2026-08-05, anonymously, against three public
+repositories:
+
+```
+GET /v2/<repo>/referrers/<digest>        -> 404 MANIFEST_UNKNOWN
+GET /v2/<repo>/manifests/sha256-<hex>    -> 200   (ghcr.io/sigstore/cosign/cosign)
+```
+
+The OCI distribution spec says a registry that does not implement the
+referrers API answers 404 there, and a client then falls back to the
+**referrers tag scheme** — an index stored under the tag `sha256-<hex>` of
+the subject's digest. GHCR takes the fallback path, and the 200 on the
+second line is a real cosign attestation index sitting on that tag today,
+so the fallback is not theoretical. `oras-go` does the fallback itself;
+nothing in this repo has to choose.
+
+Two consequences worth knowing before debugging one of them:
+
+- **The fallback needs manifest deletion.** Attaching a *second* referrer to
+  one subject means replacing the tag's index, which means deleting the one
+  it replaces. `registry:2` has deletion off by default, so the first
+  attachment succeeds and the second fails with `405 unsupported` from a
+  `DELETE`. Test registries need `REGISTRY_STORAGE_DELETE_ENABLED=true`;
+  GHCR allows the delete.
+- **A referrer is addressed by digest, not by a tag of its own.** Push it
+  with `oras.CopyGraph`, not `oras.Copy` — see `daggerverse/oci/artifact.go`.
+
+## Provenance: the identity comes from the token, never from a parameter
+
+Anything a caller could have supplied attests to nothing. A build identity —
+repository, workflow ref, commit, run id — is only provenance if it comes out
+of a token the CI provider signed, so the module takes the *token request
+machinery* (`ACTIONS_ID_TOKEN_REQUEST_URL` and its bearer, or any provider's
+equivalent) and derives every identifying field from the exchanged token's
+claims. There is deliberately no `repository` parameter to pass.
+
+Two rules that follow, and that are easy to undo by accident:
+
+- **Do not gate provenance on configuration.** "Attest when configured" is
+  attestation nobody can rely on, because an image published without one is
+  indistinguishable from an image published with one until somebody goes
+  looking. A publish that cannot produce provenance fails.
+- **Do not relax it for the test suite's shape.** Gating on
+  `registryService != nil` carves the relaxation into exactly the shape of
+  the tests and leaves the production path as the only unexercised one.
+  `daggerverse/z5labs/tests` instead runs a *real* token endpoint as a
+  service and exchanges a real token; only the signing key differs from
+  production, where an ephemeral key is certified by the public sigstore CA.
+
 ## Function name mangling
 
 Go method names get re-cased for the GraphQL API: acronyms become uppercase in

@@ -6,16 +6,20 @@
   },
   "dependencies": [
     {
-      "name": "z5labs",
-      "source": ".."
+      "name": "go",
+      "source": "../../go"
+    },
+    {
+      "name": "oci",
+      "source": "../../oci"
     },
     {
       "name": "random",
       "source": "../../random"
     },
     {
-      "name": "go",
-      "source": "../../go"
+      "name": "z5labs",
+      "source": ".."
     }
   ],
   "codegen": {

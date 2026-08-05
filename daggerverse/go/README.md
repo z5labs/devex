@@ -36,6 +36,8 @@ and use that version; if no directive is present the image falls back to
 | `Env()` | `go env`. |
 | `ToolVersion()` | `go version`. |
 | `Ci(source)` | Returns a `Ci` builder for staged pipelines (parallel checks → build). `Run` returns the built binary as a `*File`. |
+| `Spdx(binary, source)` | SPDX 2.3 JSON describing the module graph compiled into `binary`. Returns a `*File`. See [SBOMs](#sboms). |
+| `CycloneDx(binary, source)` | CycloneDX 1.6 JSON describing the same graph, from the same resolution. Returns a `*File`. |
 
 ## Build flags
 
@@ -115,6 +117,47 @@ passing it is worth naming, and a bag of strings can be neither validated nor
 documented. `Container(source)` remains the escape hatch for anything not
 named above — it hands back the prepared container to run any `go build`
 invocation you like.
+
+## SBOMs
+
+`Spdx` and `CycloneDx` describe **the compiled binary**, not the source tree
+it came from. The component list is read out of the artifact with
+`debug/buildinfo`, so it names the modules that were actually linked in
+rather than everything `go.mod` happens to require, and nothing parses
+`go version -m` output.
+
+`source` is an *input* and not the subject. A Go binary embeds module paths,
+versions and `h1:` hashes and no licence text, so the licences are resolved
+from the module cache the source pins — the collection runs in a toolchain
+container, and the classification (`github.com/google/licensecheck`) runs in
+pure Go inside the module.
+
+**Both formats come from one resolution.** Two documents about one binary
+that disagree about a component or a licence are an audit finding, and
+nothing downstream can adjudicate which is right. One resolution makes them
+consistent by construction, and a test compares the two component sets.
+
+**Spec versions are chosen, not inherited.** SPDX **2.3**, because that is
+what GitHub's dependency graph, Dependency-Track, Grype, Trivy and the
+NTIA/CISA minimum-elements tooling read today; 3.0 changes the serialization
+wholesale and support is still thin. CycloneDX **1.6**, the current release
+and the first to model licence *acknowledgement*. The CycloneDX library
+would otherwise default to 1.7, so the version is pinned explicitly and
+asserted in the tests.
+
+**Licences are declared and concluded separately.** Classification is
+probabilistic — a classifier reports coverage, not a verdict. The best match
+is always recorded as the *declared* licence; it is promoted to *concluded*
+only when it covers at least 90% of the licence file. Below that, the
+declared licence stands and the concluded one is `NOASSERTION`, with a
+licence comment saying why. CycloneDX expresses the same distinction with
+`acknowledgement: declared` vs `concluded`; a file that matched nothing
+carries no licence entry there, because CycloneDX has no `NOASSERTION` and
+inventing one would assert something.
+
+Neither function knows anything about registries, and nothing about
+attaching a document is in this module: it returns a `*File`, and whatever
+attaches it does not need to know it is an SBOM.
 
 ## CLI quick reference
 

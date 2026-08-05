@@ -275,6 +275,31 @@ func (r *Go) Container(source *Directory) *Container { // go (../../../../../../
 	}
 }
 
+// CycloneDx renders a CycloneDX 1.6 JSON document describing the module
+// graph compiled into binary.
+//
+// **Why 1.6.** 1.6 is the current release and the one Dependency-Track,
+// Grype and Trivy consume; it is also the first to model a component's
+// licence acknowledgement, which is what lets a low-confidence classifier
+// match be published as "declared" rather than silently asserted.
+//
+// The component set, the versions and the licences are identical to what
+// Spdx emits for the same inputs: both render from one resolution of the
+// graph, so the two documents cannot disagree about what shipped. See
+// Spdx for how the graph is resolved and how licence confidence is
+// handled.
+func (r *Go) CycloneDx(binary *File, source *Directory) *File { // go (../../../../../../daggerverse/go/sbom.go:80:1)
+	assertNotNil("binary", binary)
+	assertNotNil("source", source)
+	q := r.query.Select("cycloneDx")
+	q = q.Arg("binary", binary)
+	q = q.Arg("source", source)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Env runs `go env` in a source-less base container and returns its stdout.
 func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../../daggerverse/go/main.go:488:1)
 	if r.env != nil {
@@ -460,6 +485,43 @@ func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoR
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
+}
+
+// Spdx renders an SPDX 2.3 JSON document describing the module graph
+// compiled into binary.
+//
+// **Why 2.3 and not 3.0.** The version is chosen for what consumers
+// ingest rather than left to whatever the library defaults to. SPDX 2.3
+// is the revision behind ISO/IEC 5962's successor line that GitHub's
+// dependency graph, Dependency-Track, Grype, Trivy and the CISA/NTIA
+// minimum-elements tooling all read today; 3.0 changes the serialization
+// wholesale and support for it is still thin. A document nothing can
+// parse is not an SBOM.
+//
+// **The subject is the binary, not the tree.** The component list is read
+// out of the compiled artifact with debug/buildinfo, so it names the
+// modules that were actually linked in — not everything go.mod happens to
+// require. source is an *input* and not the subject: a Go binary embeds
+// module paths, versions and hashes but no licence text, so the licences
+// have to be resolved from the module cache the source pins.
+//
+// **Licences are declared and concluded separately.** Licence
+// identification is a classifier, and a classifier reports coverage
+// rather than a verdict. The classifier's best match is always recorded
+// as the declared licence; it is only promoted to the concluded licence
+// when the match covers essentially the whole file. Anything less
+// concludes NOASSERTION, so a low-confidence match cannot be mistaken
+// downstream for an established one.
+func (r *Go) Spdx(binary *File, source *Directory) *File { // go (../../../../../../daggerverse/go/sbom.go:46:1)
+	assertNotNil("binary", binary)
+	assertNotNil("source", source)
+	q := r.query.Select("spdx")
+	q = q.Arg("binary", binary)
+	q = q.Arg("source", source)
+
+	return &File{
+		query: q,
+	}
 }
 
 // GoTestOpts contains options for Go.Test

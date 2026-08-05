@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -19,6 +20,13 @@ import (
 // registryAlias is the WithServiceBinding alias used wherever a test
 // containerized client needs to reach the local registry:2 service.
 const registryAlias = "registry"
+
+// fixtureOriginURL is the origin remote every git fixture carries. It is
+// never fetched from — `git remote add` creates no remote-tracking refs —
+// and exists so the fixture has the one piece of git state a real clone
+// has and `git init` does not: a URL to publish as the image's
+// org.opencontainers.image.source.
+const fixtureOriginURL = "https://example.com/z5labs/fixture.git"
 
 // curlImage matches the pin used by the other test modules in this
 // repo (envoy, otel, grafana-stack). ":latest" is a moving target.
@@ -114,6 +122,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoAppCiStampedBinaryMatchesImageTagAndBuilder", t.GoAppCiStampedBinaryMatchesImageTagAndBuilder)
 	jobs = jobs.WithJob("GoAppCiStampsEveryPlatformVariant", t.GoAppCiStampsEveryPlatformVariant)
 	jobs = jobs.WithJob("GoAppCiRebuildIsByteIdenticalPerPlatform", t.GoAppCiRebuildIsByteIdenticalPerPlatform)
+	jobs = jobs.WithJob("GoAppCiAnnotatesEveryPlatformVariant", t.GoAppCiAnnotatesEveryPlatformVariant)
+	jobs = jobs.WithJob("GoAppCiAttachesSbomsAndProvenance", t.GoAppCiAttachesSbomsAndProvenance)
+	jobs = jobs.WithJob("GoAppCiRefusesToPublishWithoutProvenanceMachinery", t.GoAppCiRefusesToPublishWithoutProvenanceMachinery)
+	jobs = jobs.WithJob("GoAppCiRedactsCredentialsFromTheSourceAnnotation", t.GoAppCiRedactsCredentialsFromTheSourceAnnotation)
 
 	return jobs.Run(ctx)
 }
@@ -146,6 +158,15 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 		File("/tmp/htpasswd")
 	svc := dag.Container().From("registry:2").
 		WithMountedFile("/auth/htpasswd", htpasswdFile).
+		// registry:2 does not implement the OCI 1.1 referrers API, so a
+		// client attaching a second referrer to the same subject falls
+		// back to the referrers *tag* scheme — and updating that tag
+		// means deleting the index it replaces. Deletion is off by
+		// default, which surfaces as a 405 on the second attachment and
+		// on nothing else. Enabling it here is what lets these tests
+		// exercise the fallback path a registry without the referrers
+		// API actually takes.
+		WithEnvVariable("REGISTRY_STORAGE_DELETE_ENABLED", "true").
 		WithEnvVariable("REGISTRY_AUTH", "htpasswd").
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_REALM", "Registry").
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_PATH", "/auth/htpasswd").
@@ -221,14 +242,22 @@ func (t *Tests) GoAppCiPublishesOnMatchingTag(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           "^refs/tags/v.+",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -254,14 +283,22 @@ func (t *Tests) GoAppCiPublishesToAllMatchingTags(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           "^refs/tags/v.+",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -294,14 +331,22 @@ func (t *Tests) GoAppCiReturnsThePushedDigest(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	digest, err := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           "^refs/tags/v.+",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	}).Ci(ctx)
 	if err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -338,13 +383,21 @@ func (t *Tests) GoAppCiRefusesPlaintextRegistryUnlessInsecure(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
+		PublishOn:           "^refs/tags/v.+",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
 	}).Ci(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Ci to refuse a plain-HTTP registry with insecure off, got nil")
@@ -387,14 +440,22 @@ func (t *Tests) GoAppCiNormalizesRemoteOriginRefs(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/heads/main$",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           "^refs/heads/main$",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -430,14 +491,22 @@ func (t *Tests) GoAppCiTagBeatsBranch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       ".*",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           ".*",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -476,14 +545,22 @@ func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/heads/main$",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
+		PublishOn:           "^refs/heads/main$",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("first Ci: %v", err)
@@ -534,7 +611,37 @@ func listTags(ctx context.Context, svc *dagger.Service, host, user, pwd, image s
 	if err != nil {
 		return nil, err
 	}
-	return parseTagsList(out)
+	tags, err := parseTagsList(out)
+	if err != nil {
+		return nil, err
+	}
+	return withoutReferrerTags(tags), nil
+}
+
+// referrerTag matches the referrers *tag scheme*: an index of everything
+// attached to one subject, stored under "sha256-<hex>" of that subject's
+// digest. A registry without the OCI 1.1 referrers API — which is
+// registry:2 here and ghcr.io in production — stores attestations that
+// way, so every published image now grows one of these beside its real
+// tags.
+var referrerTag = regexp.MustCompile(`^sha256-[0-9a-f]{64}$`)
+
+// withoutReferrerTags drops referrer fallback tags from a tag listing.
+//
+// Callers of listTags are asking which tags this pipeline *published*,
+// and a referrer index is not one: it is addressed by the digest it hangs
+// off, it is created by the attach and not by the publish, and counting
+// it would make "published exactly one tag" a statement about how many
+// attestations happened to be attached.
+func withoutReferrerTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		if referrerTag.MatchString(tag) {
+			continue
+		}
+		out = append(out, tag)
+	}
+	return out
 }
 
 // parseTagsList extracts the `tags` array from a registry tags/list
@@ -633,7 +740,8 @@ func gitFixture(ctx context.Context, base *dagger.Directory, branch string, tags
 		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
 		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
 		WithExec([]string{"git", "add", "."}).
-		WithExec([]string{"git", "commit", "-m", "initial"})
+		WithExec([]string{"git", "commit", "-m", "initial"}).
+		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL})
 	for _, tag := range tags {
 		ctr = ctr.WithExec([]string{"git", "tag", "-a", tag, "-m", tag})
 	}
@@ -806,16 +914,24 @@ func (t *Tests) GoAppCiStampsEveryPlatformVariant(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	platforms := []string{"linux/amd64", "linux/arm64"}
 	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       platforms,
+		PublishOn:           "^refs/tags/v.+",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
+		Platforms:           platforms,
 	}).Ci(ctx)
 	if err != nil {
 		return fmt.Errorf("Ci: %v", err)
@@ -877,7 +993,8 @@ func pinnedGitFixture(ctx context.Context, base *dagger.Directory, branch, nonce
 		WithEnvVariable("GIT_COMMITTER_DATE", commitDate).
 		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
 		WithExec([]string{"git", "add", "."}).
-		WithExec([]string{"git", "commit", "-m", "initial"})
+		WithExec([]string{"git", "commit", "-m", "initial"}).
+		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL})
 	if _, err := ctr.Sync(ctx); err != nil {
 		return nil, err
 	}
@@ -895,6 +1012,10 @@ func (t *Tests) GoAppCiRebuildIsByteIdenticalPerPlatform(ctx context.Context) er
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	platforms := []string{"linux/amd64", "linux/arm64"}
 	runs := make([]map[string]string, 0, 2)
@@ -905,13 +1026,17 @@ func (t *Tests) GoAppCiRebuildIsByteIdenticalPerPlatform(ctx context.Context) er
 			return fmt.Errorf("pinnedGitFixture %s: %v", nonce, err)
 		}
 		_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-			PublishOn:       "^refs/heads/main$",
-			Registry:        host + ":5000",
-			AuthUsername:    "ci",
-			Auth:            secret,
-			RegistryService: svc,
-			Insecure:        true,
-			Platforms:       platforms,
+			PublishOn:           "^refs/heads/main$",
+			Registry:            host + ":5000",
+			AuthUsername:        "ci",
+			Auth:                secret,
+			RegistryService:     svc,
+			IDTokenRequestURL:   prov.URL,
+			IDTokenRequestToken: prov.RequestToken,
+			IDTokenService:      prov.Service,
+			SigningKey:          prov.SigningKey,
+			Insecure:            true,
+			Platforms:           platforms,
 		}).Ci(ctx)
 		if err != nil {
 			return fmt.Errorf("Ci %s: %v", nonce, err)
@@ -965,15 +1090,23 @@ func (t *Tests) GoAppCiStampedBinaryMatchesImageTagAndBuilder(ctx context.Contex
 	if err != nil {
 		return err
 	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
 	const host = registryAlias
 	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/heads/main$",
-		Registry:        host + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       []string{hostPlatform()},
+		PublishOn:           "^refs/heads/main$",
+		Registry:            host + ":5000",
+		AuthUsername:        "ci",
+		Auth:                secret,
+		RegistryService:     svc,
+		IDTokenRequestURL:   prov.URL,
+		IDTokenRequestToken: prov.RequestToken,
+		IDTokenService:      prov.Service,
+		SigningKey:          prov.SigningKey,
+		Insecure:            true,
+		Platforms:           []string{hostPlatform()},
 	})
 	if _, err := app.Ci(ctx); err != nil {
 		return fmt.Errorf("Ci: %v", err)

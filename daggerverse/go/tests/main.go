@@ -158,6 +158,22 @@ func (t *Tests) All(
 		return t.CiCheckRunsEnabledChecksAndSkipsBuild(ctx, goImageTag)
 	})
 
+	jobs = jobs.WithJob("SpdxDocumentIsCompliant", func(ctx context.Context) error {
+		return t.SpdxDocumentIsCompliant(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("CycloneDxDocumentIsCompliant", func(ctx context.Context) error {
+		return t.CycloneDxDocumentIsCompliant(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("SbomFormatsAgreeOnComponents", func(ctx context.Context) error {
+		return t.SbomFormatsAgreeOnComponents(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("SbomResolvesDependencyLicences", func(ctx context.Context) error {
+		return t.SbomResolvesDependencyLicences(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("SbomDescribesTheBinaryNotTheSourceTree", func(ctx context.Context) error {
+		return t.SbomDescribesTheBinaryNotTheSourceTree(ctx, goImageTag)
+	})
+
 	jobs = jobs.WithJob("ExamplesCookbook", t.exampleSmoke)
 
 	return jobs.Run(ctx)
