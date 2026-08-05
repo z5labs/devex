@@ -107,14 +107,21 @@ nothing in this repo has to choose.
 
 Two consequences worth knowing before debugging one of them:
 
-- **The fallback needs manifest deletion.** Attaching a *second* referrer to
-  one subject means replacing the tag's index, which means deleting the one
-  it replaces. `registry:2` has deletion off by default, so the first
-  attachment succeeds and the second fails with `405 unsupported` from a
-  `DELETE`. Test registries need `REGISTRY_STORAGE_DELETE_ENABLED=true`;
-  GHCR allows the delete.
+- **The fallback tries to delete a manifest, and GHCR refuses.** Attaching a
+  *second* referrer to one subject means replacing the tag's index, after
+  which `oras-go` deletes the index it replaced. GHCR does not support
+  manifest `DELETE` and answers `405 unsupported`, which fails the whole
+  push — *after* the referrer and the updated index have both landed. Set
+  [`remote.Repository.SkipReferrersGC`][skipgc] to keep the housekeeping
+  from failing a publish; `daggerverse/oci` does, and the cost is one
+  unreferenced index per replacement. Do not paper over it in a test
+  registry with `REGISTRY_STORAGE_DELETE_ENABLED=true`: that makes the
+  suite green against a registry no publish target resembles, which is how
+  devex#360 reached a real release.
 - **A referrer is addressed by digest, not by a tag of its own.** Push it
   with `oras.CopyGraph`, not `oras.Copy` — see `daggerverse/oci/artifact.go`.
+
+[skipgc]: https://pkg.go.dev/oras.land/oras-go/v2/registry/remote#Repository
 
 ## Provenance: the identity comes from the token, never from a parameter
 

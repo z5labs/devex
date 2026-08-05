@@ -158,15 +158,15 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 		File("/tmp/htpasswd")
 	svc := dag.Container().From("registry:2").
 		WithMountedFile("/auth/htpasswd", htpasswdFile).
-		// registry:2 does not implement the OCI 1.1 referrers API, so a
-		// client attaching a second referrer to the same subject falls
-		// back to the referrers *tag* scheme — and updating that tag
-		// means deleting the index it replaces. Deletion is off by
-		// default, which surfaces as a 405 on the second attachment and
-		// on nothing else. Enabling it here is what lets these tests
-		// exercise the fallback path a registry without the referrers
-		// API actually takes.
-		WithEnvVariable("REGISTRY_STORAGE_DELETE_ENABLED", "true").
+		// Manifest deletion is left off, which is distribution's default
+		// and GHCR's behaviour. registry:2 implements no referrers API
+		// either, so a client attaching a second referrer to one subject
+		// falls back to the referrers *tag* scheme, replaces the index
+		// under that tag, and would delete the index it replaced. This
+		// suite used to turn deletion on so that delete would succeed —
+		// which made it green over a registry no publish target
+		// resembles, and hid devex#360 until GHCR failed a real release.
+		// The oci module skips the collection instead.
 		WithEnvVariable("REGISTRY_AUTH", "htpasswd").
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_REALM", "Registry").
 		WithEnvVariable("REGISTRY_AUTH_HTPASSWD_PATH", "/auth/htpasswd").

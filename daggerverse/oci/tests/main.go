@@ -70,6 +70,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ReferrersListsAttachedArtifacts", t.ReferrersListsAttachedArtifacts)
 	jobs = jobs.WithJob("ReferrersFiltersByArtifactType", t.ReferrersFiltersByArtifactType)
 	jobs = jobs.WithJob("AttachFailsForUnknownSubject", t.AttachFailsForUnknownSubject)
+	jobs = jobs.WithJob("AttachSucceedsWhereManifestDeleteIsUnsupported", t.AttachSucceedsWhereManifestDeleteIsUnsupported)
 	jobs = jobs.WithJob("ResolveIsNotCached", t.ResolveIsNotCached)
 	jobs = jobs.WithJob("PushImageIsNotCached", t.PushImageIsNotCached)
 	jobs = jobs.WithJob("PushFailsAgainstPlaintextRegistryByDefault", t.PushFailsAgainstPlaintextRegistryByDefault)
@@ -302,9 +303,10 @@ func (t *Tests) PushFailsWithBadCredentials(ctx context.Context) error {
 // is serving the native OCI 1.1 referrers API.
 //
 // That second assertion is the point of the test. oras falls back to the tag
-// schema against a registry without /v2/<name>/referrers/<digest>, and a
-// green suite over the fallback would be evidence about the fallback and
-// nothing about GHCR, which serves the real endpoint.
+// schema against a registry without /v2/<name>/referrers/<digest>, so without
+// it a green run would not say which of the two paths it exercised. The
+// fallback is GHCR's path and has a test of its own,
+// AttachSucceedsWhereManifestDeleteIsUnsupported.
 func (t *Tests) ReferrersListsAttachedArtifacts(ctx context.Context) error {
 	reg, err := newRegistry(ctx)
 	if err != nil {
@@ -420,14 +422,82 @@ func (t *Tests) AttachFailsForUnknownSubject(ctx context.Context) error {
 	return nil
 }
 
+// AttachSucceedsWhereManifestDeleteIsUnsupported asserts that attaching a
+// second referrer to one subject works on a registry that serves no
+// referrers API and refuses to delete a manifest — which is GHCR.
+//
+// Both halves are needed to reproduce it, and the test checks it is really
+// getting both before it attaches anything. Without the referrers API oras
+// falls back to the referrers tag schema, where the second attachment
+// replaces the index the first one wrote; oras then deletes the index it
+// replaced, the registry answers 405, and the whole push fails after the
+// referrer and the updated index have already landed. The module skips that
+// collection, so this is one dangling index and no error.
+//
+// The rest of the referrer tests run against zot and are evidence about the
+// native path. This is the only one that exercises the path GHCR takes.
+func (t *Tests) AttachSucceedsWhereManifestDeleteIsUnsupported(ctx context.Context) error {
+	svc, err := newGhcrShapedRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	client := dag.Oci().Registry("ghcr-shaped.invalid", dagger.OciRegistryOpts{
+		Service:  svc,
+		Insecure: true,
+	})
+	repo, err := uniqueName(ctx, "no-delete")
+	if err != nil {
+		return err
+	}
+
+	subject, err := client.PushImage(ctx, repo, "v1", []*dagger.Container{baseImage("linux/amd64")})
+	if err != nil {
+		return fmt.Errorf("PushImage: %v", err)
+	}
+	if err := requireNoNativeReferrersAPI(ctx, svc, repo, subject); err != nil {
+		return err
+	}
+	if err := requireManifestDeleteUnsupported(ctx, svc, repo); err != nil {
+		return err
+	}
+
+	sbom, err := attachTo(ctx, client, repo, subject, "sbom.json", sbomArtifactType)
+	if err != nil {
+		return err
+	}
+	// The first attachment creates the referrers index and the second
+	// replaces it, so only this one triggers the collection that GHCR
+	// refuses. A test attaching once would pass with or without the fix.
+	attestation, err := attachTo(ctx, client, repo, subject, "attestation.json", attestationArtifactType)
+	if err != nil {
+		return err
+	}
+
+	raw, err := client.Referrers(ctx, repo, subject)
+	if err != nil {
+		return fmt.Errorf("Referrers: %v", err)
+	}
+	got, err := decodeDescriptors(raw)
+	if err != nil {
+		return err
+	}
+	return wantDigests(got, raw, sbom, attestation)
+}
+
 // attach uploads a one-file artifact against subject and returns its digest.
 func (tr *testRegistry) attach(ctx context.Context, repo, subject, name, artifactType string) (string, error) {
+	return attachTo(ctx, tr.client(), repo, subject, name, artifactType)
+}
+
+// attachTo is attach against any registry handle, for the tests that stand
+// up a registry other than the suite's default zot.
+func attachTo(ctx context.Context, client *dagger.OciRegistry, repo, subject, name, artifactType string) (string, error) {
 	body, err := uniqueName(ctx, "body")
 	if err != nil {
 		return "", err
 	}
 	content := dag.Directory().WithNewFile(name, body).File(name)
-	digest, err := tr.client().Attach(ctx, repo, subject, content, artifactType)
+	digest, err := client.Attach(ctx, repo, subject, content, artifactType)
 	if err != nil {
 		return "", fmt.Errorf("Attach %s (%s): %v", name, artifactType, err)
 	}
