@@ -79,6 +79,68 @@ func (r *Go) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r BuildMode) IsEnum() {}
+
+func (r BuildMode) Name() string {
+	switch r {
+	case BuildModeArchive:
+		return "Archive"
+	case BuildModeCArchive:
+		return "CArchive"
+	case BuildModeCShared:
+		return "CShared"
+	case BuildModeExe:
+		return "Exe"
+	case BuildModePie:
+		return "Pie"
+	case BuildModePlugin:
+		return "Plugin"
+	}
+	return ""
+}
+
+func (r BuildMode) Value() string {
+	return string(r)
+}
+
+func (r BuildMode) MarshalJSON() ([]byte, error) {
+	if r == "" {
+		return []byte("\"\""), nil
+	}
+	name := r.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", r)
+	}
+	return json.Marshal(name)
+}
+
+func (r *BuildMode) UnmarshalJSON(bs []byte) error {
+	var s string
+	err := json.Unmarshal(bs, &s)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*r = ""
+	case "Archive":
+		*r = BuildModeArchive
+	case "CArchive":
+		*r = BuildModeCArchive
+	case "CShared":
+		*r = BuildModeCShared
+	case "Exe":
+		*r = BuildModeExe
+	case "Pie":
+		*r = BuildModePie
+	case "Plugin":
+		*r = BuildModePlugin
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
 func (r Ci) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Go              *Go
@@ -367,11 +429,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pkg", err))
 				}
 			}
-			var output string
-			if inputArgs["output"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["output"]), &output)
+			var artifactName string
+			if inputArgs["artifactName"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["artifactName"]), &artifactName)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg output", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg artifactName", err))
 				}
 			}
 			var trimpath bool
@@ -416,7 +478,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg disableCgo", err))
 				}
 			}
-			return (*Go).Build(&parent, ctx, source, pkg, output, trimpath, strip, stamps, tags, platform, disableCgo)
+			var race bool
+			if inputArgs["race"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["race"]), &race)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg race", err))
+				}
+			}
+			var buildmode BuildMode
+			if inputArgs["buildmode"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["buildmode"]), &buildmode)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg buildmode", err))
+				}
+			}
+			return (*Go).Build(&parent, ctx, source, pkg, artifactName, trimpath, strip, stamps, tags, platform, disableCgo, race, buildmode)
 		case "Ci":
 			var parent Go
 			err = json.Unmarshal(parentJSON, &parent)

@@ -112,6 +112,18 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("BuildPlatformCrossCompiles", func(ctx context.Context) error {
 		return t.BuildPlatformCrossCompiles(ctx, goImageTag)
 	})
+	jobs = jobs.WithJob("BuildRaceLinksTheDetector", func(ctx context.Context) error {
+		return t.BuildRaceLinksTheDetector(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildRejectsRaceWithDisableCgo", func(ctx context.Context) error {
+		return t.BuildRejectsRaceWithDisableCgo(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildBuildmodeCArchiveProducesArchiveAndHeader", func(ctx context.Context) error {
+		return t.BuildBuildmodeCArchiveProducesArchiveAndHeader(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("BuildBuildmodeMembersAllProduceOutput", func(ctx context.Context) error {
+		return t.BuildBuildmodeMembersAllProduceOutput(ctx, goImageTag)
+	})
 	jobs = jobs.WithJob("TestMultipkgPkgArgVariants", func(ctx context.Context) error {
 		return t.TestMultipkgPkgArgVariants(ctx, goImageTag)
 	})
@@ -419,6 +431,18 @@ func stampedDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/stamped")
 }
 
+// carchiveDir returns the carchive fixture: a main package exporting a cgo
+// //export function, which is what -buildmode=c-archive and c-shared compile.
+func carchiveDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/carchive")
+}
+
+// racyDir returns the racy fixture: a main package whose raceDetector
+// constant is selected by the `race` build tag, which `go build -race` sets.
+func racyDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/racy")
+}
+
 // alpineImage is the minimal container built binaries are executed in.
 // ":latest" is a moving target, so the tag is pinned.
 const alpineImage = "alpine:3.22"
@@ -432,6 +456,20 @@ func runBuiltBinary(ctx context.Context, bin *dagger.File) (string, error) {
 		Stdout(ctx)
 }
 
+// runBuiltBinaryOnGlibc executes a freshly built binary in the same
+// glibc-based toolchain container it was compiled in, and returns its stdout.
+// A -race build links the race runtime through cgo, so its output is
+// dynamically linked against glibc and cannot run in the musl-based alpine
+// image runBuiltBinary uses. Reusing Container(source) rather than pinning a
+// second image keeps the runtime ABI matched to the build's by construction.
+func runBuiltBinaryOnGlibc(ctx context.Context, goImageTag string, source *dagger.Directory, bin *dagger.File) (string, error) {
+	return dag.Go(dagger.GoOpts{Version: goImageTag}).
+		Container(source).
+		WithFile("/bin/app", bin, dagger.ContainerWithFileOpts{Permissions: 0o755}).
+		WithExec([]string{"/bin/app"}).
+		Stdout(ctx)
+}
+
 // BuildRejectsMalformedStamps asserts Build rejects a stamp with no "=" and
 // a stamp whose importpath.Name is empty, and that each message names the
 // offending element rather than reporting a generic parse failure.
@@ -439,9 +477,9 @@ func (t *Tests) BuildRejectsMalformedStamps(ctx context.Context, goImageTag stri
 	for _, stamp := range []string{"main.version", "=v1.0.0"} {
 		_, err := dag.Go(dagger.GoOpts{Version: goImageTag}).
 			Build(stampedDir(), dagger.GoBuildOpts{
-				Pkg:    ".",
-				Output: "stamped",
-				Stamps: []string{stamp},
+				Pkg:          ".",
+				ArtifactName: "stamped",
+				Stamps:       []string{stamp},
 			}).
 			Entries(ctx)
 		if err == nil {
@@ -459,12 +497,12 @@ func (t *Tests) BuildRejectsMalformedStamps(ctx context.Context, goImageTag stri
 // variable name from its value.
 func (t *Tests) BuildStampsReachTheBinary(ctx context.Context, goImageTag string) error {
 	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
-		Pkg:        ".",
-		Output:     "stamped",
-		Trimpath:   true,
-		Strip:      true,
-		DisableCgo: true,
-		Stamps:     []string{"main.version=v1.2.3", "main.commit=sha=deadbeef"},
+		Pkg:          ".",
+		ArtifactName: "stamped",
+		Trimpath:     true,
+		Strip:        true,
+		DisableCgo:   true,
+		Stamps:       []string{"main.version=v1.2.3", "main.commit=sha=deadbeef"},
 	})
 	got, err := runBuiltBinary(ctx, out.File("stamped"))
 	if err != nil {
@@ -481,10 +519,10 @@ func (t *Tests) BuildStampsReachTheBinary(ctx context.Context, goImageTag string
 // stamped fixture reports flavor=fancy only when the `fancy` tag is set.
 func (t *Tests) BuildTagsSelectTaggedFiles(ctx context.Context, goImageTag string) error {
 	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
-		Pkg:        ".",
-		Output:     "stamped",
-		DisableCgo: true,
-		Tags:       []string{"fancy"},
+		Pkg:          ".",
+		ArtifactName: "stamped",
+		DisableCgo:   true,
+		Tags:         []string{"fancy"},
 	})
 	got, err := runBuiltBinary(ctx, out.File("stamped"))
 	if err != nil {
@@ -508,10 +546,10 @@ func (t *Tests) BuildTrimpathRemovesSourcePaths(ctx context.Context, goImageTag 
 		{trimpath: true, want: false},
 	} {
 		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
-			Pkg:        ".",
-			Output:     "stamped",
-			DisableCgo: true,
-			Trimpath:   tc.trimpath,
+			Pkg:          ".",
+			ArtifactName: "stamped",
+			DisableCgo:   true,
+			Trimpath:     tc.trimpath,
 		})
 		found, err := binaryContains(ctx, out.File("stamped"), "/src/main.go")
 		if err != nil {
@@ -530,10 +568,10 @@ func (t *Tests) BuildStripShrinksTheBinary(ctx context.Context, goImageTag strin
 	sizes := make(map[bool]int, 2)
 	for _, strip := range []bool{false, true} {
 		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
-			Pkg:        ".",
-			Output:     "stamped",
-			DisableCgo: true,
-			Strip:      strip,
+			Pkg:          ".",
+			ArtifactName: "stamped",
+			DisableCgo:   true,
+			Strip:        strip,
 		})
 		size, err := out.File("stamped").Size(ctx)
 		if err != nil {
@@ -547,6 +585,136 @@ func (t *Tests) BuildStripShrinksTheBinary(ctx context.Context, goImageTag strin
 	return nil
 }
 
+// BuildBuildmodeCArchiveProducesArchiveAndHeader asserts C_ARCHIVE reaches
+// `go build -buildmode=c-archive`: the output is the ar archive plus the
+// generated C header, and specifically not an executable — which is what the
+// same fixture and the same -o would produce with the buildmode left off.
+func (t *Tests) BuildBuildmodeCArchiveProducesArchiveAndHeader(ctx context.Context, goImageTag string) error {
+	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(carchiveDir(), dagger.GoBuildOpts{
+		Pkg:          ".",
+		ArtifactName: "libgreet.a",
+		Buildmode:    dagger.GoBuildModeCArchive,
+	})
+	entries, err := out.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("list /out: %w", err)
+	}
+	want := []string{"libgreet.a", "libgreet.h"}
+	if strings.Join(entries, ",") != strings.Join(want, ",") {
+		return fmt.Errorf("expected /out to hold exactly %v, got %v", want, entries)
+	}
+	// An ar archive opens with "!<arch>\n"; an ELF executable opens with
+	// "\x7fELF". Reading the first bytes is what tells the two apart.
+	magic, err := dag.Container().From(alpineImage).
+		WithFile("/x/libgreet.a", out.File("libgreet.a")).
+		WithExec([]string{"head", "-c", "8", "/x/libgreet.a"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("read archive magic: %w", err)
+	}
+	if magic != "!<arch>\n" {
+		return fmt.Errorf("expected ar magic %q, got %q", "!<arch>\n", magic)
+	}
+	header, err := out.File("libgreet.h").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("read generated header: %w", err)
+	}
+	if !strings.Contains(header, "Greet") {
+		return fmt.Errorf("expected libgreet.h to declare the exported Greet, got:\n%s", header)
+	}
+	return nil
+}
+
+// BuildBuildmodeMembersAllProduceOutput calls Build once per BuildMode member
+// with a fixture and an output name that mode can actually satisfy, asserting
+// each produces a non-empty artifact. That is what makes every member of the
+// enum reachable rather than merely declared: a member the module failed to
+// map onto a `-buildmode=` value would fail here.
+func (t *Tests) BuildBuildmodeMembersAllProduceOutput(ctx context.Context, goImageTag string) error {
+	for _, tc := range []struct {
+		mode     dagger.GoBuildMode
+		source   *dagger.Directory
+		pkg      string
+		artifact string
+	}{
+		// archive ignores main packages, so it gets the library package out
+		// of the multipkg fixture.
+		{dagger.GoBuildModeArchive, multipkgDir(), "./pkg/foo", "foo.a"},
+		{dagger.GoBuildModeCArchive, carchiveDir(), ".", "libgreet.a"},
+		{dagger.GoBuildModeCShared, carchiveDir(), ".", "libgreet.so"},
+		{dagger.GoBuildModeExe, stampedDir(), ".", "stamped"},
+		{dagger.GoBuildModePie, stampedDir(), ".", "stamped"},
+		{dagger.GoBuildModePlugin, stampedDir(), ".", "stamped.so"},
+	} {
+		size, err := dag.Go(dagger.GoOpts{Version: goImageTag}).
+			Build(tc.source, dagger.GoBuildOpts{
+				Pkg:          tc.pkg,
+				ArtifactName: tc.artifact,
+				Buildmode:    tc.mode,
+			}).
+			File(tc.artifact).
+			Size(ctx)
+		if err != nil {
+			return fmt.Errorf("buildmode %s: %w", tc.mode, err)
+		}
+		if size == 0 {
+			return fmt.Errorf("buildmode %s: expected non-empty %s, got size 0", tc.mode, tc.artifact)
+		}
+	}
+	return nil
+}
+
+// BuildRaceLinksTheDetector asserts race reaches `go build -race`: the racy
+// fixture reports race=on only when the detector is linked in, because
+// -race implies the `race` build tag. The binary is run to prove the
+// detector is present in the artifact and not merely on the command line.
+func (t *Tests) BuildRaceLinksTheDetector(ctx context.Context, goImageTag string) error {
+	for _, tc := range []struct {
+		race bool
+		want string
+	}{
+		{race: false, want: "race=off\n"},
+		{race: true, want: "race=on\n"},
+	} {
+		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(racyDir(), dagger.GoBuildOpts{
+			Pkg:          ".",
+			ArtifactName: "racy",
+			Race:         tc.race,
+		})
+		got, err := runBuiltBinaryOnGlibc(ctx, goImageTag, racyDir(), out.File("racy"))
+		if err != nil {
+			return fmt.Errorf("run racy binary (race=%v): %w", tc.race, err)
+		}
+		if got != tc.want {
+			return fmt.Errorf("race=%v: expected %q, got %q", tc.race, tc.want, got)
+		}
+	}
+	return nil
+}
+
+// BuildRejectsRaceWithDisableCgo asserts Build refuses the race+disableCgo
+// pairing up front rather than letting `go build` fail on it, and that the
+// message names both inputs so the caller knows which two are in conflict.
+func (t *Tests) BuildRejectsRaceWithDisableCgo(ctx context.Context, goImageTag string) error {
+	_, err := dag.Go(dagger.GoOpts{Version: goImageTag}).
+		Build(racyDir(), dagger.GoBuildOpts{
+			Pkg:          ".",
+			ArtifactName: "racy",
+			Race:         true,
+			DisableCgo:   true,
+		}).
+		Entries(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Build to reject race with disableCgo, got nil error")
+	}
+	for _, want := range []string{"race", "disableCgo"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected rejection to name %q, got: %s", want, err.Error())
+		}
+	}
+	return nil
+}
+
 // BuildPlatformCrossCompiles asserts platform reaches GOOS/GOARCH: the
 // binary built for linux/arm64 carries the aarch64 machine type in its ELF
 // header (e_machine == 0xb7 at offset 18), which an amd64 build does not.
@@ -556,10 +724,10 @@ func (t *Tests) BuildPlatformCrossCompiles(ctx context.Context, goImageTag strin
 		{"linux/amd64", "3e"},
 	} {
 		out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(stampedDir(), dagger.GoBuildOpts{
-			Pkg:        ".",
-			Output:     "stamped",
-			DisableCgo: true,
-			Platform:   tc.platform,
+			Pkg:          ".",
+			ArtifactName: "stamped",
+			DisableCgo:   true,
+			Platform:     tc.platform,
 		})
 		got, err := dag.Container().From(alpineImage).
 			WithFile("/bin/app", out.File("stamped")).
@@ -724,8 +892,8 @@ func (t *Tests) RunHelloPrintsHello(ctx context.Context, goImageTag string) erro
 // produced "hello" binary is non-empty.
 func (t *Tests) BuildHelloWritesBinary(ctx context.Context, goImageTag string) error {
 	out := dag.Go(dagger.GoOpts{Version: goImageTag}).Build(helloDir(), dagger.GoBuildOpts{
-		Pkg:    ".",
-		Output: "hello",
+		Pkg:          ".",
+		ArtifactName: "hello",
 	})
 	size, err := out.File("hello").Size(ctx)
 	if err != nil {

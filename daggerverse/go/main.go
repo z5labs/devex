@@ -238,11 +238,18 @@ func (g *Go) Build(
 	//
 	// +default="./..."
 	pkg string,
-	// Name of the binary written under /out. Empty means `-o /out/`, which
+	// Name of the artifact written under /out. Empty means `-o /out/`, which
 	// lets go build name each binary after its main package.
 	//
+	// Named artifactName rather than output because the Dagger CLI reserves
+	// `--output/-o` for exporting a call's result: a function parameter
+	// called output collides with it, and `dagger call build` then fails to
+	// parse its own flags before it runs anything. Ci.WithBuild's
+	// binaryName dodges the same collision; this one is not always a binary,
+	// because buildmode can make it an archive or a shared library.
+	//
 	// +optional
-	output string,
+	artifactName string,
 	// Pass -trimpath: strip the build's local file system paths out of the
 	// binary, so the output does not depend on where it was compiled.
 	//
@@ -281,7 +288,30 @@ func (g *Go) Build(
 	//
 	// +optional
 	disableCgo bool,
+	// Pass -race: link Go's data-race detector into the output. The binary
+	// then reports racing accesses to stderr as it runs, at roughly 2-20x
+	// the CPU and 5-10x the memory of an ordinary build — so this is a
+	// binary for an integration test, not one to ship.
+	//
+	// -race requires cgo, so it cannot be combined with disableCgo (Build
+	// rejects that pairing) and it needs a C toolchain for the target: the
+	// golang image has one for its own platform, but a cross-compile via
+	// platform does not unless the toolchain image provides it.
+	//
+	// +optional
+	race bool,
+	// Pass -buildmode=<mode>: what the linker emits, which for most modes is
+	// not an executable. Absent leaves the flag off entirely, so `go build`
+	// picks its own default for the target — an executable for a main
+	// package, an archive for the rest. See BuildMode for what each member
+	// produces.
+	//
+	// +optional
+	buildmode BuildMode,
 ) (*dagger.Directory, error) {
+	if race && disableCgo {
+		return nil, fmt.Errorf("Build: race and disableCgo cannot be combined: -race links the race runtime through cgo, so CGO_ENABLED=0 makes `go build -race` fail — pass one or the other")
+	}
 	ldflags, err := renderLdflags(strip, stamps)
 	if err != nil {
 		return nil, err
@@ -303,12 +333,22 @@ func (g *Go) Build(
 		ctr = ctr.WithEnvVariable("CGO_ENABLED", "0")
 	}
 	target := "/out/"
-	if output != "" {
-		target = "/out/" + output
+	if artifactName != "" {
+		target = "/out/" + artifactName
 	}
 	args := []string{"go", "build"}
 	if trimpath {
 		args = append(args, "-trimpath")
+	}
+	if race {
+		args = append(args, "-race")
+	}
+	if buildmode != "" {
+		mode, err := buildmode.flag()
+		if err != nil {
+			return nil, err
+		}
+		args = append(args, "-buildmode="+mode)
 	}
 	if len(tags) > 0 {
 		args = append(args, "-tags", strings.Join(tags, ","))
