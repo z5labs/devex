@@ -374,14 +374,49 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg output", err))
 				}
 			}
-			var flags []string
-			if inputArgs["flags"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["flags"]), &flags)
+			var trimpath bool
+			if inputArgs["trimpath"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["trimpath"]), &trimpath)
 				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg flags", err))
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg trimpath", err))
 				}
 			}
-			return (*Go).Build(&parent, ctx, source, pkg, output, flags)
+			var strip bool
+			if inputArgs["strip"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["strip"]), &strip)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg strip", err))
+				}
+			}
+			var stamps []string
+			if inputArgs["stamps"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["stamps"]), &stamps)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg stamps", err))
+				}
+			}
+			var tags []string
+			if inputArgs["tags"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tags"]), &tags)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tags", err))
+				}
+			}
+			var platform string
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			var disableCgo bool
+			if inputArgs["disableCgo"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["disableCgo"]), &disableCgo)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg disableCgo", err))
+				}
+			}
+			return (*Go).Build(&parent, ctx, source, pkg, output, trimpath, strip, stamps, tags, platform, disableCgo)
 		case "Ci":
 			var parent Go
 			err = json.Unmarshal(parentJSON, &parent)

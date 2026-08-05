@@ -19,7 +19,7 @@ func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5l
 }
 
 // Retrieve the binding value, as type Z5LabsBuilder
-func (r *Binding) AsZ5LabsBuilder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
+func (r *Binding) AsZ5LabsBuilder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
 	q := r.query.Select("asZ5LabsBuilder")
 
 	return &Z5LabsBuilder{
@@ -46,7 +46,7 @@ func (r *Binding) AsZ5LabsGoLib() *Z5LabsGoLib { // z5labs (../../../../../dagge
 }
 
 // Create or update a binding of type Z5LabsBuilder in the environment
-func (r *Env) WithZ5LabsBuilderInput(name string, value *Z5LabsBuilder, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
+func (r *Env) WithZ5LabsBuilderInput(name string, value *Z5LabsBuilder, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsBuilderInput")
 	q = q.Arg("name", name)
@@ -59,7 +59,7 @@ func (r *Env) WithZ5LabsBuilderInput(name string, value *Z5LabsBuilder, descript
 }
 
 // Declare a desired Z5LabsBuilder output to be assigned in the environment
-func (r *Env) WithZ5LabsBuilderOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
+func (r *Env) WithZ5LabsBuilderOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
 	q := r.query.Select("withZ5LabsBuilderOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -169,29 +169,48 @@ func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
 type Z5LabsGoAppOpts struct {
 
 	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:37:2)
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:56:2)
 
-	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:39:2)
+	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:58:2)
 
 	// Default: "^refs/heads/main$"
-	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:42:2)
+	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:61:2)
 
-	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:44:2)
+	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:63:2)
 
 	// Default: "ci"
-	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:47:2)
+	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:66:2)
 
-	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:49:2)
+	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:68:2)
 
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:51:2)
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:70:2)
 
-	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:53:2)
+	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:72:2)
 
-	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:55:2)
+	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:74:2)
 }
 
 // GoApp wires up an opinionated CI/release pipeline for a `package main`
 // Go application. Call Ci to run checks + multi-arch buildpublish, or Builder to produce the same image single-arch locally.
+//
+// Every binary GoApp builds is stamped at link time with the version and
+// the commit it was built from, so an application can answer "which build
+// am I running" without a second build definition beside this one. Declare
+// these two package-level vars in your main package and they are filled in:
+//
+//	var (
+//		version = "dev"
+//		commit  = "none"
+//	)
+//
+// The names are fixed by the module — `main.version` and `main.commit` —
+// and the values are taken from HEAD, never from a parameter. A tag
+// pointing at HEAD gives version the stripped tag name; anything else
+// gives "<shortSha>-<isoCommitTime>", the same rule the published image
+// tag follows, so the two agree by construction. commit is the short HEAD
+// SHA. Because both are functions of the commit alone, two builds of one
+// commit are byte-identical; there is no caller-supplied value that could
+// break that. Source without git metadata at HEAD is an error.
 //
 // publishOn is a regex evaluated against source repo's HEAD refs (after
 // normalizing `refs/remotes/origin/X` → `refs/heads/X`); matches trigger
@@ -203,7 +222,7 @@ type Z5LabsGoAppOpts struct {
 // publishing container — used by tests against a local registry:2
 // service and by callers whose private registry is itself a Dagger
 // service.
-func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:33:1)
+func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:52:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goApp")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -253,12 +272,12 @@ func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp 
 
 // Z5LabsGoLibOpts contains options for Z5Labs.GoLib
 type Z5LabsGoLibOpts struct {
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:79:2)
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:98:2)
 }
 
 // GoLib wires up the checks-only pipeline for a Go library. v1 has no
 // publish equivalent for libraries.
-func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:76:1)
+func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:95:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goLib")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -333,8 +352,10 @@ func (r *Z5Labs) AsNode() Node {
 
 // Builder produces the same image GoApp.Ci would publish, single-arch
 // (host platform). Used for local development to verify the artifact
-// before pushing.
-type Z5LabsBuilder struct { // z5labs (../../../../../daggerverse/z5labs/builder.go:13:6)
+// before pushing. Both of its functions route through the same
+// per-platform build Ci uses, so the binary carries the same version and
+// commit stamp and a local build is the same artifact.
+type Z5LabsBuilder struct { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -347,7 +368,7 @@ func (r *Z5LabsBuilder) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsBuild
 }
 
 // Binary returns the host-platform compiled binary as a *dagger.File.
-func (r *Z5LabsBuilder) Binary() *File { // z5labs (../../../../../daggerverse/z5labs/builder.go:38:1)
+func (r *Z5LabsBuilder) Binary() *File { // z5labs (../../../../../daggerverse/z5labs/builder.go:40:1)
 	q := r.query.Select("binary")
 
 	return &File{
@@ -357,7 +378,7 @@ func (r *Z5LabsBuilder) Binary() *File { // z5labs (../../../../../daggerverse/z
 
 // Container returns the host-platform scratch image containing the
 // compiled binary at /app/<binaryName> with that path as entrypoint.
-func (r *Z5LabsBuilder) Container() *Container { // z5labs (../../../../../daggerverse/z5labs/builder.go:22:1)
+func (r *Z5LabsBuilder) Container() *Container { // z5labs (../../../../../daggerverse/z5labs/builder.go:24:1)
 	q := r.query.Select("container")
 
 	return &Container{

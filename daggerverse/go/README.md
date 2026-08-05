@@ -22,7 +22,7 @@ and use that version; if no directive is present the image falls back to
 | Name | Purpose |
 |---|---|
 | `Container(source)` | Prepared base container — escape hatch when a Go command isn't covered by the typed helpers. Returns `*Container` lazily; the underlying constructor takes ctx + returns error in source so go.mod inspection can run. |
-| `Build(source, pkg, output, flags)` | `go build -o /out/[output] ...`; returns `/out` as a `*Directory`. `pkg` defaults to `./...`. |
+| `Build(source, pkg, output, trimpath, strip, stamps, tags, platform, disableCgo)` | `go build -o /out/[output] ...`; returns `/out` as a `*Directory`. `pkg` defaults to `./...`. Every flag is a named input — see [Build flags](#build-flags). |
 | `Test(source, pkg, race, flags)` | `go test -count=1 [-race] ...`; returns combined stdout. |
 | `Vet(source, pkg)` | `go vet pkg`. |
 | `Fmt(source)` | `gofmt -l -d .`; non-empty diff is also returned as an error. |
@@ -36,6 +36,33 @@ and use that version; if no directive is present the image falls back to
 | `Env()` | `go env`. |
 | `ToolVersion()` | `go version`. |
 | `Ci(source)` | Returns a `Ci` builder for staged pipelines (parallel checks → build). `Run` returns the built binary as a `*File`. |
+
+## Build flags
+
+`Build` takes no `flags []string`. Every flag it can pass is a named input
+with its own doc comment, so `dagger functions` describes what each one does
+to the output, the module validates them, and no caller has to re-learn a
+spelling:
+
+| Input | Effect |
+|---|---|
+| `trimpath` | `-trimpath` — the output no longer depends on where it was compiled. |
+| `strip` | `-ldflags "-s -w"` — no symbol table, no DWARF. |
+| `stamps` | `-ldflags "-X importpath.Name=value"` per element. |
+| `tags` | `-tags a,b,c`. |
+| `platform` | `GOOS`/`GOARCH` for a cross-compile, as `GOOS/GOARCH[/variant]`. |
+| `disableCgo` | `CGO_ENABLED=0`. |
+
+`stamps` elements are `importpath.Name=value`; only the first `=` splits name
+from value, so a value may contain `=`. An element with no `=`, or an empty
+name, is rejected with a message naming it. A value containing whitespace is
+quoted for you, since `cmd/go` splits the `-ldflags` value on whitespace.
+
+There is deliberately no raw-flag escape hatch on `Build`: if a flag is worth
+passing it is worth naming, and a bag of strings can be neither validated nor
+documented. `Container(source)` remains the escape hatch for anything not
+named above — it hands back the prepared container to run any `go build`
+invocation you like.
 
 ## CLI quick reference
 
@@ -59,6 +86,14 @@ g := dag.Go() // or dag.Go(dagger.GoOpts{Version: "1.23"})
 
 // Build returns the /out directory containing the produced binaries.
 out := g.Build(src, dagger.GoBuildOpts{Pkg: "./...", Output: "myapp"})
+
+// A release build: static, reproducible, and told its own version.
+rel := g.Build(src, dagger.GoBuildOpts{
+    Pkg: ".", Output: "myapp",
+    Trimpath: true, Strip: true, DisableCgo: true,
+    Platform: "linux/arm64",
+    Stamps:   []string{"main.version=v1.2.3"},
+})
 
 // Test returns combined stdout.
 stdout, err := g.Test(ctx, src, dagger.GoTestOpts{Race: true})

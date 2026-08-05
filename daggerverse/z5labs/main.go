@@ -20,6 +20,25 @@ type Z5labs struct{}
 // Go application. Call Ci to run checks + multi-arch build + conditional
 // publish, or Builder to produce the same image single-arch locally.
 //
+// Every binary GoApp builds is stamped at link time with the version and
+// the commit it was built from, so an application can answer "which build
+// am I running" without a second build definition beside this one. Declare
+// these two package-level vars in your main package and they are filled in:
+//
+//	var (
+//		version = "dev"
+//		commit  = "none"
+//	)
+//
+// The names are fixed by the module — `main.version` and `main.commit` —
+// and the values are taken from HEAD, never from a parameter. A tag
+// pointing at HEAD gives version the stripped tag name; anything else
+// gives "<shortSha>-<isoCommitTime>", the same rule the published image
+// tag follows, so the two agree by construction. commit is the short HEAD
+// SHA. Because both are functions of the commit alone, two builds of one
+// commit are byte-identical; there is no caller-supplied value that could
+// break that. Source without git metadata at HEAD is an error.
+//
 // publishOn is a regex evaluated against source repo's HEAD refs (after
 // normalizing `refs/remotes/origin/X` → `refs/heads/X`); matches trigger
 // publish. When registry is set, auth is required.

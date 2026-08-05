@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,55 @@ const registryAlias = "registry"
 // curlImage matches the pin used by the other test modules in this
 // repo (envoy, otel, grafana-stack). ":latest" is a moving target.
 const curlImage = "curlimages/curl:8.10.1"
+
+// skopeoImage matches the pin the module itself publishes with. Tests use
+// skopeo to read individual platform variants back out of the registry.
+const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
+
+// hostPlatform is the platform Builder builds for. Test module code runs
+// in a linux container on the engine, so runtime.GOARCH here is the
+// engine's architecture — the same one Builder resolves.
+func hostPlatform() string { return "linux/" + runtime.GOARCH }
+
+// hostArch is hostPlatform's GOARCH component, as skopeo's
+// --override-arch spells it.
+func hostArch() string { return runtime.GOARCH }
+
+// pullVariant pulls the given platform's variant of image:tag out of the
+// local registry and imports it as a container, so a test can look at the
+// exact bytes that were published for that platform.
+//
+// skopeo rather than Container.From: an image reference resolves in the
+// engine's BuildKit context, which does not see this session's service
+// bindings, while skopeo running inside a service-bound container does.
+// The password is a plain env var rather than a secret on purpose —
+// Dagger excludes secret values from cache keys, and this exec must not
+// be served from an earlier session's registry.
+//
+// Import resolves the archive against the container's platform, which
+// defaults to the engine's; a foreign-architecture variant is invisible
+// unless the container is created for that platform explicitly.
+// nonce varies this pull's cache key. Pass a distinct value when a test
+// pulls the same tag more than once and needs the later pulls to be real
+// pulls rather than the first one's cached result.
+func pullVariant(svc *dagger.Service, host, user, pwd, image, tag, platform, nonce string) *dagger.Container {
+	arch := platform
+	if _, a, ok := strings.Cut(platform, "/"); ok {
+		arch = a
+	}
+	ref := fmt.Sprintf("docker://%s:5000/%s:%s", host, image, tag)
+	tarball := dag.Container().From(skopeoImage).
+		WithServiceBinding(host, svc).
+		WithEnvVariable("NONCE", nonce).
+		WithEnvVariable("REGISTRY_USERNAME", user).
+		WithEnvVariable("REGISTRY_PASSWORD", pwd).
+		WithExec([]string{"sh", "-c",
+			`skopeo copy --src-tls-verify=false --override-os linux --override-arch "$1" --src-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" "$2" docker-archive:/img.tar`,
+			"sh", arch, ref,
+		}).
+		File("/img.tar")
+	return dag.Container(dagger.ContainerOpts{Platform: dagger.Platform(platform)}).Import(tarball)
+}
 
 type Tests struct{}
 
@@ -55,6 +105,11 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoAppCiPublishesToAllMatchingTags", t.GoAppCiPublishesToAllMatchingTags)
 	jobs = jobs.WithJob("GoAppCiNormalizesRemoteOriginRefs", t.GoAppCiNormalizesRemoteOriginRefs)
 	jobs = jobs.WithJob("GoAppCiTagBeatsBranch", t.GoAppCiTagBeatsBranch)
+	jobs = jobs.WithJob("GoAppBuildFailsWithoutGitMetadata", t.GoAppBuildFailsWithoutGitMetadata)
+	jobs = jobs.WithJob("GoAppStampsWhenPublishOnDoesNotMatch", t.GoAppStampsWhenPublishOnDoesNotMatch)
+	jobs = jobs.WithJob("GoAppCiStampedBinaryMatchesImageTagAndBuilder", t.GoAppCiStampedBinaryMatchesImageTagAndBuilder)
+	jobs = jobs.WithJob("GoAppCiStampsEveryPlatformVariant", t.GoAppCiStampsEveryPlatformVariant)
+	jobs = jobs.WithJob("GoAppCiRebuildIsByteIdenticalPerPlatform", t.GoAppCiRebuildIsByteIdenticalPerPlatform)
 
 	return jobs.Run(ctx)
 }
@@ -481,9 +536,14 @@ func (t *Tests) GoAppCiRejectsMissingGitDir(ctx context.Context) error {
 
 // BuilderContainerProducesScratchImageWithBinary asserts that
 // Builder.Container produces a scratch image whose entrypoint runs the
-// embedded binary and prints "hello".
+// embedded binary and prints "hello". The source is git-backed because
+// every build derives its stamp from HEAD.
 func (t *Tests) BuilderContainerProducesScratchImageWithBinary(ctx context.Context) error {
-	ctr := dag.Z5Labs().GoApp(helloDir()).Builder().Container()
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	ctr := dag.Z5Labs().GoApp(src).Builder().Container()
 	out, err := ctr.
 		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
 		Stdout(ctx)
@@ -497,9 +557,14 @@ func (t *Tests) BuilderContainerProducesScratchImageWithBinary(ctx context.Conte
 }
 
 // BuilderBinaryProducesCompiledBinary asserts that Builder.Binary
-// returns a non-empty file named after the go.mod module basename.
+// returns a non-empty file named after the go.mod module basename. The
+// source is git-backed because every build derives its stamp from HEAD.
 func (t *Tests) BuilderBinaryProducesCompiledBinary(ctx context.Context) error {
-	bin := dag.Z5Labs().GoApp(helloDir()).Builder().Binary()
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	bin := dag.Z5Labs().GoApp(src).Builder().Binary()
 	size, err := bin.Size(ctx)
 	if err != nil {
 		return fmt.Errorf("Builder.Binary.Size: %w", err)
@@ -534,6 +599,340 @@ func (t *Tests) GoLibCiFailsForFailingTest(ctx context.Context) error {
 // helloDir returns the on-disk hello (app) fixture.
 func helloDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/hello")
+}
+
+// stampedDir returns the stamped (app) fixture: a main package that
+// declares the two package-level vars GoApp stamps and prints them.
+func stampedDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/stamped")
+}
+
+// headShortSha returns `git rev-parse --short HEAD` for a git-backed
+// source, so a test can compare the stamp against the commit it came from.
+func headShortSha(ctx context.Context, src *dagger.Directory) (string, error) {
+	out, err := dag.Go().Container(src).
+		WithExec([]string{"git", "rev-parse", "--short", "HEAD"}).
+		Stdout(ctx)
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse: %v", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// stampOf runs the stamped fixture's entrypoint in ctr and returns the
+// version and commit it reports.
+func stampOf(ctx context.Context, ctr *dagger.Container) (version, commit string, err error) {
+	out, err := ctr.
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("run stamped binary: %v", err)
+	}
+	return parseStampLine(out)
+}
+
+// parseStampLine parses the stamped fixture's single line of output,
+// "version=<v> commit=<c>". Neither value can contain a space: commit is a
+// short SHA and version is either a docker-tag-sanitized tag name or
+// "<shortSha>-<isoCommitTime>".
+func parseStampLine(out string) (version, commit string, err error) {
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) != 2 {
+		return "", "", fmt.Errorf("unexpected stamp output %q", out)
+	}
+	version, okV := strings.CutPrefix(fields[0], "version=")
+	commit, okC := strings.CutPrefix(fields[1], "commit=")
+	if !okV || !okC {
+		return "", "", fmt.Errorf("unexpected stamp output %q", out)
+	}
+	return version, commit, nil
+}
+
+// alpineImage is the minimal container a built binary is inspected in.
+// ":latest" is a moving target, so the tag is pinned.
+const alpineImage = "alpine:3.22"
+
+// binaryContains reports whether the raw bytes of bin contain needle.
+// grep -a treats the binary as text so a match is reported rather than
+// collapsed into "binary file matches".
+func binaryContains(ctx context.Context, bin *dagger.File, needle string) (bool, error) {
+	out, err := dag.Container().From(alpineImage).
+		WithFile("/bin/app", bin).
+		WithExec([]string{"sh", "-c", `grep -a -q -- "$1" /bin/app && echo yes || echo no`, "sh", needle}).
+		Stdout(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "yes", nil
+}
+
+// GoAppCiStampsEveryPlatformVariant asserts a multi-platform build stamps
+// every variant. Ci collapses its per-platform images into a single
+// manifest list before publishing, so a stamp applied at the image or
+// publish layer would land on an artifact whose variants have already been
+// merged; only a stamp applied in the per-variant compile reaches them
+// all. Each variant is therefore pulled back individually: the one
+// matching the engine's architecture is executed, and the foreign one —
+// which cannot be executed here — is searched for the stamped bytes.
+func (t *Tests) GoAppCiStampsEveryPlatformVariant(ctx context.Context) error {
+	const tag = "v9.9.9"
+	src, err := gitFixture(ctx, stampedDir(), "main", []string{tag})
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	const host = registryAlias
+	platforms := []string{"linux/amd64", "linux/arm64"}
+	err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		PublishOn:       "^refs/tags/v.+",
+		Registry:        host + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+		Platforms:       platforms,
+	}).Ci(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci: %v", err)
+	}
+	sha, err := headShortSha(ctx, src)
+	if err != nil {
+		return err
+	}
+	for _, p := range platforms {
+		variant := pullVariant(svc, host, "ci", pwdHex, "stamped", tag, p, "")
+		if p == hostPlatform() {
+			version, commit, err := stampOf(ctx, variant)
+			if err != nil {
+				return fmt.Errorf("%s: %v", p, err)
+			}
+			if version != tag || commit != sha {
+				return fmt.Errorf("%s: expected version=%q commit=%q, got version=%q commit=%q", p, tag, sha, version, commit)
+			}
+			continue
+		}
+		for _, want := range []string{tag, sha} {
+			found, err := binaryContains(ctx, variant.File("/app/stamped"), want)
+			if err != nil {
+				return fmt.Errorf("%s: scan binary: %v", p, err)
+			}
+			if !found {
+				return fmt.Errorf("%s: expected the binary to carry %q", p, want)
+			}
+		}
+		// Negative control: a scan that answers yes to everything
+		// would make the two assertions above vacuous.
+		found, err := binaryContains(ctx, variant.File("/app/stamped"), "v0.0.0-never-stamped")
+		if err != nil {
+			return fmt.Errorf("%s: scan binary: %v", p, err)
+		}
+		if found {
+			return fmt.Errorf("%s: binary scan reports a string that was never stamped", p)
+		}
+	}
+	return nil
+}
+
+// pinnedGitFixture overlays a git repo whose commit is a pure function of
+// the fixture's contents: the author and committer dates are pinned, so
+// two calls produce the same commit SHA and therefore the same stamp.
+//
+// nonce varies the exec's cache key so the two calls really are two
+// separate git invocations rather than one cached result — otherwise a
+// reproducibility assertion would be comparing an artifact against itself.
+func pinnedGitFixture(ctx context.Context, base *dagger.Directory, branch, nonce string) (*dagger.Directory, error) {
+	const commitDate = "2024-01-02T03:04:05+00:00"
+	ctr := dag.Go().Container(base).
+		WithEnvVariable("NONCE", nonce).
+		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
+		WithEnvVariable("GIT_AUTHOR_EMAIL", "ci@example.com").
+		WithEnvVariable("GIT_AUTHOR_DATE", commitDate).
+		WithEnvVariable("GIT_COMMITTER_NAME", "CI").
+		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
+		WithEnvVariable("GIT_COMMITTER_DATE", commitDate).
+		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
+		WithExec([]string{"git", "add", "."}).
+		WithExec([]string{"git", "commit", "-m", "initial"})
+	if _, err := ctr.Sync(ctx); err != nil {
+		return nil, err
+	}
+	return ctr.Directory("/src"), nil
+}
+
+// GoAppCiRebuildIsByteIdenticalPerPlatform asserts building one commit
+// twice produces byte-identical binaries for every platform. The two runs
+// build from independently created working trees of the same commit, so
+// each is a real compile rather than a cache hit on the first — what makes
+// them agree is that both the stamp and everything else in the link line
+// are functions of the commit alone.
+func (t *Tests) GoAppCiRebuildIsByteIdenticalPerPlatform(ctx context.Context) error {
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	const host = registryAlias
+	platforms := []string{"linux/amd64", "linux/arm64"}
+	runs := make([]map[string]string, 0, 2)
+	imageTag := ""
+	for _, nonce := range []string{"run-a", "run-b"} {
+		src, err := pinnedGitFixture(ctx, stampedDir(), "main", nonce)
+		if err != nil {
+			return fmt.Errorf("pinnedGitFixture %s: %v", nonce, err)
+		}
+		err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+			PublishOn:       "^refs/heads/main$",
+			Registry:        host + ":5000",
+			AuthUsername:    "ci",
+			Auth:            secret,
+			RegistryService: svc,
+			Platforms:       platforms,
+		}).Ci(ctx)
+		if err != nil {
+			return fmt.Errorf("Ci %s: %v", nonce, err)
+		}
+		tags, err := listTags(ctx, svc, host, "ci", pwdHex, "stamped")
+		if err != nil {
+			return fmt.Errorf("listTags %s: %v", nonce, err)
+		}
+		if len(tags) != 1 {
+			return fmt.Errorf("%s: expected exactly 1 published tag, got %v", nonce, tags)
+		}
+		if imageTag == "" {
+			imageTag = tags[0]
+		} else if tags[0] != imageTag {
+			return fmt.Errorf("expected both runs to publish tag %q, second run published %q", imageTag, tags[0])
+		}
+		// Digest eagerly: the next run overwrites this tag.
+		digests := make(map[string]string, len(platforms))
+		for _, p := range platforms {
+			d, err := pullVariant(svc, host, "ci", pwdHex, "stamped", imageTag, p, nonce).
+				File("/app/stamped").
+				Digest(ctx, dagger.FileDigestOpts{ExcludeMetadata: true})
+			if err != nil {
+				return fmt.Errorf("%s %s: digest: %v", nonce, p, err)
+			}
+			digests[p] = d
+		}
+		runs = append(runs, digests)
+	}
+	for _, p := range platforms {
+		if runs[0][p] != runs[1][p] {
+			return fmt.Errorf("%s: expected byte-identical rebuild, got %q then %q", p, runs[0][p], runs[1][p])
+		}
+	}
+	return nil
+}
+
+// GoAppCiStampedBinaryMatchesImageTagAndBuilder asserts three things about
+// a binary Ci built, by pulling it back out of the registry and running
+// it: it reports a version and a commit at all; its version is exactly the
+// tag of the image carrying it, which is what makes the two agree by
+// construction on the branch rule "<shortSha>-<isoCommitTime>"; and
+// Builder produces the identical stamp, so a local build is the same
+// artifact.
+func (t *Tests) GoAppCiStampedBinaryMatchesImageTagAndBuilder(ctx context.Context) error {
+	src, err := gitFixture(ctx, stampedDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	const host = registryAlias
+	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		PublishOn:       "^refs/heads/main$",
+		Registry:        host + ":5000",
+		AuthUsername:    "ci",
+		Auth:            secret,
+		RegistryService: svc,
+		Platforms:       []string{hostPlatform()},
+	})
+	if err := app.Ci(ctx); err != nil {
+		return fmt.Errorf("Ci: %v", err)
+	}
+	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "stamped")
+	if err != nil {
+		return fmt.Errorf("listTags: %v", err)
+	}
+	if len(tags) != 1 {
+		return fmt.Errorf("expected exactly 1 published tag, got %v", tags)
+	}
+	imageTag := tags[0]
+
+	version, commit, err := stampOf(ctx, pullVariant(svc, host, "ci", pwdHex, "stamped", imageTag, hostPlatform(), ""))
+	if err != nil {
+		return err
+	}
+	sha, err := headShortSha(ctx, src)
+	if err != nil {
+		return err
+	}
+	if commit != sha {
+		return fmt.Errorf("expected commit stamp %q, got %q", sha, commit)
+	}
+	if version != imageTag {
+		return fmt.Errorf("expected stamped version to equal image tag %q, got %q", imageTag, version)
+	}
+
+	localVersion, localCommit, err := stampOf(ctx, app.Builder().Container())
+	if err != nil {
+		return fmt.Errorf("Builder: %v", err)
+	}
+	if localVersion != version || localCommit != commit {
+		return fmt.Errorf(
+			"expected Builder to stamp as Ci did (version=%q commit=%q), got version=%q commit=%q",
+			version, commit, localVersion, localCommit,
+		)
+	}
+	return nil
+}
+
+// GoAppStampsWhenPublishOnDoesNotMatch asserts stamping is not gated on
+// publishOn: a build from a branch the publish filter rejects still
+// carries a version and commit derived from HEAD.
+func (t *Tests) GoAppStampsWhenPublishOnDoesNotMatch(ctx context.Context) error {
+	src, err := gitFixture(ctx, stampedDir(), "feature/x", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
+		PublishOn: "^refs/heads/main$",
+	})
+	version, commit, err := stampOf(ctx, app.Builder().Container())
+	if err != nil {
+		return err
+	}
+	sha, err := headShortSha(ctx, src)
+	if err != nil {
+		return err
+	}
+	if commit != sha {
+		return fmt.Errorf("expected commit stamp %q, got %q", sha, commit)
+	}
+	// The branch rule: "<shortSha>-<isoCommitTime>". "dev" is the
+	// fixture's own default, i.e. an unstamped build.
+	if !strings.HasPrefix(version, sha+"-") {
+		return fmt.Errorf("expected version stamp to start with %q, got %q", sha+"-", version)
+	}
+	return nil
+}
+
+// GoAppBuildFailsWithoutGitMetadata asserts a source with no git metadata
+// at HEAD fails with a message about the stamp rather than leaking a bare
+// git error. Builder is the path that reaches the build without Ci's
+// working-tree precondition.
+func (t *Tests) GoAppBuildFailsWithoutGitMetadata(ctx context.Context) error {
+	_, err := dag.Z5Labs().GoApp(stampedDir()).Builder().Binary().Size(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Builder.Binary to error without git metadata, got nil")
+	}
+	if !strings.Contains(err.Error(), "could not derive build stamp") {
+		return fmt.Errorf("expected a stamp-derivation message, got: %s", err.Error())
+	}
+	return nil
 }
 
 // helloLibDir returns the on-disk hello-lib fixture (library variant).

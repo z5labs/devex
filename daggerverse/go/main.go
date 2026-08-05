@@ -217,34 +217,163 @@ func (g *Go) Run(
 	return ctr.WithExec(cmd).Stdout(ctx)
 }
 
-// Build runs `go build -o /out/[output] [flags] pkg` against the supplied
-// source and returns /out as a *dagger.Directory. pkg defaults to `./...`;
-// when output is empty, `-o /out/` is used so go build picks names per its
-// own rules (one binary per main package).
+// Build runs `go build` against the supplied source and returns /out as a
+// *dagger.Directory. pkg defaults to `./...`; when output is empty, `-o
+// /out/` is used so go build picks names per its own rules (one binary per
+// main package).
+//
+// Every flag this function can pass is a named input with its own doc
+// comment, so `dagger functions` describes what each one does to the
+// output. There is deliberately no raw `flags []string` escape hatch: a bag
+// of strings cannot be validated, cannot be documented per flag, and makes
+// every caller re-learn the same spellings. Container() is the escape hatch
+// for anything not named here — it hands back the prepared container so a
+// caller can run whatever `go build` invocation it likes.
 //
 // +cache="session"
 func (g *Go) Build(
 	ctx context.Context,
 	source *dagger.Directory,
+	// Package(s) to build, in `go build` package-list syntax.
+	//
 	// +default="./..."
 	pkg string,
+	// Name of the binary written under /out. Empty means `-o /out/`, which
+	// lets go build name each binary after its main package.
+	//
 	// +optional
 	output string,
+	// Pass -trimpath: strip the build's local file system paths out of the
+	// binary, so the output does not depend on where it was compiled.
+	//
 	// +optional
-	flags []string,
+	trimpath bool,
+	// Pass -ldflags "-s -w": drop the symbol table and the DWARF debug
+	// info. Smaller binary, no usable stack symbolization or debugger.
+	//
+	// +optional
+	strip bool,
+	// Link-time variable assignments, each `importpath.Name=value`,
+	// rendered as `-ldflags "-X importpath.Name=value"`. This is how a
+	// binary learns its own version or commit. Only the first `=` splits
+	// name from value, so a value may itself contain `=`. An element with
+	// no `=`, or with an empty name, is rejected. The linker silently
+	// ignores a stamp naming a variable that does not exist, or one that
+	// is not a package-level string.
+	//
+	// +optional
+	stamps []string,
+	// Build tags, passed as `-tags a,b,c`. Selects which `//go:build`
+	// files are compiled in.
+	//
+	// +optional
+	tags []string,
+	// Target platform as `GOOS/GOARCH[/variant]`, e.g. "linux/arm64".
+	// Sets GOOS and GOARCH for a cross-compile; empty builds for the
+	// toolchain container's own platform. Any variant segment is ignored —
+	// GOARM/GOAMD64 are left unset.
+	//
+	// +optional
+	platform string,
+	// Set CGO_ENABLED=0. Produces a statically linked binary with no libc
+	// dependency, which is what a scratch image needs, at the cost of the
+	// cgo-backed net and os/user implementations.
+	//
+	// +optional
+	disableCgo bool,
 ) (*dagger.Directory, error) {
+	ldflags, err := renderLdflags(strip, stamps)
+	if err != nil {
+		return nil, err
+	}
 	ctr, err := g.Container(ctx, source)
 	if err != nil {
 		return nil, err
+	}
+	if platform != "" {
+		goos, goarch, err := parseBuildPlatform(platform)
+		if err != nil {
+			return nil, err
+		}
+		ctr = ctr.
+			WithEnvVariable("GOOS", goos).
+			WithEnvVariable("GOARCH", goarch)
+	}
+	if disableCgo {
+		ctr = ctr.WithEnvVariable("CGO_ENABLED", "0")
 	}
 	target := "/out/"
 	if output != "" {
 		target = "/out/" + output
 	}
-	args := []string{"go", "build", "-o", target}
-	args = append(args, flags...)
-	args = append(args, pkg)
+	args := []string{"go", "build"}
+	if trimpath {
+		args = append(args, "-trimpath")
+	}
+	if len(tags) > 0 {
+		args = append(args, "-tags", strings.Join(tags, ","))
+	}
+	if ldflags != "" {
+		args = append(args, "-ldflags", ldflags)
+	}
+	args = append(args, "-o", target, pkg)
 	return ctr.WithExec(args).Directory("/out"), nil
+}
+
+// renderLdflags builds the single `-ldflags` argument from the strip switch
+// and the -X stamps. Returns "" when neither is requested, so the caller can
+// leave -ldflags off the command line entirely.
+func renderLdflags(strip bool, stamps []string) (string, error) {
+	var parts []string
+	if strip {
+		parts = append(parts, "-s", "-w")
+	}
+	for _, stamp := range stamps {
+		// IndexByte, not a split: everything after the first `=` is the
+		// value, so a value containing `=` reaches the linker intact.
+		i := strings.IndexByte(stamp, '=')
+		if i < 0 {
+			return "", fmt.Errorf("Build: stamp %q is not in importpath.Name=value form: no %q", stamp, "=")
+		}
+		if i == 0 {
+			return "", fmt.Errorf("Build: stamp %q has an empty importpath.Name before %q", stamp, "=")
+		}
+		quoted, err := quoteLdflag(stamp)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, "-X", quoted)
+	}
+	return strings.Join(parts, " "), nil
+}
+
+// quoteLdflag makes tok survive cmd/go's -ldflags splitting. cmd/go splits
+// the -ldflags value on whitespace, honouring single and double quotes but
+// no escape sequences — so a stamp value containing a space has to be
+// wrapped, and one containing both quote characters cannot be represented
+// at all and is rejected rather than silently truncated.
+func quoteLdflag(tok string) (string, error) {
+	if !strings.ContainsAny(tok, " \t\n'\"") {
+		return tok, nil
+	}
+	if !strings.Contains(tok, "'") {
+		return "'" + tok + "'", nil
+	}
+	if !strings.Contains(tok, `"`) {
+		return `"` + tok + `"`, nil
+	}
+	return "", fmt.Errorf("Build: stamp %q contains both quote characters, which -ldflags cannot express", tok)
+}
+
+// parseBuildPlatform splits a platform string ("goos/goarch" or
+// "goos/goarch/variant") into GOOS and GOARCH. Segments past the first two
+// are accepted and ignored.
+func parseBuildPlatform(p string) (goos, goarch string, err error) {
+	parts := strings.Split(p, "/")
+	if len(parts) < 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", fmt.Errorf("Build: invalid platform %q (expected GOOS/GOARCH[/variant])", p)
+	}
+	return parts[0], parts[1], nil
 }
 
 // Test runs `go test -count=1 [-race] [flags] pkg` against the supplied
