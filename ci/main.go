@@ -2,7 +2,8 @@
 // whatever it touched.
 //
 // Planning, routing and memoization live in daggerverse/workspace-ci, which
-// .github/workflows/ci.yml calls directly — this module is not in that path, and
+// .github/workflows/change-aware-ci.yml calls directly — this module is not in
+// that path, and
 // no run leg loads it to reach another module's suite. What has to live here is
 // only the set of checks a plan treats as global: workspace-ci always runs the
 // root module's checks and never memoizes them, because they are the ones that

@@ -49,6 +49,58 @@ change reached — without loading any of them.
 
 Other CI systems are follow-ups.
 
+### GitHub Actions
+
+`GITHUB_ACTIONS` is only the data half. The other half — caching the engine
+image, fanning the matrix out through `dagger/checks`, recording a pass to the
+Actions cache, and exposing one status check branch protection can require — is
+published as a reusable workflow, so adopting it is one `uses:`:
+
+```yaml
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+  actions: read          # lets the planner read the memoization store
+jobs:
+  ci:
+    uses: z5labs/devex/.github/workflows/change-aware-ci.yml@main
+    secrets: inherit     # only for DAGGER_CLOUD_TOKEN; omit if you have none
+```
+
+Then require **`ci / CI Gate`** in branch protection — GitHub names a called
+workflow's job `<caller job name> / <job name>`, so the context follows the
+caller's job name and moves only when that is renamed. There is no per-check
+YAML: the matrix is the plan verbatim, so a new module, a new check or a renamed
+one changes nothing in the consumer's repository.
+
+Everything on the constructor is an input of the same name in kebab-case
+(`split-modules`, `timeouts`, `default-timeout`, `memo-refs`, `memo-ttl`), plus
+four the workflow owns rather than the planner: `module` (which planner to call,
+so a repository developing one can point at its own), `dagger-version`,
+`runs-on`, and `max-parallel`. `base` and `head` are derived from the event — a
+pull request's base and head, else the push's before/after — and are inputs only
+so a trigger the workflow does not recognise can supply them.
+
+Memoization is on by default and needs no configuration: the workflow trusts
+exactly the two Actions cache scopes GitHub itself confines — the default branch,
+and, on a pull request, that pull request's own scope — and reads them with the
+run's own `GITHUB_TOKEN`. Without `actions: read` the store simply cannot be
+read, which costs speed and never correctness. `memoize: false` turns off both
+the read and the recording.
+
+Three things a caller owns rather than the workflow:
+
+- **Permissions.** The workflow declares none, so it inherits the calling job's
+  token. This is deliberate: a called workflow that *requests* a permission its
+  caller cannot grant fails the run outright, which would make `actions: read` a
+  hard adoption barrier rather than an optional speed-up.
+- **The status check's name**, as above.
+- **Concurrency**, which belongs with the triggers.
+
 ### Jenkins
 
 A plan is data in every other format because every other CI system takes data.
@@ -101,6 +153,13 @@ github.com/z5labs/devex/daggerverse/workspace-ci call plan` run from another
 repository discovers that repository's modules, diffs its `.git`, and hashes its
 sources. Verified against a separate workspace, which produced a plan identical
 to the one a local checkout produced.
+
+On GitHub Actions there is nothing to call by hand either — the reusable workflow
+above does it. Pin it and the module to the same ref: the workflow's `module`
+default is the floating `github.com/z5labs/devex/daggerverse/workspace-ci`, so a
+consumer pinning `change-aware-ci.yml@v1.2.3` should pass
+`module: github.com/z5labs/devex/daggerverse/workspace-ci@v1.2.3` alongside it,
+or the workflow it pinned will plan with whatever the planner has since become.
 
 To also adopt `generated`, `generated-self-test` and `selection-self-test` as
 checks of your own, install this module as a **dependency of your root module**

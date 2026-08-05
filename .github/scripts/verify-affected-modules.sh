@@ -7,8 +7,8 @@
 # `dagger check`, the root module's three checks, which the planner always runs
 # and never memoizes. This is everything else a worktree can reproduce.
 #
-# Why not just ask the planner. `.github/workflows/ci.yml` gets its whole matrix
-# from one `dagger -m daggerverse/workspace-ci call plan`, and that is the
+# Why not just ask the planner. `.github/workflows/change-aware-ci.yml` gets its
+# whole matrix from one `dagger -m daggerverse/workspace-ci call plan`, and that is the
 # authority on which legs a change needs. It reads the change set out of a real
 # `.git` directory — and in a git worktree `.git` is a file pointing elsewhere,
 # so the planner cannot see the history at all. The backlog cycle runs only in

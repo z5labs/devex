@@ -76,10 +76,30 @@ returns one leg per check to run — skipping those a previous run already prove
 good — each routed at the module that owns it. The [`ci/`](ci/) module holds only
 the three checks that must run whatever changed.
 
+The Actions half of that — engine image caching, the `dagger/checks` fan-out,
+recording a pass, and the single status check branch protection requires — is
+[`.github/workflows/change-aware-ci.yml`](.github/workflows/change-aware-ci.yml),
+a `workflow_call` workflow anyone can use. `ci.yml` is a caller of it like any
+other repository would be, differing only in pointing at the in-tree planner so
+that a change to the planner is planned by the changed planner. Adopting it
+elsewhere is one `uses:`:
+
+```yaml
+jobs:
+  ci:
+    uses: z5labs/devex/.github/workflows/change-aware-ci.yml@main
+    secrets: inherit
+```
+
+with `ci / CI Gate` as the required check. See
+[`daggerverse/workspace-ci/README.md`](daggerverse/workspace-ci/README.md#github-actions)
+for the inputs and the permissions a caller needs.
+
 The manually-triggered
 [`update-dagger.yml`](.github/workflows/update-dagger.yml) workflow bumps the
-Dagger pin across every module and opens a PR. Its PR edits `ci.yml` (a workflow
-file), which the default `GITHUB_TOKEN` may not push, so it authenticates with a
+Dagger pin across every module and opens a PR. Its PR edits
+`change-aware-ci.yml` (a workflow file), which the default `GITHUB_TOKEN` may not
+push, so it authenticates with a
 dedicated **update-dagger GitHub App** via two repository secrets:
 
 | Secret | Value |

@@ -6,8 +6,8 @@ whatever it touched.
 That is the whole of its job. Which checks a change needs, which module
 owns each one, and which a previous run already proved good is
 [`daggerverse/workspace-ci`](../daggerverse/workspace-ci)'s work, and
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) calls that
-module directly — this one is not in the path. It exists because the
+[`.github/workflows/change-aware-ci.yml`](../.github/workflows/change-aware-ci.yml)
+calls that module directly — this one is not in the path. It exists because the
 planner always runs the root module's checks and never memoizes them,
 which makes it the right home for the three that read the workspace as a
 whole rather than any one module's closure:
@@ -66,7 +66,7 @@ pass `--repo` a real clone, or accept that it plans the full suite.
 Add `daggerverse/<m>/` with a sibling `tests/` module and keep `+check`
 on `tests.Tests.All()`, the convention every existing module follows.
 That is all: nothing here enumerates modules, nothing lists them in
-`dagger.json`, and `ci.yml` needs no edit — the planner walks the
+`dagger.json`, and no workflow needs an edit — the planner walks the
 workspace for `dagger.json` and asks each module for its own checks.
 
 ## Why no toolchains
