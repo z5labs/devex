@@ -42,6 +42,16 @@ if [ -z "$modules" ]; then
 fi
 
 for module in $modules; do
+  # Not everything two path segments deep under daggerverse/ is a module.
+  # daggerverse/CLAUDE.md is a file, and `cut -f1,2` leaves it looking
+  # exactly like daggerverse/<m>; passing it to `dagger -m` fails with an
+  # lstat error on a dagger.json inside a regular file, which reads as a
+  # broken module rather than as a path that was never one. A change to
+  # the notes file alone would fail this whole script.
+  if [ ! -f "${module}/dagger.json" ]; then
+    echo "verify-affected-modules: skipping ${module} (not a module)"
+    continue
+  fi
   echo "verify-affected-modules: ${module}"
   # A module that declares no checks of its own exits 0 with an empty check
   # list, so this is safe to run unconditionally.
