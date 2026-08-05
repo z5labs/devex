@@ -266,6 +266,20 @@ func (c *conn) repository(repository string) (*orasremote.Repository, error) {
 	}
 	repo.PlainHTTP = c.insecure
 	repo.Client = c.httpClient()
+	// A registry without the referrers API — GHCR — sends oras down the
+	// referrers tag schema, where the index lives under sha256-<subject>.
+	// Attaching a second referrer replaces that index, and oras then deletes
+	// the one it replaced. GHCR does not support manifest deletion and
+	// answers 405, which fails the push after the referrer and the updated
+	// index have both landed: a red build over housekeeping, and an error
+	// saying the attachment failed when it did not.
+	//
+	// Skipping the collection leaves one unreferenced index per replacement
+	// behind. That is the right trade unconditionally rather than per
+	// registry: whether a registry can delete is not discoverable without
+	// attempting the delete, which is the thing that fails, and a dangling
+	// manifest costs a consumer nothing — it is unreferenced and unlisted.
+	repo.SkipReferrersGC = true
 	return repo, nil
 }
 

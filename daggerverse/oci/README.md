@@ -266,6 +266,15 @@ referrer, err := reg.Attach(ctx, "z5labs/myapp", imageDigest, sbom, "application
 repository fails naming the digest instead of leaving a dangling referrer
 behind.
 
+On a registry that does not serve the OCI 1.1 referrers API — GHCR does not —
+`oras` stores the referrers index under the tag `sha256-<subject digest>`
+instead. Each further attachment replaces that index, and `oras` would then
+delete the index it replaced. This module does not let it: GHCR refuses a
+manifest `DELETE` with `405 unsupported`, and a publish that has already
+pushed the referrer and updated the index should not fail over housekeeping.
+The cost is one unreferenced index per replacement, which nothing lists and
+nothing resolves to.
+
 ### Referrers
 
 Lists the artifacts attached to `subject` as a JSON array of OCI descriptors.
@@ -312,14 +321,21 @@ raw, err := reg.Manifest(ctx, "z5labs/myapp", "v1.2.3")
 
 ## Tests
 
-`tests/` runs against [zot][zot] rather than `registry:2`, because the
-referrer tests need a registry serving the native OCI 1.1 referrers API.
+`tests/` runs against [zot][zot] rather than `registry:2`, because most of the
+referrer tests need a registry serving the native OCI 1.1 referrers API and
 `oras` silently falls back to the OCI 1.1 tag schema against one that does
-not, so a suite green over the fallback would be evidence about the fallback
-rather than about GHCR. `registry:2.8` has no such endpoint, and
-`registry:3.0.0` was measured here too and does not register the route either.
-`requireNativeReferrersAPI` keeps that a checked fact rather than a claim in a
-comment.
+not. `registry:2.8` has no such endpoint, and `registry:3.0.0` was measured
+here too and does not register the route either.
+`requireNativeReferrersAPI` keeps which path a test took a checked fact rather
+than a claim in a comment.
+
+The fallback is not a lesser path, though — it is the one GHCR takes, so
+`AttachSucceedsWhereManifestDeleteIsUnsupported` deliberately runs against a
+plain `registry:2.8.3` with deletion left off, which is GHCR's shape in the
+two respects that matter. It asserts both of those with
+`requireNoNativeReferrersAPI` and `requireManifestDeleteUnsupported` before
+attaching anything, then attaches twice to one subject — the second
+attachment being the one that replaces the referrers index and used to fail.
 
 The bearer-token tests put an nginx gate in front of an anonymous zot, because
 no registry in this repo's test estate issues bearer tokens — zot

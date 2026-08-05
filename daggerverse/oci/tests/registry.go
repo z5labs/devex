@@ -22,15 +22,17 @@ const registryUser = "ci"
 // registryImage is zot, not the registry:2 the other test modules in this
 // repo use and not distribution 3 either.
 //
-// The referrers tests need a registry that serves the native OCI 1.1
+// Most of the referrers tests need a registry that serves the native OCI 1.1
 // referrers API, because oras silently falls back to the OCI 1.1 tag schema
-// against one that does not — and a suite green over the fallback is
-// evidence about the fallback, not about GHCR. registry:2.8 has no such
+// against one that does not, and a suite that only ever ran one of those two
+// paths would say nothing about the other. registry:2.8 has no such
 // endpoint. registry:3.0.0 was measured here too and does not register the
 // route either: GET /v2/<name>/referrers/<digest> comes back as a bare
 // "404 page not found" from the router, not a registry error. zot serves it.
 // requireNativeReferrersAPI keeps that a checked fact rather than a claim in
 // this comment.
+//
+// The fallback path is GHCR's, and newGhcrShapedRegistry covers it.
 //
 // zot publishes one image per architecture rather than a manifest list, so
 // the tag has to name the arch. Test module code runs in a linux container
@@ -299,14 +301,110 @@ func (proxy *bearerProxy) client(token *dagger.Secret) *dagger.OciRegistry {
 	})
 }
 
+// distributionImage is a registry shaped like GHCR: it serves no referrers
+// API, and it refuses manifest deletion. Pinned for the same reason zot is —
+// both of those are the properties under test, and a moving tag could take
+// either of them away.
+const distributionImage = "registry:2.8.3"
+
+// newGhcrShapedRegistry stands up a registry that cannot delete a manifest
+// and does not serve the referrers API.
+//
+// Those are GHCR's two relevant properties, and together they are what
+// AttachSucceedsWhereManifestDeleteIsUnsupported needs: no referrers API
+// sends oras down the referrers *tag* schema, and on that path it replaces
+// the index under sha256-<subject> and then deletes the index it replaced.
+// zot cannot stand in here — it serves the referrers API, so the fallback
+// never runs and no delete is ever attempted.
+//
+// Deletion is off by default in distribution, so nothing turns it off. It
+// is anonymous because credentials are exercised everywhere else in this
+// suite and are not what this test is about. NONCE is why each caller gets
+// its own instance: Dagger content-addresses services, so two identical
+// definitions are one shared registry across tests and across sessions.
+func newGhcrShapedRegistry(ctx context.Context) (*dagger.Service, error) {
+	nonce, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("random sha256 (registry nonce): %v", err)
+	}
+	return dag.Container().From(distributionImage).
+		WithEnvVariable("NONCE", nonce).
+		WithExposedPort(5000).
+		AsService(dagger.ContainerAsServiceOpts{UseEntrypoint: true}), nil
+}
+
+// requireNoNativeReferrersAPI is requireNativeReferrersAPI's opposite, and
+// exists for the same reason: it keeps which code path a test exercised a
+// checked fact. A registry that grew the endpoint would answer every
+// referrer assertion off the native API, and the fallback this test is
+// about would go unexercised while the test stayed green.
+func requireNoNativeReferrersAPI(ctx context.Context, svc *dagger.Service, repo, subject string) error {
+	status, body, err := probe(ctx, svc, http.MethodGet, fmt.Sprintf("/v2/%s/referrers/%s", repo, subject))
+	if err != nil {
+		return err
+	}
+	if status == http.StatusOK {
+		return fmt.Errorf("%s serves the native referrers API: GET /v2/<repo>/referrers/<digest> returned 200, "+
+			"so oras will not take the tag-schema fallback this test is about (body %s)", distributionImage, body)
+	}
+	return nil
+}
+
+// requireManifestDeleteUnsupported asserts the registry refuses to delete a
+// manifest, which is the half of GHCR's behaviour that turned a successful
+// attach into a failed one.
+//
+// The digest it tries to delete is of content the registry has never seen,
+// so a registry that did support deletion has nothing to lose by it. That
+// works because distribution checks whether deletion is enabled before it
+// checks whether the manifest exists.
+func requireManifestDeleteUnsupported(ctx context.Context, svc *dagger.Service, repo string) error {
+	absent, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("random sha256 (absent digest): %v", err)
+	}
+	status, body, err := probe(ctx, svc, http.MethodDelete, fmt.Sprintf("/v2/%s/manifests/sha256:%s", repo, absent))
+	if err != nil {
+		return err
+	}
+	if status != http.StatusMethodNotAllowed {
+		return fmt.Errorf("%s answered DELETE /v2/<repo>/manifests/<digest> with %d, want 405: "+
+			"this registry can delete manifests, so it is not the shape of GHCR (body %s)",
+			distributionImage, status, body)
+	}
+	return nil
+}
+
+// probe issues one unauthenticated request straight at a registry and
+// returns its status and body, for the assertions that are about what the
+// registry itself does rather than about the module.
+func probe(ctx context.Context, svc *dagger.Service, method, path string) (int, string, error) {
+	endpoint, err := endpointOf(ctx, svc)
+	if err != nil {
+		return 0, "", err
+	}
+	url := "http://" + endpoint + path
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return 0, "", fmt.Errorf("build %s request: %v", method, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, "", fmt.Errorf("%s %s: %v", method, url, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	return resp.StatusCode, string(body), nil
+}
+
 // requireNativeReferrersAPI asserts the test registry answers
 // GET /v2/<repo>/referrers/<digest> itself.
 //
-// It is the assertion that makes the referrer tests evidence about GHCR. A
-// registry without the endpoint returns 404, oras silently falls back to the
-// OCI 1.1 tag schema, and every referrer assertion still passes — against a
-// code path GHCR does not use. Checking the status code directly is the only
-// way to tell those two green suites apart.
+// It is the assertion that pins which code path the referrer tests ran over.
+// A registry without the endpoint returns 404, oras silently falls back to
+// the OCI 1.1 tag schema, and every referrer assertion still passes — over
+// the other path entirely. Checking the status code directly is the only way
+// to tell those two green suites apart.
 func requireNativeReferrersAPI(ctx context.Context, tr *testRegistry, repo, subject string) error {
 	endpoint, err := tr.endpoint(ctx)
 	if err != nil {
