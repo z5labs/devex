@@ -85,6 +85,7 @@ func (r GoApp) MarshalJSON() ([]byte, error) {
 		LintConfig      *dagger.File
 		Platforms       []string
 		RegistryService *dagger.Service
+		Insecure        bool
 	}
 	concrete.Source = r.Source
 	concrete.Pkg = r.Pkg
@@ -96,6 +97,7 @@ func (r GoApp) MarshalJSON() ([]byte, error) {
 	concrete.LintConfig = r.LintConfig
 	concrete.Platforms = r.Platforms
 	concrete.RegistryService = r.RegistryService
+	concrete.Insecure = r.Insecure
 	return json.Marshal(&concrete)
 }
 
@@ -111,6 +113,7 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 		LintConfig      *dagger.File
 		Platforms       []string
 		RegistryService *dagger.Service
+		Insecure        bool
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -126,6 +129,7 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 	r.LintConfig = concrete.LintConfig
 	r.Platforms = concrete.Platforms
 	r.RegistryService = concrete.RegistryService
+	r.Insecure = concrete.Insecure
 	return nil
 }
 
@@ -324,7 +328,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*GoApp).Ci(&parent, ctx)
+			return (*GoApp).Ci(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -418,7 +422,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryService", err))
 				}
 			}
-			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, platforms, registryService), nil
+			var insecure bool
+			if inputArgs["insecure"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["insecure"]), &insecure)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg insecure", err))
+				}
+			}
+			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, platforms, registryService, insecure), nil
 		case "GoLib":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

@@ -31,6 +31,8 @@ type GoApp struct {
 	Platforms []string
 	// +private
 	RegistryService *dagger.Service
+	// +private
+	Insecure bool
 }
 
 // Ci runs the standardized GoApp pipeline: verify .git exists, run the
@@ -38,22 +40,33 @@ type GoApp struct {
 // image per platform, then conditionally publish per the publishOn
 // filter.
 //
+// It returns the digest of what was published — the manifest list naming
+// every platform variant, or the single image manifest when only one
+// platform was built. Every matching ref publishes the same bytes under
+// its own tag, so one digest describes them all. A run that publishes
+// nothing — no ref matched, or no registry was configured — returns the
+// empty string rather than an error.
+//
+// Returning the digest rather than only an error is what lets a caller
+// reference what was published: an attestation, a deployment manifest or
+// a release note has to name an immutable artifact, and a tag is not one.
+//
 // Publish is a side-effecting operation against an external registry, so
 // the whole pipeline is uncached — re-runs (e.g. after a retry, or after
 // a new ref appears within the same engine session) must actually push.
 //
 // +check
 // +cache="never"
-func (a *GoApp) Ci(ctx context.Context) error {
+func (a *GoApp) Ci(ctx context.Context) (string, error) {
 	if err := requireGitWorkingTree(ctx, a.Source); err != nil {
-		return err
+		return "", err
 	}
 	binaryName, err := a.resolvedBinaryName(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := sharedCheck(ctx, a.Source, a.LintConfig); err != nil {
-		return err
+		return "", err
 	}
 	// Build a scratch image per platform. Force evaluation via Sync so
 	// build failures surface here, not during a later publish step.
@@ -61,88 +74,62 @@ func (a *GoApp) Ci(ctx context.Context) error {
 	for _, p := range a.Platforms {
 		bin, err := a.buildBinaryForPlatform(ctx, p, binaryName)
 		if err != nil {
-			return err
+			return "", err
 		}
 		img := a.imageForPlatform(p, binaryName, bin)
 		if _, err := img.Sync(ctx); err != nil {
-			return fmt.Errorf("build %s: %v", p, err)
+			return "", fmt.Errorf("build %s: %v", p, err)
 		}
 		variants = append(variants, img)
 	}
 	matches, err := a.matchingRefs(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if len(matches) == 0 {
-		return nil
+		return "", nil
 	}
 	if a.Registry != "" && a.Auth == nil {
-		return fmt.Errorf("auth is required when registry is set")
+		return "", fmt.Errorf("auth is required when registry is set")
 	}
 	if a.Registry == "" {
-		return nil
+		return "", nil
 	}
 	shortSha, commitISO, err := a.shortShaAndCommitTime(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	primary, others := variants[0], variants[1:]
 	username := a.AuthUsername
 	if username == "" {
 		username = "ci"
 	}
-	// Materialize the multi-platform image as an OCI tarball, then push
-	// it via skopeo inside a sidecar container. Container.Publish runs
-	// in the engine's BuildKit context, which does not see session
-	// service bindings — so we cannot use it to reach a Dagger-hosted
-	// registry. Skopeo in a service-bound container CAN reach it.
-	tarball := primary.AsTarball(dagger.ContainerAsTarballOpts{
-		PlatformVariants: others,
+	// The registry is the oci module's business, not this archetype's.
+	// It knows that Container.Publish cannot see session service
+	// bindings and works around it in pure Go; this pipeline only knows
+	// which bytes to push and what to call them.
+	registry := dag.Oci().Registry(a.Registry, dagger.OciRegistryOpts{
+		Username: username,
+		Password: a.Auth,
+		Service:  a.RegistryService,
+		Insecure: a.Insecure,
 	})
-	pusher := dag.Container().From(skopeoImage).
-		WithFile("/img.tar", tarball).
-		WithEnvVariable("REGISTRY_USERNAME", username).
-		WithSecretVariable("REGISTRY_PASSWORD", a.Auth)
-	// TLS verification stays on for real registries; disable it only
-	// when the caller wired in a registryService (a Dagger-hosted
-	// registry:2 over plain HTTP for tests).
-	tlsFlag := "--dest-tls-verify=true"
-	if a.RegistryService != nil {
-		pusher = pusher.WithServiceBinding(registryServiceAlias, a.RegistryService)
-		tlsFlag = "--dest-tls-verify=false"
-	}
+	digest := ""
 	for _, ref := range matches {
 		tag, ok := imageTagFor(ref, shortSha, commitISO)
 		if !ok {
 			continue
 		}
-		image := fmt.Sprintf("%s/%s:%s", a.Registry, binaryName, tag)
-		// --dest-creds reads from env via shell expansion; multi-arch
-		// images carry all variants in the OCI archive (--all copies
-		// every manifest in the source). The image destination is
-		// passed as positional $1 — interpolating it into the script
-		// string would allow shell injection via caller-supplied
-		// registry/binary/ref values.
-		cmd := fmt.Sprintf(
-			`skopeo copy --all %s --dest-creds="$REGISTRY_USERNAME:$REGISTRY_PASSWORD" oci-archive:/img.tar "docker://$1"`,
-			tlsFlag,
-		)
-		if _, err := pusher.WithExec([]string{"sh", "-c", cmd, "sh", image}).Sync(ctx); err != nil {
-			return fmt.Errorf("publish %s: %v", image, err)
+		// Every variant goes in one call, so a multi-platform build
+		// publishes one manifest list naming them all rather than a
+		// tag per architecture.
+		pushed, err := registry.PushImage(ctx, binaryName, tag, variants)
+		if err != nil {
+			return "", fmt.Errorf("publish %s:%s: %v", binaryName, tag, err)
 		}
+		digest = pushed
 	}
-	return nil
+	return digest, nil
 }
-
-// registryServiceAlias is the WithServiceBinding name used when the
-// caller supplies a registryService. Tests bind their local registry:2
-// under this same alias and use it as the registry hostname.
-const registryServiceAlias = "registry"
-
-// skopeoImage is pinned to a specific stable tag; ":latest" produces
-// non-reproducible builds and can break unexpectedly on upstream
-// rebuilds.
-const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
 
 // requireGitWorkingTree confirms source is a git working tree by
 // accepting either a `.git` directory (normal clone) or a `.git` file
