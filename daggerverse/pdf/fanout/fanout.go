@@ -1,5 +1,5 @@
-// Package fanout runs a bounded, fail-fast set of concurrent units of work,
-// which is what turns a document's pages into one render each.
+// Package fanout runs a bounded, fail-fast set of concurrent units of work, and
+// partitions a document's pages into the units that run them.
 //
 // It is a package of its own, importing no dagger, for a reason that is not
 // tidiness: it is the only way these properties are covered at all. poppler will

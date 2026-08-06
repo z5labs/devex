@@ -128,27 +128,35 @@ func (c *Convert) WithoutAnnotations() *Convert {
 	return out
 }
 
-// WithConcurrency bounds how many pages a render converts at once.
+// WithConcurrency bounds how many pages a render converts at once, and with it
+// how many execs the conversion creates.
 //
 // It defaults to the number of CPUs the module can see, which is what a
-// document wants: every page is its own exec, and poppler renders a page on one
-// core whatever the machine has. A 129-page document at 300 dpi spends about a
-// minute of that one core, and the recognition it is usually rendered for
-// spends its own time across every core — so the render is a third of the CPU
-// and two thirds of the wall clock, and the share grows with core count rather
-// than shrinking.
+// document wants: poppler renders a page on one core whatever the machine has.
+// A 129-page document at 300 dpi spends about a minute of that one core, and the
+// recognition it is usually rendered for spends its own time across every core —
+// so the render is a third of the CPU and two thirds of the wall clock, and the
+// share grows with core count rather than shrinking.
 //
 // Unlike the tesseract module's Batch, this bound needs no companion. poppler's
 // tools are single-threaded, so concurrency here is concurrency and not
 // concurrency multiplied by an OpenMP team; the pages contend for cores the way
 // any other CPU-bound workload does.
 //
-// Pass a number to take less of the machine than the default, or 1 to render one
-// page at a time. Non-positive is rejected at output time.
+// Pass a number to take less of the machine than the default, or 1 to render the
+// whole document in one exec, a page at a time. Non-positive is rejected at
+// output time.
 //
-// It is a scheduling bound and nothing else: the directory a conversion returns
-// is the same whatever it is set to. It is also not what decides how the results
-// cache — one exec per page is what does that, at every bound including 1.
+// The two meanings are one setting because they were never independent. The
+// pages are split into this many contiguous slices and each slice is one exec
+// running its pages' invocations in turn, so the bound is at once how many
+// render at a time and how many containers a conversion creates — a
+// three-thousand-page document is this many, not three thousand. It is what
+// decides how the results cache, too: a slice is the unit that hits or misses.
+//
+// What it is still not is a change to the answer. The directory a conversion
+// returns is byte-identical at every bound; concurrency is allowed to change how
+// long a render takes and nothing else.
 //
 // Ignored by Text, Txt, Bbox, Tsv and Ps, none of which renders a page at a
 // time. See Ps for why that one is a single invocation.
@@ -393,8 +401,8 @@ func (c *Convert) Eps(ctx context.Context) (*dagger.Directory, error) {
 // each individually invalid.
 //
 // That is also why this is the one render that stays a single invocation, and
-// why WithConcurrency does nothing here. Every other page-per-file output fans
-// out one exec per page and assembles the directory afterwards; a PostScript
+// why WithConcurrency does nothing here. Every other page-per-file output runs
+// one invocation per page and assembles the directory afterwards; a PostScript
 // document cannot be assembled that way, because concatenating the fragments is
 // not the same operation as writing the document — the result would need its
 // prologue, its page markers and its `%%Pages:` count rewritten, which is a
@@ -486,8 +494,10 @@ func (c *Convert) textFlags(label string, layout LayoutMode, disablePageBreaks b
 // poppler's. Handed an output base, pdftoppm appends a page number of its own
 // choosing and the format's extension; handed -singlefile it writes exactly
 // `<base>.<ext>` and nothing else, so a render told to produce `page-0007` does.
-// Since each invocation renders one page, that is the whole contract, and the
-// rename pass the raster family used to run afterwards is gone with it.
+// Since each invocation renders one page — several invocations to an exec, but
+// still one page each — that is the whole contract, and the rename pass the
+// raster family used to run afterwards is gone with it. It is also what lets a
+// slice's directory be taken whole: nothing but the pages is in it.
 //
 // -forcenum is gone for the same reason, and could not survive: it overrides
 // -singlefile rather than composing with it, so the two together write
@@ -558,8 +568,8 @@ func (c *Convert) cairoFlags(format pageFormat) ([]string, error) {
 	return args, nil
 }
 
-// pageRender writes one file per page, one exec per page, and returns the
-// directory holding them.
+// pageRender writes one file per page, one exec per slice of pages, and returns
+// the directory holding them.
 //
 // The whole directory of each render is taken rather than the page file alone,
 // because pdftohtml writes more than the page: a page carrying images gets them
@@ -592,26 +602,43 @@ func (c *Convert) pageRender(ctx context.Context, label string, format pageForma
 		}
 		jobs = append(jobs, pageJob{
 			page: page.number,
-			script: strings.Join([]string{
-				"set -e",
-				"mkdir -p " + outputDir,
-				"cd " + outputDir,
-				c.Document.command(format.tool, flags,
-					"-f", strconv.Itoa(page.number), "-l", strconv.Itoa(page.number),
-					sourcePath, name),
-			}, "\n"),
+			command: c.Document.command(format.tool, flags,
+				"-f", strconv.Itoa(page.number), "-l", strconv.Itoa(page.number),
+				sourcePath, name),
 		})
 	}
 
-	execs, err := c.render(ctx, label, jobs)
+	// The `cd` is the prelude's rather than each page's for the same reason the
+	// page commands are unchanged: a slice's script is the per-page commands
+	// concatenated, and everything that is per-conversion rather than per-page
+	// belongs above them.
+	execs, err := c.render(ctx, label,
+		[]string{"mkdir -p " + outputDir, "cd " + outputDir}, jobs)
 	if err != nil {
 		return nil, err
 	}
+	return assemble(execs), nil
+}
+
+// assemble folds the finished execs into the directory a render returns: one
+// WithDirectory per exec, in slice order, which is page order.
+//
+// This is the whole of what #370 changed and the reason it was worth changing.
+// Every fold adds an overlayfs lowerdir to the destination snapshot's chain, and
+// containerd refuses to mount a chain whose compacted mount data exceeds one
+// page — measured at around 440 folds on a fresh engine, and fewer as snapshot
+// IDs grow a digit. A directory produced by an exec is *one* snapshot however
+// many files that exec wrote, so folding per exec rather than per page makes the
+// depth `len(execs)`, which the bound caps and the page count does not enter.
+//
+// It is also why nothing downstream should fold this directory a page at a time
+// to build one of its own: the ceiling is on the chain, not on this module.
+func assemble(execs []*dagger.Container) *dagger.Directory {
 	out := dag.Directory()
 	for _, exec := range execs {
 		out = out.WithDirectory("/", exec.Directory(outputDir))
 	}
-	return out, nil
+	return out
 }
 
 // page is one page of a planned conversion: its number in the source document,
@@ -621,24 +648,28 @@ type page struct {
 	base   string
 }
 
-// pageJob is one page's render — the page it covers and the script that renders
-// it — carried together so a failure can name the page rather than the exec.
+// pageJob is one page's render — the page it covers and the single command that
+// renders it — carried together so a failure can name the page rather than the
+// slice it was rendered in.
+//
+// It is a command and not a script now that several of them run in one exec: the
+// prelude a family needs is written once at the top of a slice's script, and
+// what is per page is exactly the one invocation `plan` sized and named.
 type pageJob struct {
-	page   int
-	script string
-	args   []string
+	page    int
+	command string
 }
 
 // plan resolves which pages a conversion covers and what each one's output is
 // called, and is the one place the naming contract is decided.
 //
 // It costs a PageCount round trip that the in-container page loop was written to
-// avoid, and the trade is deliberate. One exec per page cannot compute the
-// padding width from the files it finds, because each exec finds exactly one; so
-// the width moves to Go, where it needs the page count. That is one pdfinfo per
-// conversion rather than one per page, it is the same exec validateRange already
-// pays for whenever a range is set, and Dagger caches it — a second conversion of
-// the same document does not run it again.
+// avoid, and the trade is deliberate. A fanned-out render cannot compute the
+// padding width from the files it finds, because no exec sees the whole
+// document; so the width moves to Go, where it needs the page count. That is one
+// pdfinfo per conversion rather than one per page, it is the same exec
+// validateRange already pays for whenever a range is set, and Dagger caches it —
+// a second conversion of the same document does not run it again.
 func (c *Convert) plan(ctx context.Context, label string) ([]page, error) {
 	if err := c.validateConcurrency(); err != nil {
 		return nil, err
@@ -697,28 +728,35 @@ func pageNumberWidth(count int) int {
 	return max(minPageNumberWidth, len(strconv.Itoa(count)))
 }
 
-// render runs one exec per page, at most workers() of them at a time, and
-// returns the finished execs positionally.
+// render partitions the pages into at most workers() slices, runs one exec per
+// slice, and returns the finished execs positionally — in slice order, which is
+// page order.
 //
-// The scheduling itself is the fanout package's, which imports no dagger and is
-// tested with `go test -race` — see that package for why the properties it holds
-// cannot be tested against a document instead. What is here is what makes a
-// failure readable: the page each exec covers, in the label its error carries.
-func (c *Convert) render(ctx context.Context, label string, jobs []pageJob) ([]*dagger.Container, error) {
-	execs := make([]*dagger.Container, len(jobs))
+// One exec per *slice* rather than per page is what keeps a conversion's exec
+// count, and so its fold depth, off the length of the document: see assemble for
+// what the fold could not survive, and fanout.Partition for the property that
+// makes it constant. It costs no parallelism, the pages already having been
+// admitted workers() at a time — a three-thousand-page conversion on a 16 CPU
+// host was creating three thousand containers in order to run sixteen.
+//
+// The scheduling and the partitioning are both the fanout package's, which
+// imports no dagger and is tested with `go test -race` — see that package for
+// why the properties they hold cannot be tested against a document instead. What
+// is here is what makes a failure readable: a slice's script names the page each
+// command covers, so the error still carries the page and not the slice.
+func (c *Convert) render(ctx context.Context, label string, prelude []string, jobs []pageJob) ([]*dagger.Container, error) {
+	slices := fanout.Partition(len(jobs), c.workers())
+	execs := make([]*dagger.Container, len(slices))
 
 	// Each unit writes only its own element, and Run does not return until every
 	// unit it started has, so the slice needs no lock of its own.
-	err := fanout.Run(ctx, c.workers(), len(jobs), func(ctx context.Context, i int) error {
-		job := jobs[i]
-		// The label carries the page, so every message this run can produce —
-		// poppler's own failure, and the module's message for an encrypted
-		// document — names the page it came from without the error being
-		// wrapped twice. Returned as it is rather than %w-wrapped: the error
-		// crosses the module boundary, which unwraps a chain back to the inner
-		// error and would drop the page's name along with it.
-		res, err := c.Document.runScript(ctx,
-			fmt.Sprintf("%s page %d", label, job.page), job.script, job.args...)
+	err := fanout.Run(ctx, c.workers(), len(slices), func(ctx context.Context, i int) error {
+		pages := jobs[slices[i].Start:slices[i].End]
+		// Returned as it is rather than %w-wrapped: the error crosses the module
+		// boundary, which unwraps a chain back to the inner error and would drop
+		// the page's name along with it.
+		res, err := c.Document.runPages(ctx, label,
+			pages[0].page, pages[len(pages)-1].page, sliceScript(prelude, pages))
 		if err != nil {
 			return err
 		}
@@ -731,14 +769,39 @@ func (c *Convert) render(ctx context.Context, label string, jobs []pageJob) ([]*
 	return execs, nil
 }
 
-// workers is how many pages render at once: whatever WithConcurrency asked for,
-// or one per CPU the module can see.
+// sliceScript is the script one exec runs: the family's prelude once, then the
+// per-page commands `plan` generated, in page order, each guarded so its failure
+// carries its own page number out of a script that covers several.
 //
-// The default is the core count rather than one because every page is its own
-// exec now, and a single pdftoppm renders a document's pages one after another
-// on one core however many the machine has. What makes the core count safe here
-// — and needs no companion bound, unlike the tesseract module's Batch — is that
-// poppler's tools are single-threaded.
+// The per-page commands are concatenated verbatim, which is what keeps every
+// property of the page-per-exec version that was about the *command* rather than
+// about the exec — `-singlefile` per page, so the padding width still comes from
+// `plan` and `-forcenum` stays out, and one page's `-f`/`-l` bounds.
+//
+// `set -e` is what makes the prelude fail the exec; the page commands do not
+// rely on it, each being an explicitly handled `||`. A failure still stops the
+// pages behind it inside its own slice, and fanout.Run's cancellation is what
+// stops the other slices.
+func sliceScript(prelude []string, jobs []pageJob) string {
+	lines := make([]string, 0, len(prelude)+len(jobs)+2)
+	lines = append(lines, "set -e",
+		pageFailureFn+`() { echo "`+pageFailureMarker+`$1" >&2; exit "$2"; }`)
+	lines = append(lines, prelude...)
+	for _, job := range jobs {
+		lines = append(lines, fmt.Sprintf("%s || %s %d $?", job.command, pageFailureFn, job.page))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// workers is how many pages render at once, and now also how many execs a
+// conversion creates: whatever WithConcurrency asked for, or one per CPU the
+// module can see.
+//
+// The default is the core count rather than one because a single pdftoppm
+// renders a document's pages one after another on one core however many the
+// machine has, so the bound is what turns a document into a parallel render.
+// What makes the core count safe here — and needs no companion bound, unlike the
+// tesseract module's Batch — is that poppler's tools are single-threaded.
 func (c *Convert) workers() int {
 	if c.HasConcurrency {
 		return c.Concurrency
@@ -788,15 +851,17 @@ func (c *Convert) geometry(ctx context.Context, label, flag, output string) (*da
 //
 // One pdftoppm per page, rather than one over the whole document, is what lets
 // the pages render at the same time — poppler renders a range serially in a
-// single process, on one core whatever the machine has — and what makes the
-// results cache per page: an edited page invalidates its own render and nothing
-// else. It is the same reversal #298 made in the tesseract module, for the same
+// single process, on one core whatever the machine has. The invocations are
+// still one per page; what they are not is one per *exec*, several pages'
+// invocations sharing a container so the fold that assembles them stays shallow.
+// It is the same reversal #298 made in the tesseract module, for the same
 // measured reason; see the README.
 //
 // Each page is named outright rather than renamed afterwards, -singlefile making
-// pdftoppm write exactly the file it is given. The files are selected by name
-// off the exec that produced them, in page order, so the returned directory is
-// the same whatever order the renders finished in.
+// pdftoppm write exactly the file it is given. The directory each exec wrote is
+// taken whole, in slice order, so the returned directory is the same whatever
+// order the slices finished in — and it holds exactly the pages, -singlefile
+// being the reason pdftoppm writes nothing else beside them.
 func (c *Convert) raster(ctx context.Context, label string, format rasterFormat) (*dagger.Directory, error) {
 	flags, err := c.rasterFlags(label, format)
 	if err != nil {
@@ -810,30 +875,22 @@ func (c *Convert) raster(ctx context.Context, label string, format rasterFormat)
 	jobs := make([]pageJob, 0, len(pages))
 	for _, page := range pages {
 		bounds := []string{"-f", strconv.Itoa(page.number), "-l", strconv.Itoa(page.number)}
-		// set -e makes a page poppler cannot draw fail here, carrying its own
+		// A page poppler cannot draw fails the conversion carrying its own
 		// message, rather than dropping a file from a directory a caller would
-		// read as a document that was short a page all along.
+		// read as a document that was short a page all along — see sliceScript
+		// for what guards each command.
 		jobs = append(jobs, pageJob{
 			page: page.number,
-			script: strings.Join([]string{
-				"set -e",
-				"mkdir -p " + outputDir,
-				c.Document.command("pdftoppm", concat(flags, bounds),
-					sourcePath, outputDir+"/"+page.base),
-			}, "\n"),
+			command: c.Document.command("pdftoppm", concat(flags, bounds),
+				sourcePath, outputDir+"/"+page.base),
 		})
 	}
 
-	execs, err := c.render(ctx, label, jobs)
+	execs, err := c.render(ctx, label, []string{"mkdir -p " + outputDir}, jobs)
 	if err != nil {
 		return nil, err
 	}
-	out := dag.Directory()
-	for i, page := range pages {
-		name := page.base + "." + format.ext
-		out = out.WithFile(name, execs[i].File(outputDir+"/"+name))
-	}
-	return out, nil
+	return assemble(execs), nil
 }
 
 // concat joins two flag lists into a new slice, which appending to the first

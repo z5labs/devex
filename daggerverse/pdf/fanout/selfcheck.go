@@ -15,8 +15,9 @@ const selfCheckTimeout = 30 * time.Second
 
 // SelfCheck verifies the properties a render depends on and no fixture can
 // exercise: that every page runs, that the bound is honoured in both directions,
-// that a failure in the middle is the error reported, and that it stops the
-// pages behind it from starting. See the package comment for why this is a
+// that a failure in the middle is the error reported, that it stops the pages
+// behind it from starting, and that a document of any length partitions into no
+// more slices than the bound allows. See the package comment for why this is a
 // self-check rather than a test against a document.
 //
 // It is exposed as a Dagger check so a regression fails CI. The same cases run
@@ -44,6 +45,11 @@ func selfCheckCases() []selfCheckCase {
 		{"a failure in the middle is the error reported", checkMiddleFailureIsReported},
 		{"the first failure stops the rest from starting", checkFailureStopsTheRest},
 		{"a bound below one still renders", checkBoundBelowOne},
+		{"a partition covers every page once, in order", checkPartitionCoversEveryUnit},
+		{"a partition is never wider than the bound", checkPartitionIsBoundedByWorkers},
+		{"a partition's slices differ in size by at most one", checkPartitionIsBalanced},
+		{"a partition holds no empty slice", checkPartitionHasNoEmptySlice},
+		{"a partition is the same every time", checkPartitionIsStable},
 	}
 }
 
@@ -213,6 +219,129 @@ func checkFailureStopsTheRest() error {
 		return fmt.Errorf(
 			"expected at most the %d units already in flight to run, got %d of %d",
 			workers, n, count)
+	}
+	return nil
+}
+
+// partitionShapes is the (pages, bound) grid every partition property is
+// checked over. It is deliberately lopsided: the document far longer than the
+// bound is the case the exec count has to stay off, the document shorter than
+// the bound is the ordinary one — most documents are shorter than a machine's
+// core count — and the exact multiple is where an off-by-one in the remainder
+// hides.
+func partitionShapes() [][2]int {
+	return [][2]int{
+		{1, 1}, {1, 16}, {2, 16}, {12, 4}, {15, 4}, {16, 16}, {17, 16},
+		{48, 5}, {129, 32}, {437, 16}, {440, 16}, {3000, 16}, {3000, 1}, {200000, 12},
+	}
+}
+
+// checkPartitionCoversEveryUnit pins what the assembled directory rests on: the
+// slices tile the pages exactly, in order, with nothing repeated and nothing
+// dropped. A partition that lost a page would produce a directory short a page,
+// which is the silent failure the whole render family is built to refuse.
+func checkPartitionCoversEveryUnit() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+		next := 0
+		for i, s := range Partition(count, workers) {
+			if s.Start != next {
+				return fmt.Errorf(
+					"Partition(%d, %d): slice %d starts at %d, expected %d",
+					count, workers, i, s.Start, next)
+			}
+			next = s.End
+		}
+		if next != count {
+			return fmt.Errorf(
+				"Partition(%d, %d): the slices cover %d units, expected %d",
+				count, workers, next, count)
+		}
+	}
+	if s := Partition(0, 4); s != nil {
+		return fmt.Errorf("Partition(0, 4): expected no slices, got %v", s)
+	}
+	return nil
+}
+
+// checkPartitionIsBoundedByWorkers is the property the fold depth rests on, and
+// the one the containerd mount-data ceiling is a consequence of: however long
+// the document, a conversion folds no more directories than its bound allows.
+func checkPartitionIsBoundedByWorkers() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+		if n := len(Partition(count, workers)); n > max(workers, 1) {
+			return fmt.Errorf(
+				"Partition(%d, %d): expected at most %d slices, got %d",
+				count, workers, workers, n)
+		}
+	}
+	// A bound below one is nonsensical and the module rejects it by name; this
+	// is the floor under that, and it must not be an unbounded fan-out.
+	if n := len(Partition(3000, 0)); n != 1 {
+		return fmt.Errorf("Partition(3000, 0): expected 1 slice, got %d", n)
+	}
+	return nil
+}
+
+// checkPartitionIsBalanced asserts no exec is handed materially more of the
+// document than another, which is what keeps the conversion's wall clock at the
+// slowest slice rather than at the longest one.
+func checkPartitionIsBalanced() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+		slices := Partition(count, workers)
+		smallest, largest := slices[0].Len(), slices[0].Len()
+		for _, s := range slices {
+			smallest = min(smallest, s.Len())
+			largest = max(largest, s.Len())
+		}
+		if largest-smallest > 1 {
+			return fmt.Errorf(
+				"Partition(%d, %d): slices run from %d to %d units, expected a spread of at most 1",
+				count, workers, smallest, largest)
+		}
+	}
+	return nil
+}
+
+// checkPartitionHasNoEmptySlice asserts a document shorter than the bound gets
+// one slice per page rather than a tail of empty ones. An empty slice is a
+// container created to render nothing, which is exactly the waste this
+// partitioning exists to delete.
+func checkPartitionHasNoEmptySlice() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+		for i, s := range Partition(count, workers) {
+			if s.Len() < 1 {
+				return fmt.Errorf(
+					"Partition(%d, %d): slice %d covers %d units",
+					count, workers, i, s.Len())
+			}
+		}
+	}
+	return nil
+}
+
+// checkPartitionIsStable asserts the same arguments always partition the same
+// way. Two conversions of one document under one bound have to produce the same
+// execs, or neither ever hits the other's cache entries.
+func checkPartitionIsStable() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+		first, second := Partition(count, workers), Partition(count, workers)
+		if len(first) != len(second) {
+			return fmt.Errorf(
+				"Partition(%d, %d): repeated calls returned %d and %d slices",
+				count, workers, len(first), len(second))
+		}
+		for i := range first {
+			if first[i] != second[i] {
+				return fmt.Errorf(
+					"Partition(%d, %d): slice %d came back as %v and then %v",
+					count, workers, i, first[i], second[i])
+			}
+		}
 	}
 	return nil
 }

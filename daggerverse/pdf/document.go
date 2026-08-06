@@ -444,6 +444,66 @@ func (d *Document) runScript(ctx context.Context, label string, script string, a
 	return res, nil
 }
 
+// runPages executes one slice of a render — several pages' commands, run in the
+// one exec — and turns a failure into the error the failing page would have
+// carried had it been the only page in the exec.
+//
+// The page comes out of the script rather than out of a label chosen here, which
+// is the whole difference a slice makes: Go knows which pages the exec covers
+// and only the script knows which command was running when it stopped. See
+// sliceScript for how the page is reported and takeFailedPage for how it is read
+// back and removed from what the caller sees.
+//
+// A failure carrying no page is not a page's: the prelude is the only thing in a
+// slice's script that runs outside a guarded command, so it is the output
+// directory that could not be created or entered, and the message names the run
+// of pages rather than inventing one of them.
+func (d *Document) runPages(ctx context.Context, label string, first, last int, script string) (*popplerResult, error) {
+	res, code, err := d.capture(ctx, script)
+	if err != nil {
+		return nil, err
+	}
+	if code == 0 {
+		return res, nil
+	}
+	if page, stderr := takeFailedPage(res.stderr); page > 0 {
+		return nil, d.failure(
+			fmt.Sprintf("%s page %d", label, page), code, res.stdout, stderr)
+	}
+	if first == last {
+		return nil, d.failure(
+			fmt.Sprintf("%s page %d", label, first), code, res.stdout, res.stderr)
+	}
+	return nil, d.failure(
+		fmt.Sprintf("%s pages %d-%d", label, first, last), code, res.stdout, res.stderr)
+}
+
+// takeFailedPage reads back the page a slice's script reported failing on, and
+// returns stderr with that report removed.
+//
+// Removing it is the point of reading it: the page belongs in the message's
+// first line, where a caller looks, and the marker line is this module talking
+// to itself. A stderr carrying no marker yields page 0, which is the caller's
+// signal that the failure was not a page's.
+func takeFailedPage(stderr string) (int, string) {
+	lines := strings.Split(stderr, "\n")
+	kept := make([]string, 0, len(lines))
+	page := 0
+	for _, line := range lines {
+		rest, ok := strings.CutPrefix(line, pageFailureMarker)
+		if !ok {
+			kept = append(kept, line)
+			continue
+		}
+		// A script exits as soon as it reports, so there is at most one marker;
+		// the last one wins if that ever stops being true.
+		if n, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil && n > 0 {
+			page = n
+		}
+	}
+	return page, strings.Join(kept, "\n")
+}
+
 // capture runs a shell script against the bound document and returns its output
 // and its exit code without judging either, which is what Signatures needs: for
 // pdfsig a non-zero exit is as often an answer about the document as it is a

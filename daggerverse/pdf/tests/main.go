@@ -1065,6 +1065,24 @@ func (t *Tests) PsHoldsEveryPageInOneFile(ctx context.Context) error {
 		return fmt.Errorf("expected %d page markers for pages %d-%d, got %d",
 			last-first+1, first, last, got)
 	}
+
+	// Ps is the one render WithConcurrency does not reach, and #370 gave that
+	// setting a second meaning — how many execs a conversion creates — which is
+	// exactly the kind of change that reaches a function documented as being out
+	// of its way. Byte equality across the bound is what says it did not: this
+	// document is written by a single pdftocairo whatever the bound says, and a
+	// Ps that had been fanned out could not produce these bytes at all.
+	for _, n := range []int{1, 4} {
+		got, err := doc.Convert().WithConcurrency(n).Ps().Contents(ctx)
+		if err != nil {
+			return fmt.Errorf("Ps at concurrency %d: %w", n, err)
+		}
+		if got != whole {
+			return fmt.Errorf(
+				"expected Ps at concurrency %d to be byte-identical to Ps unbounded, got %d bytes against %d",
+				n, len(got), len(whole))
+		}
+	}
 	return nil
 }
 
@@ -2896,15 +2914,19 @@ func (t *Tests) JpegAndTiffFollowTheSameContract(ctx context.Context) error {
 // and that a bound that would render nothing is refused.
 //
 // Byte equality is the whole promise of the knob: concurrency is allowed to
-// change how long a render takes and nothing else. What it pins now that every
-// page is its own exec is the *assembly* — the pages are collected in page order
-// off execs that finished in whatever order they finished in, so a directory
-// that came out right only because the work happened to be serial would fail
-// here. The digest covers the names and the bytes together.
+// change how long a render takes and nothing else. What it pins now that the
+// bound also decides how the pages are *sliced* into execs is that the slicing
+// is invisible in the answer — the same twelve pages come back whether they were
+// rendered by one exec, four, five or twelve, assembled from directories that
+// finished in whatever order they finished in. The digest covers the names and
+// the bytes together.
 //
-// A bound wider than the document is included because it is the ordinary case
-// for a short document on a large machine: the default is one page per CPU, and
-// most documents are shorter than the core count.
+// Five is in the list because twelve does not divide by it: the slices come out
+// 3, 3, 2, 2, 2, which is the shape an off-by-one in the partition drops a page
+// from. A bound wider than the document is there because it is the ordinary case
+// for a short document on a large machine — the default is one page per CPU, and
+// most documents are shorter than the core count — and it is the shape that must
+// not produce empty execs.
 func (t *Tests) RenderConcurrencyMatchesSerialOutput(ctx context.Context) error {
 	conv := pdf().Document(fixture(ledgerPdf)).Convert()
 
@@ -2925,6 +2947,8 @@ func (t *Tests) RenderConcurrencyMatchesSerialOutput(ctx context.Context) error 
 	}{
 		{"unset, one per CPU", conv.Png()},
 		{"four at a time", conv.WithConcurrency(4).Png()},
+		{"five at a time, which twelve does not divide by", conv.WithConcurrency(5).Png()},
+		{"one exec per page", conv.WithConcurrency(ledgerPages).Png()},
 		{"wider than the document", conv.WithConcurrency(ledgerPages * 4).Png()},
 	} {
 		digest, err := tc.dir.Digest(ctx)
