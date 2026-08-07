@@ -104,6 +104,7 @@ func (t *Tests) All(
 	}
 	jobs = jobs.WithJob("GoLibCiPassesForValidSource", t.GoLibCiPassesForValidSource)
 	jobs = jobs.WithJob("GoLibCiFailsForFailingTest", t.GoLibCiFailsForFailingTest)
+	jobs = jobs.WithJob("GoLibCiRoutesLintVersion", t.GoLibCiRoutesLintVersion)
 	jobs = jobs.WithJob("BuilderBinaryProducesCompiledBinary", t.BuilderBinaryProducesCompiledBinary)
 	jobs = jobs.WithJob("BuilderContainerProducesScratchImageWithBinary", t.BuilderContainerProducesScratchImageWithBinary)
 	jobs = jobs.WithJob("GoAppCiRejectsMissingGitDir", t.GoAppCiRejectsMissingGitDir)
@@ -225,9 +226,35 @@ func curlManifestDigest(ctx context.Context, svc *dagger.Service, host, user, pw
 
 // GoLibCiPassesForValidSource asserts that GoLib.Ci against a clean,
 // vet-clean, gofmt-clean library fixture returns no error.
+//
+// This is also what proves the bundled configs/golangci.yml and the
+// pinned golangci-lint speak the same dialect. The two majors reject each
+// other's config files outright, so a v1 config reaching a v2 binary — or
+// the reverse — fails this test before any linter runs.
 func (t *Tests) GoLibCiPassesForValidSource(ctx context.Context) error {
 	if err := dag.Z5Labs().GoLib(helloLibDir()).Ci(ctx); err != nil {
 		return fmt.Errorf("GoLib.Ci on hello-lib: %w", err)
+	}
+	return nil
+}
+
+// GoLibCiRoutesLintVersion asserts the archetype's lintVersion reaches the
+// lint stage rather than being accepted and dropped.
+//
+// It pins a version the `go` module refuses to read a major out of, so the
+// assertion is a message naming that version — which can only have come
+// from the lint stage. Proving routing this way costs no container work,
+// and a pin that *is* valid is exercised where the behaviour lives, in the
+// `go` module's own suite.
+func (t *Tests) GoLibCiRoutesLintVersion(ctx context.Context) error {
+	err := dag.Z5Labs().GoLib(helloLibDir(), dagger.Z5LabsGoLibOpts{
+		LintVersion: "1.64.8",
+	}).Ci(ctx)
+	if err == nil {
+		return fmt.Errorf(`expected GoLib.Ci with lintVersion "1.64.8" to fail, got nil`)
+	}
+	if msg := err.Error(); !strings.Contains(msg, `golangci-lint version "1.64.8"`) {
+		return fmt.Errorf("expected the error to name the rejected lint version, got: %s", msg)
 	}
 	return nil
 }

@@ -1,6 +1,13 @@
 // Package main implements the z5labs daggerverse module: opinionated CI
 // and release pipelines for Go projects. Construct via the GoApp or GoLib
 // factories on Z5labs; call the terminal Ci method to run the pipeline.
+//
+// The lint stage runs golangci-lint v2. A repository adopting this pipeline
+// keeps its `.golangci.yml` in the v2 dialect — the file opens with
+// `version: "2"` — because a v2 binary refuses a v1 file outright rather
+// than ignoring it. Supplying no file at all takes the bundled policy in
+// configs/golangci.yml, which is the v2 file to copy from. The release is
+// pinned once, in the `go` module; lintVersion moves it, either major.
 package main
 
 import (
@@ -75,8 +82,23 @@ func (m *Z5labs) GoApp(
 	authUsername string,
 	// +optional
 	auth *dagger.Secret,
+	// A `.golangci.yml` replacing the bundled default policy.
+	//
+	// The lint stage runs golangci-lint v2, so this file must be written
+	// in the v2 dialect — it has to open with `version: "2"`. The majors
+	// are not interchangeable: a v2 binary refuses a v1 file outright,
+	// before running any linter. Pass lintVersion to move the whole stage,
+	// dialect included, to another release.
+	//
 	// +optional
 	lintConfig *dagger.File,
+	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
+	// Empty takes the version pinned by the `go` module, which is a v2
+	// release; pinning a "v1.x" release here rolls the stage — and the
+	// config dialect it requires — back to v1.
+	//
+	// +optional
+	lintVersion string,
 	// +optional
 	platforms []string,
 	// +optional
@@ -134,6 +156,7 @@ func (m *Z5labs) GoApp(
 		AuthUsername:    authUsername,
 		Auth:            auth,
 		LintConfig:      lintConfig,
+		LintVersion:     lintVersion,
 		Platforms:       platforms,
 		RegistryService: registryService,
 		Insecure:        insecure,
@@ -149,8 +172,23 @@ func (m *Z5labs) GoApp(
 // publish equivalent for libraries.
 func (m *Z5labs) GoLib(
 	source *dagger.Directory,
+	// A `.golangci.yml` replacing the bundled default policy.
+	//
+	// The lint stage runs golangci-lint v2, so this file must be written
+	// in the v2 dialect — it has to open with `version: "2"`. The majors
+	// are not interchangeable: a v2 binary refuses a v1 file outright,
+	// before running any linter. Pass lintVersion to move the whole stage,
+	// dialect included, to another release.
+	//
 	// +optional
 	lintConfig *dagger.File,
+	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
+	// Empty takes the version pinned by the `go` module, which is a v2
+	// release; pinning a "v1.x" release here rolls the stage — and the
+	// config dialect it requires — back to v1.
+	//
+	// +optional
+	lintVersion string,
 ) *GoLib {
-	return &GoLib{Source: source, LintConfig: lintConfig}
+	return &GoLib{Source: source, LintConfig: lintConfig, LintVersion: lintVersion}
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"dagger/go/internal/dagger"
@@ -12,8 +13,24 @@ import (
 )
 
 const (
-	defaultGolangciLintVersion = "v1.64.8"
+	// defaultGolangciLintVersion is the golangci-lint release the lint
+	// stage installs when the caller pins nothing. This is the single
+	// place the pin is stated: bumping it is one edit, and nothing —
+	// not a bundled config, not an adopter's `.golangci.yml` — repeats
+	// the number.
+	//
+	// Its major version is load-bearing beyond the pin, because it is
+	// also the configuration dialect. golangci-lint v1 does not ignore
+	// a v2 config file, it refuses it outright ("you are using a
+	// configuration file for golangci-lint v2 with golangci-lint v1"),
+	// and v2 refuses a v1 file the same way. A v2 pin therefore means
+	// every `.golangci.yml` reaching this stage must open with
+	// `version: "2"`.
+	defaultGolangciLintVersion = "v2.12.2"
+
 	golangciLintConfigMountPath = "/tmp/.golangci.yml"
+
+	golangciLintModulePath = "github.com/golangci/golangci-lint"
 )
 
 // Ci is a chained builder for a standardized Go CI pipeline. Construct via
@@ -72,6 +89,13 @@ func (c *Ci) WithVet() *Ci {
 // installed golangci-lint version (defaults to defaultGolangciLintVersion
 // when empty). config, if non-nil, is mounted at golangciLintConfigMountPath
 // and passed to golangci-lint via --config.
+//
+// The default is a golangci-lint **v2** release, so a config passed here
+// must be written in the v2 dialect — a file opening with `version: "2"`.
+// A v1 file is not tolerated by a v2 binary; it is rejected before any
+// linter runs. Pass a `v1.x` version to roll the whole stage back, config
+// dialect included; the module path installed follows the version's major,
+// so both majors are reachable without forking this pipeline.
 func (c *Ci) WithLint(
 	// +optional
 	version string,
@@ -172,11 +196,25 @@ func (c *Ci) runLint(ctx context.Context) error {
 	if version == "" {
 		version = defaultGolangciLintVersion
 	}
+	pkg, err := golangciLintPkg(version)
+	if err != nil {
+		return err
+	}
 	// Build golangci-lint in a source-less container so the install
 	// dedupes across fixtures. Mounting it into the lint container as
 	// a file keeps the source mount (and per-fixture cache key) off
 	// the install span — see plan for the trace that motivated this.
-	lintBin, err := c.Go.Install("github.com/golangci/golangci-lint/cmd/golangci-lint@" + version)
+	//
+	// The toolchain used is deliberately not c.Go's. golangci-lint's own
+	// go.mod tracks the newest Go release (v2 needs 1.25), the official
+	// golang images set GOTOOLCHAIN=local so there is no automatic
+	// upgrade, and a project pinned to an older Go therefore could not
+	// build the linter at all. The linter is a tool, not part of the
+	// project's build: analysing a `go 1.23` module with a binary built
+	// by a newer toolchain is exactly what upstream's prebuilt releases
+	// do. Keeping the install off c.Go's pin also means every caller
+	// shares one install regardless of what they pinned.
+	lintBin, err := new(Go).Install(pkg)
 	if err != nil {
 		return err
 	}
@@ -193,6 +231,51 @@ func (c *Ci) runLint(ctx context.Context) error {
 	args = append(args, "./...")
 	_, err = ctr.WithExec(args).Sync(ctx)
 	return err
+}
+
+// golangciLintPkg returns the `go install` argument that builds the
+// requested golangci-lint release.
+//
+// The import path is a function of the version, not a constant: Go's
+// semantic import versioning means golangci-lint's module path gained a
+// `/v2` element at v2.0.0, so `.../cmd/golangci-lint@v2.12.2` on the v1
+// path resolves to nothing. Deriving the element from the version is what
+// lets a caller pin either major — roll forward, or roll back to a v1
+// release along with a v1 config — without forking this pipeline.
+func golangciLintPkg(version string) (string, error) {
+	major, err := majorFromVersion(version)
+	if err != nil {
+		return "", fmt.Errorf("golangci-lint version %q: %w", version, err)
+	}
+	path := golangciLintModulePath
+	if major >= 2 {
+		path += "/v" + strconv.Itoa(major)
+	}
+	return path + "/cmd/golangci-lint@" + version, nil
+}
+
+// majorFromVersion returns the major version number of a `vN...` string,
+// tolerating anything after the major (`v2`, `v2.12.2`, `v2.0.0-rc1`,
+// `v2.0.1-0.20240101120000-abcdef123456`). It errors rather than guessing
+// on a version it cannot read a major out of — a bare commit hash, say —
+// because guessing means silently choosing the wrong module path and
+// surfacing as an unresolvable package rather than as a bad pin.
+func majorFromVersion(version string) (int, error) {
+	if !strings.HasPrefix(version, "v") {
+		return 0, fmt.Errorf(`must be a semver tag beginning with "v"`)
+	}
+	digits := version[1:]
+	if i := strings.IndexFunc(digits, func(r rune) bool { return r < '0' || r > '9' }); i >= 0 {
+		digits = digits[:i]
+	}
+	if digits == "" {
+		return 0, fmt.Errorf(`must be a semver tag beginning with "v" followed by a major version number`)
+	}
+	major, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0, fmt.Errorf("unreadable major version: %w", err)
+	}
+	return major, nil
 }
 
 // runBuild compiles c.Source. pkg defaults to "."; binaryName defaults to

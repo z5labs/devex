@@ -12,6 +12,8 @@ type GoLib struct {
 	Source *dagger.Directory
 	// +private
 	LintConfig *dagger.File
+	// +private
+	LintVersion string
 }
 
 // Ci runs the standardized check stages (fmt, vet, lint, test -race)
@@ -20,5 +22,5 @@ type GoLib struct {
 // +check
 // +cache="session"
 func (l *GoLib) Ci(ctx context.Context) error {
-	return sharedCheck(ctx, l.Source, l.LintConfig)
+	return sharedCheck(ctx, l.Source, l.LintConfig, l.LintVersion)
 }

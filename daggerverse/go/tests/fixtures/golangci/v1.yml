@@ -1,0 +1,8 @@
+# A minimal golangci-lint v1 configuration — no `version` field, and the v1
+# spelling of "only these linters". Kept as the negative fixture: a v2 binary
+# refuses this file, which is what pins the stage to v2 rather than to
+# "whatever config happens to parse".
+linters:
+  disable-all: true
+  enable:
+    - govet

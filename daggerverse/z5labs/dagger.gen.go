@@ -83,6 +83,7 @@ func (r GoApp) MarshalJSON() ([]byte, error) {
 		AuthUsername        string
 		Auth                *dagger.Secret
 		LintConfig          *dagger.File
+		LintVersion         string
 		Platforms           []string
 		RegistryService     *dagger.Service
 		Insecure            bool
@@ -99,6 +100,7 @@ func (r GoApp) MarshalJSON() ([]byte, error) {
 	concrete.AuthUsername = r.AuthUsername
 	concrete.Auth = r.Auth
 	concrete.LintConfig = r.LintConfig
+	concrete.LintVersion = r.LintVersion
 	concrete.Platforms = r.Platforms
 	concrete.RegistryService = r.RegistryService
 	concrete.Insecure = r.Insecure
@@ -119,6 +121,7 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 		AuthUsername        string
 		Auth                *dagger.Secret
 		LintConfig          *dagger.File
+		LintVersion         string
 		Platforms           []string
 		RegistryService     *dagger.Service
 		Insecure            bool
@@ -139,6 +142,7 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 	r.AuthUsername = concrete.AuthUsername
 	r.Auth = concrete.Auth
 	r.LintConfig = concrete.LintConfig
+	r.LintVersion = concrete.LintVersion
 	r.Platforms = concrete.Platforms
 	r.RegistryService = concrete.RegistryService
 	r.Insecure = concrete.Insecure
@@ -151,18 +155,21 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 
 func (r GoLib) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Source     *dagger.Directory
-		LintConfig *dagger.File
+		Source      *dagger.Directory
+		LintConfig  *dagger.File
+		LintVersion string
 	}
 	concrete.Source = r.Source
 	concrete.LintConfig = r.LintConfig
+	concrete.LintVersion = r.LintVersion
 	return json.Marshal(&concrete)
 }
 
 func (r *GoLib) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Source     *dagger.Directory
-		LintConfig *dagger.File
+		Source      *dagger.Directory
+		LintConfig  *dagger.File
+		LintVersion string
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -170,6 +177,7 @@ func (r *GoLib) UnmarshalJSON(bs []byte) error {
 	}
 	r.Source = concrete.Source
 	r.LintConfig = concrete.LintConfig
+	r.LintVersion = concrete.LintVersion
 	return nil
 }
 
@@ -424,6 +432,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintConfig", err))
 				}
 			}
+			var lintVersion string
+			if inputArgs["lintVersion"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lintVersion"]), &lintVersion)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintVersion", err))
+				}
+			}
 			var platforms []string
 			if inputArgs["platforms"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["platforms"]), &platforms)
@@ -473,7 +488,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg signingKey", err))
 				}
 			}
-			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, platforms, registryService, insecure, idTokenRequestUrl, idTokenRequestToken, idTokenService, signingKey), nil
+			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, lintVersion, platforms, registryService, insecure, idTokenRequestUrl, idTokenRequestToken, idTokenService, signingKey), nil
 		case "GoLib":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
@@ -494,7 +509,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintConfig", err))
 				}
 			}
-			return (*Z5labs).GoLib(&parent, source, lintConfig), nil
+			var lintVersion string
+			if inputArgs["lintVersion"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["lintVersion"]), &lintVersion)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintVersion", err))
+				}
+			}
+			return (*Z5labs).GoLib(&parent, source, lintConfig, lintVersion), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

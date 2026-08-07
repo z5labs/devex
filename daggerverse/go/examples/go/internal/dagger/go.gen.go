@@ -20,7 +20,7 @@ func (r *Binding) AsGo() *Go { // go (../../../../../../daggerverse/go/main.go:2
 }
 
 // Retrieve the binding value, as type GoCi
-func (r *Binding) AsGoCi() *GoCi { // go (../../../../../../daggerverse/go/ci.go:27:6)
+func (r *Binding) AsGoCi() *GoCi { // go (../../../../../../daggerverse/go/ci.go:44:6)
 	q := r.query.Select("asGoCi")
 
 	return &GoCi{
@@ -29,7 +29,7 @@ func (r *Binding) AsGoCi() *GoCi { // go (../../../../../../daggerverse/go/ci.go
 }
 
 // Create or update a binding of type GoCi in the environment
-func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env { // go (../../../../../../daggerverse/go/ci.go:27:6)
+func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env { // go (../../../../../../daggerverse/go/ci.go:44:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withGoCiInput")
 	q = q.Arg("name", name)
@@ -42,7 +42,7 @@ func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env {
 }
 
 // Declare a desired GoCi output to be assigned in the environment
-func (r *Env) WithGoCiOutput(name string, description string) *Env { // go (../../../../../../daggerverse/go/ci.go:27:6)
+func (r *Env) WithGoCiOutput(name string, description string) *Env { // go (../../../../../../daggerverse/go/ci.go:44:6)
 	q := r.query.Select("withGoCiOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -246,7 +246,7 @@ func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (.
 }
 
 // Ci returns a new pipeline builder bound to the supplied source.
-func (r *Go) Ci(source *Directory) *GoCi { // go (../../../../../../daggerverse/go/ci.go:55:1)
+func (r *Go) Ci(source *Directory) *GoCi { // go (../../../../../../daggerverse/go/ci.go:72:1)
 	assertNotNil("source", source)
 	q := r.query.Select("ci")
 	q = q.Arg("source", source)
@@ -666,7 +666,7 @@ func (r *Go) AsNode() Node {
 // errors are aggregated. Stage 2 builds the source and Run returns the
 // produced binary as a *dagger.File. Downstream consumers compose that file
 // into their own pipelines (package, sign, publish, ...).
-type GoCi struct { // go (../../../../../../daggerverse/go/ci.go:27:6)
+type GoCi struct { // go (../../../../../../daggerverse/go/ci.go:44:6)
 	query *querybuilder.Selection
 
 	check *Void
@@ -692,7 +692,7 @@ func (r *GoCi) WithGraphQLQuery(q *querybuilder.Selection) *GoCi {
 // aggregated error. Use when callers want to run the checks
 // independently of the build (for example multi-platform pipelines
 // that share one check run across N platform builds).
-func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../../daggerverse/go/ci.go:124:1)
+func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../../daggerverse/go/ci.go:148:1)
 	if r.check != nil {
 		return nil
 	}
@@ -753,7 +753,7 @@ func (r *GoCi) UnmarshalJSON(bs []byte) error {
 // Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns
 // the built binary as a *dagger.File. On stage-1 failure, returns the
 // aggregated error from Check and a nil file (stage 2 is skipped).
-func (r *GoCi) Run() *File { // go (../../../../../../daggerverse/go/ci.go:149:1)
+func (r *GoCi) Run() *File { // go (../../../../../../daggerverse/go/ci.go:173:1)
 	q := r.query.Select("run")
 
 	return &File{
@@ -763,9 +763,9 @@ func (r *GoCi) Run() *File { // go (../../../../../../daggerverse/go/ci.go:149:1
 
 // GoCiWithBuildOpts contains options for GoCi.WithBuild
 type GoCiWithBuildOpts struct {
-	Pkg string // go (../../../../../../daggerverse/go/ci.go:107:2)
+	Pkg string // go (../../../../../../daggerverse/go/ci.go:131:2)
 
-	BinaryName string // go (../../../../../../daggerverse/go/ci.go:109:2)
+	BinaryName string // go (../../../../../../daggerverse/go/ci.go:133:2)
 }
 
 // WithBuild configures the build stage parameters. pkg defaults to "."
@@ -775,7 +775,7 @@ type GoCiWithBuildOpts struct {
 //
 // Note: the binary-name flag is called binaryName (CLI: --binary-name) to
 // avoid colliding with Dagger CLI's top-level --output/-o flag.
-func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:105:1)
+func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:129:1)
 	q := r.query.Select("withBuild")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `pkg` optional argument
@@ -794,7 +794,7 @@ func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../.
 }
 
 // WithFmt enables the gofmt check stage.
-func (r *GoCi) WithFmt() *GoCi { // go (../../../../../../daggerverse/go/ci.go:60:1)
+func (r *GoCi) WithFmt() *GoCi { // go (../../../../../../daggerverse/go/ci.go:77:1)
 	q := r.query.Select("withFmt")
 
 	return &GoCi{
@@ -804,16 +804,23 @@ func (r *GoCi) WithFmt() *GoCi { // go (../../../../../../daggerverse/go/ci.go:6
 
 // GoCiWithLintOpts contains options for GoCi.WithLint
 type GoCiWithLintOpts struct {
-	Version string // go (../../../../../../daggerverse/go/ci.go:77:2)
+	Version string // go (../../../../../../daggerverse/go/ci.go:101:2)
 
-	Config *File // go (../../../../../../daggerverse/go/ci.go:79:2)
+	Config *File // go (../../../../../../daggerverse/go/ci.go:103:2)
 }
 
 // WithLint enables the golangci-lint check stage. version pins the
 // installed golangci-lint version (defaults to defaultGolangciLintVersion
 // when empty). config, if non-nil, is mounted at golangciLintConfigMountPath
 // and passed to golangci-lint via --config.
-func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:75:1)
+//
+// The default is a golangci-lint **v2** release, so a config passed here
+// must be written in the v2 dialect — a file opening with `version: "2"`.
+// A v1 file is not tolerated by a v2 binary; it is rejected before any
+// linter runs. Pass a `v1.x` version to roll the whole stage back, config
+// dialect included; the module path installed follows the version's major,
+// so both majors are reachable without forking this pipeline.
+func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:99:1)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -833,12 +840,12 @@ func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../
 
 // GoCiWithTestOpts contains options for GoCi.WithTest
 type GoCiWithTestOpts struct {
-	Race bool // go (../../../../../../daggerverse/go/ci.go:91:2)
+	Race bool // go (../../../../../../daggerverse/go/ci.go:115:2)
 }
 
 // WithTest enables the `go test ./...` check stage. Pass race=true to
 // enable the data-race detector.
-func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:89:1)
+func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../../daggerverse/go/ci.go:113:1)
 	q := r.query.Select("withTest")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `race` optional argument
@@ -853,7 +860,7 @@ func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../
 }
 
 // WithVet enables the `go vet ./...` check stage.
-func (r *GoCi) WithVet() *GoCi { // go (../../../../../../daggerverse/go/ci.go:66:1)
+func (r *GoCi) WithVet() *GoCi { // go (../../../../../../daggerverse/go/ci.go:83:1)
 	q := r.query.Select("withVet")
 
 	return &GoCi{

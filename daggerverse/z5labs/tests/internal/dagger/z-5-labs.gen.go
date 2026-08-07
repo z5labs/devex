@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Z5Labs
-func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
+func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:24:6)
 	q := r.query.Select("asZ5Labs")
 
 	return &Z5Labs{
@@ -118,7 +118,7 @@ func (r *Env) WithZ5LabsGoLibOutput(name string, description string) *Env { // z
 }
 
 // Create or update a binding of type Z5Labs in the environment
-func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
+func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:24:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsInput")
 	q = q.Arg("name", name)
@@ -131,7 +131,7 @@ func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *E
 }
 
 // Declare a desired Z5Labs output to be assigned in the environment
-func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
+func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:24:6)
 	q := r.query.Select("withZ5LabsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -143,7 +143,7 @@ func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs
 
 // Z5labs is the root module type. Construct project archetypes via
 // GoApp / GoLib.
-func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
+func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:24:6)
 	q := r.query.Select("z5Labs")
 
 	return &Z5Labs{
@@ -153,7 +153,7 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 
 // Z5labs is the root module type. Construct project archetypes via
 // GoApp / GoLib.
-type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:17:6)
+type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:24:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -169,40 +169,55 @@ func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
 type Z5LabsGoAppOpts struct {
 
 	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:65:2)
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:72:2)
 
-	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:67:2)
+	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:74:2)
 
 	// Default: "^refs/heads/main$"
-	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:70:2)
+	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:77:2)
 
-	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:72:2)
+	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:79:2)
 
 	// Default: "ci"
-	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:75:2)
+	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:82:2)
 
-	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:77:2)
+	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:84:2)
+	//
+	// A `.golangci.yml` replacing the bundled default policy.
+	//
+	// The lint stage runs golangci-lint v2, so this file must be written
+	// in the v2 dialect — it has to open with `version: "2"`. The majors
+	// are not interchangeable: a v2 binary refuses a v1 file outright,
+	// before running any linter. Pass lintVersion to move the whole stage,
+	// dialect included, to another release.
+	//
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:94:2)
+	//
+	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
+	// Empty takes the version pinned by the `go` module, which is a v2
+	// release; pinning a "v1.x" release here rolls the stage — and the
+	// config dialect it requires — back to v1.
+	//
+	LintVersion string // z5labs (../../../../../daggerverse/z5labs/main.go:101:2)
 
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:79:2)
+	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:103:2)
 
-	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:81:2)
+	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:105:2)
 
-	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:83:2)
-
-	Insecure bool // z5labs (../../../../../daggerverse/z5labs/main.go:85:2)
+	Insecure bool // z5labs (../../../../../daggerverse/z5labs/main.go:107:2)
 	//
 	// The CI provider's OIDC token request endpoint —
 	// `ACTIONS_ID_TOKEN_REQUEST_URL` on GitHub Actions, and whatever the
 	// equivalent is elsewhere. Required for any run that publishes.
 	//
-	IDTokenRequestURL string // z5labs (../../../../../daggerverse/z5labs/main.go:91:2)
+	IDTokenRequestURL string // z5labs (../../../../../daggerverse/z5labs/main.go:113:2)
 	//
 	// The bearer token for that endpoint —
 	// `ACTIONS_ID_TOKEN_REQUEST_TOKEN` on GitHub Actions. A secret,
 	// because it is a credential for minting identity tokens. Required
 	// for any run that publishes.
 	//
-	IDTokenRequestToken *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:98:2)
+	IDTokenRequestToken *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:120:2)
 	//
 	// A Dagger-hosted OIDC token endpoint, reached over the session
 	// network instead of the public one. When set, its engine-assigned
@@ -216,7 +231,7 @@ type Z5LabsGoAppOpts struct {
 	// which runs a real token endpoint, and by anyone whose issuer is
 	// itself a Dagger service.
 	//
-	IDTokenService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:112:2)
+	IDTokenService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:134:2)
 	//
 	// A PEM-encoded EC private key to sign the provenance with, instead
 	// of an ephemeral key certified by the public sigstore CA.
@@ -227,7 +242,7 @@ type Z5LabsGoAppOpts struct {
 	// reach a public CA. Leaving it unset is keyless signing and is what
 	// a normal CI publish should do.
 	//
-	SigningKey *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:123:2)
+	SigningKey *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:145:2)
 }
 
 // GoApp wires up an opinionated CI/release pipeline for a `package main`
@@ -271,7 +286,7 @@ type Z5LabsGoAppOpts struct {
 // service for their own reasons silently publish over an unverified
 // connection. It is spelled insecure rather than tlsVerify because a bool
 // defaulting to true cannot be turned off from the CLI.
-func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:61:1)
+func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:68:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goApp")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -302,6 +317,10 @@ func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp 
 		// `lintConfig` optional argument
 		if !querybuilder.IsZeroValue(opts[i].LintConfig) {
 			q = q.Arg("lintConfig", opts[i].LintConfig)
+		}
+		// `lintVersion` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LintVersion) {
+			q = q.Arg("lintVersion", opts[i].LintVersion)
 		}
 		// `platforms` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Platforms) {
@@ -341,18 +360,38 @@ func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp 
 
 // Z5LabsGoLibOpts contains options for Z5Labs.GoLib
 type Z5LabsGoLibOpts struct {
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:153:2)
+	//
+	// A `.golangci.yml` replacing the bundled default policy.
+	//
+	// The lint stage runs golangci-lint v2, so this file must be written
+	// in the v2 dialect — it has to open with `version: "2"`. The majors
+	// are not interchangeable: a v2 binary refuses a v1 file outright,
+	// before running any linter. Pass lintVersion to move the whole stage,
+	// dialect included, to another release.
+	//
+	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:184:2)
+	//
+	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
+	// Empty takes the version pinned by the `go` module, which is a v2
+	// release; pinning a "v1.x" release here rolls the stage — and the
+	// config dialect it requires — back to v1.
+	//
+	LintVersion string // z5labs (../../../../../daggerverse/z5labs/main.go:191:2)
 }
 
 // GoLib wires up the checks-only pipeline for a Go library. v1 has no
 // publish equivalent for libraries.
-func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:150:1)
+func (r *Z5Labs) GoLib(source *Directory, opts ...Z5LabsGoLibOpts) *Z5LabsGoLib { // z5labs (../../../../../daggerverse/z5labs/main.go:173:1)
 	assertNotNil("source", source)
 	q := r.query.Select("goLib")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `lintConfig` optional argument
 		if !querybuilder.IsZeroValue(opts[i].LintConfig) {
 			q = q.Arg("lintConfig", opts[i].LintConfig)
+		}
+		// `lintVersion` optional argument
+		if !querybuilder.IsZeroValue(opts[i].LintVersion) {
+			q = q.Arg("lintVersion", opts[i].LintVersion)
 		}
 	}
 	q = q.Arg("source", source)
@@ -528,7 +567,7 @@ func (r *Z5LabsGoApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoApp {
 
 // Builder returns the local-dev sibling that produces the same image CI
 // would publish, single-arch (host platform).
-func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/goapp.go:378:1)
+func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/goapp.go:380:1)
 	q := r.query.Select("builder")
 
 	return &Z5LabsBuilder{
@@ -564,7 +603,7 @@ func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../dagge
 // Publish is a side-effecting operation against an external registry, so
 // the whole pipeline is uncached — re-runs (e.g. after a retry, or after
 // a new ref appears within the same engine session) must actually push.
-func (r *Z5LabsGoApp) Ci(ctx context.Context) (string, error) { // z5labs (../../../../../daggerverse/z5labs/goapp.go:78:1)
+func (r *Z5LabsGoApp) Ci(ctx context.Context) (string, error) { // z5labs (../../../../../daggerverse/z5labs/goapp.go:80:1)
 	if r.ci != nil {
 		return *r.ci, nil
 	}
@@ -649,7 +688,7 @@ func (r *Z5LabsGoLib) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoLib {
 
 // Ci runs the standardized check stages (fmt, vet, lint, test -race)
 // against the supplied library source.
-func (r *Z5LabsGoLib) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/golib.go:22:1)
+func (r *Z5LabsGoLib) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/golib.go:24:1)
 	if r.ci != nil {
 		return nil
 	}
