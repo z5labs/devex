@@ -1201,11 +1201,19 @@ func (t *Tests) BatchRejectsAmbiguousInput(ctx context.Context) error {
 //
 // Byte equality is the whole promise of the knob: concurrency is allowed to
 // change how long a batch takes and nothing else. What it pins now that the
-// fan-out is Go and each image is its own exec is the *assembly* — the artifacts
-// are collected in sorted order off execs that finished in whatever order they
-// finished in, so a directory that came out right only because the work
-// happened to be serial would fail here. The digest covers the mirrored layout
-// too, nested directories and all.
+// bound also decides how the images are *sliced* into execs is that the slicing
+// is invisible in the answer — the same four images come back whether they were
+// recognised by one exec, two, three, four or sixteen, assembled from
+// directories that finished in whatever order they finished in. The digest
+// covers the mirrored layout too, nested directories and all.
+//
+// Three is in the list because four does not divide by it: the slices come out
+// 2, 1, 1, which is the shape an off-by-one in the partition drops an image
+// from. A bound wider than the batch is there because it is the ordinary case
+// for a small scan folder on a large machine — the default is one recognition
+// per CPU, and most folders are smaller than the core count — and it is the
+// shape that must not produce empty execs. One is the whole batch in a single
+// exec, which before #371 was still four containers.
 func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 	source := dag.Directory().
 		WithFile("scans/page-1.png", fixture(sentencePng)).
@@ -1215,7 +1223,7 @@ func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 	batch := ocr().Batch(source)
 	formats := []dagger.TesseractFormat{dagger.TesseractFormatTxt, dagger.TesseractFormatTsv}
 
-	serial := batch.Export(formats)
+	serial := batch.WithConcurrency(1).Export(formats)
 	concurrent := batch.WithConcurrency(4).Export(formats)
 
 	entries, err := concurrent.Glob(ctx, "**/*")
@@ -1236,16 +1244,27 @@ func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 
 	serialDigest, err := serial.Digest(ctx)
 	if err != nil {
-		return fmt.Errorf("Export without concurrency: %w", err)
+		return fmt.Errorf("Export one image at a time: %w", err)
 	}
-	concurrentDigest, err := concurrent.Digest(ctx)
-	if err != nil {
-		return fmt.Errorf("Export with concurrency: %w", err)
-	}
-	if serialDigest != concurrentDigest {
-		return fmt.Errorf(
-			"expected a concurrent batch to produce byte-identical artifacts, got digest %s against the serial run's %s",
-			concurrentDigest, serialDigest)
+	for _, tc := range []struct {
+		name string
+		dir  *dagger.Directory
+	}{
+		{"unset, one per CPU", batch.Export(formats)},
+		{"two at a time", batch.WithConcurrency(2).Export(formats)},
+		{"three at a time, which four does not divide by", batch.WithConcurrency(3).Export(formats)},
+		{"one exec per image", concurrent},
+		{"wider than the batch", batch.WithConcurrency(16).Export(formats)},
+	} {
+		digest, err := tc.dir.Digest(ctx)
+		if err != nil {
+			return fmt.Errorf("Export %s: %w", tc.name, err)
+		}
+		if digest != serialDigest {
+			return fmt.Errorf(
+				"expected a batch recognised %s to produce byte-identical artifacts, got digest %s against the one-exec run's %s",
+				tc.name, digest, serialDigest)
+		}
 	}
 
 	// Zero workers would recognise nothing at all, which is a directory of
@@ -1265,24 +1284,33 @@ func (t *Tests) BatchConcurrencyMatchesSerialOutput(ctx context.Context) error {
 }
 
 // BatchConcurrencyReportsFailingImage asserts a page tesseract cannot read
-// fails the whole batch — recognised one at a time or four at a time — with a
+// fails the whole batch — however the images were sliced into execs — with a
 // message that names the page and carries tesseract's own complaint about it.
 //
 // Failing loudly is the half of a parallel rewrite that is easy to lose: a
 // runner that reports only its own exit status turns an unreadable page into a
 // batch that "succeeded" with one artifact quietly missing from a thousand.
 //
-// Naming the page has to be the batch's own doing. tesseract handed a file
+// Naming the page has to be the batch's own doing, and since #371 that means
+// naming it out of an exec that recognised several. tesseract handed a file
 // leptonica will not decode falls back to reading it as a list of image paths,
 // so its message names the file's first *line* rather than the file — here,
-// the words in the fake PNG. Two of the good pages recognise fine either side
-// of it, so what is asserted is a failure that survives its siblings
-// succeeding.
+// the words in the fake PNG. Good pages recognise fine either side of it, so
+// what is asserted is a failure that survives its siblings succeeding.
+//
+// The bounds are chosen to put the torn page at three different positions in
+// its slice. Sorted, the five images are page-3, page-1, page-2, torn, zz-page-5;
+// at a bound of one that is a single exec failing on its *fourth* invocation
+// with a fifth still to come, at two it is the first invocation of the second
+// slice, and at five it is an exec of its own. A slice that reported its own
+// name, or the first image in it, would pass the last of those and fail the
+// other two.
 func (t *Tests) BatchConcurrencyReportsFailingImage(ctx context.Context) error {
 	source := dag.Directory().
 		WithFile("scans/page-1.png", fixture(sentencePng)).
 		WithFile("scans/page-2.png", fixture(sentencePng)).
 		WithFile("scans/deep/page-3.png", fixture(sentencePng)).
+		WithFile("scans/zz-page-5.png", fixture(sentencePng)).
 		WithNewFile("scans/torn.png", "not an image at all\n")
 	batch := ocr().Batch(source)
 
@@ -1290,8 +1318,10 @@ func (t *Tests) BatchConcurrencyReportsFailingImage(ctx context.Context) error {
 		name  string
 		batch *dagger.TesseractBatch
 	}{
-		{"one at a time", batch},
-		{"four at a time", batch.WithConcurrency(4)},
+		{"in one exec, fourth of five", batch.WithConcurrency(1)},
+		{"first of its slice", batch.WithConcurrency(2)},
+		{"in an exec of its own", batch.WithConcurrency(5)},
+		{"at the default bound", batch},
 	} {
 		_, err := tc.batch.
 			Export([]dagger.TesseractFormat{dagger.TesseractFormatTxt}).
@@ -1302,6 +1332,14 @@ func (t *Tests) BatchConcurrencyReportsFailingImage(ctx context.Context) error {
 		for _, want := range []string{"scans/torn.png", "cannot be read", "Error during processing"} {
 			if !strings.Contains(err.Error(), want) {
 				return fmt.Errorf("expected the failure %s to mention %q, got: %v", tc.name, want, err)
+			}
+		}
+		// The slice's other images must not be mistaken for the failing one,
+		// which is what a message built from the slice rather than from the
+		// script would do.
+		for _, unwanted := range []string{"scans/deep/page-3.png", "scans/zz-page-5.png"} {
+			if strings.Contains(err.Error(), "Batch: "+strconv.Quote(unwanted)+":") {
+				return fmt.Errorf("expected the failure %s to name only the torn page, got: %v", tc.name, err)
 			}
 		}
 	}

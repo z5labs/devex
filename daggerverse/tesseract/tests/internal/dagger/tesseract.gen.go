@@ -11,7 +11,7 @@ import (
 )
 
 // Retrieve the binding value, as type Tesseract
-func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:255:6)
 	q := r.query.Select("asTesseract")
 
 	return &Tesseract{
@@ -20,7 +20,7 @@ func (r *Binding) AsTesseract() *Tesseract { // tesseract (../../../../../dagger
 }
 
 // Retrieve the binding value, as type TesseractBatch
-func (r *Binding) AsTesseractBatch() *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:38:6)
+func (r *Binding) AsTesseractBatch() *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:40:6)
 	q := r.query.Select("asTesseractBatch")
 
 	return &TesseractBatch{
@@ -56,7 +56,7 @@ func (r *Binding) AsTesseractTraining() *TesseractTraining { // tesseract (../..
 }
 
 // Create or update a binding of type TesseractBatch in the environment
-func (r *Env) WithTesseractBatchInput(name string, value *TesseractBatch, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/batch.go:38:6)
+func (r *Env) WithTesseractBatchInput(name string, value *TesseractBatch, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/batch.go:40:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractBatchInput")
 	q = q.Arg("name", name)
@@ -69,7 +69,7 @@ func (r *Env) WithTesseractBatchInput(name string, value *TesseractBatch, descri
 }
 
 // Declare a desired TesseractBatch output to be assigned in the environment
-func (r *Env) WithTesseractBatchOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/batch.go:38:6)
+func (r *Env) WithTesseractBatchOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/batch.go:40:6)
 	q := r.query.Select("withTesseractBatchOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -128,7 +128,7 @@ func (r *Env) WithTesseractDocumentOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type Tesseract in the environment
-func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Env) WithTesseractInput(name string, value *Tesseract, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:255:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withTesseractInput")
 	q = q.Arg("name", name)
@@ -141,7 +141,7 @@ func (r *Env) WithTesseractInput(name string, value *Tesseract, description stri
 }
 
 // Declare a desired Tesseract output to be assigned in the environment
-func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+func (r *Env) WithTesseractOutput(name string, description string) *Env { // tesseract (../../../../../daggerverse/tesseract/main.go:255:6)
 	q := r.query.Select("withTesseractOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -184,18 +184,18 @@ type TesseractOpts struct {
 	//
 	//
 	// Default: "docker.io"
-	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:248:2)
+	Registry string // tesseract (../../../../../daggerverse/tesseract/main.go:281:2)
 	//
 	// Tag of the alpine image the toolchain is assembled on.
 	//
 	//
 	// Default: "3.24"
-	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:251:2)
+	AlpineTag string // tesseract (../../../../../daggerverse/tesseract/main.go:284:2)
 	//
 	// Language codes to install, one apk package each. Empty installs "eng".
 	// "osd" is not a recognition language but is required by Document.Osd.
 	//
-	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:255:2)
+	Languages []string // tesseract (../../../../../daggerverse/tesseract/main.go:288:2)
 	//
 	// Upper bound on the OpenMP threads tesseract may use, set on the
 	// assembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread
@@ -206,12 +206,12 @@ type TesseractOpts struct {
 	// slowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One
 	// thread per pass is the usual setting there.
 	//
-	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:265:2)
+	OmpThreadLimit int // tesseract (../../../../../daggerverse/tesseract/main.go:298:2)
 }
 
 // New returns a Tesseract module backed by <registry>/library/alpine:<tag>
 // with tesseract-ocr and one language package per requested language.
-func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:243:1)
+func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:276:1)
 	q := r.query.Select("tesseract")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -241,12 +241,13 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 // It carries the image coordinates and the language set the image is built
 // with; Document hangs off it so the generated SDK surfaces recognition under
 // `dag.Tesseract().Document(...)`.
-type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:222:6)
+type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:255:6)
 	query *querybuilder.Selection
 
-	id         *ID
-	parameters *string
-	version    *string
+	batchSchedulingSelfTest *Void
+	id                      *ID
+	parameters              *string
+	version                 *string
 }
 type WithTesseractFunc func(r *Tesseract) *Tesseract
 
@@ -271,7 +272,7 @@ func (r *Tesseract) WithGraphQLQuery(q *querybuilder.Selection) *Tesseract {
 // with whatever reads the results the same way the input directory was
 // composed. Which files take part is a glob, defaulting to the image
 // extensions leptonica can read.
-func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:487:1)
+func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/main.go:543:1)
 	assertNotNil("source", source)
 	q := r.query.Select("batch")
 	q = q.Arg("source", source)
@@ -279,6 +280,32 @@ func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../
 	return &TesseractBatch{
 		query: q,
 	}
+}
+
+// BatchSchedulingSelfTest verifies the properties the batch fan-out depends on:
+// that every image runs, that WithConcurrency is honoured as both a ceiling and
+// a floor, that a failure partway through is the error reported, that it stops
+// the images behind it from starting, that a batch of any size splits into no
+// more slices than the bound allows, and that an image's failure is still
+// readable back out of the exec that recognised several images.
+//
+// It sits on the module rather than in the test module because it checks
+// unexported scheduling and unexported script assembly, and it exists at all
+// because no directory of images can check most of it. The bound as a floor
+// needs recognitions that block until every one of them has arrived; the exec
+// count needs three thousand images, which is not a fixture any suite should
+// recognise to learn that a slice count is bounded; and the quoting needs file
+// names this repository will not commit.
+//
+// It runs in-process and needs no container, so it is cheap enough to be a check
+// of its own.
+func (r *Tesseract) BatchSchedulingSelfTest(ctx context.Context) error { // tesseract (../../../../../daggerverse/tesseract/main.go:474:1)
+	if r.batchSchedulingSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("batchSchedulingSelfTest")
+
+	return q.Execute(ctx)
 }
 
 // Ci returns a new pipeline builder over a directory of scans. Which files take
@@ -301,7 +328,7 @@ func (r *Tesseract) Ci(source *Directory) *TesseractCi { // tesseract (../../../
 //
 // A requested OpenMP bound lives here rather than on the recognition
 // invocation so everything reached through this escape hatch inherits it too.
-func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:399:1)
+func (r *Tesseract) Container() *Container { // tesseract (../../../../../daggerverse/tesseract/main.go:432:1)
 	q := r.query.Select("container")
 
 	return &Container{
@@ -314,7 +341,7 @@ func (r *Tesseract) Container() *Container { // tesseract (../../../../../dagger
 // The boundary input is a *dagger.File rather than a *dagger.Directory, unlike
 // the kicad module's Project: tesseract resolves nothing relative to its input,
 // so one image — including a multi-page TIFF — is the whole unit of work.
-func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:475:1)
+func (r *Tesseract) Document(source *File) *TesseractDocument { // tesseract (../../../../../daggerverse/tesseract/main.go:531:1)
 	assertNotNil("source", source)
 	q := r.query.Select("document")
 	q = q.Arg("source", source)
@@ -377,7 +404,7 @@ func (r *Tesseract) UnmarshalJSON(bs []byte) error {
 // `tesseract --list-langs`: the packaged languages and any model WithTessdata
 // added, as one set. This is what Document.WithLanguage validates against, and
 // it includes "osd" when that model was installed or supplied.
-func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:445:1)
+func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:501:1)
 	q := r.query.Select("langs")
 
 	var response []string
@@ -389,7 +416,7 @@ func (r *Tesseract) Langs(ctx context.Context) ([]string, error) { // tesseract 
 // Parameters returns tesseract's control-variable table — every name, its
 // default value and a one-line description — as `tesseract --print-parameters`
 // prints it. These are the names Document.WithParameter accepts.
-func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:460:1)
+func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:516:1)
 	if r.parameters != nil {
 		return *r.parameters, nil
 	}
@@ -413,7 +440,7 @@ func (r *Tesseract) Parameters(ctx context.Context) (string, error) { // tessera
 //
 // The model it produces pairs directly with WithTessdata, so a fine-tune and
 // the recognition that uses it are two calls on the same module.
-func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:503:1)
+func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesseract (../../../../../daggerverse/tesseract/main.go:559:1)
 	assertNotNil("source", source)
 	q := r.query.Select("training")
 	q = q.Arg("source", source)
@@ -425,7 +452,7 @@ func (r *Tesseract) Training(source *Directory) *TesseractTraining { // tesserac
 
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
-func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:426:1)
+func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract (../../../../../daggerverse/tesseract/main.go:482:1)
 	if r.version != nil {
 		return *r.version, nil
 	}
@@ -451,7 +478,7 @@ func (r *Tesseract) Version(ctx context.Context) (string, error) { // tesseract 
 // why the credentials are not simply userinfo in the WithApkRepository URL,
 // which would put them in /etc/apk/repositories and in every apk error message
 // that quotes it.
-func (r *Tesseract) WithApkAuth(credentials *Secret) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:381:1)
+func (r *Tesseract) WithApkAuth(credentials *Secret) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:414:1)
 	assertNotNil("credentials", credentials)
 	q := r.query.Select("withApkAuth")
 	q = q.Arg("credentials", credentials)
@@ -474,7 +501,7 @@ func (r *Tesseract) WithApkAuth(credentials *Secret) *Tesseract { // tesseract (
 // Repeatable, for a mirror set signed by more than one key. It is a *File
 // rather than a *Secret because a public key is not a credential: it is meant
 // to be in the image, and WithApkAuth is the option for the part that is not.
-func (r *Tesseract) WithApkKey(key *File) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:358:1)
+func (r *Tesseract) WithApkKey(key *File) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:391:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withApkKey")
 	q = q.Arg("key", key)
@@ -504,7 +531,7 @@ func (r *Tesseract) WithApkKey(key *File) *Tesseract { // tesseract (../../../..
 // call per component. A repository's index is signed, so pair this with
 // WithApkKey unless the mirror is signed by a key the base image already
 // trusts.
-func (r *Tesseract) WithApkRepository(url string) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:330:1)
+func (r *Tesseract) WithApkRepository(url string) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:363:1)
 	q := r.query.Select("withApkRepository")
 	q = q.Arg("url", url)
 
@@ -528,7 +555,7 @@ func (r *Tesseract) WithApkRepository(url string) *Tesseract { // tesseract (../
 // renderer configfiles and the font the PDF renderer needs. A caller-supplied
 // model wins over a packaged one of the same name, which is what makes
 // replacing the stock `eng` with a fine-tuned one work.
-func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:301:1)
+func (r *Tesseract) WithTessdata(dir *Directory) *Tesseract { // tesseract (../../../../../daggerverse/tesseract/main.go:334:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("withTessdata")
 	q = q.Arg("dir", dir)
@@ -550,13 +577,14 @@ func (r *Tesseract) AsNode() Node {
 // all of them. It carries the same options type Document does, so the two
 // cannot drift: every With* here forwards to the shared builder.
 //
-// It is also built out of Document rather than merely resembling one. Each
-// matched image is recognised as its own Document — its own exec, its own
-// mounts, its own cache entry — and what runs several of them at a time is Go,
-// not a runner inside a container. That is what keeps the scheduling, the
-// bound and the failure reporting in a language with types and a debugger,
-// instead of in a shell script mounted into an image.
-type TesseractBatch struct { // tesseract (../../../../../daggerverse/tesseract/batch.go:38:6)
+// Each matched image is recognised by its own tesseract invocation, and the
+// invocations are split across at most WithConcurrency execs — one contiguous
+// slice of the batch each. What decides the bound, the partition, the
+// scheduling, the fail-fast and the failure message is Go; the only thing
+// interpreted inside a container is the list of per-image commands that slice
+// was handed. That keeps all of it in a language with types and a debugger,
+// instead of in a runner mounted into an image.
+type TesseractBatch struct { // tesseract (../../../../../daggerverse/tesseract/batch.go:40:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -580,19 +608,20 @@ func (r *TesseractBatch) WithGraphQLQuery(q *querybuilder.Selection) *TesseractB
 // input layout, with one artifact per requested format per image: `scans/a.png`
 // becomes `scans/a.txt` alongside `scans/a.pdf`.
 //
-// Each image is recognised on its own, as its own exec, WithConcurrency of them
-// at a time. tesseract's own list-file mode — a text file of image paths as the
-// FILE argument — is not what a batch wants, because it treats the list as one
+// Each image is recognised by its own invocation, WithConcurrency of them at a
+// time, and each invocation writes its artifacts straight onto the mirrored
+// path. tesseract's own list-file mode — a text file of image paths as the FILE
+// argument — is not what a batch wants, because it treats the list as one
 // multi-page *document*: it renders a single concatenated artifact set (one .txt
 // with form-feed page breaks, one multi-page PDF) and offers no way to get the
 // per-image files this returns.
 //
-// One exec per image is what makes the results cache per image too: an edited
-// page invalidates its own recognition and nothing else, which is the whole
-// difference for a corpus that grows a page at a time. It costs one exec's
-// overhead per page instead of per batch — see the README for what that is
-// worth measured — and it is the shape that lets the fan-out live in Go.
-func (r *TesseractBatch) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/batch.go:169:1)
+// One invocation per image is what makes the results cache per slice of images
+// rather than per batch: an edited page invalidates the slice it falls in and
+// nothing else, which is most of the difference for a corpus that grows a page
+// at a time. See the README for what that is worth measured, and for why the
+// slice — rather than the image — is the granularity now.
+func (r *TesseractBatch) Export(formats []TesseractFormat) *Directory { // tesseract (../../../../../daggerverse/tesseract/batch.go:184:1)
 	q := r.query.Select("export")
 	q = q.Arg("formats", formats)
 
@@ -610,7 +639,7 @@ func (r *TesseractBatch) Export(formats []TesseractFormat) *Directory { // tesse
 // It answers the question a glob always raises — did that pattern pick up what
 // I meant? — without paying for the recognition, and it fails on an empty match
 // exactly as Export does.
-func (r *TesseractBatch) Files(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/batch.go:149:1)
+func (r *TesseractBatch) Files(ctx context.Context) ([]string, error) { // tesseract (../../../../../daggerverse/tesseract/batch.go:163:1)
 	q := r.query.Select("files")
 
 	var response []string
@@ -668,15 +697,14 @@ func (r *TesseractBatch) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// WithConcurrency bounds how many images the batch recognises at once.
+// WithConcurrency bounds how many images the batch recognises at once, and with
+// it how many execs the export creates.
 //
 // It defaults to the number of CPUs the module can see, which is what a batch
-// wants: every image is its own exec, and recognising them one at a time would
-// pay that overhead N times for none of the parallelism it buys. Processes are
-// how tesseract parallelises well — eleven pages on four CPUs take 3.37s one at
-// a time and 1.05s eleven at a time, ~90% efficiency where its own OpenMP
-// manages 33%, because those regions sit inside the LSTM inner loops and do not
-// amortize.
+// wants: processes are how tesseract parallelises well — eleven pages on four
+// CPUs take 3.37s one at a time and 1.05s eleven at a time, ~90% efficiency
+// where its own OpenMP manages 33%, because those regions sit inside the LSTM
+// inner loops and do not amortize.
 //
 // Recognising more than one at a time therefore also caps OpenMP at one thread
 // per process, unless the caller named an explicit ompThreadLimit on New, which
@@ -686,8 +714,21 @@ func (r *TesseractBatch) UnmarshalJSON(bs []byte) error {
 // 174x.
 //
 // Pass a number to take less of the machine than the default, or 1 to recognise
-// one image at a time. Non-positive is rejected at output time.
-func (r *TesseractBatch) WithConcurrency(concurrency int) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:88:1)
+// the whole batch in one exec, an image at a time. Non-positive is rejected at
+// output time.
+//
+// The two meanings are one setting because they were never independent. The
+// images are split into this many contiguous slices and each slice is one exec
+// running its images' invocations in turn, so the bound is at once how many
+// recognise at a time and how many containers an export creates — a
+// three-thousand-image batch is this many, not three thousand. It is what
+// decides how the results cache, too: a slice is the unit that hits or misses,
+// so an edited image re-recognises its slice rather than only itself.
+//
+// What it is still not is a change to the answer. The same artifacts come back
+// under every bound, named the same way and recognised from the same bytes;
+// concurrency is allowed to change how long an export takes and nothing else.
+func (r *TesseractBatch) WithConcurrency(concurrency int) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:102:1)
 	q := r.query.Select("withConcurrency")
 	q = q.Arg("concurrency", concurrency)
 
@@ -698,7 +739,7 @@ func (r *TesseractBatch) WithConcurrency(concurrency int) *TesseractBatch { // t
 
 // WithDpi declares the source resolution (`--dpi`) for every image in the
 // batch. See Document.WithDpi.
-func (r *TesseractBatch) WithDpi(dpi int) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:118:1)
+func (r *TesseractBatch) WithDpi(dpi int) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:132:1)
 	q := r.query.Select("withDpi")
 	q = q.Arg("dpi", dpi)
 
@@ -709,7 +750,7 @@ func (r *TesseractBatch) WithDpi(dpi int) *TesseractBatch { // tesseract (../../
 
 // WithEngine selects the OCR engine (`--oem`) for every image in the batch.
 // See Document.WithEngine.
-func (r *TesseractBatch) WithEngine(mode TesseractEngineMode) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:112:1)
+func (r *TesseractBatch) WithEngine(mode TesseractEngineMode) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:126:1)
 	q := r.query.Select("withEngine")
 	q = q.Arg("mode", mode)
 
@@ -728,7 +769,7 @@ func (r *TesseractBatch) WithEngine(mode TesseractEngineMode) *TesseractBatch { 
 // directory, and leptonica sniffs content rather than trusting extensions, so
 // `**/*.scan` is a reasonable thing to ask for. PDFs stay rejected either way,
 // because leptonica genuinely cannot read them.
-func (r *TesseractBatch) WithGlob(pattern string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:63:1)
+func (r *TesseractBatch) WithGlob(pattern string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:65:1)
 	q := r.query.Select("withGlob")
 	q = q.Arg("pattern", pattern)
 
@@ -739,7 +780,7 @@ func (r *TesseractBatch) WithGlob(pattern string) *TesseractBatch { // tesseract
 
 // WithLanguage selects the recognition language (`-l`) for every image in the
 // batch. See Document.WithLanguage.
-func (r *TesseractBatch) WithLanguage(lang string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:100:1)
+func (r *TesseractBatch) WithLanguage(lang string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:114:1)
 	q := r.query.Select("withLanguage")
 	q = q.Arg("lang", lang)
 
@@ -750,7 +791,7 @@ func (r *TesseractBatch) WithLanguage(lang string) *TesseractBatch { // tesserac
 
 // WithPageSegmentation sets how much layout analysis precedes recognition
 // (`--psm`) for every image in the batch. See Document.WithPageSegmentation.
-func (r *TesseractBatch) WithPageSegmentation(mode TesseractPageSegMode) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:106:1)
+func (r *TesseractBatch) WithPageSegmentation(mode TesseractPageSegMode) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:120:1)
 	q := r.query.Select("withPageSegmentation")
 	q = q.Arg("mode", mode)
 
@@ -761,7 +802,7 @@ func (r *TesseractBatch) WithPageSegmentation(mode TesseractPageSegMode) *Tesser
 
 // WithParameter sets one of tesseract's control variables (`-c name=value`)
 // for every image in the batch. See Document.WithParameter.
-func (r *TesseractBatch) WithParameter(name string, value string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:124:1)
+func (r *TesseractBatch) WithParameter(name string, value string) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:138:1)
 	q := r.query.Select("withParameter")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
@@ -773,7 +814,7 @@ func (r *TesseractBatch) WithParameter(name string, value string) *TesseractBatc
 
 // WithUserPatterns supplies a pattern list (`--user-patterns`) for every image
 // in the batch. See Document.WithUserPatterns.
-func (r *TesseractBatch) WithUserPatterns(patterns *File) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:136:1)
+func (r *TesseractBatch) WithUserPatterns(patterns *File) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:150:1)
 	assertNotNil("patterns", patterns)
 	q := r.query.Select("withUserPatterns")
 	q = q.Arg("patterns", patterns)
@@ -785,7 +826,7 @@ func (r *TesseractBatch) WithUserPatterns(patterns *File) *TesseractBatch { // t
 
 // WithUserWords supplies a word list (`--user-words`) for every image in the
 // batch. See Document.WithUserWords.
-func (r *TesseractBatch) WithUserWords(words *File) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:130:1)
+func (r *TesseractBatch) WithUserWords(words *File) *TesseractBatch { // tesseract (../../../../../daggerverse/tesseract/batch.go:144:1)
 	assertNotNil("words", words)
 	q := r.query.Select("withUserWords")
 	q = q.Arg("words", words)

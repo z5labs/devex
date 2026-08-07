@@ -1006,6 +1006,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Tesseract).Batch(&parent, source), nil
+		case "BatchSchedulingSelfTest":
+			var parent Tesseract
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tesseract).BatchSchedulingSelfTest(&parent, ctx)
 		case "Ci":
 			var parent Tesseract
 			err = json.Unmarshal(parentJSON, &parent)
