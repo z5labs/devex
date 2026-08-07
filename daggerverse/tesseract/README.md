@@ -220,7 +220,7 @@ The last row is the whole reason concurrency implies the bound: same four
 passes as the second row, threads unbounded, 174x apart. A caller who reaches
 for concurrency without having read anything about libgomp would otherwise land
 there. (What `Batch` costs on top of these numbers is a separate question, and a
-separate measurement, in [One exec per image](#one-exec-per-image-fanned-out-from-go).)
+separate measurement, in [One invocation per image](#one-invocation-per-image-one-exec-per-worker).)
 
 An `ompThreadLimit` named on `New` is left alone, because it was named.
 Otherwise the bound rides on a copy of the module the batch makes for itself, so
@@ -389,69 +389,181 @@ of one PDF want. It is just not what a folder of independent scans wants, and it
 is not what the fast path wants either: one serial pass over N pages forfeits
 exactly the concurrency the next section is about.)
 
-So a batch is its images recognised as **`Document`s** — one exec each, each
-mounting its own image, each rendering its own artifact set — and what runs
-several of them at a time is Go.
+So a batch is its images recognised **one invocation each**, each mounting its
+own image, each rendering its own artifact set — and what schedules them is Go.
 
-### One exec per image, fanned out from Go
+### One invocation per image, one exec per worker
 
 ```go
 tess.Batch(scans).WithConcurrency(8).Export(ctx, formats)   // default: one per CPU
 ```
 
-`Batch.Export` resolves the glob, builds a `Document` per match, and runs them
-through a slot channel bounded by `WithConcurrency`. The bound, the scheduling,
-the fail-fast and the error message are all `batch.go` — nothing about running a
-batch is interpreted inside a container, so all of it is typed, reviewable and
-debuggable the same way the rest of the module is.
+`Batch.Export` resolves the glob, splits the matches into **at most
+`WithConcurrency` contiguous slices**, and runs one exec per slice — each of
+which mounts its slice's images and recognises them in turn. The bound, the
+partition, the scheduling, the fail-fast and the error message are all
+`batch.go`; the only thing interpreted inside a container is the list of
+per-image commands that slice was handed.
 
-That is a reversal. Until #298 the batch was **one** exec looping a
+That is two reversals, and they answer different questions.
+
+**The first** is #298. Until then the batch was **one** exec looping a
 tab-separated manifest in `sh`, on the argument that the exec — its mounts, its
 cache lookup — was the expensive part and should be paid once per directory
-rather than once per page. Measured end-to-end, it is not:
+rather than once per page. Measured end to end, it is not:
 
-| pages | one exec, `sh` loop | one exec per image, Go fan-out |
+| pages | one exec, `sh` loop | Go fan-out |
 | --- | --- | --- |
 | 11 | 5.5s | **2.8s** |
 | 50 | 17.5s | **5.0s** |
 | 50, one page edited | 17.5s | **2.5s** |
 
-`dagger call batch --source=… export --formats=TXT entries`, median of three,
-cold inputs each run, 32-CPU host; ~1.7s of every figure is CLI startup and
-module load. The one-exec column is the manifest loop recognising one image at a
-time, which is what it did, threads unbounded; the Go column is the default —
-one recognition per CPU, one OpenMP thread each.
+**The second** is #371, and it is not about parallelism at all — the fan-out
+already admitted only `workers()` images at a time. It is about how many
+*containers* were created to run them: a 3,000-image batch on a 32-CPU host
+created 3,000 execs in order to run 32, and then folded 3,000 directories into
+one, **twice over if two formats were asked for**. That fold is the thing that
+broke.
 
-The last row is the one that does not close with more cores. The old exec
-mounted the whole source directory, so editing any page invalidated the mount
-and re-recognised **all fifty**; a per-image exec keys on that image, so the
-other forty-nine are cache hits. For a corpus that grows or gets corrected a
-page at a time, that is the difference between a re-run and a re-do.
+| images, formats | one exec per image | one exec per slice |
+| --- | --- | --- |
+| 50, TXT, cold | 5.35s, 50 execs | **4.35s**, 32 execs |
+| 50, TXT, one page edited | **2.75s** | 2.94s |
+| 300, TXT | 28.2s, 300 execs | **13.7s**, 32 execs |
+| 300, TXT+TSV | **fails after 26.4s** | **12.6s**, 32 execs |
+| 3,000, TXT | — | **123.6s**, 32 execs |
+| 3,000, TXT+TSV | — | **96.6s**, 32 execs |
 
-Three properties the serial loop had for free, which the fan-out has to keep:
+`dagger call batch --source=… export --formats=… entries`, 32-CPU host, dagger
+v0.21.7, both columns measured in the same session; the 50-image rows are the
+median of three with a fresh source directory every run so nothing is a cache
+hit. ~1.2s of every figure is CLI startup and module load. The 3,000-image rows
+are single runs, and the TXT one carries the 90MB upload of the source directory
+that the TXT+TSV run then found warm — which is why the two-format run is the
+faster of them. The 3,000-image case was never run against the left-hand column:
+300 images with two formats already fails there, so 3,000 has nothing to measure.
+
+The failure is literal, and it is containerd's:
+
+```
+failed to mount /tmp/dagger-mount…: [{Type:overlay … lowerdir=…:…:…}]:
+mount options is too long
+```
+
+#### Why folding per artifact could not survive a large batch
+
+Every `WithFile` or `WithDirectory` that folds an exec's output into the result
+adds an overlayfs lowerdir to the destination snapshot's chain. Mounting that
+snapshot goes through containerd, which compacts the lowerdir list and then
+refuses joined mount data over one page:
+
+```go
+dataInStr := strings.Join(opt.data, ",")
+if len(dataInStr) > pagesize {            // pagesize = 4096
+    return errors.New("mount options is too long")
+}
+```
+
+`containerd/v2@v2.2.3/core/mount/mount_linux.go:153`, the version dagger v0.21.7
+pins. Bisected against a live engine the fold was fine at 430 and failed at 440
+— and **the ceiling shrinks as an engine ages**, because each call burns two
+snapshot IDs, so it is ~437 at 5-digit snapshot IDs, ~393 at 6 digits and ~357 at
+7. The same batch could work one week and fail the next on a busier engine.
+Reported in [#314](https://github.com/z5labs/devex/discussions/314).
+
+The old fold sat **inside the format loop**, so the ceiling was images × formats:
+one format bought ~437 images and asking for two halved it to ~215. That is the
+300-image row above — 300 images pass at one format and fail at two, on the same
+engine, in the same minute.
+
+**Chunking the fold only moves that wall** — `sqrt(n)` grouping still has a depth
+that grows with the batch. The property worth building on instead is that a
+directory produced by an exec is **one snapshot however many files that exec
+wrote**. The chain is created purely by graph-level composition, never by the
+filesystem, so
+
+    fold depth = number of execs folded
+
+and neither the image count nor the format count appears in it. Partitioning the
+images into `workers()` slices makes the depth a property of the machine's core
+count, which does not grow with the batch; each slice's exec writes every
+requested format for every one of its images, and the whole of what it wrote is
+taken at once.
+
+> **This matters to a caller assembling a directory of its own.** The ceiling is
+> on the *chain*, not on this module: a consumer that takes this directory and
+> re-folds it a file at a time — `WithFile` per entry into some other tree —
+> rebuilds exactly the depth this removed, and hits the same
+> `mount options is too long` at the same few hundred. Fold the directory once,
+> rather than fold its entries.
+
+#### What that cost, measured rather than assumed
+
+**The unit that caches is now the slice, not the image.** #298's win — 50 pages
+with one edited re-recognising one page — was a property of one exec per image,
+and slicing coarsens it: at 50 images on a 32-CPU host the slices are one and two
+images, so an edited page re-recognises up to one neighbour with it. Re-run here,
+that is **2.75s → 2.94s**, and it grows with the ratio of images to cores: 3,000
+images on 32 cores is ~94 to a slice, so a corrected page re-runs ~94.
+
+`WithConcurrency` is the control for it. A caller who corrects one page of a
+large corpus at a time and wants the old granularity back asks for a bound at or
+above the image count — `WithConcurrency(len(files))` is one exec per image
+again, at the cost of the fold ceiling coming back with it.
+
+**The images are mounted, not copied, and that is load-bearing.** #371 was
+written expecting a single filtered `WithDirectory` — include patterns naming the
+slice's files — to stage a slice in one graph operation. Measured on dagger
+v0.21.7 it re-recognises the **whole batch** when one image changes: 4.84s
+against 2.66s, which is a cold run. The mechanism is buildkit's. An exec mount
+carrying a path *selector* gets a content-based cache key computed from the bytes
+at that path; a copy into the container's rootfs is keyed on the source
+directory's digest as a whole, include patterns or not. So one mount per image is
+what keeps an edit local — and it adds no chain either, a mount being an
+independent mount point rather than a layer on a snapshot.
+
+#### Properties the serial loop had for free, which the fan-out keeps
 
 - **A page that cannot be read still fails the batch**, rather than going
-  missing from a thousand results, and the error names the page — tesseract's
-  own message often cannot, because handed a file leptonica will not decode it
-  falls back to reading the file as a list of image paths and reports the
-  *contents* of the first line as the file it could not open.
+  missing from a thousand results, and the error names **the page** and not the
+  slice it shared an exec with: `Batch: "scans/torn.png": tesseract failed (exit
+  1): …`. A slice's script reports the position it stopped on and re-raises
+  tesseract's own exit status; the module reads that back out of stderr and takes
+  it out of the message it builds. tesseract's own message often cannot name the
+  page, because handed a file leptonica will not decode it falls back to reading
+  the file as a list of image paths and reports the *contents* of the first line
+  as the file it could not open.
 - **The first failure cancels the rest.** A batch that is going to fail has no
-  reason to recognise the remaining pages first.
+  reason to recognise the remaining pages first. Inside the failing slice the
+  images behind the failure never run; the other slices are cancelled through the
+  fan-out's context.
 - **The artifacts are assembled in sorted order**, off execs that finished in
   whatever order they finished in, so the returned directory does not depend on
   the scheduling.
 
-What it no longer has to do is protect a record format: file names with tabs or
-newlines in them were rejected when a manifest had to carry them, and are
-ordinary inputs now.
+Those are covered by `Tesseract.BatchSchedulingSelfTest` as well as by fixtures,
+and that is not a shortcut. The bound as a *floor* needs recognitions that block
+until every one of them has arrived, which no image does; the exec count needs
+three thousand images, which is not a fixture any suite should recognise to learn
+that a slice count is bounded; and the shell quoting needs file names this
+repository will not commit. The scheduling and the partition live in `fanout/`,
+which imports no dagger and runs under `go test -race`.
+
+What the batch no longer has to do is protect a record format: file names with
+tabs or newlines in them were rejected when a manifest had to carry them, and are
+ordinary inputs now — they are shell-quoted, along with every other word of every
+invocation, rather than being refused.
 
 Recognising more than one image at a time also caps OpenMP at one thread per
 process, unless an `ompThreadLimit` was named on `New` — see [OpenMP
 fan-out](#openmp-fan-out--ompthreadlimit) for the measured reason, which is that
 concurrency multiplied by threads is the one shape slower than doing nothing.
-The bound rides on a copy of the module rather than the caller's, so nothing
-else built from the same `Tesseract` sees it, and the two images still share the
-package fetch.
+The processes are the slices' execs rather than the images': a slice runs its
+images one after another, so there are `workers()` tesseract processes alive at a
+time whether the batch holds sixteen images or three thousand, which is exactly
+the count the bound names. The bound rides on a copy of the module rather than
+the caller's, so nothing else built from the same `Tesseract` sees it, and the
+two images still share the package fetch.
 
 ### Which files take part
 
@@ -602,7 +714,7 @@ directory of PNGs states them:
   render always names it.
 - **The thread bound.** `OmpThreadLimit: 1` alongside `WithConcurrency`, or the
   two multiply — see [OpenMP fan-out](#openmp-fan-out--ompthreadlimit). `Batch`
-  applies it to its own exec when the caller named no bound, so this is
+  applies it to its own execs when the caller named no bound, so this is
   belt-and-braces rather than required.
 
 **Page order is name order.** The `pdf` module pads its page numbers to a fixed
@@ -784,11 +896,21 @@ and there is no chained-method propagation problem to worry about. `Container`,
 a floating Alpine tag can resolve differently across sessions.
 
 What *is* worth knowing is the granularity underneath those functions. A `Batch`
-recognises each image in its own exec mounting only that image, so the engine
-caches per page: the second export of a fifty-page folder with one page edited
-re-recognises one page. `Training` is the opposite by nature — one exec for the
-whole run, one cache entry, see [One exec, one cache entry](#one-exec-one-cache-entry)
-— because a fine-tune is not separable into per-sample work.
+recognises a **slice** of images per exec, each image mounted on its own, so the
+engine caches per slice: the second export of a fifty-page folder with one page
+edited re-recognises that page's slice — one or two pages at the default bound on
+a 32-CPU host, and `ceil(images / WithConcurrency)` in general. It was one page
+before #371; see [What that cost](#what-that-cost-measured-rather-than-assumed)
+for the number and for the bound that buys the old granularity back.
+
+The count that does *not* grow is the exec count, and with it the fold depth:
+**fold depth tracks the number of execs, not the number of files**, because a
+directory produced by an exec is one snapshot however many files it holds. That
+is what keeps a three-thousand-image batch off containerd's mount-data ceiling.
+
+`Training` is the opposite by nature — one exec for the whole run, one cache
+entry, see [One exec, one cache entry](#one-exec-one-cache-entry) — because a
+fine-tune is not separable into per-sample work.
 
 ## Follow-ups
 
@@ -796,6 +918,12 @@ An `examples/go` cookbook (#224); evaluation against a held-out set (#231);
 authenticating to a private *container* registry for the mirrored Alpine image
 (#235), which the apk options above deliberately do not cover — they configure
 the package fetch, not the image pull.
+
+`fanout/` is a **copy** of `pdf/fanout`, deliberately and temporarily. Each
+daggerverse module is its own Go module whose Dagger context is its own
+directory, so neither can import the other's packages; #321 is the issue that
+lifts one shared fan-out out of both. Keeping the two identical until then is
+what makes that a move rather than a merge, so a change to one belongs in both.
 
 The chained `Ci` builder (#223) and the training toolchain (#222) both landed —
 see above. `Ci` deliberately exposes only `WithLanguage` of the seven recognition

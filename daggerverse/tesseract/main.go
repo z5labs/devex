@@ -49,11 +49,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
 	"strings"
 
+	"dagger/tesseract/fanout"
 	"dagger/tesseract/internal/dagger"
 )
 
@@ -121,6 +123,37 @@ const (
 	// extension filter isImagePath applies on top of it, because Dagger's glob
 	// has no brace expansion to spell the alternation with.
 	defaultBatchGlob = "**/*"
+
+	// batchSourceDir is where one worker's slice of the batch is mounted, under
+	// the caller's own paths: `scans/deep/page-3.png` is mounted at
+	// `/work/batch/scans/deep/page-3.png` and recognised onto
+	// `/out/scans/deep/page-3`. Keeping the input layout is what lets the
+	// mirrored output layout be written outright rather than renamed afterwards,
+	// what lets a slice's whole output directory be taken as one snapshot, and
+	// what keeps tesseract's own messages naming something the caller wrote.
+	batchSourceDir = workDir + "/batch"
+
+	// imageFailureFn is the shell function a slice's script routes a failed
+	// image through, and imageFailureMarker the line it prints. Together they
+	// are how a slice of images recognised in one exec still fails by the
+	// image's own name: the exec carries several images, so the image cannot
+	// come from a label Go chose for it, and the script is the only thing that
+	// knows which command was running. The marker is stripped back out of stderr
+	// before the message is built — see takeFailedImage — so it names the image
+	// without appearing in what the caller reads.
+	//
+	// What the function is handed is the image's *position in the slice* rather
+	// than its path. Go already holds the slice, so the position is enough to
+	// name the image, and a position cannot be a path carrying a newline, a
+	// quote or the marker's own text.
+	//
+	// The position reaches the function as `$1` and tesseract's own exit status
+	// as `$2`, which is re-raised unchanged: a caller reading `exit 1` should be
+	// reading tesseract's 1 and not a code this module invented. Inside a shell
+	// function the positional parameters are the function's own, so this does
+	// not collide with any argument the script is run with.
+	imageFailureFn     = "_tesseract_image_failed"
+	imageFailureMarker = "tesseract-module-image-failed:"
 
 	// trainingSourceDir is where Training mounts the caller's pairs together
 	// with the box files generated for them, and trainingManifestPath the
@@ -419,6 +452,29 @@ func (t *Tesseract) Container() *dagger.Container {
 	return ctr
 }
 
+// BatchSchedulingSelfTest verifies the properties the batch fan-out depends on:
+// that every image runs, that WithConcurrency is honoured as both a ceiling and
+// a floor, that a failure partway through is the error reported, that it stops
+// the images behind it from starting, that a batch of any size splits into no
+// more slices than the bound allows, and that an image's failure is still
+// readable back out of the exec that recognised several images.
+//
+// It sits on the module rather than in the test module because it checks
+// unexported scheduling and unexported script assembly, and it exists at all
+// because no directory of images can check most of it. The bound as a floor
+// needs recognitions that block until every one of them has arrived; the exec
+// count needs three thousand images, which is not a fixture any suite should
+// recognise to learn that a slice count is bounded; and the quoting needs file
+// names this repository will not commit.
+//
+// It runs in-process and needs no container, so it is cheap enough to be a check
+// of its own.
+//
+// +check
+func (t *Tesseract) BatchSchedulingSelfTest(ctx context.Context) error {
+	return errors.Join(fanout.SelfCheck(), batchSelfCheck())
+}
+
 // Version returns the tesseract release the assembled image ships, as the
 // bare version number reported by `tesseract --version`.
 //
@@ -648,5 +704,12 @@ func parseLangs(out string) []string {
 func combinedOutput(ctx context.Context, exec *dagger.Container) string {
 	stdout, _ := exec.Stdout(ctx)
 	stderr, _ := exec.Stderr(ctx)
+	return joinOutput(stdout, stderr)
+}
+
+// joinOutput is combinedOutput over streams already read, which is what a batch
+// slice needs: its stderr has this module's own failure marker taken out of it
+// before the message is built, so it cannot be re-read off the exec here.
+func joinOutput(stdout, stderr string) string {
 	return strings.TrimSpace(strings.TrimSpace(stdout) + "\n" + strings.TrimSpace(stderr))
 }
