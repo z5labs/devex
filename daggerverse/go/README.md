@@ -287,3 +287,47 @@ if _, err := dag.Container().
 The `WithBuild` second parameter is named `binaryName` (CLI flag
 `--binary-name`) to avoid colliding with Dagger CLI's top-level
 `--output/-o` flag.
+
+### Lint stage: golangci-lint v2
+
+`WithLint` installs **golangci-lint v2**. Write your `.golangci.yml` in the
+v2 dialect — the file has to open with `version: "2"`:
+
+```yaml
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+```
+
+The majors are not interchangeable, and the mismatch is not tolerated in
+either direction. A v1 binary handed a v2 file answers `you are using a
+configuration file for golangci-lint v2 with golangci-lint v1`; a v2 binary
+handed a v1 file answers `unsupported version of the configuration: ""`.
+Either way nothing is linted. So this is worth knowing before the pipeline
+rejects the file rather than after —
+[upstream's migration guide](https://golangci-lint.run/docs/product/migration-guide)
+covers translating an existing v1 config, and `golangci-lint migrate` does
+most of it.
+
+The exact release is pinned by `defaultGolangciLintVersion` in
+[`ci.go`](ci.go), and that constant is the only place it is written down: no
+config file, bundled or adopted, repeats it. `WithLint(version, config)`
+overrides it per pipeline, and the module path installed follows the pinned
+major — `github.com/golangci/golangci-lint/cmd/golangci-lint` below v2, and
+`.../golangci-lint/v2/cmd/golangci-lint` at v2 and above — so pinning a
+`v1.x` release rolls the stage back, config dialect included, without
+forking anything.
+
+The linter is built with an unpinned Go toolchain rather than with the one
+`Go` was constructed for. golangci-lint's own `go.mod` tracks the newest Go
+release (v2 needs 1.25) and the official `golang` images set
+`GOTOOLCHAIN=local`, so building it inside a project's toolchain fails for
+any project a release or two behind. It is a tool, not part of the
+project's build; it still *runs* against the project's toolchain.

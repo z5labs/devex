@@ -1,0 +1,9 @@
+# A minimal golangci-lint v2 configuration. `version: "2"` is what makes it
+# v2: the field is required by a v2 binary and rejected by a v1 one, so this
+# file is the proof that the lint stage really does run v2.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - govet

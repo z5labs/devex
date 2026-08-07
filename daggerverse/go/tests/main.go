@@ -23,6 +23,8 @@ type Tests struct{}
 // Note: ContainerInfersVersionFromGoMod intentionally ignores goImageTag —
 // it asserts the empty-version inference path against a 1.23 fixture, so a
 // caller-supplied override would defeat what the test is verifying.
+// CiWithLintBuildsUnderOlderGoToolchain takes no goImageTag at all for the
+// same reason: the toolchain it pins is the subject of the assertion.
 //
 // parallel caps how many tests run concurrently inside this suite. Defaults
 // to 0 (unbounded fan-out) — each `dagger check` job runs on its own GH
@@ -148,6 +150,19 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiWithLintPasses", func(ctx context.Context) error {
 		return t.CiWithLintPasses(ctx, goImageTag)
 	})
+	jobs = jobs.WithJob("CiWithLintAcceptsV2Config", func(ctx context.Context) error {
+		return t.CiWithLintAcceptsV2Config(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("CiWithLintRejectsV1Config", func(ctx context.Context) error {
+		return t.CiWithLintRejectsV1Config(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("CiWithLintRollsBackToV1", func(ctx context.Context) error {
+		return t.CiWithLintRollsBackToV1(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("CiWithLintRejectsUnreadableVersion", func(ctx context.Context) error {
+		return t.CiWithLintRejectsUnreadableVersion(ctx, goImageTag)
+	})
+	jobs = jobs.WithJob("CiWithLintBuildsUnderOlderGoToolchain", t.CiWithLintBuildsUnderOlderGoToolchain)
 	jobs = jobs.WithJob("CiRunHelloAllStages", func(ctx context.Context) error {
 		return t.CiRunHelloAllStages(ctx, goImageTag)
 	})
@@ -332,6 +347,114 @@ func (t *Tests) CiWithLintPasses(ctx context.Context, goImageTag string) error {
 	}
 	if size == 0 {
 		return fmt.Errorf("expected non-empty binary, got size 0")
+	}
+	return nil
+}
+
+// golangciConfig returns one of the lint-dialect config fixtures by file
+// name (v1.yml / v2.yml).
+func golangciConfig(name string) *dagger.File {
+	return dag.CurrentModule().Source().File("fixtures/golangci/" + name)
+}
+
+// CiWithLintAcceptsV2Config runs the lint stage with a golangci-lint **v2**
+// configuration and asserts it passes.
+//
+// This is the assertion that the default pin is a v2 release. A v1 binary
+// does not ignore a v2 config file, it refuses it before running any
+// linter — "you are using a configuration file for golangci-lint v2 with
+// golangci-lint v1" — so this test fails outright the moment the pin slips
+// back across the major boundary, which is the failure adopters hit.
+func (t *Tests) CiWithLintAcceptsV2Config(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithLint(dagger.GoCiWithLintOpts{Config: golangciConfig("v2.yml")}).
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithLint with a v2 config: %w", err)
+	}
+	return nil
+}
+
+// CiWithLintRejectsV1Config is the other half of CiWithLintAcceptsV2Config:
+// a v1-dialect config must now fail. Without it, "accepts a v2 config" is
+// also satisfied by a binary that accepts everything, and the dialect the
+// stage actually requires would stay unpinned.
+//
+// The assertion is on *how* it fails, not merely that it does. The
+// module boundary drops golangci-lint's stderr from the Go error — what
+// survives is the exec's exit code — and golangci-lint distinguishes the
+// two outcomes there: 3 is "could not load the config", 1 is "the config
+// loaded and linters reported issues". Accepting any failure would let a
+// v2 binary that merely dislikes the fixture pass for a v1 binary that
+// happily loaded a v1 file.
+func (t *Tests) CiWithLintRejectsV1Config(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithLint(dagger.GoCiWithLintOpts{Config: golangciConfig("v1.yml")}).
+		Check(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Ci.WithLint with a v1 config to fail under a v2 golangci-lint, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit code: 3") {
+		return fmt.Errorf("expected the v1 config to be refused as unloadable (golangci-lint exit code 3), got: %s", msg)
+	}
+	return nil
+}
+
+// CiWithLintRollsBackToV1 pins a golangci-lint v1 release together with a
+// v1-dialect config and asserts the stage passes.
+//
+// Rolling back is not merely a different `@version`: Go's semantic import
+// versioning put v2 on a `/v2` module path, so the package installed has
+// to follow the pinned major. This is the test that the derivation works
+// on the other side of that boundary — without it, everything below v2 is
+// a path nothing exercises.
+func (t *Tests) CiWithLintRollsBackToV1(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithLint(dagger.GoCiWithLintOpts{
+			Version: "v1.64.8",
+			Config:  golangciConfig("v1.yml"),
+		}).
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithLint pinned to v1.64.8: %w", err)
+	}
+	return nil
+}
+
+// CiWithLintRejectsUnreadableVersion asserts a version the module cannot
+// read a major out of is refused with a message naming it, rather than
+// being guessed at and surfacing later as an unresolvable package.
+func (t *Tests) CiWithLintRejectsUnreadableVersion(ctx context.Context, goImageTag string) error {
+	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+		WithLint(dagger.GoCiWithLintOpts{Version: "1.64.8"}).
+		Check(ctx)
+	if err == nil {
+		return fmt.Errorf(`expected Ci.WithLint pinned to "1.64.8" to fail, got nil`)
+	}
+	if msg := err.Error(); !strings.Contains(msg, `golangci-lint version "1.64.8"`) {
+		return fmt.Errorf("expected the error to name the rejected version, got: %s", msg)
+	}
+	return nil
+}
+
+// CiWithLintBuildsUnderOlderGoToolchain pins the Go toolchain below what
+// golangci-lint v2's own go.mod requires and asserts the lint stage still
+// runs.
+//
+// golangci-lint tracks the newest Go release, and the official golang
+// images set GOTOOLCHAIN=local, so building the linter inside a project's
+// pinned toolchain fails for any project a release or two behind — exactly
+// the repository most likely to be adopting the standard pipeline. The
+// stage therefore builds the linter with an unpinned toolchain and only
+// *runs* it under the project's. Pinning 1.23 here rather than honouring
+// goImageTag is the point of the test; a caller-supplied override would
+// defeat it.
+func (t *Tests) CiWithLintBuildsUnderOlderGoToolchain(ctx context.Context) error {
+	err := dag.Go(dagger.GoOpts{Version: "1.23"}).Ci(helloDir()).
+		WithLint().
+		Check(ctx)
+	if err != nil {
+		return fmt.Errorf("Ci.WithLint under a pinned go1.23 toolchain: %w", err)
 	}
 	return nil
 }

@@ -465,6 +465,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).CiWithFmtPasses(&parent, ctx, goImageTag)
+		case "CiWithLintAcceptsV2Config":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).CiWithLintAcceptsV2Config(&parent, ctx, goImageTag)
+		case "CiWithLintBuildsUnderOlderGoToolchain":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiWithLintBuildsUnderOlderGoToolchain(&parent, ctx)
 		case "CiWithLintPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -479,6 +500,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).CiWithLintPasses(&parent, ctx, goImageTag)
+		case "CiWithLintRejectsUnreadableVersion":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).CiWithLintRejectsUnreadableVersion(&parent, ctx, goImageTag)
+		case "CiWithLintRejectsV1Config":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).CiWithLintRejectsV1Config(&parent, ctx, goImageTag)
+		case "CiWithLintRollsBackToV1":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var goImageTag string
+			if inputArgs["goImageTag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["goImageTag"]), &goImageTag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg goImageTag", err))
+				}
+			}
+			return nil, (*Tests).CiWithLintRollsBackToV1(&parent, ctx, goImageTag)
 		case "CiWithTestPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

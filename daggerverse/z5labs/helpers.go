@@ -69,7 +69,11 @@ func writeWorkdirFile(name string, content []byte) (*dagger.File, error) {
 
 // sharedCheck runs the standard z5labs check stages (fmt, vet, lint with
 // the resolved config, test -race) against source via the go module dep.
-func sharedCheck(ctx context.Context, source *dagger.Directory, lintOverride *dagger.File) error {
+//
+// lintVersion is passed straight through: empty means the `go` module's
+// pinned default, which is what keeps the pin a single edit in one place
+// rather than a number restated here as well.
+func sharedCheck(ctx context.Context, source *dagger.Directory, lintOverride *dagger.File, lintVersion string) error {
 	cfg, err := resolvedLintConfig(ctx, lintOverride)
 	if err != nil {
 		return err
@@ -78,7 +82,7 @@ func sharedCheck(ctx context.Context, source *dagger.Directory, lintOverride *da
 		Ci(source).
 		WithFmt().
 		WithVet().
-		WithLint(dagger.GoCiWithLintOpts{Config: cfg}).
+		WithLint(dagger.GoCiWithLintOpts{Config: cfg, Version: lintVersion}).
 		WithTest(dagger.GoCiWithTestOpts{Race: true}).
 		Check(ctx)
 }
