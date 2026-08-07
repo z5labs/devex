@@ -403,79 +403,184 @@ png  := conv.Png()
 tiff := conv.Tiff()
 ```
 
-### One exec per page, fanned out from Go
+### One invocation per page, one exec per worker
 
 ```go
 doc.Convert().WithDpi(300).WithConcurrency(8).Png()   // default: one page per CPU
 ```
 
-`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps` and `Html` render **one page per exec**, as
-many at a time as `WithConcurrency` allows. The bound, the scheduling, the
-fail-fast and the error message are all Go — nothing about running a conversion
-is interpreted inside a container.
+`Png`, `Jpeg`, `Tiff`, `Svg`, `Eps` and `Html` run **one poppler invocation per
+page**, and split those invocations across **at most `WithConcurrency` execs** —
+one contiguous slice of the document each. The bound, the partition, the
+scheduling, the fail-fast and the error message are all Go; the only thing
+interpreted inside a container is the list of per-page commands that slice was
+handed.
 
-That is a reversal, and it is the same one [#298][i298] made in `tesseract`.
-Until #309 the raster family was a single `pdftoppm` over the whole document,
-and the vector family a page loop *inside* one exec. `pdftoppm` renders a range
-serially in one process, so an N-page document was one core for as long as it
-took, however many the machine had:
+That is two reversals, a release apart, and they answer different questions.
 
-| pages | one exec | one exec per page, Go fan-out |
+**The first** is the same one [#298][i298] made in `tesseract`: until #309 the
+raster family was a single `pdftoppm` over the whole document and the vector
+family a page loop *inside* one exec, and `pdftoppm` renders a range serially in
+one process, so an N-page document was one core for as long as it took, however
+many the machine had.
+
+| pages | one exec | Go fan-out |
 | --- | --- | --- |
 | 12 | 17.0s | **4.0s** |
 | 48 | 60.4s | **6.5s** |
 | 48, one page edited | 60.7s | 6.5s |
-| 48, pages 1–24 already rendered | 61.0s | **4.3s** |
 
-`dagger call document --source=… convert with-dpi --dpi=300 png entries`, median
-of three, a freshly generated document every run so nothing is a cache hit,
-32-CPU host, 300 dpi; ~1.2s of every figure is CLI startup and module load. Both
-columns produce a **byte-identical directory** — the same `sha256` — which is
-the point: concurrency is allowed to change how long a render takes and nothing
-else.
+**The second** is #370, and it is not about parallelism at all — the fan-out
+already admitted only `workers()` pages at a time. It is about how many
+*containers* were created to run them: a 3,000-page conversion on a 16-CPU host
+created 3,000 execs in order to run 16, and then folded 3,000 directories into
+one. That fold is the thing that broke.
 
-The last two rows are the ones worth reading carefully, because **only one of
-them is a win, and it is not the one `tesseract` got.**
+| pages | one exec per page | one exec per slice |
+| --- | --- | --- |
+| 400, 150 dpi | 19.8s, 400 execs | **5.2s**, 32 execs |
+| 3,000, `-scale-to 32` | **fails after 1m7s** | **9.3s**, 32 execs |
 
-- **Editing a page re-renders the whole document, in both columns.** Every
-  page's exec mounts the *same* PDF, so a change to any byte of it invalidates
-  all of them. `tesseract`'s `Batch` gets the opposite result — 50 pages, one
-  edited, 17.5s → 2.5s — because there each exec mounts *its own image file*.
-  A per-item exec only caches per item when the items are separate inputs, and
-  the pages of a PDF are not.
-- **Rendering a page range you have already rendered part of is a win.** Pages
-  1–24 followed by the whole 48 costs 4.3s against 6.4s cold, because the first
-  24 execs are hits. That is the [#300](https://github.com/z5labs/devex/issues/300)
-  sharding case: a document rendered in slices, or a slice widened after the
-  fact, no longer re-renders what it already has.
+Median of three for the 400-page row, a freshly generated document every run so
+nothing is a cache hit, 32-CPU host; ~1.2s of every figure is CLI startup and
+module load. The directory is **byte-identical** across the change and across
+every bound — the same `sha256` for `Png`, `Svg` and `Html` before and after —
+which is the point: concurrency is allowed to change how long a render takes and
+nothing else.
 
-Three properties the serial loop had for free, which the fan-out has to keep:
+> **`Eps` and `Ps` are the exception, and it is cairo's rather than this
+> module's.** Cairo writes the wall clock into every EPS and PS document it
+> produces, as a `%%CreationDate` DSC comment on line three, and honours neither
+> `SOURCE_DATE_EPOCH` nor any `pdftocairo` flag — measured against the pinned
+> cairo 1.18.4. So two `Eps` renders at different bounds are different execs at
+> different instants, that line differs, and the directory digests differ with
+> it. Everything drawn is identical, which is what the suite asserts, file by
+> file, with that one line held aside.
+>
+> This was always true and used to be invisible: at every bound the old fan-out
+> produced *the same* execs, so two bounds were one cache entry and the digests
+> matched without the rendering having to be reproducible at all. Slicing by the
+> bound is what made a pre-existing non-determinism observable. A caller who
+> needs reproducible vector output wants `Svg`, which carries no timestamp.
+
+#### Why folding per page could not survive a long document
+
+Every `WithDirectory` or `WithFile` that folds an exec's output into the result
+adds an overlayfs lowerdir to the destination snapshot's chain. Mounting that
+snapshot goes through containerd, which compacts the lowerdir list and then
+refuses joined mount data over one page:
+
+```go
+dataInStr := strings.Join(opt.data, ",")
+if len(dataInStr) > pagesize {            // pagesize = 4096
+    return errors.New("mount options is too long")
+}
+```
+
+`containerd/v2@v2.2.3/core/mount/mount_linux.go:153`, the version dagger v0.21.7
+pins. Bisected against a live engine the fold was fine at 430 and failed at 440
+— and **the ceiling shrinks as an engine ages**, because each call burns two
+snapshot IDs and the compacted string is `160 + 9N` bytes at 5-digit IDs, ~393 at
+6 digits, ~357 at 7. The same conversion could work one week and fail the next on
+a busier engine. Reported against a ~3,000 page document in
+[#314](https://github.com/z5labs/devex/discussions/314).
+
+**Chunking the fold only moves that wall** — `sqrt(n)` grouping holds to ~185k
+files and still has a depth that grows with the document. The property worth
+building on instead is that a directory produced by an exec is **one snapshot
+however many files that exec wrote**. The chain is created purely by graph-level
+composition, never by the filesystem, so
+
+    fold depth = number of execs folded
+
+and the page count does not appear in it. Partitioning the pages into
+`workers()` slices makes the depth a property of the machine's core count, which
+does not grow with the document.
+
+> **This matters to a caller assembling a directory of its own.** The ceiling is
+> on the *chain*, not on this module: a consumer that takes this directory and
+> re-folds it a page at a time — `WithFile` per entry into some other tree —
+> rebuilds exactly the depth this removed, and hits the same
+> `mount options is too long` at the same few hundred. Fold the directory once,
+> or fold whatever an exec produced, rather than fold its entries.
+
+#### What that cost, measured rather than assumed
+
+#309 recorded one win that depended on **slice boundaries**, and slicing by
+`workers()` moves those boundaries with the length of the range. Re-run here,
+48 pages at 300 dpi, median of three, a fresh document per run:
+
+| | cold, whole 48 | after pages 1–24 |
+| --- | --- | --- |
+| one exec per page | 4.26s | **3.21s** |
+| one exec per slice | 4.01s | 3.73s |
+
+**The overlapping-page-range win is largely gone**, and that is the trade. Under
+one exec per page, pages 1–24 rendered first left 24 entries the 48-page render
+hit outright. Under slicing, 24 pages on a 32-CPU host is 24 one-page slices
+while 48 pages is sixteen two-page slices plus sixteen one-page ones, so almost
+nothing lines up; what is left (~0.28s) is the `pdfinfo` page count and warm-up.
+The [#300](https://github.com/z5labs/devex/issues/300) sharding case therefore
+re-renders what it has already rendered, unless the *same* range is asked for
+again under the same bound, which is a full hit and free.
+
+It was not worth keeping. Anchoring the slices to the whole document instead of
+to the range would restore the boundaries and cost the thing the sharding case
+exists for: pages 1–24 of a 3,000-page document would fall inside a single
+94-page slice and render in **one** exec, with no parallelism at all.
+
+The other #309 finding is unchanged and was never a win:
+
+- **Editing a page re-renders the whole document.** Every exec mounts the *same*
+  PDF, so a change to any byte of it invalidates all of them. `tesseract`'s
+  `Batch` gets the opposite result — 50 pages, one edited, 17.5s → 2.5s —
+  because there each exec mounts *its own image file*. A per-item exec only
+  caches per item when the items are separate inputs, and the pages of a PDF are
+  not.
+
+#### Properties the serial loop had for free, which the fan-out keeps
 
 - **A page that cannot be rendered fails the whole conversion**, rather than
-  going missing from a directory of a thousand, and the error names the page:
-  `Png page 7 failed (exit 99): …`.
+  going missing from a directory of a thousand, and the error names **the page**
+  and not the slice it shared an exec with: `Png page 7 failed (exit 99): …`.
+  A slice's script reports the page it stopped on and re-raises poppler's own
+  exit status; the module reads that back out of stderr and takes it out of the
+  message it builds.
 - **The first failure cancels the rest.** A conversion that is going to fail has
-  no reason to render the remaining pages first.
+  no reason to render the remaining pages first. Inside the failing slice the
+  pages behind the failure never run; the other slices are cancelled through the
+  fan-out's context.
 - **The pages are assembled in page order**, off execs that finished in whatever
   order they finished in, so the returned directory does not depend on the
   scheduling.
+- **`-singlefile` is retained per page.** The padding width still comes from the
+  Go-side plan and `-forcenum` stays out — see
+  [`Split` and `Merge`](#split-and-merge--page-structure-not-pixels) for the
+  contract both families reach. It is also why a slice's whole output directory
+  can be taken: `-singlefile` writes exactly `<base>.<ext>` and nothing else.
 
-Those three are covered by `Pdf.RenderSchedulingSelfTest` rather than by a
-fixture, and that is not a shortcut — **poppler will not fail a page.** Measured
-against the pinned poppler 25.12, every damaged page shape is a warning on
-stderr and an exit status of 0, with a file still written: a dangling page-tree
-kid, a kid of the wrong type, a loop in the page tree, a null kid, a
-two-million-point `MediaBox`, a `MediaBox` of zero, and a resolution large enough
-to print `Bogus memory allocation size`. The only non-zero exits are for a
-document that cannot be opened at all and for a page range outside it, and both
-are caught before any page is rendered. So no document makes one page of a render
-fail, the scheduling is tested where it lives — `fanout/`, which imports no
-dagger and runs under `go test -race` — and the fail-fast exists for the
-failures poppler *does* report rather than for one this repo can demonstrate.
+Those are covered by `Pdf.RenderSchedulingSelfTest` rather than by a fixture, and
+that is not a shortcut — **poppler will not fail a page.** Measured against the
+pinned poppler 25.12, every damaged page shape is a warning on stderr and an exit
+status of 0, with a file still written: a dangling page-tree kid, a kid of the
+wrong type, a loop in the page tree, a null kid, a two-million-point `MediaBox`,
+a `MediaBox` of zero, and a resolution large enough to print `Bogus memory
+allocation size`. The only non-zero exits are for a document that cannot be
+opened at all and for a page range outside it, and both are caught before any
+page is rendered. So no document makes one page of a render fail, the scheduling
+and the partition are tested where they live — `fanout/`, which imports no dagger
+and runs under `go test -race` — and the fail-fast exists for the failures
+poppler *does* report rather than for one this repo can demonstrate.
 
 > A blank or wrong-looking page is **not** one of the failures this catches, for
 > the same reason: poppler exits 0 for it. [`Fonts`](#fonts--the-blank-page-diagnostic-before-the-blank-page)
 > is the diagnostic for that, before the fact.
+
+`Ps` and `Split` are outside all of this and stayed outside it: each is a single
+invocation writing a single output, so neither has a fold and neither reads
+`WithConcurrency`. `Ps` is asserted byte-identical across the bound rather than
+assumed to be — see [`Svg`, `Eps` and `Ps`](#svg-eps-and-ps--keeping-the-outlines)
+for why a PostScript document cannot be fanned out at all.
 
 [i298]: https://github.com/z5labs/devex/issues/298
 
@@ -494,11 +599,12 @@ one core against ~30s of 14-core recognition — two thirds of the wall clock fo
 a third of the CPU. The same document on a 32-CPU host is ~13s of recognition
 against an unchanged ~60s of render.
 
-**Every existing caller's cache entries churn once**, and that is a property of
-the fan-out and not of the default: one exec per page is N entries at *every*
-bound, including `WithConcurrency(1)`. The first conversion after upgrading
-re-renders; the old single entry is orphaned and expires on Dagger's usual
-7-day TTL.
+The setting now carries a second meaning — how many execs a conversion creates,
+and so how the results cache — because the two were never independent. A slice is
+the unit that hits or misses, so **every existing caller's cache entries churn
+once** whenever the bound changes, and once more on upgrading to this release.
+The first conversion after either re-renders; the orphaned entries expire on
+Dagger's usual 7-day TTL.
 
 #### What the per-page open costs
 
@@ -695,7 +801,8 @@ reachable, and `SvgWritesOneVectorFilePerPage` asserts the absence of a
 
 **EPS refuses multi-page outright.** `pdftocairo -eps` handed a document with a
 second page writes nothing and exits 99 with `EPS files can only contain one
-page.` The per-page fan-out is what turns that refusal into the whole document.
+page.` The per-page invocation is what turns that refusal into the whole
+document.
 Note that an EPS's bounding box is the page's **ink**, not its media box —
 poppler crops to what is drawn, so a US Letter page with one line of text on it
 comes out a few inches wide. That is EPS's own convention (a figure carries its
@@ -708,8 +815,8 @@ per page. A directory of one-page fragments would look tidier beside `Svg` and
 `Eps` and be individually invalid.
 
 That is also why **`Ps` is the one render that stays a single invocation**, and
-why `WithConcurrency` does nothing for it. Every other page-per-file output fans
-out an exec per page and assembles the directory afterwards; a PostScript
+why `WithConcurrency` does nothing for it. Every other page-per-file output runs
+one invocation per page and assembles the directory afterwards; a PostScript
 document cannot be assembled that way, because concatenating the fragments is
 not the same operation as writing the document — the result needs its prologue,
 its page markers and its `%%Pages:` count rewritten, which is a PostScript editor
@@ -757,15 +864,17 @@ at all. `Split` is `pdfseparate`: one PDF per page, named to the same
 `page-0001.pdf` onwards. `Merge` is `pdfunite`: several PDFs concatenated into
 one.
 
-**`Split` stays one exec**, where the renders now fan out a page at a time, and
-that is a measured decision rather than an omission. Splitting is not
+**`Split` stays one exec**, where the renders fan out across `workers()` of them,
+and that is a measured decision rather than an omission. Splitting is not
 rasterizing: `pdfseparate` copies page objects, at **0.8 ms/page** for the whole
 document in one invocation against 5.8 ms/page one invocation per page. A page
 that costs a millisecond does not want its own container — the Dagger exec around
 it costs two orders of magnitude more than the work — so a fan-out here would
 make `Split` slower for every document and buy nothing but cache granularity
 nobody is waiting on. `Convert.WithConcurrency` therefore does not reach it, and
-`Split` needs no bound of its own.
+`Split` needs no bound of its own. It is also the one page-per-file output with
+no fold at all: `pdfseparate` writes every page into one exec's directory, which
+is one snapshot, so the ceiling #370 removed from the renders was never over it.
 
 They are **lossless** in a way no conversion is. Each split page carries the
 original page's own objects across — its text layer, its fonts, its annotations,
@@ -1004,10 +1113,10 @@ range in one invocation, numbered to whatever width the destination pattern
 asked for.
 
 The width comes from `PageCount`, read in **Go**, once per conversion — the
-greater of four and the digits the document's last page needs. That round trip
-is what one exec per page costs and it is the trade the fan-out makes knowingly:
-an exec that renders one page cannot compute a padding width from the files it
-finds, because it finds exactly one. It is the same `pdfinfo` `Info` runs, so a
+greater of four and the digits the document's last page needs. That round trip is
+what the fan-out costs and it is a trade made knowingly: an exec handed a slice
+of the document cannot compute a padding width from the files it finds, because
+no exec sees the whole document. It is the same `pdfinfo` `Info` runs, so a
 conversion of a document already reported on pays nothing for it.
 
 `pdfseparate` is the one that would honour a padded name if it were asked:
@@ -1065,11 +1174,14 @@ transform of its inputs — the document bytes plus the flags — so Dagger's 7-
 default is correct and there is no chained-method propagation problem to worry
 about. Same posture as `tesseract`'s outputs and `kicad`.
 
-What the per-page fan-out changes is the *granularity*: a render is now one cache
-entry per page rather than one per conversion. See [One exec per page](#one-exec-per-page-fanned-out-from-go)
-for what that does and does not buy — it makes an overlapping page range cheap
-and it does **not** make an edited document cheap, because every page's exec
-mounts the same PDF.
+What the fan-out changes is the *granularity*: a render is one cache entry per
+**slice** — `WithConcurrency` of them, or fewer for a document shorter than the
+bound — rather than one per conversion. See
+[One invocation per page](#one-invocation-per-page-one-exec-per-worker) for what
+that does and does not buy. It does **not** make an edited document cheap,
+because every exec mounts the same PDF; and since a slice's boundaries move with
+the length of the range, it no longer makes an overlapping page range cheap
+either — which is measured there rather than assumed.
 
 ## Follow-ups
 
@@ -1078,12 +1190,17 @@ Cropping the render window and selecting odd or even pages (#272); the chained
 does for `tesseract`; linearize, encrypt and repair via qpdf (#274); renderer
 fidelity and colour-profile options (#277).
 
-The per-page fan-out (#309) does **not** address intermediate size: a
-3,000-page 300-dpi directory is still gigabytes crossing a module boundary at
-once, and [#300](https://github.com/z5labs/devex/issues/300)'s `WithPageRange`
-sharding recipe is still the answer to that. What the fan-out changes for it is
-the cost: a shard of a document already partly rendered now reuses the pages it
-has.
+The fan-out (#309, #370) does **not** address intermediate size: a 3,000-page
+300-dpi directory is still gigabytes crossing a module boundary at once, and
+[#300](https://github.com/z5labs/devex/issues/300)'s `WithPageRange` sharding
+recipe is still the answer to that. What #370 changes for it is that a shard no
+longer reuses the pages an overlapping shard already rendered — the slice, not
+the page, is the cache unit now, and its boundaries move with the range. Shard
+for the size, not for the reuse.
+
+The partitioning is written here and will want to move: #321 is where a shared
+fan-out for the workspace belongs, and this and `tesseract`'s `Batch` are two
+copies of the same idea.
 
 `tesseract`'s `FromPdf` was removed in favour of this module (#276): that module
 carries no rasterizer at all now, so `Png()` feeds its `Batch` directly — which

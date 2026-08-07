@@ -93,6 +93,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -199,6 +200,23 @@ const (
 	// at once, and so the smallest bound WithConcurrency accepts: zero pages at
 	// a time renders nothing at all.
 	minRenderConcurrency = 1
+
+	// pageFailureFn is the shell function a slice's script routes a failed page
+	// through, and pageFailureMarker the line it prints. Together they are how a
+	// slice of pages rendered in one exec still fails by the page's own name:
+	// the exec carries several pages, so the page cannot come from the label Go
+	// chose for it, and the script is the only thing that knows which command
+	// was running. The marker is stripped back out of stderr before the message
+	// is built — see takeFailedPage — so it names the page without appearing in
+	// what the caller reads.
+	//
+	// The page reaches the function as `$1` and the tool's own exit status as
+	// `$2`, which is re-raised unchanged: a caller reading `exit 99` should be
+	// reading poppler's 99 and not a code this module invented. Inside a shell
+	// function the positional parameters are the function's own, so this does
+	// not collide with any argument a script is run with.
+	pageFailureFn     = "_pdf_page_failed"
+	pageFailureMarker = "pdf-module-page-failed:"
 
 	// defaultDpi is the resolution pages are rendered at when the caller names
 	// none, and is pdftoppm's own default. It is a screen-reading resolution
@@ -425,10 +443,12 @@ func (p *Pdf) Version(ctx context.Context) (string, error) {
 	return strings.TrimSpace(strings.TrimPrefix(first, "pdftotext version")), nil
 }
 
-// RenderSchedulingSelfTest verifies the properties the per-page render fan-out
-// depends on: that every page runs, that WithConcurrency is honoured as both a
-// ceiling and a floor, that a failure partway through is the error reported, and
-// that it stops the pages behind it from starting.
+// RenderSchedulingSelfTest verifies the properties the render fan-out depends
+// on: that every page runs, that WithConcurrency is honoured as both a ceiling
+// and a floor, that a failure partway through is the error reported, that it
+// stops the pages behind it from starting, that a document of any length splits
+// into no more slices than the bound allows, and that a page's failure is still
+// readable back out of the exec that rendered several pages.
 //
 // It sits on the module rather than in the test module because it checks
 // unexported scheduling, and it exists at all because no document can check it.
@@ -438,12 +458,16 @@ func (p *Pdf) Version(ctx context.Context) (string, error) {
 // warning on stderr and an exit status of 0. So the fail-fast has no fixture
 // that would exercise it, and this is what covers it instead.
 //
+// The exec count is here for a different reason: the shape that breaks it is a
+// three-thousand-page document, which is not a fixture any suite should render
+// to learn that a slice count is bounded.
+//
 // It runs in-process and needs no container, so it is cheap enough to be a check
 // of its own.
 //
 // +check
 func (p *Pdf) RenderSchedulingSelfTest(ctx context.Context) error {
-	return fanout.SelfCheck()
+	return errors.Join(fanout.SelfCheck(), renderSelfCheck())
 }
 
 // Document binds one PDF to the toolchain.
