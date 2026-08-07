@@ -1,5 +1,7 @@
 package fanout
 
+import "context"
+
 // Slice is a contiguous run of units, half-open: the units at indices Start
 // through End-1.
 //
@@ -63,4 +65,54 @@ func Partition(count, workers int) []Slice {
 		start += n
 	}
 	return slices
+}
+
+// RunSlices splits items into at most workers contiguous slices, runs one unit
+// of work per slice — at most workers of them at a time — and returns each
+// unit's result positionally, in slice order.
+//
+// It is the whole of the fan-out in one call, and that is deliberate: the bound
+// is one number that means one thing, and a caller cannot partition by one
+// figure and schedule by another. Pairing Partition with Run by hand is what
+// this replaces; the two are still exported because each is meaningful alone —
+// Run for work that is already a flat count of units, Partition for a caller
+// that needs the boundaries themselves — but nothing should be passing the same
+// bound to both.
+//
+// run receives its slice of items and nothing else. It needs no index: the
+// results come back in the order the slices were cut, so position in the
+// returned slice is position in items, and whatever identifies the work is in
+// the items themselves.
+//
+// Everything Run promises holds here. The bound is a ceiling on units in flight,
+// the first failure is the error returned and cancels the rest, and no result is
+// returned at all when one unit fails — a partial fan-out is not a partial
+// answer, it is an answer with a hole in it.
+//
+// Empty items yields no units and no results, which is a fan-out with nothing to
+// do rather than an error; the render family refuses that case by name long
+// before it reaches here.
+func RunSlices[In, Out any](
+	ctx context.Context,
+	workers int,
+	items []In,
+	run func(ctx context.Context, items []In) (Out, error),
+) ([]Out, error) {
+	slices := Partition(len(items), workers)
+	out := make([]Out, len(slices))
+
+	// Each unit writes only its own element, and Run does not return until every
+	// unit it started has, so the slice needs no lock of its own.
+	err := Run(ctx, workers, len(slices), func(ctx context.Context, i int) error {
+		result, err := run(ctx, items[slices[i].Start:slices[i].End])
+		if err != nil {
+			return err
+		}
+		out[i] = result
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }

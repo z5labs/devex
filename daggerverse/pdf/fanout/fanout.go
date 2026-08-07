@@ -1,6 +1,12 @@
 // Package fanout runs a bounded, fail-fast set of concurrent units of work, and
 // partitions a document's pages into the units that run them.
 //
+// RunSlices is the entry point and does both in one call, taking the bound once.
+// Run and Partition are the primitives it is built from and are exported because
+// each is meaningful alone — Run for work that is already a flat count of units,
+// Partition for a caller that needs the boundaries themselves — but a caller
+// passing the same bound to both wants RunSlices.
+//
 // It is a package of its own, importing no dagger, for a reason that is not
 // tidiness: it is the only way these properties are covered at all. poppler will
 // not produce the failure that exercises them. Measured against poppler 25.12 —

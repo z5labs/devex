@@ -16,9 +16,10 @@ const selfCheckTimeout = 30 * time.Second
 // SelfCheck verifies the properties a render depends on and no fixture can
 // exercise: that every page runs, that the bound is honoured in both directions,
 // that a failure in the middle is the error reported, that it stops the pages
-// behind it from starting, and that a document of any length partitions into no
-// more slices than the bound allows. See the package comment for why this is a
-// self-check rather than a test against a document.
+// behind it from starting, that a document of any length partitions into no more
+// slices than the bound allows, and that RunSlices — the one call the module
+// actually makes — holds all of that together. See the package comment for why
+// this is a self-check rather than a test against a document.
 //
 // It is exposed as a Dagger check so a regression fails CI. The same cases run
 // under `go test -race`, which is where the concurrency itself is checked.
@@ -50,6 +51,10 @@ func selfCheckCases() []selfCheckCase {
 		{"a partition's slices differ in size by at most one", checkPartitionIsBalanced},
 		{"a partition holds no empty slice", checkPartitionHasNoEmptySlice},
 		{"a partition is the same every time", checkPartitionIsStable},
+		{"run-slices hands each unit its own contiguous run of items", checkRunSlicesCoversItems},
+		{"run-slices returns one result per slice, in slice order", checkRunSlicesResultsAreOrdered},
+		{"run-slices returns no results when a unit fails", checkRunSlicesFailureReturnsNothing},
+		{"run-slices honours the bound", checkRunSlicesHonoursTheBound},
 	}
 }
 
@@ -342,6 +347,143 @@ func checkPartitionIsStable() error {
 					count, workers, i, first[i], second[i])
 			}
 		}
+	}
+	return nil
+}
+
+// checkRunSlicesCoversItems is the property a rendered directory rests on end to
+// end: every item reaches exactly one unit, units see contiguous runs, and the
+// runs concatenate back into the original in order. A fan-out that dropped or
+// duplicated an item here would produce a directory short a page or holding one
+// twice, which is the silent failure this whole package exists to refuse.
+func checkRunSlicesCoversItems() error {
+	for _, shape := range partitionShapes() {
+		count, workers := shape[0], shape[1]
+
+		items := make([]int, count)
+		for i := range items {
+			items[i] = i + 1
+		}
+		seen, err := RunSlices(context.Background(), workers, items,
+			func(_ context.Context, got []int) ([]int, error) { return got, nil })
+		if err != nil {
+			return fmt.Errorf("RunSlices over %d items at %d workers: %w", count, workers, err)
+		}
+
+		var flat []int
+		for _, run := range seen {
+			if len(run) == 0 {
+				return fmt.Errorf(
+					"RunSlices over %d items at %d workers: a unit was handed no items",
+					count, workers)
+			}
+			flat = append(flat, run...)
+		}
+		if len(flat) != count {
+			return fmt.Errorf(
+				"RunSlices over %d items at %d workers: the units saw %d items",
+				count, workers, len(flat))
+		}
+		for i, v := range flat {
+			if v != i+1 {
+				return fmt.Errorf(
+					"RunSlices over %d items at %d workers: item %d of the concatenated runs is %d",
+					count, workers, i, v)
+			}
+		}
+	}
+	return nil
+}
+
+// checkRunSlicesResultsAreOrdered asserts the results come back in slice order
+// whatever order the units finished in, which is what lets a caller fold them
+// without sorting. The first unit is made to finish last, so a fan-out that
+// appended results as they arrived would fail here and pass on a serial run.
+func checkRunSlicesResultsAreOrdered() error {
+	const (
+		workers = 4
+		count   = 4
+	)
+
+	items := []int{1, 2, 3, 4}
+	got, err := RunSlices(context.Background(), workers, items,
+		func(_ context.Context, run []int) (int, error) {
+			if run[0] == 1 {
+				time.Sleep(20 * time.Millisecond)
+			}
+			return run[0], nil
+		})
+	if err != nil {
+		return err
+	}
+	if len(got) != count {
+		return fmt.Errorf("expected %d results, got %d", count, len(got))
+	}
+	for i, v := range got {
+		if v != items[i] {
+			return fmt.Errorf("result %d is %d, expected %d", i, v, items[i])
+		}
+	}
+	return nil
+}
+
+// checkRunSlicesFailureReturnsNothing asserts a failed fan-out returns the
+// failing unit's own error and no results at all. A partial slice of results is
+// an answer with a hole in it, and a caller folding it would assemble a
+// directory missing whatever the failed unit was carrying.
+func checkRunSlicesFailureReturnsNothing() error {
+	failure := errors.New("this page could not be rendered")
+
+	items := make([]int, 40)
+	got, err := RunSlices(context.Background(), 4, items,
+		func(_ context.Context, _ []int) (string, error) { return "rendered", failure })
+	if !errors.Is(err, failure) {
+		return fmt.Errorf("expected the failing unit's error, got: %v", err)
+	}
+	if got != nil {
+		return fmt.Errorf("expected no results beside the error, got %v", got)
+	}
+	return nil
+}
+
+// checkRunSlicesHonoursTheBound asserts the single bound reaches both halves:
+// never more than workers units in flight, and never more than workers units at
+// all however long the item list is. The second is the one #370 turned on — a
+// three-thousand-page conversion creating three thousand containers to run
+// sixteen is what it exists to refuse.
+func checkRunSlicesHonoursTheBound() error {
+	const (
+		workers = 3
+		count   = 3000
+	)
+
+	var live, peak, units atomic.Int64
+	items := make([]int, count)
+	got, err := RunSlices(context.Background(), workers, items,
+		func(_ context.Context, _ []int) (int, error) {
+			units.Add(1)
+			n := live.Add(1)
+			for {
+				high := peak.Load()
+				if n <= high || peak.CompareAndSwap(high, n) {
+					break
+				}
+			}
+			time.Sleep(time.Millisecond)
+			live.Add(-1)
+			return 0, nil
+		})
+	if err != nil {
+		return err
+	}
+	if p := peak.Load(); p > workers {
+		return fmt.Errorf("expected at most %d units in flight, saw %d", workers, p)
+	}
+	if n := units.Load(); n != workers {
+		return fmt.Errorf("expected %d items to run in %d units, got %d", count, workers, n)
+	}
+	if len(got) != workers {
+		return fmt.Errorf("expected %d results, got %d", workers, len(got))
 	}
 	return nil
 }

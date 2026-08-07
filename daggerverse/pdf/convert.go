@@ -739,34 +739,27 @@ func pageNumberWidth(count int) int {
 // admitted workers() at a time — a three-thousand-page conversion on a 16 CPU
 // host was creating three thousand containers in order to run sixteen.
 //
-// The scheduling and the partitioning are both the fanout package's, which
-// imports no dagger and is tested with `go test -race` — see that package for
-// why the properties they hold cannot be tested against a document instead. What
-// is here is what makes a failure readable: a slice's script names the page each
-// command covers, so the error still carries the page and not the slice.
+// The scheduling and the partitioning are both fanout.RunSlices', one call
+// taking the bound once — a module that partitioned by one figure and scheduled
+// by another would have two bounds to keep in agreement and no reason for them
+// to differ. That package imports no dagger and is tested with `go test -race`;
+// see it for why the properties it holds cannot be tested against a document
+// instead. What is here is what makes a failure readable: a slice's script names
+// the page each command covers, so the error still carries the page and not the
+// slice.
 func (c *Convert) render(ctx context.Context, label string, prelude []string, jobs []pageJob) ([]*dagger.Container, error) {
-	slices := fanout.Partition(len(jobs), c.workers())
-	execs := make([]*dagger.Container, len(slices))
-
-	// Each unit writes only its own element, and Run does not return until every
-	// unit it started has, so the slice needs no lock of its own.
-	err := fanout.Run(ctx, c.workers(), len(slices), func(ctx context.Context, i int) error {
-		pages := jobs[slices[i].Start:slices[i].End]
-		// Returned as it is rather than %w-wrapped: the error crosses the module
-		// boundary, which unwraps a chain back to the inner error and would drop
-		// the page's name along with it.
-		res, err := c.Document.runPages(ctx, label,
-			pages[0].page, pages[len(pages)-1].page, sliceScript(prelude, pages))
-		if err != nil {
-			return err
-		}
-		execs[i] = res.container
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return execs, nil
+	return fanout.RunSlices(ctx, c.workers(), jobs,
+		func(ctx context.Context, pages []pageJob) (*dagger.Container, error) {
+			// Returned as it is rather than %w-wrapped: the error crosses the
+			// module boundary, which unwraps a chain back to the inner error and
+			// would drop the page's name along with it.
+			res, err := c.Document.runPages(ctx, label,
+				pages[0].page, pages[len(pages)-1].page, sliceScript(prelude, pages))
+			if err != nil {
+				return nil, err
+			}
+			return res.container, nil
+		})
 }
 
 // sliceScript is the script one exec runs: the family's prelude once, then the
