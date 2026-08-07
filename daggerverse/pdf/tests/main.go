@@ -1069,9 +1069,16 @@ func (t *Tests) PsHoldsEveryPageInOneFile(ctx context.Context) error {
 	// Ps is the one render WithConcurrency does not reach, and #370 gave that
 	// setting a second meaning — how many execs a conversion creates — which is
 	// exactly the kind of change that reaches a function documented as being out
-	// of its way. Byte equality across the bound is what says it did not: this
-	// document is written by a single pdftocairo whatever the bound says, and a
-	// Ps that had been fanned out could not produce these bytes at all.
+	// of its way.
+	//
+	// Raw byte equality is the right assertion here precisely because cairo
+	// stamps a wall clock into every PS document it writes (see
+	// RenderConcurrencyAppliesToEveryPerPageFormat). A `Ps` that ignores the
+	// bound is literally the same Dagger query at all three bounds, so it is one
+	// cache entry and one timestamp; a `Ps` that had started reading the bound
+	// would be three different execs at three different instants, and the
+	// `%%CreationDate` alone would fail this even if every drawn byte matched.
+	// The timestamp is the detector, not the noise.
 	for _, n := range []int{1, 4} {
 		got, err := doc.Convert().WithConcurrency(n).Ps().Contents(ctx)
 		if err != nil {
@@ -2999,13 +3006,28 @@ func (t *Tests) RenderConcurrencyMatchesSerialOutput(ctx context.Context) error 
 // markup under pdftohtml's own names — so it is the format whose assembly takes
 // the whole of each render's output rather than one named file, and the format
 // where a fan-out could plausibly lose or collide a file.
+//
+// Eps is compared file by file rather than by digest, and that is not a weaker
+// assertion — it is the only one that has ever meant anything here. **Cairo
+// stamps a wall clock into every EPS and PS it writes**, as a `%%CreationDate`
+// DSC comment on line three, and it honours neither `SOURCE_DATE_EPOCH` nor any
+// pdftocairo flag (measured against the pinned cairo 1.18.4). Until #370 the two
+// bounds produced *literally the same* Dagger query — one exec per page at every
+// bound — so the digests matched because they were one cache entry, and this case
+// asserted nothing about scheduling at all. Now that the bound decides the
+// slicing, the two renders are different execs at different wall-clock instants,
+// and the digests cannot match however deterministic the rendering is. Comparing
+// the bytes with that one line held aside is what actually tests the claim: same
+// names, same rendered content, one field that is a timestamp by construction.
+//
+// Svg and Html keep the digest comparison, cairo's SVG surface and pdftohtml
+// writing no date.
 func (t *Tests) RenderConcurrencyAppliesToEveryPerPageFormat(ctx context.Context) error {
 	for _, tc := range []struct {
 		name   string
 		render func(*dagger.PdfConvert) *dagger.Directory
 	}{
 		{"Svg", func(c *dagger.PdfConvert) *dagger.Directory { return c.Svg() }},
-		{"Eps", func(c *dagger.PdfConvert) *dagger.Directory { return c.Eps() }},
 		// HTML rather than Html: the generated bindings uppercase the acronym.
 		{"Html", func(c *dagger.PdfConvert) *dagger.Directory { return c.HTML() }},
 	} {
@@ -3027,7 +3049,93 @@ func (t *Tests) RenderConcurrencyAppliesToEveryPerPageFormat(ctx context.Context
 				tc.name, concurrent, serial)
 		}
 	}
+
+	conv := pdf().Document(fixture(galleryPdf)).Convert()
+	if err := assertSameRender(ctx, "Eps",
+		conv.WithConcurrency(1).Eps(), conv.WithConcurrency(4).Eps()); err != nil {
+		return err
+	}
 	return nil
+}
+
+// dscCreationDate opens the DSC comment cairo writes its wall clock into. It is
+// the one line of a PS or EPS file that cannot be reproducible.
+const dscCreationDate = "%%CreationDate:"
+
+// assertSameRender compares two renders of one document file by file: identical
+// entry names, and identical bytes once each file's DSC creation date is held
+// aside. It is what a digest comparison would say if cairo did not stamp a
+// timestamp into its own output.
+//
+// The date is required to be present in both rather than merely tolerated when
+// it differs. A render that stopped emitting one — or a comparison quietly
+// passing because both files were empty — would otherwise slip through the
+// normalization, which is the failure mode a "normalize and compare" assertion
+// usually has.
+func assertSameRender(ctx context.Context, label string, serial, concurrent *dagger.Directory) error {
+	serialNames, err := serial.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("%s one page at a time: %w", label, err)
+	}
+	concurrentNames, err := concurrent.Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("%s four at a time: %w", label, err)
+	}
+	if err := assertPageNames(concurrentNames, serialNames); err != nil {
+		return fmt.Errorf("%s: %s", label, err.Error())
+	}
+
+	serialDir, cleanSerial, err := exportedDir(ctx, serial, "eps-serial")
+	if err != nil {
+		return fmt.Errorf("%s one page at a time: %w", label, err)
+	}
+	defer cleanSerial()
+	concurrentDir, cleanConcurrent, err := exportedDir(ctx, concurrent, "eps-concurrent")
+	if err != nil {
+		return fmt.Errorf("%s four at a time: %w", label, err)
+	}
+	defer cleanConcurrent()
+
+	for _, name := range serialNames {
+		want, err := os.ReadFile(filepath.Join(serialDir, name))
+		if err != nil {
+			return fmt.Errorf("%s: reading %s from the serial render: %w", label, name, err)
+		}
+		got, err := os.ReadFile(filepath.Join(concurrentDir, name))
+		if err != nil {
+			return fmt.Errorf("%s: reading %s from the concurrent render: %w", label, name, err)
+		}
+
+		wantDate, wantRest := takeCreationDate(want)
+		gotDate, gotRest := takeCreationDate(got)
+		if wantDate == "" || gotDate == "" {
+			return fmt.Errorf(
+				"%s: expected %s to carry a %s line in both renders, got %q and %q",
+				label, name, dscCreationDate, wantDate, gotDate)
+		}
+		if !bytes.Equal(wantRest, gotRest) {
+			return fmt.Errorf(
+				"%s: expected %s to be byte-identical whatever the scheduling, apart from its %s; it is not",
+				label, name, dscCreationDate)
+		}
+	}
+	return nil
+}
+
+// takeCreationDate splits a PS or EPS file into the DSC creation-date line and
+// everything else, so the everything-else can be compared exactly.
+func takeCreationDate(file []byte) (date string, rest []byte) {
+	for _, line := range bytes.SplitAfter(file, []byte("\n")) {
+		if bytes.HasPrefix(line, []byte(dscCreationDate)) && date == "" {
+			date = string(bytes.TrimRight(line, "\r\n"))
+			continue
+		}
+		// Only the first is held aside. A second would mean the file is not what
+		// this thinks it is, so it stays in the comparison rather than being
+		// normalized away silently.
+		rest = append(rest, line...)
+	}
+	return date, rest
 }
 
 // SplitWritesOnePdfPerPage asserts Split turns a twelve-page document into

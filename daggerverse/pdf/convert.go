@@ -154,9 +154,17 @@ func (c *Convert) WithoutAnnotations() *Convert {
 // three-thousand-page document is this many, not three thousand. It is what
 // decides how the results cache, too: a slice is the unit that hits or misses.
 //
-// What it is still not is a change to the answer. The directory a conversion
-// returns is byte-identical at every bound; concurrency is allowed to change how
-// long a render takes and nothing else.
+// What it is still not is a change to the answer. The same pages come back under
+// every bound, named the same way and rendered from the same bytes; concurrency
+// is allowed to change how long a render takes and nothing else.
+//
+// One caveat, and it is the renderer's rather than this module's: cairo stamps
+// the wall clock into every EPS and PS document it writes, as a
+// `%%CreationDate` DSC comment, and honours neither SOURCE_DATE_EPOCH nor any
+// pdftocairo flag. Two Eps renders at different bounds are different execs at
+// different instants, so that one line differs and the directory digests differ
+// with it. Everything drawn is identical. Png, Jpeg, Tiff, Svg and Html carry no
+// timestamp and are byte-identical at every bound.
 //
 // Ignored by Text, Txt, Bbox, Tsv and Ps, none of which renders a page at a
 // time. See Ps for why that one is a single invocation.

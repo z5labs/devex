@@ -448,6 +448,21 @@ every bound — the same `sha256` for `Png`, `Svg` and `Html` before and after �
 which is the point: concurrency is allowed to change how long a render takes and
 nothing else.
 
+> **`Eps` and `Ps` are the exception, and it is cairo's rather than this
+> module's.** Cairo writes the wall clock into every EPS and PS document it
+> produces, as a `%%CreationDate` DSC comment on line three, and honours neither
+> `SOURCE_DATE_EPOCH` nor any `pdftocairo` flag — measured against the pinned
+> cairo 1.18.4. So two `Eps` renders at different bounds are different execs at
+> different instants, that line differs, and the directory digests differ with
+> it. Everything drawn is identical, which is what the suite asserts, file by
+> file, with that one line held aside.
+>
+> This was always true and used to be invisible: at every bound the old fan-out
+> produced *the same* execs, so two bounds were one cache entry and the digests
+> matched without the rendering having to be reproducible at all. Slicing by the
+> bound is what made a pre-existing non-determinism observable. A caller who
+> needs reproducible vector output wants `Svg`, which carries no timestamp.
+
 #### Why folding per page could not survive a long document
 
 Every `WithDirectory` or `WithFile` that folds an exec's output into the result
