@@ -440,7 +440,7 @@ type PdfConvertBboxOpts struct {
 	//
 	// Add the block and line boxes poppler groups the words into.
 	//
-	WithLayout bool // pdf (../../../../../daggerverse/pdf/convert.go:276:2)
+	WithLayout bool // pdf (../../../../../daggerverse/pdf/convert.go:284:2)
 }
 
 // Bbox returns the document's text layer as an XHTML report carrying a bounding
@@ -472,7 +472,7 @@ type PdfConvertBboxOpts struct {
 // The render options are ignored, this being an extraction and not a render, and
 // so is LayoutMode: the report's structure is poppler's own and is not the text's
 // reading order. WithPageRange narrows it.
-func (r *PdfConvert) Bbox(opts ...PdfConvertBboxOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:272:1)
+func (r *PdfConvert) Bbox(opts ...PdfConvertBboxOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:280:1)
 	q := r.query.Select("bbox")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `withLayout` optional argument
@@ -504,7 +504,7 @@ func (r *PdfConvert) Bbox(opts ...PdfConvertBboxOpts) *File { // pdf (../../../.
 //
 // WithDpi governs rasterized regions; WithColorMode, WithScaleTo and
 // WithoutAnnotations are ignored: see the note on Ps.
-func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:391:1)
+func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:399:1)
 	q := r.query.Select("eps")
 
 	return &Directory{
@@ -531,7 +531,7 @@ func (r *PdfConvert) Eps() *Directory { // pdf (../../../../../daggerverse/pdf/c
 //
 // Every render option is ignored, pdftohtml having no resolution, colour or
 // annotation switch of any kind. WithPageRange narrows it like everything else.
-func (r *PdfConvert) HTML() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:462:1)
+func (r *PdfConvert) HTML() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:470:1)
 	q := r.query.Select("html")
 
 	return &Directory{
@@ -595,7 +595,7 @@ func (r *PdfConvert) UnmarshalJSON(bs []byte) error {
 // Lossy, so it is the format for a preview a human looks at rather than for
 // input another program measures: the artefacts a flat page compresses into sit
 // exactly where thin strokes are, which is where OCR reads.
-func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:334:1)
+func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:342:1)
 	q := r.query.Select("jpeg")
 
 	return &Directory{
@@ -609,7 +609,7 @@ func (r *PdfConvert) Jpeg() *Directory { // pdf (../../../../../daggerverse/pdf/
 // PNG is the format to hand another module: it is lossless, so nothing
 // downstream is reading compression artefacts as page content, and it is what
 // every image library reads without a codec question.
-func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:323:1)
+func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:331:1)
 	q := r.query.Select("png")
 
 	return &Directory{
@@ -642,7 +642,7 @@ func (r *PdfConvert) Png() *Directory { // pdf (../../../../../daggerverse/pdf/c
 // are dropped rather than forwarded because poppler does not ignore them — it
 // exits non-zero with `-mono may only be used with the -png, -jpeg, or -tiff
 // output options`, and `-hide-annotations` is not a pdftocairo option at all.
-func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert.go:420:1)
+func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert.go:428:1)
 	q := r.query.Select("ps")
 
 	return &File{
@@ -670,7 +670,7 @@ func (r *PdfConvert) Ps() *File { // pdf (../../../../../daggerverse/pdf/convert
 // WithDpi governs the rasterized regions a page can still contain — an embedded
 // photograph has no vector form to keep. WithColorMode, WithScaleTo and
 // WithoutAnnotations are ignored: see the note on Ps.
-func (r *PdfConvert) Svg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:369:1)
+func (r *PdfConvert) Svg() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:377:1)
 	q := r.query.Select("svg")
 
 	return &Directory{
@@ -684,11 +684,11 @@ type PdfConvertTextOpts struct {
 	// How much of the page's physical arrangement survives into the text.
 	// Defaults to reading order.
 	//
-	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:190:2)
+	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:198:2)
 	//
 	// Emit no form feed between pages.
 	//
-	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:193:2)
+	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:201:2)
 }
 
 // Text returns the document's text layer as a string.
@@ -703,7 +703,7 @@ type PdfConvertTextOpts struct {
 // Pages are separated by a form feed (U+000C), including after the last one,
 // which is pdftotext's own convention. Pass disablePageBreaks to drop them, for
 // a consumer that wants one flat stream of text.
-func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (string, error) { // pdf (../../../../../daggerverse/pdf/convert.go:185:1)
+func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (string, error) { // pdf (../../../../../daggerverse/pdf/convert.go:193:1)
 	if r.text != nil {
 		return *r.text, nil
 	}
@@ -732,7 +732,7 @@ func (r *PdfConvert) Text(ctx context.Context, opts ...PdfConvertTextOpts) (stri
 // It is the format the document-imaging world already speaks, and the one to
 // pair with MONO: a bilevel TIFF is what a scanner emits and what an archive
 // expects.
-func (r *PdfConvert) Tiff() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:345:1)
+func (r *PdfConvert) Tiff() *Directory { // pdf (../../../../../daggerverse/pdf/convert.go:353:1)
 	q := r.query.Select("tiff")
 
 	return &Directory{
@@ -768,7 +768,7 @@ func (r *PdfConvert) Tiff() *Directory { // pdf (../../../../../daggerverse/pdf/
 // A page with no text layer yields its page row and no word rows rather than a
 // failure, the same boundary Text and Bbox draw. The render options are ignored,
 // as is LayoutMode. WithPageRange narrows it.
-func (r *PdfConvert) Tsv() *File { // pdf (../../../../../daggerverse/pdf/convert.go:313:1)
+func (r *PdfConvert) Tsv() *File { // pdf (../../../../../daggerverse/pdf/convert.go:321:1)
 	q := r.query.Select("tsv")
 
 	return &File{
@@ -782,11 +782,11 @@ type PdfConvertTxtOpts struct {
 	// How much of the page's physical arrangement survives into the text.
 	// Defaults to reading order.
 	//
-	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:220:2)
+	Layout PdfLayoutMode // pdf (../../../../../daggerverse/pdf/convert.go:228:2)
 	//
 	// Emit no form feed between pages.
 	//
-	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:223:2)
+	DisablePageBreaks bool // pdf (../../../../../daggerverse/pdf/convert.go:231:2)
 }
 
 // Txt returns the same text Text returns, as a file rather than a string.
@@ -794,7 +794,7 @@ type PdfConvertTxtOpts struct {
 // Which of the two to reach for is plumbing and nothing more: a file composes
 // with whatever consumes files — another module, an export, a directory being
 // assembled — without the bytes passing through the caller.
-func (r *PdfConvert) Txt(opts ...PdfConvertTxtOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:215:1)
+func (r *PdfConvert) Txt(opts ...PdfConvertTxtOpts) *File { // pdf (../../../../../daggerverse/pdf/convert.go:223:1)
 	q := r.query.Select("txt")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `layout` optional argument
@@ -855,13 +855,21 @@ func (r *PdfConvert) WithColorMode(mode PdfColorMode) *PdfConvert { // pdf (../.
 // three-thousand-page document is this many, not three thousand. It is what
 // decides how the results cache, too: a slice is the unit that hits or misses.
 //
-// What it is still not is a change to the answer. The directory a conversion
-// returns is byte-identical at every bound; concurrency is allowed to change how
-// long a render takes and nothing else.
+// What it is still not is a change to the answer. The same pages come back under
+// every bound, named the same way and rendered from the same bytes; concurrency
+// is allowed to change how long a render takes and nothing else.
+//
+// One caveat, and it is the renderer's rather than this module's: cairo stamps
+// the wall clock into every EPS and PS document it writes, as a
+// `%%CreationDate` DSC comment, and honours neither SOURCE_DATE_EPOCH nor any
+// pdftocairo flag. Two Eps renders at different bounds are different execs at
+// different instants, so that one line differs and the directory digests differ
+// with it. Everything drawn is identical. Png, Jpeg, Tiff, Svg and Html carry no
+// timestamp and are byte-identical at every bound.
 //
 // Ignored by Text, Txt, Bbox, Tsv and Ps, none of which renders a page at a
 // time. See Ps for why that one is a single invocation.
-func (r *PdfConvert) WithConcurrency(concurrency int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:163:1)
+func (r *PdfConvert) WithConcurrency(concurrency int) *PdfConvert { // pdf (../../../../../daggerverse/pdf/convert.go:171:1)
 	q := r.query.Select("withConcurrency")
 	q = q.Arg("concurrency", concurrency)
 
