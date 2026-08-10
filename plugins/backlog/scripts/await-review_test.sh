@@ -145,6 +145,15 @@ check 'a configured pattern that does not match completes' 'bot:coderabbitai[bot
 refusals '{"bot:gemini-code-assist[bot]":"[Rr]eview skipped"}'
 check 'another rungs pattern does not classify this one' 'bot:coderabbitai[bot]' 5 "$COD_DECLINE"
 
+# REGRESSION: the pattern is operator-supplied, so one that opens with a dash
+# is parsed by grep as OPTIONS rather than as a pattern. Without `--` the body
+# is never tested at all, and a rung the operator configured on purpose stops
+# classifying anything.
+refusals '{"bot:coderabbitai[bot]":"-- review skipped"}'
+check 'a pattern opening with a dash is still a pattern' 'bot:coderabbitai[bot]' 1 \
+'{"state":"COMMENTED","body":"Result -- review skipped, the diff is too large."}'
+check 'and it still lets an ordinary review complete' 'bot:coderabbitai[bot]' 0 "$COD"
+
 # A pattern grep cannot compile must never fall through as "did not match" —
 # that reads a refusal as a completed review, which is the merge this whole
 # check exists to prevent. select-issue.sh rejects it at step 1; reaching here

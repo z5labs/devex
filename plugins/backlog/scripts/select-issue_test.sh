@@ -1029,6 +1029,12 @@ roster_fail 'a bot login with a comma is refused' "a GitHub login holds no white
 roster_fail 'a refusal pattern that will not compile is refused' 'not a usable POSIX extended regular expression' \
   '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "*(" } }'
 
+# REGRESSION: without `--`, grep reads a pattern opening with a dash as options
+# and answers 2, so a perfectly good pattern is rejected here as uncompilable —
+# and at step 7 the same parse means the review body is never tested at all.
+roster_ok 'a refusal pattern opening with a dash still compiles' \
+  '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "-- review skipped" } }'
+
 roster_fail 'an empty refusal pattern matches every review' 'review.refusals["bot:coderabbitai[bot]"] is empty' \
   '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "" } }'
 

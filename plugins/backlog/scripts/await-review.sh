@@ -223,7 +223,10 @@ classify() { # <review json>
     fail 5 "$REVIEWER reviewed PR #$PR, and this plugin does not know how that bot words a refusal -- so it cannot tell a completed review from a declined one. Read the review above: do not label the pull request, and do not advance the roster. Once you have seen this bot decline, put its wording in $CFG as review.refusals[\"$REVIEWER\"] and it classifies exactly as copilot does"
   fi
 
-  printf '%s' "$body" | grep -qiE "$REVIEWER_REFUSAL"
+  # `--` because the pattern is operator-supplied: one that opens with a dash
+  # is parsed as options by GNU grep, which answers 2 and never tests the body
+  # at all. A pattern that cannot run is a refusal nobody looked for.
+  printf '%s' "$body" | grep -qiE -- "$REVIEWER_REFUSAL"
   rc=$?
   case "$rc" in
     0)
@@ -305,7 +308,7 @@ fi
 requested() {
   gh api "repos/$REPO/pulls/$PR/requested_reviewers" \
     --jq '[.users[]?.login] + [.teams[]?.slug] | join(" ")' 2>/dev/null \
-  | grep -qiE "$REVIEWER_MATCH"
+  | grep -qiE -- "$REVIEWER_MATCH"
 }
 
 # The bot's node ID is looked up by login rather than hard-coded, so a change on
@@ -334,7 +337,7 @@ request_review() {
           pullRequest { reviewRequests(first:10) { nodes {
             requestedReviewer { __typename ... on Bot { login } } } } }
         }
-      }' -f pr="$pr_id" -f bot="$bot_id" 2>/dev/null | grep -qiE "$REVIEWER_MATCH"; then
+      }' -f pr="$pr_id" -f bot="$bot_id" 2>/dev/null | grep -qiE -- "$REVIEWER_MATCH"; then
       note "review requested from $REVIEWER via the GraphQL requestReviews mutation"
       return 0
     fi

@@ -817,7 +817,9 @@ case "$REFUSALS_KIND" in
       # Compiled here, at step 1, because grep answers 2 for a pattern it cannot
       # compile and a 2 read as "did not match" turns a refusal into a completed
       # review. Cheap to catch now; a merge to catch later.
-      printf '' | grep -qE "$REFUSAL" >/dev/null 2>&1
+      # `--`, or a pattern opening with a dash is read as options here and
+      # rejected as uncompilable when it compiles perfectly well.
+      printf '' | grep -qE -- "$REFUSAL" >/dev/null 2>&1
       GREP_RC=$?
       [ "$GREP_RC" -le 1 ] \
         || fail 4 "$CFG: review.refusals[\"$KEY\"] is not a usable POSIX extended regular expression ('$REFUSAL'); nothing could be classified against it"
