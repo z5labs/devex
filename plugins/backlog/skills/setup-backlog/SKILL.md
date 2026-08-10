@@ -123,10 +123,25 @@ either way and let the user choose; do not switch the style on their behalf.
 
 - `select.label` — the label the backlog uses. `gh label list --json name --jq '.[].name'`;
   if `story` exists, take it. If the repository clearly uses another (`feature`, `task`),
-  take that and say so. If none exists, `story`, and step 4 creates it.
-- `select.milestone` — `gh api repos/<repo>/milestones --jq '.[] | "\(.title) \(.open_issues)"'`.
-  Exactly one open milestone with open issues is a reasonable inference; anything else is
-  `null`, which means "every open issue with the label".
+  take that and say so. If none exists, `story`, and step 4 creates it. A run that wants
+  another for once passes `select-issue.sh --label <name>`, so this is a default and not a
+  commitment.
+- `select.milestone` — **`null`, unless the user asks for one.** Not inferred.
+
+  It used to be: "exactly one open milestone with open issues is a reasonable inference".
+  It is a reasonable inference *about the moment you ran it*, and that is the problem — the
+  value is a snapshot committed to a tracked file, and it decays silently as releases ship.
+  Measured: a repository bootstrapped mid-release-train got `select.milestone: "v0.2.0"`, the
+  milestone was later deleted, and every subsequent run reported `BACKLOG EMPTY` over an
+  open, eligible, unmilestoned story. `select-issue.sh` now refuses an unknown milestone
+  loudly rather than selecting from nothing, so the trap no longer swallows a run — but the
+  best value for a key that decays is the one that cannot.
+
+  If the user does want a milestone pinned, `gh api repos/<repo>/milestones --jq '.[] |
+  "\(.title) \(.open_issues)"'` lists the candidates. Write it, and say in the report that it
+  will need changing when that milestone closes, and that `select-issue.sh --milestone
+  <title>` and `--no-milestone-filter` override it per run so no edit is needed to work
+  another one.
 - `select.limit` — `200`.
 - `select.project` — **omit it unless the user asks.** It scopes selection to one value of a
   single-select field on a GitHub project (`Module`, `Area`, `Component`, `Status`), which is

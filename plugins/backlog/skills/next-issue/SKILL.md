@@ -15,7 +15,8 @@ default branch's protection rules; see step 9.
 Nothing about the repository is written into this skill. The repository slug and default
 branch are read from the repository itself (step 0); the label, milestone, optional project
 scope, dependency convention, verify commands, merge label and worktree directory are read
-from `.claude/backlog.json`.
+from `.claude/backlog.json` — where every selector among them is a **default** that an
+argument to step 1 can replace for this run alone.
 
 ## 0. Load the configuration
 
@@ -41,8 +42,8 @@ What each key is used for:
 
 | key | used at |
 | --- | --- |
-| `select.label`, `select.milestone`, `select.limit`, `select.project` | step 1 — read by `select-issue.sh`, not by you |
-| `dependencies.style` | step 1 — same |
+| `select.label`, `select.milestone`, `select.limit`, `select.project` | step 1 — read by `select-issue.sh`, not by you, and each one a **default** a flag on that call can override |
+| `dependencies.style` | step 1 — same, minus the override |
 | `verify` | step 4, the commands that gate the pull request |
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
 | `review.required` | steps 7 and 8, whether Copilot gates the merge |
@@ -84,11 +85,51 @@ exit code:
 | 0 | `{"number":N,"title":"…"}` | that is your issue — continue to step 2 |
 | 10 | `BACKLOG EMPTY` | print that line and stop. Do nothing else. |
 | 11 | `BLOCKED — …`, then a line per issue naming what holds it | print it and stop |
-| 4 | a message naming the problem | `BLOCKED`. The config or the environment is wrong, not the backlog — usually `.claude/backlog.json` is missing, unparseable, carries an unknown `dependencies.style`, or has an empty `verify`. A requested project scope that could not be resolved lands here too; see below. Point at `backlog:setup-backlog`. |
+| 4 | a message naming the problem | `BLOCKED`. The config or the environment is wrong, not the backlog — usually `.claude/backlog.json` is missing, unparseable, carries an unknown `dependencies.style`, or has an empty `verify`. A requested project scope that could not be resolved lands here too, as does a milestone that does not exist; see below. Point at `backlog:setup-backlog`. |
 
 The script walks candidates in ascending number order and takes the first whose every
 declared dependency is `CLOSED`. Its per-candidate reasoning goes to stderr, so a selection
 you did not expect can be explained without re-running anything.
+
+### Every selector is a runtime decision
+
+`.claude/backlog.json` holds the **default** for each selector and nothing more. Every one of
+them can be replaced for a single run by an argument to the call above:
+
+| argument | overrides | when you pass it |
+| --- | --- | --- |
+| `--label <name>` | `select.label` | you were asked to work a different label this run — `bug` on a repository whose backlog is normally `story` |
+| `--milestone <title>` | `select.milestone` | you were asked to drain a named milestone |
+| `--no-milestone-filter` | same, to nothing | you were asked to ignore the configured milestone |
+| `--project-value`, `--project-field`, `--project-owner`, `--project-number`, `--no-project-filter` | `select.project.*` | see the next section |
+| `--all` | the milestone **and** the project scope, both to nothing | you were asked for the whole labelled backlog, whatever narrowings this repository happens to configure |
+| `--issue <n>` | selection itself | you were asked to work one named issue rather than the next one |
+
+Pass an argument when, and only when, you were asked for what it expresses — the user named
+it, or `backlog:run-backlog` put it in your prompt. **Never infer one.** With nothing asked
+for, call the script with no arguments at all and let the config decide.
+
+Two rules the script enforces, both worth knowing before you are refused:
+
+- **A clearing argument never combines with a narrowing one.** `--milestone X
+  --no-milestone-filter` is exit 4, as `--no-project-filter` beside any `--project-*` flag
+  already was, and so is `--all` beside any of them: each pair would have to discard one of
+  the two silently, and either discard is a run that is not the run you were asked for.
+  `--all --label bug` is fine, because the label defines the backlog rather than narrowing
+  it.
+- **`--issue <n>` combines with nothing.** It bypasses the label, the milestone and the
+  project scope, and its stderr says so, one line per narrowing — a run that selected an
+  out-of-backlog issue has to read differently from one that searched and found it at the
+  top. The dependency walk still runs against it: an issue whose blockers are open comes back
+  exit 11 `BLOCKED` naming them, never selected.
+
+A **milestone that does not exist** is exit 4 naming the ones that do, whether it came from
+the flag or from the config. That check is there because `gh issue list --milestone` answers
+`[]` with exit 0 for a milestone that was deleted or renamed, and an empty candidate list
+prints `BACKLOG EMPTY` — which halts the loop as a success over a backlog that is fully
+workable. If that fires, the answer is a `--milestone` (or `--no-milestone-filter`) argument
+on this run and an issue against the repository whose config went stale; it is **not** a
+reason to edit `.claude/backlog.json` yourself.
 
 ### Scoping the run to one project field value
 
@@ -727,9 +768,10 @@ where it stands, `BLOCKED` says it needs a person.
 Stop and report — do not push through — if any of these happen:
 
 - `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
-  unknown `dependencies.style`, has an empty `verify`, or a requested project scope could not
-  be resolved. Never re-run it with a project flag dropped, widened or edited to get past the
-  last of those, and never edit `.claude/backlog.json` to get past it either.
+  unknown `dependencies.style`, has an empty `verify`, names a milestone that does not exist,
+  or a requested project scope could not be resolved. Never re-run it with an argument
+  dropped, widened or changed to get past the last two, and never edit
+  `.claude/backlog.json` to get past them either.
 - The same CI failure survives three fix attempts.
 - Acceptance criteria are ambiguous enough that two readings produce materially different
   public APIs.

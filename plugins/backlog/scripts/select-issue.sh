@@ -2,9 +2,12 @@
 #
 # select-issue.sh — pick the next eligible backlog issue, as one call.
 #
-# Usage: select-issue.sh [--project-owner <login>] [--project-number <n>]
+# Usage: select-issue.sh [--label <name>] [--milestone <title>]
+#                        [--project-owner <login>] [--project-number <n>]
 #                        [--project-field <name>] [--project-value <value>]
-#        select-issue.sh --no-project-filter
+#        select-issue.sh [--no-milestone-filter] [--no-project-filter]
+#        select-issue.sh --all
+#        select-issue.sh --issue <n>
 #        select-issue.sh --extract <blocked-by|depends-on|none> [file]
 #        select-issue.sh --native-deps <repo> [file]
 #        select-issue.sh --project-items <repo> <field> <value> [file]
@@ -47,10 +50,28 @@
 # every rule about what counts as in scope is exercised by the test without a
 # network call.
 #
+# Every selector is a *runtime* decision. `.claude/backlog.json` supplies the
+# default for each one and every one of them can be overridden for a single run:
+# `--label`, `--milestone`/`--no-milestone-filter`, the four `--project-*` flags
+# and `--no-project-filter`, `--all` to drop every optional narrowing at once,
+# and `--issue <n>` to name one issue outright.
+#
+# Config is a default, never a floor. The failure that established this: avroc's
+# config pinned `select.milestone: "v0.2.0"`, the milestone was later deleted,
+# and `gh issue list --milestone v0.2.0` answered `[]` with exit 0 over a backlog
+# holding an eligible unmilestoned story. That reported BACKLOG EMPTY — "success,
+# not failure" by the loop's own table — and halted a workable backlog with
+# nothing in the run pointing at the milestone. So a milestone is now checked
+# against the repository's milestones before the issue query, exactly as a
+# project value is checked against its field's options, and a run that wants a
+# different milestone (or none) says so on the command line instead of editing a
+# tracked file.
+#
 # Exit codes:
 #   0   an issue was selected; stdout is {"number":N,"title":"..."}
-#   4   usage or precondition failure (no gh/jq/git, the config is unusable, or
-#       a requested project scope could not be resolved)
+#   4   usage or precondition failure (no gh/jq/git, the config is unusable, a
+#       requested project scope could not be resolved, or a requested milestone
+#       does not exist)
 #   10  BACKLOG EMPTY — no open issue carries the label (and milestone, and
 #       project field value)
 #   11  BLOCKED — open issues remain and none is eligible
@@ -516,7 +537,25 @@ project_fetch() { # <owner> <number> <field> ; needs ERRFILE
 #
 # Separate flags rather than one with an empty-string sentinel. `--project-value ''`
 # would have to mean "no scope", which is the same conflation `--milestone ''`
-# is avoided for below.
+# is avoided for.
+#
+# The label and the milestone get the same treatment, and for the same reason.
+# "Just the v0.3.0 stories today" is exactly as much a property of one run as
+# "just the workspace-ci stories today", and until these flags existed only the
+# second was expressible — while `run-backlog`'s own description advertised
+# "drain the milestone" as a trigger phrase for a request the vocabulary could
+# not accept.
+#
+# `--all` is the one input that means "no optional narrowing at all": it clears
+# the milestone and the project scope together, so a caller does not have to know
+# which axes a given repository happens to have configured. It deliberately does
+# *not* clear the label, which is not an optional narrowing but the definition of
+# what the backlog is — an issue without it was never backlog work.
+#
+# `--issue <n>` names one issue instead of searching for one. The dependency walk
+# still runs against it, because "work this issue next" is a statement about
+# order and not a licence to start something whose blockers are open; an issue
+# with unmet dependencies is BLOCKED naming them, never a silent selection.
 OPT_PROJECT_OWNER=""
 OPT_PROJECT_OWNER_SET=0
 OPT_PROJECT_NUMBER=""
@@ -526,45 +565,96 @@ OPT_PROJECT_FIELD_SET=0
 OPT_PROJECT_VALUE=""
 OPT_PROJECT_VALUE_SET=0
 OPT_NO_PROJECT=0
-GIVEN=""   # the project flags this run named, for the messages below
+OPT_LABEL=""
+OPT_LABEL_SET=0
+OPT_MILESTONE=""
+OPT_MILESTONE_SET=0
+OPT_NO_MILESTONE=0
+OPT_ALL=0
+OPT_ISSUE=""
+OPT_ISSUE_SET=0
+GIVEN=""       # the project flags this run named, for the messages below
+NARROWING=""   # every flag that sets or clears an *optional* narrowing
+LABELLED=""    # `--label`, which defines the backlog rather than narrowing it
 
-USAGE='usage: select-issue.sh [--project-owner <login>] [--project-number <n>] [--project-field <name>] [--project-value <value>] | --no-project-filter'
+USAGE='usage: select-issue.sh [--label <name>] [--milestone <title> | --no-milestone-filter] [--project-owner <login>] [--project-number <n>] [--project-field <name>] [--project-value <value> | --no-project-filter] | --all | --issue <n>'
 
-set_project_opt() { # <flag> <value>
+set_opt() { # <flag> <value>
   [ -n "$2" ] \
-    || fail 4 "$1 needs a non-empty value; to run unscoped, pass --no-project-filter or nothing at all"
+    || fail 4 "$1 needs a non-empty value; to drop every optional narrowing, pass --all"
   case "$1" in
-    --project-owner)  OPT_PROJECT_OWNER=$2;  OPT_PROJECT_OWNER_SET=1 ;;
-    --project-number) OPT_PROJECT_NUMBER=$2; OPT_PROJECT_NUMBER_SET=1 ;;
-    --project-field)  OPT_PROJECT_FIELD=$2;  OPT_PROJECT_FIELD_SET=1 ;;
-    --project-value)  OPT_PROJECT_VALUE=$2;  OPT_PROJECT_VALUE_SET=1 ;;
+    --project-owner)  OPT_PROJECT_OWNER=$2;  OPT_PROJECT_OWNER_SET=1;  GIVEN="$GIVEN $1" ;;
+    --project-number) OPT_PROJECT_NUMBER=$2; OPT_PROJECT_NUMBER_SET=1; GIVEN="$GIVEN $1" ;;
+    --project-field)  OPT_PROJECT_FIELD=$2;  OPT_PROJECT_FIELD_SET=1;  GIVEN="$GIVEN $1" ;;
+    --project-value)  OPT_PROJECT_VALUE=$2;  OPT_PROJECT_VALUE_SET=1;  GIVEN="$GIVEN $1" ;;
+    --label)          OPT_LABEL=$2;          OPT_LABEL_SET=1;          LABELLED=" $1"; return 0 ;;
+    --milestone)      OPT_MILESTONE=$2;      OPT_MILESTONE_SET=1 ;;
+    --issue)
+      case "$2" in
+        *[!0-9]*|0) fail 4 "--issue must be a positive integer (found '$2')" ;;
+      esac
+      OPT_ISSUE=$2; OPT_ISSUE_SET=1
+      # Not a narrowing of the backlog but a replacement for searching one, so
+      # it is checked against the others below rather than counted among them.
+      return 0 ;;
   esac
-  GIVEN="$GIVEN $1"
+  NARROWING="$NARROWING $1"
 }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --project-owner|--project-number|--project-field|--project-value)
+    --project-owner|--project-number|--project-field|--project-value|--label|--milestone|--issue)
       [ $# -ge 2 ] || fail 4 "$1 needs a value"
-      set_project_opt "$1" "$2"
+      set_opt "$1" "$2"
       shift 2 ;;
-    --project-owner=*|--project-number=*|--project-field=*|--project-value=*)
-      set_project_opt "${1%%=*}" "${1#*=}"
+    --project-owner=*|--project-number=*|--project-field=*|--project-value=*|--label=*|--milestone=*|--issue=*)
+      set_opt "${1%%=*}" "${1#*=}"
       shift ;;
     --no-project-filter)
       OPT_NO_PROJECT=1
+      NARROWING="$NARROWING $1"
+      shift ;;
+    --no-milestone-filter)
+      OPT_NO_MILESTONE=1
+      NARROWING="$NARROWING $1"
+      shift ;;
+    --all)
+      OPT_ALL=1
       shift ;;
     *)
       fail 4 "unknown argument '$1'; $USAGE" ;;
   esac
 done
 
-# `--no-project-filter` is "run unscoped", so it contradicts every flag that
-# describes a scope — not just the value. Accepting `--project-field X
-# --no-project-filter` would have to silently discard one of the two, and
-# discarding either is a run that is not the run that was asked for.
+# A clearing flag and a narrowing one on the same axis is not a request this can
+# answer: it would have to silently discard one of the two, and discarding either
+# is a run that is not the run that was asked for. `--no-project-filter` is "run
+# unscoped", so it contradicts every flag that describes a scope and not just the
+# value.
 [ "$OPT_NO_PROJECT" -eq 1 ] && [ -n "$GIVEN" ] \
   && fail 4 "--no-project-filter cannot be combined with$GIVEN"
+[ "$OPT_NO_MILESTONE" -eq 1 ] && [ "$OPT_MILESTONE_SET" -eq 1 ] \
+  && fail 4 "--no-milestone-filter cannot be combined with --milestone"
+
+# `--all` says "no optional narrowing at all", which contradicts every flag that
+# narrows one — and every flag that clears one, which it already does. Accepting
+# the pair would leave "unnarrowed except for this" as a meaning nobody asked
+# for. `--label` is deliberately not on that list: the label defines the backlog
+# rather than narrowing it, so `--all --label task` is "the whole `task` backlog".
+[ "$OPT_ALL" -eq 1 ] && [ -n "$NARROWING" ] \
+  && fail 4 "--all cannot be combined with$NARROWING; it already drops every optional narrowing"
+
+# `--issue` bypasses the search entirely, so every flag that describes *which*
+# search to run is contradictory beside it — including `--label`, which under
+# every other invocation says what the backlog is. Saying so is the difference
+# between a run that knows it selected an out-of-backlog issue and one that
+# thinks it narrowed a backlog it never read.
+if [ "$OPT_ISSUE_SET" -eq 1 ]; then
+  ISSUE_CONFLICTS="$NARROWING$LABELLED"
+  [ "$OPT_ALL" -eq 1 ] && ISSUE_CONFLICTS="$ISSUE_CONFLICTS --all"
+  [ -n "$ISSUE_CONFLICTS" ] \
+    && fail 4 "--issue cannot be combined with$ISSUE_CONFLICTS; it selects one issue instead of searching the backlog"
+fi
 
 # ----------------------------------------------------------------- config -----
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
@@ -584,7 +674,16 @@ PROJECT_KIND=$(jq -r 'if (.select.project // null) == null then "absent" else (.
 STYLE=$(jq -r '.dependencies.style // ""' "$CFG")
 VERIFY_N=$(jq -r 'if (.verify | type) == "array" then (.verify | length) else -1 end' "$CFG")
 
-[ -n "$LABEL" ] || fail 4 "$CFG: select.label is missing or empty"
+# Flag over config, for the same reason the project keys work that way: the
+# config describes the repository's backlog, and a run is not entitled to rewrite
+# a tracked file to describe itself. The config value is still validated when the
+# flag did not replace it, so a broken file is caught on the runs that use it.
+[ "$OPT_LABEL_SET" -eq 1 ] && LABEL=$OPT_LABEL
+[ -n "$LABEL" ] || fail 4 "$CFG: select.label is missing or empty; set it, or pass --label <name>"
+
+[ "$OPT_MILESTONE_SET" -eq 1 ] && MILESTONE=$OPT_MILESTONE
+{ [ "$OPT_NO_MILESTONE" -eq 1 ] || [ "$OPT_ALL" -eq 1 ]; } && MILESTONE=""
+
 case "$LIMIT" in
   ''|*[!0-9]*) fail 4 "$CFG: select.limit must be a positive integer (found '${LIMIT:-null}')" ;;
   0)           fail 4 "$CFG: select.limit must be at least 1" ;;
@@ -624,7 +723,7 @@ esac
 [ "$OPT_PROJECT_NUMBER_SET" -eq 1 ] && PROJECT_NUMBER=$OPT_PROJECT_NUMBER
 [ "$OPT_PROJECT_FIELD_SET" -eq 1 ]  && PROJECT_FIELD=$OPT_PROJECT_FIELD
 [ "$OPT_PROJECT_VALUE_SET" -eq 1 ]  && PROJECT_VALUE=$OPT_PROJECT_VALUE
-[ "$OPT_NO_PROJECT" -eq 1 ] && PROJECT_VALUE=""
+{ [ "$OPT_NO_PROJECT" -eq 1 ] || [ "$OPT_ALL" -eq 1 ]; } && PROJECT_VALUE=""
 
 # Validated up front rather than at the point of use: a scope that cannot be
 # resolved has to stop selection, not degrade it to the unscoped backlog.
@@ -660,56 +759,129 @@ REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
   || fail 4 "cannot resolve the repository slug from gh"
 [ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
 
-# ------------------------------------------------------------------- list -----
-# --limit is always passed. gh's default page size is 30, and on a longer
-# backlog the issues past the first page do not error — they are simply absent,
-# so the cycle reports an empty or blocked backlog that is neither.
-#
-# --milestone is passed only when one is configured. An empty --milestone is not
-# the same as no milestone filter, which is why this is an argument array rather
-# than a string the caller interpolates.
-LIST_ARGS=(--repo "$REPO" --state open --label "$LABEL" --limit "$LIMIT")
-[ -n "$MILESTONE" ] && LIST_ARGS+=(--milestone "$MILESTONE")
-
-CANDIDATES=$(gh issue list "${LIST_ARGS[@]}" \
-  --json number,title --jq 'sort_by(.number)[] | "\(.number)\t\(.title)"') \
-  || fail 4 "gh issue list failed for $REPO"
-
 SCOPE_NOTE=""
 [ -n "$PROJECT_VALUE" ] && SCOPE_NOTE=" with $PROJECT_FIELD = '$PROJECT_VALUE' in project $PROJECT_OWNER/$PROJECT_NUMBER"
+BLOCKED_SUBJECT="every open issue carrying the label '$LABEL'$SCOPE_NOTE"
 
-if [ -z "$CANDIDATES" ]; then
-  printf 'BACKLOG EMPTY\n'
-  note "no open issue in $REPO carries the label '$LABEL'${MILESTONE:+ in milestone '$MILESTONE'}"
-  exit 10
+# -------------------------------------------------------------- milestone -----
+# The milestone is checked against the repository's own milestones before any
+# issue is listed, exactly as a project value is checked against its field's
+# declared options — and for the identical reason. `gh issue list --milestone` on
+# a title that does not exist does not object:
+#
+#   $ gh issue list --repo z5labs/avroc --state open --label story --milestone v0.2.0 --json number
+#   []
+#   $ echo $?
+#   0
+#
+# So a milestone that was closed, renamed or deleted resolves to an empty
+# candidate set, which prints BACKLOG EMPTY and halts the loop on a backlog that
+# is fully workable. That is not hypothetical: it is what `select.milestone:
+# "v0.2.0"` did to avroc after the milestone was deleted, over an open, eligible,
+# unmilestoned story.
+#
+# `state=all`, because a closed milestone can still hold open issues and naming
+# one is a legitimate request. Both sources are checked, config included — a
+# stale config value is the case that fired, and it is the one a flag-only check
+# would still miss.
+if [ -n "$MILESTONE" ] && [ "$OPT_ISSUE_SET" -eq 0 ]; then
+  MILESTONE_SRC="$CFG: select.milestone"
+  [ "$OPT_MILESTONE_SET" -eq 1 ] && MILESTONE_SRC="--milestone"
+
+  MILESTONES=$(gh api --paginate "repos/$REPO/milestones?state=all&per_page=100" --jq '.[].title') \
+    || fail 4 "cannot read the milestones of $REPO to check the one named by $MILESTONE_SRC"
+
+  if ! printf '%s\n' "$MILESTONES" | grep -qxF -- "$MILESTONE"; then
+    if [ -z "$MILESTONES" ]; then
+      fail 4 "$MILESTONE_SRC names milestone '$MILESTONE', which $REPO does not have; it has no milestones at all"
+    fi
+    HAVE=$(printf '%s' "$MILESTONES" | tr '\n' ',')
+    fail 4 "$MILESTONE_SRC names milestone '$MILESTONE', which $REPO does not have; its milestones are: ${HAVE%,}"
+  fi
 fi
 
-# ---------------------------------------------------------------- scoping -----
-# Applied before the dependency walk, so the walk sees only in-scope issues and
-# cannot be held up by a blocker outside the scope it was asked for.
-#
-# The limit above still bounds the *label* query, not this one: on a backlog
-# longer than select.limit, an in-scope issue can fall off the end before the
-# scope is ever applied. That is why the limit defaults to 200 rather than to
-# gh's page size of 30.
-if [ -n "$PROJECT_VALUE" ]; then
-  # `|| exit $?` on both: a `fail` inside a command substitution exits only the
-  # subshell, and without this the script would carry on with an empty scope —
-  # which is the unscoped-selection failure this whole section exists to make
-  # impossible.
-  need_errfile
-  PROJECT_PAGES=$(project_fetch "$PROJECT_OWNER" "$PROJECT_NUMBER" "$PROJECT_FIELD") || exit $?
-  IN_SCOPE=$(project_items "$REPO" "$PROJECT_FIELD" "$PROJECT_VALUE" <<<"$PROJECT_PAGES") || exit $?
+if [ "$OPT_ISSUE_SET" -eq 1 ]; then
+  # ------------------------------------------------------------- one issue -----
+  # Named rather than searched for. The dependency walk below still runs against
+  # it, so this changes *which* issues are considered and nothing about whether
+  # the one considered is workable.
+  #
+  # Every narrowing it stepped over is named, one line each, whether or not that
+  # narrowing was configured. A run that selected an issue outside the backlog it
+  # would otherwise have searched has to say so — otherwise its diagnostics read
+  # exactly like a run that searched and found this issue at the top.
+  MILESTONE_NOTE="no milestone is configured"
+  [ -n "$MILESTONE" ] && MILESTONE_NOTE="milestone '$MILESTONE'"
+  PROJECT_NOTE="no project scope is configured"
+  [ -n "$PROJECT_VALUE" ] && PROJECT_NOTE="$PROJECT_FIELD = '$PROJECT_VALUE' in project $PROJECT_OWNER/$PROJECT_NUMBER"
 
-  CANDIDATES=$(awk -F'\t' 'NR == FNR { if ($0 != "") keep[$0] = 1; next } ($1 in keep)' \
-    <(printf '%s\n' "$IN_SCOPE") <(printf '%s\n' "$CANDIDATES"))
+  note "--issue $OPT_ISSUE selects #$OPT_ISSUE directly; the backlog was not searched"
+  note "--issue $OPT_ISSUE bypassed the label narrowing (label '$LABEL')"
+  note "--issue $OPT_ISSUE bypassed the milestone narrowing ($MILESTONE_NOTE)"
+  note "--issue $OPT_ISSUE bypassed the project narrowing ($PROJECT_NOTE)"
+
+  ISSUE_JSON=$(gh issue view "$OPT_ISSUE" --repo "$REPO" --json number,title,state) \
+    || fail 4 "cannot read issue #$OPT_ISSUE in $REPO"
+  ISSUE_STATE=$(printf '%s' "$ISSUE_JSON" | jq -r '.state // ""') \
+    || fail 4 "the response for issue #$OPT_ISSUE in $REPO does not parse as JSON"
+  # A closed issue is refused rather than selected. The cycle ends by closing the
+  # issue it worked, so an already-closed one is either finished work or a typo,
+  # and both are worth a message rather than a worktree.
+  [ "$ISSUE_STATE" = OPEN ] \
+    || fail 4 "issue #$OPT_ISSUE in $REPO is ${ISSUE_STATE:-unreadable}, not OPEN"
+
+  CANDIDATES=$(printf '%s' "$ISSUE_JSON" | jq -r '"\(.number)\t\(.title)"') \
+    || fail 4 "the response for issue #$OPT_ISSUE in $REPO could not be read"
+  BLOCKED_SUBJECT="issue #$OPT_ISSUE, named with --issue,"
+else
+  # ----------------------------------------------------------------- list -----
+  # --limit is always passed. gh's default page size is 30, and on a longer
+  # backlog the issues past the first page do not error — they are simply absent,
+  # so the cycle reports an empty or blocked backlog that is neither.
+  #
+  # --milestone is passed only when one is in effect. An empty --milestone is not
+  # the same as no milestone filter, which is why this is an argument array
+  # rather than a string the caller interpolates.
+  LIST_ARGS=(--repo "$REPO" --state open --label "$LABEL" --limit "$LIMIT")
+  [ -n "$MILESTONE" ] && LIST_ARGS+=(--milestone "$MILESTONE")
+
+  CANDIDATES=$(gh issue list "${LIST_ARGS[@]}" \
+    --json number,title --jq 'sort_by(.number)[] | "\(.number)\t\(.title)"') \
+    || fail 4 "gh issue list failed for $REPO"
 
   if [ -z "$CANDIDATES" ]; then
     printf 'BACKLOG EMPTY\n'
-    note "no open issue in $REPO carries the label '$LABEL'${MILESTONE:+ in milestone '$MILESTONE'}$SCOPE_NOTE"
+    note "no open issue in $REPO carries the label '$LABEL'${MILESTONE:+ in milestone '$MILESTONE'}"
     exit 10
   fi
-  note "project scope leaves $(printf '%s\n' "$CANDIDATES" | grep -c .) candidate(s)$SCOPE_NOTE"
+
+  # -------------------------------------------------------------- scoping -----
+  # Applied before the dependency walk, so the walk sees only in-scope issues and
+  # cannot be held up by a blocker outside the scope it was asked for.
+  #
+  # The limit above still bounds the *label* query, not this one: on a backlog
+  # longer than select.limit, an in-scope issue can fall off the end before the
+  # scope is ever applied. That is why the limit defaults to 200 rather than to
+  # gh's page size of 30.
+  if [ -n "$PROJECT_VALUE" ]; then
+    # `|| exit $?` on both: a `fail` inside a command substitution exits only the
+    # subshell, and without this the script would carry on with an empty scope —
+    # which is the unscoped-selection failure this whole section exists to make
+    # impossible.
+    need_errfile
+    PROJECT_PAGES=$(project_fetch "$PROJECT_OWNER" "$PROJECT_NUMBER" "$PROJECT_FIELD") || exit $?
+    IN_SCOPE=$(project_items "$REPO" "$PROJECT_FIELD" "$PROJECT_VALUE" <<<"$PROJECT_PAGES") || exit $?
+
+    CANDIDATES=$(awk -F'\t' 'NR == FNR { if ($0 != "") keep[$0] = 1; next } ($1 in keep)' \
+      <(printf '%s\n' "$IN_SCOPE") <(printf '%s\n' "$CANDIDATES"))
+
+    if [ -z "$CANDIDATES" ]; then
+      printf 'BACKLOG EMPTY\n'
+      note "no open issue in $REPO carries the label '$LABEL'${MILESTONE:+ in milestone '$MILESTONE'}$SCOPE_NOTE"
+      exit 10
+    fi
+    note "project scope leaves $(printf '%s\n' "$CANDIDATES" | grep -c .) candidate(s)$SCOPE_NOTE"
+  fi
 fi
 
 # --------------------------------------------------------------- eligible -----
@@ -828,6 +1000,6 @@ while IFS=$'\t' read -r NUM TITLE; do
 # escape.
 done < <(printf '%s\n' "$CANDIDATES")
 
-printf 'BLOCKED — every open issue carrying the label '\''%s'\''%s has an unmet dependency:\n' "$LABEL" "$SCOPE_NOTE"
+printf 'BLOCKED — %s has an unmet dependency:\n' "$BLOCKED_SUBJECT"
 printf '%s' "$REASONS"
 exit 11

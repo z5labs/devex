@@ -23,6 +23,14 @@
 # and a scope that was never applied both look like an ordinary backlog from the
 # outside, so each one has to be an exit 4 rather than an empty answer.
 #
+# **Runtime selectors.** Every case runs the *whole* script against a scratch
+# repository and a `gh` that answers from files, asserting which issue came back
+# rather than which message did. That is what covers the rules no seam can reach:
+# flag over config for the label, the milestone and the project scope; the
+# combinations that are refused rather than silently resolved; and an unknown
+# milestone, which `gh issue list` answers with `[]` and exit 0 — the failure that
+# reported a workable backlog as a drained one.
+#
 # Run: plugins/backlog/scripts/select-issue_test.sh
 # Exit 0 when every case matches, 1 otherwise.
 
@@ -645,6 +653,280 @@ checks_fail 'a scope flag and --no-project-filter is refused' 'cannot be combine
 checks_fail 'a bad --project-number blames the flag' '--project-number must be a positive integer' - \
   --project-owner z5labs --project-number fourteen --project-field Module --project-value workspace-ci
 
+printf '\nruntime selectors\n'
+
+# Every selector is a default in `.claude/backlog.json` that one run can
+# override, and this section is where that is asserted for the label and the
+# milestone — the two the config used to own outright.
+#
+# The milestone is the one with a measured failure behind it. avroc pinned
+# `select.milestone: "v0.2.0"`, the milestone was later deleted, and `gh issue
+# list --milestone v0.2.0` answered `[]` with exit 0 over an open, eligible,
+# unmilestoned story. That printed BACKLOG EMPTY and halted the loop on a
+# workable backlog, with nothing in the run pointing at the milestone. So an
+# unknown milestone is exit 4 naming the ones that exist, from the config as
+# readily as from the flag.
+#
+# The same shape as the scope-assembly section above: the whole script, a
+# scratch repository, a `gh` that answers from files, and an assertion on *which
+# issue* came back rather than on a message. Each fixture list holds a different
+# issue number, so a flag that never reached the query is a different answer and
+# not merely a different diagnostic.
+mkdir -p "$SCRATCH/sel/repo/.claude" "$SCRATCH/sel/bin" "$SCRATCH/sel/lists" \
+         "$SCRATCH/sel/views" "$SCRATCH/sel/pages"
+
+git init -q "$SCRATCH/sel/repo" >/dev/null 2>&1 \
+  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+
+# `issue list` is answered by the label and milestone it was *given*, which is
+# what lets a case prove a flag reached the query. `api repos/.../milestones` and
+# `issue view` really run the `--jq` they were passed, so the fixtures are the
+# shapes GitHub returns rather than the answers the script wants.
+cat >"$SCRATCH/sel/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+case "$1 $2" in
+  'repo view') printf 'z5labs/devex\n' ;;
+  'issue list')
+    label="" milestone="" prev=""
+    for a in "$@"; do
+      case "$prev" in --label) label=$a ;; --milestone) milestone=$a ;; esac
+      prev=$a
+    done
+    f="$STUB_LISTS/$label#$milestone"
+    [ -f "$f" ] || { printf 'stub gh: no issue list for label=%s milestone=%s\n' "$label" "$milestone" >&2; exit 1; }
+    cat "$f" ;;
+  'issue view')
+    q="" prev=""
+    for a in "$@"; do [ "$prev" = --jq ] && q=$a; prev=$a; done
+    f="$STUB_VIEWS/$3"
+    [ -f "$f" ] || { printf 'stub gh: no issue %s\n' "$3" >&2; exit 1; }
+    if [ -n "$q" ]; then jq -r "$q" "$f"; else cat "$f"; fi ;;
+  'api graphql')
+    f=""
+    for a in "$@"; do case "$a" in field=*) f=${a#field=} ;; esac; done
+    if [ -n "$f" ] && [ -f "$STUB_PAGES/$f" ]; then cat "$STUB_PAGES/$f"; else cat "$STUB_PAGES/default"; fi ;;
+  'api '*)
+    # `--paginate` sits between `api` and the path, so the path is found by
+    # scanning rather than by position.
+    q="" path="" prev=""
+    for a in "$@"; do
+      [ "$prev" = --jq ] && q=$a
+      case "$a" in repos/*/milestones*) path=$a ;; esac
+      prev=$a
+    done
+    [ -n "$path" ] || { printf 'stub gh: unexpected api call: %s\n' "$*" >&2; exit 1; }
+    if [ -n "$q" ]; then jq -r "$q" "$STUB_MILESTONES"; else cat "$STUB_MILESTONES"; fi ;;
+  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SCRATCH/sel/bin/gh"
+
+printf '288\tmilestoned v0.2.0\n' >"$SCRATCH/sel/lists/story#v0.2.0"
+printf '291\tmilestoned v0.3.0\n' >"$SCRATCH/sel/lists/story#v0.3.0"
+printf '302\tunmilestoned\n'      >"$SCRATCH/sel/lists/story#"
+printf '305\ta task, no milestone\n' >"$SCRATCH/sel/lists/task#"
+printf '307\ta task in v0.2.0\n'     >"$SCRATCH/sel/lists/task#v0.2.0"
+
+printf '{"number":302,"title":"unmilestoned","state":"OPEN"}\n'  >"$SCRATCH/sel/views/302"
+printf '{"number":404,"title":"already done","state":"CLOSED"}\n' >"$SCRATCH/sel/views/404"
+
+# Only 288 carries the pinned value, so a project scope that was *not* cleared
+# selects 288 or nothing — never the unmilestoned 302 the cleared run wants.
+page "[$(issue_item 288 z5labs/devex Todo),
+       $(issue_item 302 z5labs/devex Done)]" >"$SCRATCH/sel/pages/Status"
+page '[]' >"$SCRATCH/sel/pages/default"
+
+MILESTONES_ALL='[{"title":"v0.2.0"},{"title":"v0.3.0"}]'
+
+# sel_run <label> <milestone json> <project json|-> <milestones json> [args...]
+sel_run() {
+  local label=$1 milestone=$2 project=$3 milestones=$4
+  shift 4
+  local block=""
+  [ "$project" = - ] || block=",
+    \"project\": $project"
+  cat >"$SCRATCH/sel/repo/.claude/backlog.json" <<JSON
+{
+  "select": { "label": "$label", "milestone": $milestone, "limit": 200$block },
+  "dependencies": { "style": "none" },
+  "verify": ["true"],
+  "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
+  "review": { "required": true },
+  "worktreeDir": ".claude/worktrees"
+}
+JSON
+  printf '%s\n' "$milestones" >"$SCRATCH/sel/milestones"
+  RUN_OUT=$(cd "$SCRATCH/sel/repo" && PATH="$SCRATCH/sel/bin:$PATH" \
+    STUB_LISTS="$SCRATCH/sel/lists" STUB_VIEWS="$SCRATCH/sel/views" \
+    STUB_PAGES="$SCRATCH/sel/pages" STUB_MILESTONES="$SCRATCH/sel/milestones" \
+    "$SUT" "$@" 2>"$SCRATCH/sel/err")
+  RUN_RC=$?
+  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/sel/err")
+}
+
+# checkr <name> <expected issue number> <label> <milestone json> <project|-> <milestones json> [args...]
+checkr() {
+  local name=$1 want=$2
+  shift 2
+  sel_run "$@"
+  local got
+  got=$(printf '%s' "$RUN_OUT" | jq -r '.number // empty' 2>/dev/null)
+  if [ "$RUN_RC" -eq 0 ] && [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [#%s]\n' "$name" "$got"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want [#%s] exit 0, got [%s] exit %d: %s\n' \
+      "$name" "$want" "${got:-<none>}" "$RUN_RC" "$RUN_ERR"
+  fi
+}
+
+# checkr_fail <name> <substring> <label> <milestone json> <project|-> <milestones json> [args...]
+checkr_fail() {
+  local name=$1 want=$2
+  shift 2
+  sel_run "$@"
+  case "$RUN_ERR" in
+    *"$want"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s message lacks [%s]: %s\n' "$name" "$want" "$RUN_ERR"
+       return ;;
+  esac
+  if [ "$RUN_RC" -eq 4 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [exit 4]\n' "$name"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 4, got exit %d\n' "$name" "$RUN_RC"
+  fi
+}
+
+# checkr_note <name> <substring of stderr> <label> <milestone json> <project|-> <milestones json> [args...]
+checkr_note() {
+  local name=$1 want=$2
+  shift 2
+  sel_run "$@"
+  case "$RUN_ERR" in
+    *"$want"*)
+      pass=$((pass + 1))
+      printf '  ok   %-58s [noted]\n' "$name" ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s diagnostics lack [%s]: %s\n' "$name" "$want" "$RUN_ERR" ;;
+  esac
+}
+
+# Precedence, one key at a time. Every case answers with a different issue
+# number, so a flag that was accepted and then ignored fails here.
+checkr 'a configured milestone is used when no flag overrides it' 288 \
+  story '"v0.2.0"' - "$MILESTONES_ALL"
+
+checkr '--milestone overrides the configured milestone' 291 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --milestone v0.3.0
+
+checkr 'the --milestone=value form does the same' 291 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --milestone=v0.3.0
+
+checkr '--milestone names one where the config has none' 291 \
+  story null - "$MILESTONES_ALL" --milestone v0.3.0
+
+checkr '--no-milestone-filter drops the configured milestone' 302 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --no-milestone-filter
+
+checkr '--label overrides the configured label' 307 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --label task
+
+checkr '--label and --milestone compose' 305 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --label task --no-milestone-filter
+
+# One word for "no optional narrowing at all", so a caller does not have to know
+# which axes this repository happens to configure. 302 rather than 288 is the
+# assertion: had either narrowing survived, the pinned Status scope holds only
+# 288 and the v0.2.0 list holds only 288.
+checkr '--all drops the milestone and the project scope together' 302 \
+  story '"v0.2.0"' '{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}' \
+  "$MILESTONES_ALL" --all
+
+# The label is not an optional narrowing but the definition of the backlog, so
+# `--all` leaves it alone and `--label` still applies beside it.
+checkr '--all keeps the label, and --label still applies' 305 \
+  story '"v0.2.0"' '{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}' \
+  "$MILESTONES_ALL" --all --label task
+
+# The reported failure, as a test. A milestone that no longer exists has to be
+# exit 4 naming the ones that do — from the config, which is where the stale
+# value lived, and not only from the flag.
+checkr_fail 'an unknown --milestone names the milestones that exist' 'v0.2.0,v0.3.0' \
+  story null - "$MILESTONES_ALL" --milestone v0.9.9
+
+checkr_fail 'an unknown --milestone blames the flag' '--milestone names milestone' \
+  story null - "$MILESTONES_ALL" --milestone v0.9.9
+
+checkr_fail 'a stale configured milestone is refused, not empty' 'select.milestone names milestone' \
+  story '"v0.2.0"' - '[]'
+
+checkr_fail 'a repository with no milestones at all says so' 'no milestones at all' \
+  story '"v0.2.0"' - '[]'
+
+# Mutually exclusive combinations. Each would otherwise have to discard one of
+# the two silently, and discarding either is a run that is not the run asked for.
+checkr_fail '--milestone and --no-milestone-filter is refused' 'cannot be combined with --milestone' \
+  story null - "$MILESTONES_ALL" --milestone v0.3.0 --no-milestone-filter
+
+checkr_fail '--all and --milestone is refused' 'cannot be combined with --milestone' \
+  story null - "$MILESTONES_ALL" --all --milestone v0.3.0
+
+checkr_fail '--all and a project flag is refused' 'cannot be combined with --project-value' \
+  story null - "$MILESTONES_ALL" --all --project-value Todo
+
+checkr_fail '--all and --no-project-filter is refused' 'cannot be combined with --no-project-filter' \
+  story null - "$MILESTONES_ALL" --all --no-project-filter
+
+# `--issue` names one issue instead of searching for one. 302 is invisible to
+# both configured narrowings — it is unmilestoned and out of the pinned scope —
+# so selecting it is the whole assertion.
+checkr '--issue selects an issue the narrowings would have excluded' 302 \
+  story '"v0.2.0"' '{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}' \
+  "$MILESTONES_ALL" --issue 302
+
+checkr 'the --issue=N form does the same' 302 \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --issue=302
+
+# A run that selected an out-of-backlog issue has to say so. Without these lines
+# its diagnostics read exactly like a run that searched and found it at the top.
+checkr_note '--issue names the label narrowing it bypassed' "bypassed the label narrowing (label 'story')" \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --issue 302
+
+checkr_note '--issue names the milestone narrowing it bypassed' "bypassed the milestone narrowing (milestone 'v0.2.0')" \
+  story '"v0.2.0"' - "$MILESTONES_ALL" --issue 302
+
+checkr_note '--issue names the project narrowing it bypassed' "bypassed the project narrowing (Status = 'Todo'" \
+  story '"v0.2.0"' '{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}' \
+  "$MILESTONES_ALL" --issue 302
+
+checkr_note '--issue says the backlog was not searched' 'the backlog was not searched' \
+  story null - "$MILESTONES_ALL" --issue 302
+
+checkr_fail '--issue refuses a closed issue' 'is CLOSED, not OPEN' \
+  story null - "$MILESTONES_ALL" --issue 404
+
+checkr_fail '--issue refuses a number that is not one' 'must be a positive integer' \
+  story null - "$MILESTONES_ALL" --issue latest
+
+checkr_fail '--issue and --label is refused' 'cannot be combined with --label' \
+  story null - "$MILESTONES_ALL" --issue 302 --label task
+
+checkr_fail '--issue and --milestone is refused' 'cannot be combined with --milestone' \
+  story null - "$MILESTONES_ALL" --issue 302 --milestone v0.3.0
+
+checkr_fail '--issue and a project flag is refused' 'cannot be combined with --project-value' \
+  story null - "$MILESTONES_ALL" --issue 302 --project-value Todo
+
+checkr_fail '--issue and --all is refused' 'cannot be combined with --all' \
+  story null - "$MILESTONES_ALL" --issue 302 --all
+
+checkr_fail 'an unknown argument is refused' "unknown argument '--milestones'" \
+  story null - "$MILESTONES_ALL" --milestones v0.3.0
+
 printf '\ncross-repository dependencies\n'
 
 # The dependency walk itself, end to end, under `dependencies.style` = `native`
@@ -676,14 +958,25 @@ case "$1 $2" in
   'repo view')  printf 'z5labs/devex\n' ;;
   'issue list') cat "$STUB_ISSUES" ;;
   'issue view')
-    # dep_state. Under style `native` the body is never read, so this is the
-    # only thing that views an issue at all.
-    n=$3 repo="" prev=""
-    for a in "$@"; do [ "$prev" = --repo ] && repo=$a; prev=$a; done
-    printf '%s#%s\n' "$repo" "$n" >>"$STUB_CALLS"
+    # Two callers. `dep_state` asks for `--json state --jq .state` and is the
+    # only thing that views an issue at all under style `native`, where the body
+    # is never read. `--issue <n>` asks for `--json number,title,state` with no
+    # `--jq`, so the absence of one is what tells the two apart — and only the
+    # dep_state reads are counted, since the cache assertion is about those.
+    n=$3 repo="" q="" prev=""
+    for a in "$@"; do
+      [ "$prev" = --repo ] && repo=$a
+      [ "$prev" = --jq ] && q=$a
+      prev=$a
+    done
     f="$STUB_STATES/${repo//\//_}#$n"
     [ -f "$f" ] || { printf 'stub gh: cannot view %s#%s\n' "$repo" "$n" >&2; exit 1; }
-    cat "$f" ;;
+    if [ -n "$q" ]; then
+      printf '%s#%s\n' "$repo" "$n" >>"$STUB_CALLS"
+      cat "$f"
+    else
+      printf '{"number":%s,"title":"issue %s","state":"%s"}\n' "$n" "$n" "$(cat "$f")"
+    fi ;;
   'api graphql')
     n=""
     for a in "$@"; do case "$a" in number=*) n=${a#number=} ;; esac; done
@@ -711,24 +1004,26 @@ nreset() { rm -rf "$SCRATCH/deps" "$SCRATCH/states"; mkdir -p "$SCRATCH/deps" "$
 ndeps()  { npage "$2" "$1" >"$SCRATCH/deps/$1"; }          # <issue> <blockedBy nodes>
 nstate() { printf '%s\n' "$3" >"$SCRATCH/states/${1//\//_}#$2"; }  # <repo> <number> <state>
 
-# nrun <issue numbers, space separated>
+# nrun <issue numbers, space separated> [args...]
 nrun() {
   : >"$SCRATCH/nissues"
   local n
   for n in $1; do printf '%s\tissue %s\n' "$n" "$n" >>"$SCRATCH/nissues"; done
+  shift
   : >"$SCRATCH/calls"
   RUN_OUT=$(cd "$SCRATCH/nrepo" && PATH="$SCRATCH/nbin:$PATH" \
     STUB_ISSUES="$SCRATCH/nissues" STUB_DEPS="$SCRATCH/deps" \
     STUB_STATES="$SCRATCH/states" STUB_CALLS="$SCRATCH/calls" \
-    "$SUT" 2>"$SCRATCH/nerr")
+    "$SUT" "$@" 2>"$SCRATCH/nerr")
   RUN_RC=$?
   RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/nerr")
 }
 
-# checkd <name> <expected issue number> <reason substring, or - for none> <issue numbers>
+# checkd <name> <expected issue number> <reason substring, or - for none> <issue numbers> [args...]
 checkd() {
   local name=$1 want=$2 reason=$3 got
-  nrun "$4"
+  shift 3
+  nrun "$@"
   got=$(printf '%s' "$RUN_OUT" | jq -r '.number // empty' 2>/dev/null)
   if [ "$RUN_RC" -ne 0 ] || [ "$got" != "$want" ]; then
     fail=$((fail + 1))
@@ -748,10 +1043,11 @@ checkd() {
   printf '  ok   %-58s [#%s]\n' "$name" "$got"
 }
 
-# checkd_blocked <name> <substring of the report> <issue numbers>
+# checkd_blocked <name> <substring of the report> <issue numbers> [args...]
 checkd_blocked() {
   local name=$1 want=$2 report
-  nrun "$3"
+  shift 2
+  nrun "$@"
   report=$(printf '%s' "$RUN_OUT" | tr '\n' ' ')
   case "$report" in
     *"$want"*) ;;
@@ -841,6 +1137,36 @@ else
   printf '  FAIL %-58s want 1 view, got %d: %s\n' \
     'a cross-repository state is read once and cached' "$CALLS" "$(tr '\n' ' ' <"$SCRATCH/calls")"
 fi
+
+# `--issue <n>` changes which issues are considered and nothing about whether the
+# one considered is workable — the dependency walk runs against it exactly as it
+# would have if the search had turned it up. Naming an issue is a statement about
+# order, not a licence to start something whose blockers are open.
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+nstate z5labs/other 328 OPEN
+nstate z5labs/devex 63 OPEN
+checkd_blocked '--issue still walks the dependencies' \
+  'z5labs/other#328 is OPEN' '63 65' --issue 63
+
+# And the report blames the issue that was named rather than describing a
+# backlog search that never happened.
+checkd_blocked '--issue names itself in the BLOCKED report' \
+  'issue #63, named with --issue' '63 65' --issue 63
+
+nreset
+ndeps 63 "[$(dep 328 z5labs/other)]"
+nstate z5labs/other 328 CLOSED
+nstate z5labs/devex 63 OPEN
+checkd '--issue selects when its dependencies are all CLOSED' 63 - '63 65' --issue 63
+
+# Out of the listed backlog entirely — the case `--issue` exists for. #77 is not
+# in the issue list at all, so a run that quietly fell back to searching would
+# answer #63.
+nreset
+ndeps 77 '[]'
+nstate z5labs/devex 77 OPEN
+checkd '--issue reaches an issue the list never returned' 77 - '63 65' --issue 77
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
