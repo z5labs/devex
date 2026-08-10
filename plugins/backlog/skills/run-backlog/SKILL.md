@@ -159,12 +159,13 @@ to selection:
            place of review.reviewers.
 ```
 
-And when earlier iterations found a rung **unavailable**, name those rungs and their reasons —
+And when earlier iterations found a rung **UNAVAILABLE**, name those rungs and their reasons —
 see below for which ones qualify:
 
 ```
-           These reviewer rungs already refused a request this run and are not worth probing
-           again: copilot (Copilot code review is not enabled for this organisation).
+           These reviewer rungs already reported themselves UNAVAILABLE this run and are not
+           worth probing again: copilot (Copilot code review is not enabled for this
+           organisation).
 ```
 
 Every iteration gets all of them, `all` (as `--all`) included. Dropping one does not narrow
@@ -224,17 +225,19 @@ enough that you can still see all of it at the end.
 
 ### Remembering a rung that is down, and not remembering one that is slow
 
-A worker's report names any rung that **refused a request**. Accumulate those across the run
-and thread them into every subsequent worker prompt, exactly as you thread the selection
-arguments. The memory belongs here and nowhere else: every iteration is a fresh subagent, so
+A worker's report names any rung it found **UNAVAILABLE** — the gate's exit 3, which is the
+rung saying it cannot review at all. That is a different outcome from a rung that **refused**
+the work (exit 1), which halts the worker rather than being carried anywhere. Accumulate the
+unavailable ones across the run and thread them into every subsequent worker prompt, exactly
+as you thread the selection arguments. The memory belongs here and nowhere else: every iteration is a fresh subagent, so
 no worker can carry it, and a state file on disk would outlive the run and keep a rung retired
 after its quota reset overnight.
 
 Two failures read alike in a report and are not alike, and only the first is remembered:
 
-- **The rung refused the request.** Synchronous — the mutation, the REST fallback, the
-  re-check, or, for the `local` rung, credentials absent from the environment at zero network
-  cost. One to three seconds, and the rung *told us* it was down. Re-probing it across ten
+- **The rung reported itself UNAVAILABLE.** Synchronous — the mutation, the REST fallback,
+  the re-check, or, for the `local` rung, credentials absent from the environment at zero
+  network cost. One to three seconds, and the rung *told us* it was down. Re-probing it across ten
   iterations costs about thirty seconds in total; not remembering it costs nothing much
   either, which is why this is cheap insurance rather than a load-bearing optimisation.
 - **Nothing arrived.** Inferred from silence, after five minutes and four re-runs. Silence is

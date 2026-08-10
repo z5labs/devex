@@ -96,9 +96,11 @@ not a conversation.
   URL, the check result, whether the pull request reached `MERGED`, and **which rung of the
   roster reviewed it** — or, when the roster reached `none`, say plainly that the pull request
   merged without a review.
-- Name **any rung that refused the request**, with its reason, on its own line and in a form
-  your driver can read back — `Reviewer: local (copilot unavailable: Copilot code review is
-  not enabled for this organisation)`. It threads those into the next iteration so the run
+- Name **any rung you found UNAVAILABLE** — the gate's exit 3, the rung saying it cannot
+  review at all — with its reason, on its own line and in a form your driver can read back:
+  `Reviewer: local (copilot unavailable: Copilot code review is not enabled for this
+  organisation)`. A rung that **refused** the work is a different outcome and does not go
+  here; it halts you at `BLOCKED`. It threads those into the next iteration so the run
   stops paying for a reviewer that is down. A rung that merely went *silent* does not belong
   on that line: silence is what a slow reviewer looks like, and retiring one on it costs every
   remaining iteration its best reviewer.

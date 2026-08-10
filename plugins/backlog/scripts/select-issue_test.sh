@@ -1011,6 +1011,20 @@ roster_fail 'a bot: rung is not a rung yet' "unknown rung 'bot:coderabbit-ai'" \
 roster_fail 'an empty roster says which of the two is meant' 'review.reviewers is empty' \
   '{ "reviewers": [] }'
 
+# REGRESSION: the rungs were joined into a string and split by the shell, so one
+# element holding two words validated as two legal rungs — a roster nobody wrote
+# and every rung of it reachable. Word splitting also let a rung containing a
+# glob expand against the working directory on the way past, which is the same
+# defect wearing a different hat.
+roster_fail 'one element holding two rungs is one unknown rung' "unknown rung 'copilot local'" \
+  '{ "reviewers": ["copilot local"] }'
+
+roster_fail 'a rung that is a glob is not expanded' "unknown rung '*'" \
+  '{ "reviewers": ["*"] }'
+
+roster_fail 'an empty string is a rung, and an unknown one' "unknown rung ''" \
+  '{ "reviewers": [""] }'
+
 # `none` last is a downgrade its operator chose; `none` first is a roster whose
 # fallbacks can never run, which reads as though it has them.
 roster_fail 'none before another rung is refused' "'none' at position 1 of 2" \

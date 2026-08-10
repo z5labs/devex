@@ -455,10 +455,10 @@ from the repository:
 - `--reviewers <a,b,c>` replaces the roster for this run. `backlog:run-backlog` passes it when
   a month's Copilot allowance has run out and editing a tracked file in every repository is
   not the remedy. It is not yours to widen, reorder or drop.
-- A list of rungs **already found unavailable earlier in this run**. Skip those without
-  probing them: the driver only carries forward rungs that refused a request synchronously,
-  and re-probing one costs a few seconds per iteration while re-waiting on one costs twenty
-  minutes.
+- A list of rungs **already found UNAVAILABLE earlier in this run**. Skip those without
+  probing them: the driver only carries forward rungs that reported themselves unavailable
+  synchronously, and re-probing one costs a few seconds per iteration while re-waiting on one
+  costs twenty minutes.
 
 **If the first rung you have left is `none`, skip this step and step 8 entirely** and go to
 step 9. Nothing here is optional for any other rung.
@@ -857,8 +857,9 @@ scoped backlog says nothing about the rest of it.
 
 - **Which rung reviewed**, by name, and what it flagged. `copilot` and `local` are different
   assurances and a report that says only "reviewed" hides which one was had.
-- **Any rung that refused the request**, by name and with the reason — Copilot code review not
-  enabled, the App credentials absent. Your driver carries those forward into the next
+- **Any rung you found UNAVAILABLE** — the gate's exit 3 — by name and with the reason:
+  Copilot code review not enabled, the App credentials absent. Not a rung that **refused** the
+  work; that one halts you at `BLOCKED` and never reaches a report like this. Your driver carries those forward into the next
   iteration, so this line is load bearing rather than decorative. Say it in a form it can
   read back:
 

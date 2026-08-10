@@ -61,9 +61,10 @@
 #   1  the most recent review REFUSED the work; stdout is its body. BLOCKED:
 #      do not advance the roster and do not label the pull request
 #   2  nothing arrived yet. Not a verdict — call it again
-#   3  UNAVAILABLE, synchronously: the rung refused the request, or its
-#      preconditions are absent. Advance the roster, and remember this rung for
-#      the rest of the run — it told us it was down, in a second or two
+#   3  UNAVAILABLE, synchronously: the request could not be placed, or the
+#      rung's preconditions are absent. Advance the roster, and remember this
+#      rung for the rest of the run — it told us it was down, in a second or
+#      two. Distinct from exit 1, which is the rung REFUSING the work
 #   4  usage or precondition failure in the script's own arguments
 
 set -uo pipefail

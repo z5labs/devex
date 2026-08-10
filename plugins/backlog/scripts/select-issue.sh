@@ -693,7 +693,16 @@ STYLE=$(jq -r '.dependencies.style // ""' "$CFG")
 VERIFY_N=$(jq -r 'if (.verify | type) == "array" then (.verify | length) else -1 end' "$CFG")
 REVIEW_REQUIRED=$(jq -r 'if ((.review | type) == "object") and (.review | has("required")) then (.review.required | tostring) else "" end' "$CFG")
 REVIEWERS_KIND=$(jq -r 'if (.review | type) != "object" then "no-review" elif ((.review | has("reviewers")) | not) then "absent" else (.review.reviewers | type) end' "$CFG")
-REVIEWERS=$(jq -r 'if (.review.reviewers | type) == "array" then (.review.reviewers | map(tostring) | join(" ")) else "" end' "$CFG")
+# One rung per line, and read back a line at a time. Joining them into a string
+# and letting the shell split it would make `["copilot local"]` -- one element,
+# not a roster -- validate as two legal rungs, and would let a rung containing a
+# glob character expand against the working directory on the way past.
+REVIEWERS_LIST=()
+REVIEWER_COUNT=0
+while IFS= read -r RUNG; do
+  REVIEWERS_LIST[$REVIEWER_COUNT]=$RUNG
+  REVIEWER_COUNT=$((REVIEWER_COUNT + 1))
+done < <(jq -r 'if (.review.reviewers | type) == "array" then (.review.reviewers[] | tostring) else empty end' "$CFG")
 
 # Flag over config, for the same reason the project keys work that way: the
 # config describes the repository's backlog, and a run is not entitled to rewrite
@@ -743,27 +752,28 @@ case "$REVIEWERS_KIND" in
   absent)    fail 4 "$CFG: review.reviewers is missing; set it to an ordered roster, [\"copilot\"] at minimum" ;;
   *)         fail 4 "$CFG: review.reviewers must be an array of rung names (found a $REVIEWERS_KIND)" ;;
 esac
-[ -n "$REVIEWERS" ] \
+[ "$REVIEWER_COUNT" -ge 1 ] \
   || fail 4 "$CFG: review.reviewers is empty; a roster with no rungs can never review and can never merge, so say which is meant -- [\"copilot\"] to gate, [\"none\"] to merge unreviewed on purpose"
 
-REVIEWER_COUNT=0
-for RUNG in $REVIEWERS; do
-  REVIEWER_COUNT=$((REVIEWER_COUNT + 1))
+# One pass. `none` last is a downgrade its operator chose; `none` anywhere else
+# is a rung nothing can follow -- the roster reads as though it has a fallback
+# when the fallback is unreachable, which is the worse of the two ways to be
+# wrong.
+ROSTER=""
+REVIEWER_POS=0
+while [ "$REVIEWER_POS" -lt "$REVIEWER_COUNT" ]; do
+  RUNG=${REVIEWERS_LIST[$REVIEWER_POS]}
+  REVIEWER_POS=$((REVIEWER_POS + 1))
   case "$RUNG" in
-    copilot|local|none) ;;
+    copilot|local) ;;
+    none)
+      [ "$REVIEWER_POS" -eq "$REVIEWER_COUNT" ] \
+        || fail 4 "$CFG: review.reviewers has 'none' at position $REVIEWER_POS of $REVIEWER_COUNT; none merges unreviewed, so no rung after it can ever run -- move it last, or drop the rungs behind it" ;;
     *) fail 4 "$CFG: review.reviewers names an unknown rung '$RUNG'; the rungs are copilot, local and none" ;;
   esac
+  ROSTER="${ROSTER:+$ROSTER -> }$RUNG"
 done
-# `none` last is a downgrade its operator chose. `none` anywhere else is a rung
-# nothing can follow -- the roster reads as though it has a fallback when the
-# fallback is unreachable, which is the worse of the two ways to be wrong.
-REVIEWER_POS=0
-for RUNG in $REVIEWERS; do
-  REVIEWER_POS=$((REVIEWER_POS + 1))
-  [ "$RUNG" = none ] && [ "$REVIEWER_POS" -ne "$REVIEWER_COUNT" ] \
-    && fail 4 "$CFG: review.reviewers has 'none' at position $REVIEWER_POS of $REVIEWER_COUNT; none merges unreviewed, so no rung after it can ever run -- move it last, or drop the rungs behind it"
-done
-note "reviewer roster: ${REVIEWERS// / -> }"
+note "reviewer roster: $ROSTER"
 
 # The scope is whatever the config pins, unless this run says otherwise. Absent
 # from both, no project call is made at all and selection is exactly what it was
