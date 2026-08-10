@@ -9,7 +9,7 @@
   "properties": {
     "select": {
       "type": "object",
-      "description": "Which open issues make up the backlog.",
+      "description": "Which open issues make up the backlog. Every key here is a *default* that one run can override on the `scripts/select-issue.sh` command line — `--label`, `--milestone`/`--no-milestone-filter`, the four `--project-*` flags and `--no-project-filter`, `--all` to drop every optional narrowing at once, and `--issue <n>` to bypass selection entirely and name one issue. What belongs in this file is what stays true between runs; \"just the v0.3.0 stories today\" is a property of one run and needs no edit to a tracked file.",
       "additionalProperties": false,
       "required": ["label", "milestone", "limit"],
       "properties": {
@@ -17,12 +17,12 @@
           "type": "string",
           "minLength": 1,
           "default": "story",
-          "description": "The issue label that marks an issue as backlog work. Issues without it are never selected."
+          "description": "The issue label that marks an issue as backlog work. Issues without it are never selected. A default rather than a floor: `select-issue.sh --label <name>` replaces it for one run, which is how a repository whose backlog is normally `story` can be run once over `bug` without an edit here. It is the one selector `--all` does not clear, because the label defines what the backlog *is* rather than narrowing it — an issue without it was never backlog work."
         },
         "milestone": {
           "type": ["string", "null"],
           "default": null,
-          "description": "Restrict the backlog to a single milestone by title. `null` means every open issue carrying the label, whatever milestone it is in — and the `--milestone` flag is then omitted from `gh issue list` entirely rather than passed empty."
+          "description": "Restrict the backlog to a single milestone by title. `null` means every open issue carrying the label, whatever milestone it is in — and the `--milestone` flag is then omitted from `gh issue list` entirely rather than passed empty. Overridable per run: `select-issue.sh --milestone <title>` names another and `--no-milestone-filter` (or `--all`) drops it, so \"drain the v0.3.0 stories today\" needs no edit here. Whichever source it comes from, the title is checked against the repository's own milestones (`state=all`) before any issue is listed, and one that does not exist is a hard failure naming the titles that do. That check exists because a value here *decays*: a milestone shipped and deleted leaves `gh issue list --milestone` answering `[]` with exit 0, which reads as a drained backlog and stops the loop looking like success. Measured — it halted a repository holding an open, eligible, unmilestoned story."
         },
         "limit": {
           "type": "integer",

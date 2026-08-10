@@ -18,12 +18,13 @@ Skill tool is not granted to this agent; backlog:next-issue cannot be invoked`. 
 fallback: reconstructing the cycle from memory is how the footnotes that make it work get
 dropped.
 
-If your prompt names a project scope — any of `--project-value`, `--project-field`,
-`--project-owner`, `--project-number` — carry **all** of them through to the skill's selection
-step unchanged. They are not advisory and they are not yours to widen, narrow or swap: an
-unscoped selection picks up an issue from somewhere else in the backlog and merges it, and a
-selection scoped on the wrong field does the same while still looking scoped. Either way your
-report will read like an ordinary successful iteration.
+If your prompt names selection arguments — any of `--project-value`, `--project-field`,
+`--project-owner`, `--project-number`, `--no-project-filter`, `--label`, `--milestone`,
+`--no-milestone-filter`, `--all`, `--issue` — carry **all** of them through to the skill's
+selection step unchanged. They are not advisory and they are not yours to widen, narrow or
+swap: an unscoped selection picks up an issue from somewhere else in the backlog and merges
+it, and a selection made on the wrong field, milestone or label does the same while still
+looking scoped. Either way your report will read like an ordinary successful iteration.
 
 ## Rules that outrank anything else you conclude mid-run
 
@@ -55,9 +56,10 @@ report will read like an ordinary successful iteration.
   caller your entire context and moves the cycle nowhere.
 - **Do not weaken a test to make it pass**, and do not label a pull request whose review
   never completed.
-- **Do not retry selection unscoped, or on another scope.** If selection fails on the project
-  scope you were given, that is a `BLOCKED` report — not a reason to drop a flag, try a
-  different field or value, or edit `.claude/backlog.json` until it resolves.
+- **Do not retry selection unscoped, or on other arguments.** If selection fails on the
+  arguments you were given — an unresolvable project scope, a milestone that does not exist —
+  that is a `BLOCKED` report. It is not a reason to drop an argument, try a different field,
+  value, milestone or label, or edit `.claude/backlog.json` until it resolves.
 
 ## Your final message is the return value
 

@@ -1,6 +1,6 @@
 ---
 name: run-backlog
-description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the milestone", "work through the workspace-ci stories", "work the In Progress stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, and optional `--project-value <value>`, `--project-field <name>`, `--project-owner <login>` and `--project-number <n>` arguments restricting the whole run to one value of one single-select field on a GitHub project. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
+description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the v0.3.0 milestone", "work through the workspace-ci stories", "work the In Progress stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, the bare word `all` meaning every optional narrowing is dropped, and optional `--label <name>`, `--milestone <title>`, `--no-milestone-filter`, `--project-value <value>`, `--project-field <name>`, `--project-owner <login>`, `--project-number <n>` and `--no-project-filter` arguments restricting the whole run. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
 allowed-tools: Agent, SendMessage, Bash, Read, Glob, Grep, TaskCreate, TaskUpdate, ScheduleWakeup
 ---
 
@@ -29,28 +29,31 @@ Run these once, before the first iteration, and stop if any fails:
    changes you did not make are a stop condition for the cycle, so they are a stop condition
    for the loop; report what is dirty and let the user decide.
 3. **Auth.** `gh auth status`. An expired token turns every iteration into the same
-   opaque failure. If this run is scoped (below), the scopes it prints must include
-   **`read:project`** — `repo` does not imply it, and without it every iteration fails
-   identically at selection. `gh auth refresh -s read:project` grants it; report and stop
-   rather than dropping the scope and running the whole backlog.
+   opaque failure. If this run carries a **project** scope (below) — or the config pins one —
+   the scopes it prints must include **`read:project`**; `repo` does not imply it, and without
+   it every iteration fails identically at selection. `gh auth refresh -s read:project` grants
+   it; report and stop rather than dropping the scope and running the whole backlog. A run
+   narrowed only by milestone or label needs nothing beyond `repo`.
 
-Also settle the **bound** now. It is the skill's argument when one was given; otherwise
-default to **10** iterations. Say the number in your first message. An unbounded loop
-against a large backlog is not the user asking for autonomy, it is the user losing the
+Also settle the **bound** now. It is the skill's integer argument when one was given;
+otherwise default to **10** iterations. Say the number in your first message. An unbounded
+loop against a large backlog is not the user asking for autonomy, it is the user losing the
 chance to look at the first result before the twentieth lands on top of it.
 
-And settle the **scope**. A repository that groups its work by a single-select field on a
-GitHub project — `Module`, `Area`, `Component`, `Status` — can have the whole run restricted
-to one value of one such field:
+And settle the **selection arguments**. Everything the repository's `.claude/backlog.json`
+pins is a default that this run can replace, and the whole run then uses the same set:
 
 ```
 /run-backlog 5 --project-value workspace-ci
 /run-backlog 5 --project-field Status --project-value "In Progress"
+/run-backlog 5 --milestone v0.3.0
+/run-backlog 5 all
 ```
 
-The argument order does not matter; the integer is the bound and everything beginning
-`--project-` is the scope. Four are accepted, and they are exactly the ones
-`scripts/select-issue.sh` takes:
+The argument order does not matter. The integer is the bound, the bare word `all` is defined
+below, and every argument beginning `--` is passed through to selection. They are exactly the
+ones `scripts/select-issue.sh` takes, so a request the script cannot express is a request
+this skill cannot accept either:
 
 | argument | what it names | when the user has given you one |
 | --- | --- | --- |
@@ -58,22 +61,43 @@ The argument order does not matter; the integer is the bound and everything begi
 | `--project-field <name>` | which single-select to read it from | "work the **In Progress** stories" — a value on an axis other than the configured one |
 | `--project-owner <login>` | the board's owner | the repository's config has no `select.project`, or the user named another board |
 | `--project-number <n>` | the board's number | same |
+| `--no-project-filter` | no project scope, whatever the config pins | "ignore the module, work the lot" |
+| `--milestone <title>` | the milestone to drain | "drain v0.3.0" |
+| `--no-milestone-filter` | no milestone, whatever the config pins | "ignore the milestone" |
+| `--label <name>` | which label the backlog is | "work the **bug** backlog this time" |
 
 A user asking to "work through the workspace-ci stories" is asking for `--project-value`
 alone: the config already names the board and the usual axis. `--project-field` is what makes
-"work the In Progress stories" expressible without an edit to `.claude/backlog.json`, and
-`--project-owner`/`--project-number` cover the repository whose config names no board at all.
+"work the In Progress stories" expressible without an edit to `.claude/backlog.json`,
+`--project-owner`/`--project-number` cover the repository whose config names no board at all,
+and `--milestone` is what finally makes "drain the milestone" — advertised in this skill's own
+description for a long time before it was expressible — an actual request.
 
-**Every part of the scope is the user's to give — infer none of it.** Do not read the issues
-and guess a field, and do not guess which field a value belongs to when the user names only a
-value; if the value is not one of the configured field's options, selection fails at exit 4
-naming the real options, and that failure is the answer to report, not a prompt to try
-another field.
+### `all`
 
-With no scope given, pass nothing and let the config decide, which normally means the whole
-backlog. Say the scope in your first message alongside the bound — the field as well as the
-value, since the same value can exist on two of a board's fields — because every outcome
-below is then a statement about that scope and not about the backlog.
+`all` means **every optional narrowing is dropped**: no milestone, no project scope, whatever
+the config pins for either. It becomes `--all` on the selection call, one argument, and it
+exists so the user does not have to know which axes this particular repository happens to
+configure.
+
+It is defined here because it was reached for before it existed. A `/run-backlog all`
+invocation had to have a meaning invented for it at the driver — it was read as an iteration
+bound and quietly defaulted to 10 — which is a request answered by guessing. `all` is not a
+bound: `/run-backlog all` is ten iterations of the *unnarrowed* backlog, and
+`/run-backlog 3 all` is three of it. It does not touch the label, which says what the backlog
+is rather than narrowing it, so `all --label bug` is "the whole bug backlog" and is accepted.
+
+**Every selection argument is the user's to give — infer none of them.** Do not read the
+issues and guess a field, do not guess which field a value belongs to when the user names only
+a value, and do not supply a milestone the user did not name. If a value is not one of the
+configured field's options, or a milestone does not exist, selection fails at exit 4 naming
+the real options or the real milestones — and that failure is the answer to report, not a
+prompt to try another one.
+
+With nothing given, pass nothing and let the config decide, which normally means the whole
+backlog. Say the arguments in your first message alongside the bound — the field as well as
+the value, since the same value can exist on two of a board's fields — because every outcome
+below is then a statement about that selection and not about the backlog.
 
 ## 1. The loop
 
@@ -90,15 +114,16 @@ Agent(
 )
 ```
 
-When the run is scoped, add one more line to the prompt, repeating **every** project argument
-the run was given, verbatim and in full:
+When the run carries selection arguments, add one more line to the prompt, repeating **every**
+one of them, verbatim and in full:
 
 ```
            This run is scoped: pass --project-field Status --project-value "In Progress"
            to select-issue.sh at step 1.
 ```
 
-Every iteration gets all of them. Dropping one does not narrow that iteration:
+Every iteration gets all of them, `all` (as `--all`) included. Dropping one does not narrow
+that iteration:
 
 - Drop `--project-value` and the iteration widens to the whole backlog.
 - Drop `--project-field` and the iteration either falls back to the configured axis — a
@@ -107,9 +132,14 @@ Every iteration gets all of them. Dropping one does not narrow that iteration:
   issue and merges it, and nothing in its report will look wrong.
 - Drop `--project-owner` or `--project-number` on a repository whose config names no board
   and the iteration fails at exit 4 — loud, but it burns an iteration on every pass.
+- Drop `--milestone` or `--no-milestone-filter` and the iteration falls back to the
+  configured milestone, which is the quiet failure again: the run works a milestone the user
+  did not ask for, or reports the configured one empty and halts.
+- Drop `--label` and the iteration works a different backlog entirely.
+- Drop `--all` and every narrowing the user asked to be rid of comes back.
 
-So the rule is the same for all four, and it is the one already stated for the value: the
-scope you settled at preflight goes into every prompt unchanged, or the run stops.
+So the rule is the same for all of them, and it is the one already stated for the value: the
+arguments you settled at preflight go into every prompt unchanged, or the run stops.
 
 Check the agent types available to you before the first spawn. Depending on how the plugin
 was installed the worker may be listed as `issue-worker` or as `backlog:issue-worker`; use
@@ -222,20 +252,21 @@ columns are the only place a run that regressed is visible.
   no one holding them.
 - **Never widen the bound mid-run** because the backlog turned out to be longer. Finish,
   report, and let the user re-run.
-- **Never drop, widen or edit any part of the scope mid-run**, and never respond to a worker
-  that halted on a project failure by re-spawning it with a flag removed or a different field
-  or value. Dropping the value turns "work the workspace-ci stories" into "work the backlog";
-  dropping or changing the field turns it into "work some other dimension" — which is worse,
-  because it still looks scoped in the report. Both are the failure a scoped run exists to
-  prevent.
-- **Never edit `.claude/backlog.json` to make a scope resolve.** Every piece of the scope has
-  a flag, so a scope that will not assemble is a missing argument, not a missing config key.
-  Rewriting the repository's committed description of its own backlog to suit one run outlives
-  the run.
+- **Never drop, widen or edit any selection argument mid-run**, and never respond to a worker
+  that halted on a selection failure by re-spawning it with an argument removed or changed.
+  Dropping the value turns "work the workspace-ci stories" into "work the backlog"; dropping
+  or changing the field turns it into "work some other dimension" — which is worse, because it
+  still looks scoped in the report; dropping the milestone works a release the user did not
+  name. All of them are the failure a scoped run exists to prevent.
+- **Never edit `.claude/backlog.json` to make a selection resolve.** Every selector has an
+  argument, so a selection that will not assemble — an unresolvable scope, a milestone that no
+  longer exists — is a missing argument on this run and, at most, an issue to file against the
+  repository whose config went stale. Rewriting the repository's committed description of its
+  own backlog to suit one run outlives the run.
 
 ## 3. Report
 
-Close with the iteration table, the scope the run was under if it had one, the reason the
+Close with the iteration table, the selection arguments the run was under if it had any, the reason the
 loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure,
 a worker that could not be got past `IN FLIGHT`),
 and — if anything merged without a review because `review.required` is `false` — that fact,
