@@ -104,14 +104,19 @@
     },
     "review": {
       "type": "object",
-      "description": "Whether an automated review gates the merge. Only Copilot is modelled. There is deliberately no `reviewer` key — a field with exactly one legal value is an invitation to assume the other values work.",
+      "description": "Which automated reviewers gate the merge, in the order they are tried. This used to be one boolean, `required`, on the reasoning that a field with exactly one legal value invites you to assume the other values work. That reasoning was right while there was one reviewer and stopped being right the moment that reviewer acquired a monthly ceiling: with a boolean, a repository whose Copilot allowance has run out can only choose between *no loop* and *no review*, because `false` turns the review off permanently, in a tracked file, for every future run. An ordered roster makes an exhausted quota — or an outage, or an organisation that has never enabled Copilot — cost a **rung** rather than the run. `required` is not accepted any more: `scripts/select-issue.sh` fails at exit 4 naming the replacement, rather than equivalencing it silently, because a repository whose quota is the problem must not keep the old meaning without its owner learning the roster exists.",
       "additionalProperties": false,
-      "required": ["required"],
+      "required": ["reviewers"],
       "properties": {
-        "required": {
-          "type": "boolean",
-          "default": true,
-          "description": "`true`: request a Copilot review, wait for it, address it, and refuse to label the pull request if it declines or never arrives. `false`: skip the review steps entirely, for a repository where Copilot code review is not enabled. That is a deliberate downgrade rather than a silent one — the run's report has to say the pull request merged without a review."
+        "reviewers": {
+          "type": "array",
+          "minItems": 1,
+          "default": ["copilot"],
+          "description": "The reviewers to try, in order, failing over on **availability** only. A rung that reviewed the pull request and *refused* it — Copilot's \"wasn't able to review this pull request because it exceeds the maximum number of files (300)\" — has said something true about the work, and the cycle stops there: advancing past a refusal to a reviewer with different limits is exactly how unreviewable work reaches the default branch, which is the failure the decline check was added for. Only silence and an unreachable reviewer advance the roster. `scripts/select-issue.sh` validates this list before an issue is ever branched, so an unknown rung, an empty roster or a `none` that is not last fails at step 1 rather than forty minutes later with the implementation and CI already done.",
+          "items": {
+            "enum": ["copilot", "local", "none"],
+            "description": "`copilot`: request GitHub's Copilot code review, wait for it on the pull request timeline, and classify what lands. Unavailable when Copilot code review is not enabled for the organisation (the request is refused outright — one to three seconds, and remembered for the rest of the run) or when it accepts the request and posts nothing (inferred from silence after about twenty minutes, and *not* remembered, since silence is also what a slow-but-working reviewer looks like). `local`: an adversarial review produced by a fresh, context-free subagent and posted to the pull request as a `COMMENT` review under a GitHub App identity — never under the operator's token, which authored the pull request and would read as the author reviewing their own work. Unavailable, at zero network cost, when `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` are absent from the environment, when `openssl` is not on PATH, or when the worker has no `Agent` tool to spawn the reviewer with; a worker that cannot spawn one treats this rung as unavailable rather than reviewing its own diff. `none`: merge unreviewed. Legal only in final position — a rung after it could never be reached, so a roster that puts it earlier is a mistake rather than a preference — and every run that reaches it says so in its report, naming each rung tried and why it was unavailable."
+          }
         }
       }
     },

@@ -13,8 +13,9 @@ tooling (`daggerverse/`, `ci/`) and the docs (`docs/`).
 ## `backlog`
 
 Takes one story issue from the backlog to a merged pull request — select,
-worktree, implement, verify, PR, wait for checks, get a Copilot review and
-answer it, label for auto merge, close the issue, clean up — then stops.
+worktree, implement, verify, PR, wait for checks, get a review from the
+configured roster and answer it, label for auto merge, close the issue, clean
+up — then stops.
 `run-backlog` repeats that with a fresh `issue-worker` subagent per iteration,
 so each issue starts from clean context, and halts on `BACKLOG EMPTY`, on
 `BLOCKED`, or at a bounded iteration count. A worker that hands back control
@@ -97,15 +98,31 @@ answer — exposed as `--classify` on stdin and pinned offline by
 check read as pending is a wait that times out; read as settled, it is a merge.
 
 The review gate is
-[`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request, wait,
-and classify what landed, as `0 completed / 1 declined / 2 timed out / 3 could
-not request`. "Did Copilot review this?" looks like one question and is two, and
-the two used to sit sixty lines apart: the wait exited on the first `reviewed`
-event, while whether that review had *declined* the work was a separate command
-under its own heading. Copilot declines a pull request over 300 files with a
-review whose body says so, and that decline satisfies any `length > 0` test —
-which is how a cycle once merged with no review at all. The merge label is the
-assertion that a review completed, so the assertion is now an exit code.
+[`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request from one
+rung, wait, and classify what landed, as `0 completed / 1 refused / 2 nothing
+yet / 3 unavailable`. "Did the reviewer review this?" looks like one question
+and is two, and the two used to sit sixty lines apart: the wait exited on the
+first `reviewed` event, while whether that review had *declined* the work was a
+separate command under its own heading. Copilot declines a pull request over 300
+files with a review whose body says so, and that decline satisfies any
+`length > 0` test — which is how a cycle once merged with no review at all. The
+merge label is the assertion that a review completed, so the assertion is now an
+exit code, pinned offline by
+[`scripts/await-review_test.sh`](backlog/scripts/await-review_test.sh).
+
+`review.reviewers` makes that gate an ordered roster — `["copilot", "local",
+"none"]` — tried in order and failing over on **availability alone**. It
+replaced a boolean whose two settings were "Copilot gates the merge" and
+"nothing does", which forced a repository whose monthly Copilot allowance had
+run out to choose between no loop and no review, permanently, in a tracked file.
+The `local` rung is an adversarial review by a fresh, context-free subagent,
+posted as a `COMMENT` review under a GitHub App identity by
+[`scripts/post-review.sh`](backlog/scripts/post-review.sh) — never under the
+operator's token, which opened the pull request — so it lands on the timeline
+as a `reviewed` event and one gate covers every rung. A rung that *refused* the
+work does not advance the roster: a reviewer with different limits is not a
+second opinion on work the first one could not read, and advancing there is
+precisely how unreviewable work reaches the default branch.
 
 The tail of the cycle is
 [`scripts/finish-issue.sh`](backlog/scripts/finish-issue.sh) rather than five
@@ -131,7 +148,8 @@ when they are absent.
 asked, installs the workflow, creates the labels, and then *verifies* the
 environment — squash-only merging, the default branch's required status checks,
 and whether Copilot code review is really enabled — reporting what it cannot fix
-without repository-admin rights.
+without repository-admin rights, and offering a second reviewer rung rather than
+a downgrade when Copilot is not there.
 
 ## Convention
 

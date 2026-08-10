@@ -43,6 +43,11 @@ SUT="$HERE/select-issue.sh"
 pass=0
 fail=0
 
+# The review roster every harness below writes unless a case replaces it. It is
+# a variable rather than a literal because the roster is now validated at
+# selection, so an invalid one has to be expressible in a fixture.
+REVIEW_BLOCK='{ "reviewers": ["copilot"] }'
+
 # check <name> <style> <expected refs, space separated> <body>
 check() {
   local name=$1 style=$2 want=$3 body=$4 got
@@ -557,7 +562,7 @@ run_sut() {
   "dependencies": { "style": "none" },
   "verify": ["true"],
   "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
-  "review": { "required": true },
+  "review": $REVIEW_BLOCK,
   "worktreeDir": ".claude/worktrees"
 }
 JSON
@@ -751,7 +756,7 @@ sel_run() {
   "dependencies": { "style": "none" },
   "verify": ["true"],
   "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
-  "review": { "required": true },
+  "review": $REVIEW_BLOCK,
   "worktreeDir": ".claude/worktrees"
 }
 JSON
@@ -946,6 +951,113 @@ checkr_fail 'an empty --label says the label cannot be cleared' 'there is nothin
 checkr_fail 'the usage text shows --all composing with --label' 'select-issue.sh [--label <name>] --all' \
   story null - "$MILESTONES_ALL" --nonsense
 
+printf '\nthe reviewer roster\n'
+
+# The roster is validated here, at selection, rather than at step 7 where it is
+# read. Everything wrong with it is wrong before an issue is branched, and by
+# step 7 the implementation is written, CI is green and a pull request is open —
+# at which point the only remedy is an edit to `.claude/backlog.json`, which is
+# the one move a run is not allowed to make to get itself unstuck. Same
+# reasoning as the empty `verify` check, and the same place in the script.
+#
+# `roster_fail <name> <substring> <review json>` and `roster_ok` both run the
+# whole script; a roster that passes has to still select an issue, so a check
+# that rejects everything cannot pass this section by accident.
+roster_run() { # <review json> [args...]
+  local review=$1; shift
+  REVIEW_BLOCK=$review sel_run story null - "$MILESTONES_ALL" "$@"
+}
+
+roster_ok() { # <name> <review json>
+  roster_run "$2"
+  if [ "$RUN_RC" -eq 0 ]; then
+    pass=$((pass + 1))
+    printf '  ok   %-58s [accepted]\n' "$1"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL %-58s want exit 0, got exit %d: %s\n' "$1" "$RUN_RC" "$RUN_ERR"
+  fi
+}
+
+roster_fail() { # <name> <substring> <review json>
+  roster_run "$3"
+  case "$RUN_ERR" in
+    *"$2"*) ;;
+    *) fail=$((fail + 1))
+       printf '  FAIL %-58s message lacks [%s]: %s\n' "$1" "$2" "$RUN_ERR"
+       return ;;
+  esac
+  if [ "$RUN_RC" -eq 4 ]; then
+    pass=$((pass + 1)); printf '  ok   %-58s [exit 4]\n' "$1"
+  else
+    fail=$((fail + 1)); printf '  FAIL %-58s want exit 4, got exit %d\n' "$1" "$RUN_RC"
+  fi
+}
+
+roster_ok 'a single-rung roster'            '{ "reviewers": ["copilot"] }'
+roster_ok 'a roster that fails over'        '{ "reviewers": ["copilot", "local"] }'
+roster_ok 'a roster ending in none'         '{ "reviewers": ["copilot", "local", "none"] }'
+roster_ok 'none alone, an unreviewed merge chosen on purpose' '{ "reviewers": ["none"] }'
+
+roster_fail 'an unknown rung names the rungs that exist' "unknown rung 'coderabbit'" \
+  '{ "reviewers": ["copilot", "coderabbit"] }'
+
+# The out-of-scope bot rung, reached for before it exists. It has to fail here
+# rather than at step 7, where an unrecognised refusal from an unknown bot would
+# classify as a completed review and merge.
+roster_fail 'a bot: rung is not a rung yet' "unknown rung 'bot:coderabbit-ai'" \
+  '{ "reviewers": ["copilot", "bot:coderabbit-ai"] }'
+
+roster_fail 'an empty roster says which of the two is meant' 'review.reviewers is empty' \
+  '{ "reviewers": [] }'
+
+# REGRESSION: the rungs were joined into a string and split by the shell, so one
+# element holding two words validated as two legal rungs — a roster nobody wrote
+# and every rung of it reachable. Word splitting also let a rung containing a
+# glob expand against the working directory on the way past, which is the same
+# defect wearing a different hat.
+roster_fail 'one element holding two rungs is one unknown rung' "unknown rung 'copilot local'" \
+  '{ "reviewers": ["copilot local"] }'
+
+roster_fail 'a rung that is a glob is not expanded' "unknown rung '*'" \
+  '{ "reviewers": ["*"] }'
+
+roster_fail 'an empty string is a rung, and an unknown one' "unknown rung ''" \
+  '{ "reviewers": [""] }'
+
+# `none` last is a downgrade its operator chose; `none` first is a roster whose
+# fallbacks can never run, which reads as though it has them.
+roster_fail 'none before another rung is refused' "'none' at position 1 of 2" \
+  '{ "reviewers": ["none", "copilot"] }'
+
+roster_fail 'none in the middle is refused' "'none' at position 2 of 3" \
+  '{ "reviewers": ["copilot", "none", "local"] }'
+
+roster_fail 'a missing roster points at the key' 'review.reviewers is missing' \
+  '{ }'
+
+roster_fail 'a roster that is not an array' 'must be an array of rung names' \
+  '{ "reviewers": "copilot" }'
+
+# The migration. `required` is mechanical to translate, which is exactly why it
+# is refused rather than translated: this key changed because a repository whose
+# Copilot quota is exhausted has to learn a roster exists, and a config that
+# keeps working unchanged is a config nobody reads.
+roster_fail 'review.required is refused, not equivalenced' 'review.required is no longer read' \
+  '{ "required": true }'
+
+roster_fail 'review.required true names its replacement' '["copilot"]' \
+  '{ "required": true }'
+
+roster_fail 'review.required false names its replacement' '["none"]' \
+  '{ "required": false }'
+
+# A config carrying both is the half-done migration, and it is the dangerous
+# one: `reviewers` would be read and `required` would sit there looking
+# authoritative to whoever next opens the file.
+roster_fail 'a config carrying both is still refused' 'review.required is no longer read' \
+  '{ "required": true, "reviewers": ["copilot"] }'
+
 printf '\ncross-repository dependencies\n'
 
 # The dependency walk itself, end to end, under `dependencies.style` = `native`
@@ -1013,7 +1125,7 @@ cat >"$SCRATCH/nrepo/.claude/backlog.json" <<'JSON'
   "dependencies": { "style": "native" },
   "verify": ["true"],
   "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
-  "review": { "required": true },
+  "review": { "reviewers": ["copilot"] },
   "worktreeDir": ".claude/worktrees"
 }
 JSON

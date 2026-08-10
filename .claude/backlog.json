@@ -22,7 +22,7 @@
     "workflow": "auto-merge.yaml"
   },
   "review": {
-    "required": true
+    "reviewers": ["copilot", "local"]
   },
   "worktreeDir": ".claude/worktrees"
 }

@@ -162,8 +162,17 @@ either way and let the user choose; do not switch the style on their behalf.
 - `merge.label` / `merge.workflow` — `auto-merge` and `auto-merge.yaml`, matching the asset
   step 3 installs. If you change either, change both, plus the `github.event.label.name`
   guard inside the workflow.
-- `review.required` — `true` unless step 5 finds Copilot code review is not enabled; see
-  there.
+- `review.reviewers` — an **ordered roster**, tried in order and failing over on
+  availability. `["copilot"]` is the floor. Offer `["copilot", "local"]` where the App from
+  the section below is configured — a second rung costs nothing until the first one is
+  unavailable, and an exhausted monthly Copilot allowance then costs a rung rather than the
+  run. Add a trailing `"none"` only if the user asks for it; see step 5.
+
+  There is no `required` key any more, and `select-issue.sh` refuses a config that still
+  carries one rather than translating it. If you are diffing an existing config that has it,
+  say so as a migration and give the mapping: `true` becomes `["copilot"]`, `false` becomes
+  `["none"]`, and `["copilot", "local", "none"]` is what the boolean could never express —
+  fail over, then fall back — which is the reason the key changed.
 - `worktreeDir` — `.claude/worktrees`.
 
 Write the result to `.claude/backlog.json`, validated against
@@ -273,6 +282,22 @@ entirely to the cycle's own `finish-issue` step — and give the setup, which ne
    **Read and write**.
 3. Add its App ID as `BACKLOG_APP_ID` and its PEM private key as `BACKLOG_APP_KEY`.
 
+The **same App backs the `local` reviewer**, and that rung needs the credentials somewhere
+else. Repository secrets reach the merge workflow; they do not reach a loop running on a
+laptop. So `BACKLOG_APP_ID` and `BACKLOG_APP_KEY` must also be present in the *environment the
+loop runs in* — the same two names, deliberately — or `local` is unavailable there and falls
+through. `pull_requests: write` is what `POST /repos/{owner}/{repo}/pulls/{pr}/reviews`
+requires, which the permissions above already cover.
+
+Say both halves when you report this. An operator who adds the secrets and stops has a working
+merge workflow and a `local` rung that silently never runs, which reads in a report as a
+Copilot outage that had no fallback.
+
+Minting an installation token needs **`openssl`** as well as `gh` and `jq`, because an App JWT
+is RS256-signed. `scripts/app-token.sh` checks for it and reports its absence as the rung
+being unavailable rather than failing inside a pipeline; mention it if `command -v openssl`
+comes back empty here.
+
 The loop still works without it. Nothing merges unreviewed and no issue goes unclosed — the
 cycle's own close covers that — so this is a degradation, not a blocker. Report it as one.
 
@@ -357,9 +382,19 @@ Report the verdict with its basis attached — "inferred from N recent pull requ
 that instead of guessing, and note that the definitive test is the first real cycle, where
 `backlog:next-issue` requests a review and either gets one or reports `BLOCKED`.
 
-If the evidence says Copilot does not review here, that is what `review.required: false` is
-for. Offer it explicitly as a downgrade, not a default: with it, pull requests merge with no
-review at all, and every run says so in its report.
+If the evidence says Copilot does not review here, **offer a second rung before offering a
+downgrade.** `review.reviewers: ["copilot", "local"]` keeps a review on every pull request
+where a bare `["copilot"]` would block: the `local` rung is an adversarial review by a fresh,
+context-free subagent, posted under the App identity from the section above, and it needs
+nothing from GitHub's Copilot subscription. Its cost is the App's credentials in the loop's
+environment and a subagent per pull request.
+
+`["copilot", "local", "none"]` — or a bare `["none"]` — is the downgrade, and it is a
+different offer. Make it explicitly and never as a default: with `none` in the roster, a pull
+request that no rung could review merges with no review at all, and every run that reaches it
+says so in its report. That is a deliberate downgrade rather than a silent one, which is the
+whole reason `none` has to be spelled out in the roster rather than being what happens when
+the roster runs out.
 
 ## 6. Offer the permission allow-list
 
@@ -445,7 +480,7 @@ and an agent writing its own authorisation is not one:
     "autoMode": {
       "allow": [
         "$defaults",
-        "The backlog loop in this repository is authorized by the repository owner to run unattended. Spawning a subagent per story issue is expected. Landing a pull request once CI passes and Copilot's automated review has landed is the intended workflow: no human approval is required on these pull requests by design, and their absence is not a reason to block. A subagent reporting that it landed such a pull request without human review is reporting the expected outcome, not a policy violation, and must not cause subsequent iterations to be denied."
+        "The backlog loop in this repository is authorized by the repository owner to run unattended. Spawning a subagent per story issue is expected. Landing a pull request once CI passes and the configured automated review has landed is the intended workflow: no human approval is required on these pull requests by design, and their absence is not a reason to block. A subagent reporting that it landed such a pull request without human review is reporting the expected outcome, not a policy violation, and must not cause subsequent iterations to be denied."
       ]
     }
   }
@@ -460,7 +495,8 @@ One report, covering:
    `verify` and `dependencies.style` with the evidence each came from.
 2. The workflow — copied, identical, or differing (with the diff).
 3. Labels — created or already present.
-4. The environment table: squash-only, required status checks, Copilot. Each **ok**,
+4. The environment table: squash-only, required status checks, the reviewer roster and the
+   App credentials the `local` rung needs. Each **ok**,
    **needs a change**, or **needs admin rights**, with the consequence spelled out for
    anything not ok.
 5. Permissions — written where, or declined.

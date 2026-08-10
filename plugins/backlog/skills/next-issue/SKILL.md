@@ -1,7 +1,7 @@
 ---
 name: next-issue
-description: Take exactly one eligible story issue from the backlog through the full development cycle — select it, branch a worktree, implement the acceptance criteria, run the repository's verify commands, open a pull request, wait for checks, get a Copilot review and answer it, then label the pull request for GitHub to auto merge, close the issue and clean up. Use this whenever the user asks to "work the backlog", "take the next issue", "do the next story", "pick up the next ticket", or runs the backlog loop; it is also what the `issue-worker` agent invokes on every iteration of `backlog:run-backlog`. Everything repository-specific comes from `.claude/backlog.json`. Skip this when the user names a specific issue to explore rather than to land, or when they want the backlog bootstrapped rather than worked — that is `backlog:setup-backlog`.
-allowed-tools: Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate, EnterWorktree, ExitWorktree
+description: Take exactly one eligible story issue from the backlog through the full development cycle — select it, branch a worktree, implement the acceptance criteria, run the repository's verify commands, open a pull request, wait for checks, get a review from the configured roster and answer it, then label the pull request for GitHub to auto merge, close the issue and clean up. Use this whenever the user asks to "work the backlog", "take the next issue", "do the next story", "pick up the next ticket", or runs the backlog loop; it is also what the `issue-worker` agent invokes on every iteration of `backlog:run-backlog`. Everything repository-specific comes from `.claude/backlog.json`. Skip this when the user names a specific issue to explore rather than to land, or when they want the backlog bootstrapped rather than worked — that is `backlog:setup-backlog`.
+allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate, EnterWorktree, ExitWorktree
 ---
 
 # next-issue
@@ -46,7 +46,7 @@ What each key is used for:
 | `dependencies.style` | step 1 — same, minus the override |
 | `verify` | step 4, the commands that gate the pull request |
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
-| `review.required` | steps 7 and 8, whether Copilot gates the merge |
+| `review.reviewers` | steps 7 and 8, the ordered roster of reviewers that gates the merge |
 | `worktreeDir` | steps 2 and 10, where the worktree lives |
 
 Read the file for the four keys you use directly. The first three rows belong to step 1's
@@ -428,7 +428,7 @@ the gate you had reached —
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-checks.sh" <pr>          # step 6
-"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr>          # step 7 — idempotent
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> <rung>   # step 7 — idempotent
 gh pr view <pr> --repo <repo> --json state,autoMergeRequest   # step 9
 "${CLAUDE_PLUGIN_ROOT}/scripts/finish-issue.sh" <n> <pr> issue-<n>   # step 10 — guarded
 ```
@@ -442,49 +442,153 @@ the blocking call. The no-polling rule above is about not polling *alongside* a 
 with no wait running, that single query is exactly the right move, and doing nothing is the
 one response that cannot be right.
 
-## 7. The Copilot review — one call
+## 7. The review — walk the roster
 
-**If `review.required` is `false`, skip this step and step 8 entirely** and go to step 9.
-Nothing here is optional when it is `true`.
+`review.reviewers` is an **ordered roster**, tried in order and failing over on availability:
+`["copilot"]`, `["copilot", "local"]`, `["copilot", "local", "none"]`. `select-issue.sh`
+already validated it at step 1, so by the time you are here the rungs are known and `none`,
+if present, is last.
 
-Requesting the review, waiting for it, and deciding whether what landed *is* a review are one
-call — a blocking `Bash` call, the same shape as step 6's, with the Bash tool's `timeout` set
-to `330000` and the script bounding itself at five minutes:
+Two things can override the configured roster, and both come from your prompt rather than
+from the repository:
+
+- `--reviewers <a,b,c>` replaces the roster for this run. `backlog:run-backlog` passes it when
+  a month's Copilot allowance has run out and editing a tracked file in every repository is
+  not the remedy. It is not yours to widen, reorder or drop.
+- A list of rungs **already found UNAVAILABLE earlier in this run**. Skip those without
+  probing them: the driver only carries forward rungs that reported themselves unavailable
+  synchronously, and re-probing one costs a few seconds per iteration while re-waiting on one
+  costs twenty minutes.
+
+**If the first rung you have left is `none`, skip this step and step 8 entirely** and go to
+step 9. Nothing here is optional for any other rung.
+
+### The distinction the whole roster turns on
+
+**Unavailability advances the roster. Refusal does not.**
+
+A rung that reviewed the pull request and *refused* it — Copilot's `"wasn't able to review
+this pull request because it exceeds the maximum number of files (300)"` — has said something
+true about the work. Advancing past that to a reviewer with different limits is exactly how
+unreviewable work reaches the default branch, which is the failure the decline check was
+added for: a vendored test suite pushed a pull request past the file limit, Copilot declined,
+a naive `length > 0` check passed, and the cycle merged with no review at all. So a refusal is
+`BLOCKED` and the roster stops. This is the conservative reading, chosen deliberately.
+
+### `copilot`
+
+One blocking `Bash` call, the same shape as step 6's, with the Bash tool's `timeout` set to
+`330000` and the script bounding itself at five minutes:
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr>
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> copilot
 ```
 
 This is the longest wait in the cycle and the one that has attracted busy-waiting. Step 6's
 rules hold here unchanged: not `Monitor`, not `run_in_background`, and not turns of your own.
 
+### `local`
+
+An adversarial review, produced by a fresh subagent that has never seen your implementation,
+and posted to the pull request under the backlog App's identity. Four steps, in this order:
+
+**1. Preflight, before anything is spawned.**
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/post-review.sh" --preflight
+```
+
+Exit 3 means the rung is unavailable — `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` absent from the
+environment, or `openssl` not on PATH. That is a fallthrough, not a crash, and it costs no
+network call: advance the roster and record the rung. The preflight is first because
+everything after it costs a fresh agent and a whole diff, and learning afterwards that the
+App was never configured is the expensive way to learn it.
+
+If the `Agent` tool is not available to you, the rung is unavailable too. Record it and
+advance — **do not review your own diff.** A reviewer holding the context that produced the
+code is not a second opinion, and a review it posts under an App identity would look exactly
+like one.
+
+**2. Spawn the reviewer.** A `general-purpose` subagent, given the diff and nothing else:
+
+```
+gh pr diff <pr> > /tmp/pr-<pr>.diff
+```
+
+Its prompt gives it the diff, the pull request title and the issue's acceptance criteria, and
+says plainly that it must not read the repository for the code's rationale — the point of the
+rung is a reader who was not there. Ask it to return **only** JSON:
+
+```json
+{"body": "<markdown summary>",
+ "comments": [{"path": "a/b.go", "line": 42, "side": "RIGHT", "body": "<finding>"}]}
+```
+
+Tell it to look for correctness defects, missing test coverage of the acceptance criteria,
+error paths that swallow failures, and public API it would find hard to use — and to say so
+in the summary when it found nothing, rather than inventing a finding. And tell it that if it
+cannot review the diff at all, its `body` must say **"I was not able to review this pull
+request"** and why: that is the wording the gate classifies as a refusal, and a rung that
+cannot say "I refuse" in a form the gate recognises is a rung whose refusals merge.
+
+**3. Post it.**
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/post-review.sh" <pr> <body-file> <comments-file>
+```
+
+Exit 3 is unavailable (advance and record). Exit 1 is a post that failed for a reason that is
+not availability — advance the roster, but do **not** record the rung as down; nothing about
+the rung is broken.
+
+**4. Wait on it through the same gate as every other rung.**
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> local
+```
+
+That last call is not ceremony. A posted review is a `reviewed` event on the timeline, which
+is what the gate polls, so **one exit code covers every rung** and "was this reviewed?" never
+becomes something you assert at the end of the longest part of the cycle.
+
+### The exit table — identical for both rungs
+
 | exit | meaning | what you do |
 | --- | --- | --- |
-| 0 | a review **completed** — it left comments, or reported it generated none. stdout is its body | continue to step 8 |
-| 1 | the most recent review **declined** the work; stdout is why | `BLOCKED`, and do **not** label. If it is the 300-file limit, say so and suggest how the work could be split |
-| 2 | the five minutes were up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. Copilot routinely takes longer than one call, so this is the expected outcome, not a fault. After four re-runs — about twenty minutes with nothing posted — `BLOCKED` |
-| 3 | the review could not be requested — Copilot code review is probably not enabled for this organisation | `BLOCKED`, naming that |
+| 0 | a review **completed** — it left comments, or reported it generated none. stdout is its body | continue to step 8. Note which rung it was; your report names it |
+| 1 | the most recent review **REFUSED** the work; stdout is why | `BLOCKED`, and do **not** label and do **not** advance the roster. If it is the 300-file limit, say so and suggest how the work could be split |
+| 2 | the bound was up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. After **four** re-runs — about twenty minutes with nothing posted — this rung is unavailable *for this pull request*: advance the roster. Do **not** report it as having refused, and do not tell the driver to retire it. Silence is exactly what a slow-but-working reviewer looks like |
+| 3 | **UNAVAILABLE**, synchronously — the request was refused, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
 | 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
 
-**Only exit 0 lets you label the pull request in step 9.**
+**Only exit 0 lets you label the pull request in step 9** — on some rung, or the roster
+reaching `none`.
 
-### Why this is a script
+### Reaching the end of the roster
 
-"Did Copilot review this?" looks like one question and is two, and the cycle used to answer
-them in places far enough apart that the second could be skipped. The wait was a polling loop
-that exited on the first `reviewed` event; whether that review had *declined* the work was a
-separate command sixty lines further down, under its own heading. Copilot posts a review
-whose body declines — most often `"Copilot wasn't able to review this pull request because it
-exceeds the maximum number of files (300)"` — and that decline satisfies any `length > 0`
-test. It has been missed in the wild: a vendored test suite pushed a pull request past the
-limit, Copilot declined, the check passed, and the cycle merged with no review at all.
+If every rung is exhausted and the last one was **not** `none`, that is `BLOCKED`. Name each
+rung tried and why each was unavailable, so the reader can tell "Copilot's quota is gone" from
+"the App is not installed here" without opening the run.
+
+If the last rung **is** `none`, the pull request merges unreviewed. That is legal — the
+operator wrote it into the roster — and it is not silent: step 9 labels, and your report says
+plainly that the merge was unreviewed and names every rung that was tried and why each failed.
+
+### Why the gate is a script
+
+"Did the reviewer review this?" looks like one question and is two, and the cycle used to
+answer them in places far enough apart that the second could be skipped. The wait was a
+polling loop that exited on the first `reviewed` event; whether that review had *declined* the
+work was a separate command sixty lines further down, under its own heading. Copilot posts a
+review whose body declines, and that decline satisfies any `length > 0` test. It has been
+missed in the wild, exactly as described above.
 
 The label in step 9 **is** the assertion that a review completed. Making it an exit code is
 what stops that assertion depending on an agent remembering a second question at the very end
 of the longest part of the cycle.
 
-Four findings live inside the script rather than in prose here, each of which cost a
-debugging session:
+Findings that live inside the script rather than in prose here, each of which cost a debugging
+session:
 
 - Copilot is a **Bot**, not a User. The GraphQL mutation takes `botIds`; a bare
   `reviewers[]=Copilot` on the REST endpoint returns 200 while doing nothing, and the wait
@@ -498,22 +602,29 @@ debugging session:
   finding is made of.
 - `--paginate`, because the timeline returns thirty events per page and a pull request with a
   few pushes and check runs pushes the `reviewed` event off page one.
-- A case-insensitive `copilot` login filter, without which the repository owner glancing at
-  the pull request ends the wait and step 9 decides on a review that never arrived.
+- A login filter per rung, without which the repository owner glancing at the pull request
+  ends the wait and step 9 decides on a review that never arrived — and, since the `local`
+  rung's login is the App's, without which Copilot's review would satisfy the local rung's
+  wait and one review would count as two.
+- The `local` rung's login is **discovered** from the App rather than written down. The App is
+  the operator's and its slug is not this plugin's to know.
 
-Re-running is safe: a Copilot review already on the pull request is classified and returned
-without requesting another, and the newest review wins, so an old decline sitting beside a
-newer completed review is not misread.
+`scripts/await-review_test.sh` is the offline fixture corpus for the classification and for
+the unavailable/refused/nothing-yet split; a change to those rules belongs there, not here.
 
-Every finding above is a reason the wait is *inside* a script rather than in your hands. None
-of them is a reason to look in on the script while it runs — a review that has not landed yet
-reads exactly like one that never will, from your side, and the script is the thing that can
-tell those apart. Re-run it after an exit 2; do not go looking at the review endpoints in
-between.
+Re-running the gate is safe on either rung: a review already on the pull request is classified
+and returned without requesting another, and the newest review wins, so an old refusal sitting
+beside a newer completed review is not misread.
+
+None of those findings is a reason to look in on the script while it runs — a review that has
+not landed yet reads exactly like one that never will, from your side, and the script is the
+thing that can tell those apart. Re-run it after an exit 2; do not go looking at the review
+endpoints in between.
 
 ## 8. Address the review
 
-**Skipped entirely when `review.required` is `false`.**
+**Skipped entirely when the roster reached `none`.** The comments are addressed identically
+whoever left them, so nothing below asks which rung reviewed.
 
 Step 7 already printed the summary body on stdout. What it does not carry is the inline
 comments, which is what you are here for:
@@ -522,8 +633,11 @@ comments, which is what you are here for:
 gh api repos/<repo>/pulls/<pr>/comments --jq '.[] | "[\(.id)] \(.path):\(.line)\n\(.body)"'
 ```
 
-An empty result is normal — a review whose body says it `generated no comments` still counts
-as having reviewed, and step 7 exited 0 on it. If you want the summary again, take it from
+An empty result is normal — a review whose body says it generated no comments still counts
+as having reviewed, and step 7 exited 0 on it. The `local` rung's inline comments arrive here
+too: `post-review.sh` posts them with the summary, and drops them and keeps the summary if
+GitHub rejects a line that is not in the diff, so a review with findings in its body and none
+inline is an ordinary outcome rather than a lost one. If you want the summary again, take it from
 step 7's output rather than from `pulls/<pr>/reviews`, which lags (see step 7) and will
 happily return an empty array for a review that landed.
 
@@ -564,8 +678,8 @@ immediately, if they have already passed — and leaves it open if one fails.
 Apply the label only when **both** hold:
 
 1. Checks are green, and
-2. **either** `review.required` is `false`, **or** step 7 exited **0** — a review actually
-   completed, and every comment it left is now addressed or answered.
+2. **either** a review completed on some rung — step 7 exited **0** — and every comment it
+   left is now addressed or answered, **or** the roster reached `none`.
 
 This is not a formality to route around: the label **is** the assertion that you verified
 both conditions, and adding it without having done so is the same failure as merging
@@ -577,12 +691,15 @@ label gate plus the branch protection rule — rather than in a decision made mi
 visible only in a transcript. It is also what lets the loop run unattended: an agent merging
 on its own is blocked, and labelling is not.
 
-When `review.required` is `true`, any exit from step 7 other than 0 — declined (1), timed out
-(2), never requested (3) — is **not** a completed review. Do **not** label the pull request. Leave it open, leave the worktree in place, and stop with a report beginning
-`BLOCKED` that names the pull request and why the review is missing, so the user can tell a
-pull request that needs a human look from one that merged on its own. Sending unreviewed
-work to the default branch is the one step of this cycle that is not yours to take
-unilaterally.
+No exit from step 7 other than 0 is a completed review. A **refusal** (1) is `BLOCKED`
+outright. Silence (2) and unavailability (3) send you to the next rung, and if the roster runs
+out without reaching `none` they are `BLOCKED` too. In every one of those cases: do **not**
+label the pull request. Leave it open, leave the worktree in place, and stop with a report
+beginning `BLOCKED` that names the pull request, every rung tried and why each failed, so the
+user can tell a pull request that needs a human look from one that merged on its own. Sending
+unreviewed work to the default branch is the one step of this cycle that is not yours to take
+unilaterally — unless the operator wrote `none` into the roster, which is the only way it
+becomes theirs to have taken.
 
 If the pull request is unreviewable because it exceeds the 300-file limit, say so in the
 `BLOCKED` report and suggest how the work could be split; do not label it anyway.
@@ -738,10 +855,23 @@ public API. If the run was scoped, name the scope in full — the field as well 
 because the same value can exist on more than one of a board's fields. An outcome from a
 scoped backlog says nothing about the rest of it.
 
-- When `review.required` is `true`: whether Copilot reviewed and what it flagged.
-- When `review.required` is `false`: say plainly that **the pull request merged without a
-  review**, because `review.required` is `false`. Do not leave that to be inferred from the
-  absence of a review line.
+- **Which rung reviewed**, by name, and what it flagged. `copilot` and `local` are different
+  assurances and a report that says only "reviewed" hides which one was had.
+- **Any rung you found UNAVAILABLE** — the gate's exit 3 — by name and with the reason:
+  Copilot code review not enabled, the App credentials absent. Not a rung that **refused** the
+  work; that one halts you at `BLOCKED` and never reaches a report like this. Your driver carries those forward into the next
+  iteration, so this line is load bearing rather than decorative. Say it in a form it can
+  read back:
+
+  ```
+  Reviewer: local (copilot unavailable: Copilot code review is not enabled for this organisation)
+  ```
+
+  A rung that merely went **silent** does not go on that line. Silence is what a slow reviewer
+  looks like, and retiring one on it costs every remaining iteration its best reviewer.
+- When the roster reached `none`: say plainly that **the pull request merged without a
+  review**, and name every rung tried and why each was unavailable. Do not leave that to be
+  inferred from the absence of a review line.
 
 If you stopped early, say exactly where and why, beginning the report with `BLOCKED`.
 
@@ -768,8 +898,10 @@ where it stands, `BLOCKED` says it needs a person.
 Stop and report — do not push through — if any of these happen:
 
 - `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
-  unknown `dependencies.style`, has an empty `verify`, names a milestone that does not exist,
-  or a requested project scope could not be resolved. Never re-run it with an argument
+  unknown `dependencies.style`, has an empty `verify`, carries a `review.reviewers` roster
+  naming an unknown rung or putting `none` anywhere but last, still carries the retired
+  `review.required`, names a milestone that does not exist, or a requested project scope could
+  not be resolved. Never re-run it with an argument
   dropped, widened or changed to get past the last two, and never edit
   `.claude/backlog.json` to get past them either.
 - The same CI failure survives three fix attempts.
@@ -778,8 +910,10 @@ Stop and report — do not push through — if any of these happen:
 - Landing the pull request would require a force-push, a branch-protection override, or
   discarding someone else's commits.
 - `git status` in the main checkout is dirty with changes you did not make.
-- `review.required` is `true` and `await-review.sh` exited 1 or 3 — the review declined, or
-  could not be requested at all.
+- `await-review.sh` exited 1 on any rung — a reviewer looked at the work and refused it. This
+  one does **not** advance the roster: a reviewer with different limits is not a second
+  opinion on work the first one could not read.
+- The roster is exhausted without a completed review and without reaching `none`.
 - A wait's exit 2 outlasts its re-run budget: six for `await-checks.sh`, four for
   `await-review.sh`, three for `finish-issue.sh`. An exit 2 on its own is not a stop
   condition — it is the wait asking to be called again, in the same turn — but a gate that

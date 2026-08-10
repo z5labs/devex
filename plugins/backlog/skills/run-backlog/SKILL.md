@@ -1,6 +1,6 @@
 ---
 name: run-backlog
-description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the v0.3.0 milestone", "work through the workspace-ci stories", "work the In Progress stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, the bare word `all` meaning every optional narrowing is dropped, and optional `--label <name>`, `--milestone <title>`, `--no-milestone-filter`, `--project-value <value>`, `--project-field <name>`, `--project-owner <login>`, `--project-number <n>` and `--no-project-filter` arguments restricting the whole run. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
+description: Drive a repository's story backlog unattended, one issue at a time, by spawning a fresh `issue-worker` subagent per iteration and halting on `BACKLOG EMPTY`, on `BLOCKED`, or at a bounded iteration count. Use this whenever the user wants the backlog worked continuously rather than a single issue — "run the backlog", "work through the issues", "keep taking stories until you run out", "drain the v0.3.0 milestone", "work through the workspace-ci stories", "work the In Progress stories", or a `/loop` that repeats the cycle. Takes an optional integer argument setting the maximum number of iterations, the bare word `all` meaning every optional narrowing is dropped, and optional `--label <name>`, `--milestone <title>`, `--no-milestone-filter`, `--project-value <value>`, `--project-field <name>`, `--project-owner <login>`, `--project-number <n>` and `--no-project-filter` arguments restricting the whole run, and an optional `--reviewers <a,b,c>` argument replacing the configured reviewer roster for one run. Skip this when the user wants exactly one issue (`backlog:next-issue`) or wants the repository bootstrapped first (`backlog:setup-backlog`).
 allowed-tools: Agent, SendMessage, Bash, Read, Glob, Grep, TaskCreate, TaskUpdate, ScheduleWakeup
 ---
 
@@ -48,12 +48,14 @@ pins is a default that this run can replace, and the whole run then uses the sam
 /run-backlog 5 --project-field Status --project-value "In Progress"
 /run-backlog 5 --milestone v0.3.0
 /run-backlog 5 all
+/run-backlog 5 --reviewers copilot,local
 ```
 
-The argument order does not matter. The integer is the bound, the bare word `all` is defined
-below, and every argument beginning `--` is passed through to selection. They are exactly the
-ones `scripts/select-issue.sh` takes, so a request the script cannot express is a request
-this skill cannot accept either:
+The argument order does not matter. The integer is the bound and the bare word `all` is
+defined below. Every argument beginning `--` **except `--reviewers`** is passed through to
+selection, and those are exactly the ones `scripts/select-issue.sh` takes, so a request the
+script cannot express is a request this skill cannot accept either. `--reviewers` is the one
+that goes elsewhere — to step 7 of each worker — and it has its own section below:
 
 | argument | what it names | when the user has given you one |
 | --- | --- | --- |
@@ -99,6 +101,33 @@ backlog. Say the arguments in your first message alongside the bound — the fie
 the value, since the same value can exist on two of a board's fields — because every outcome
 below is then a statement about that selection and not about the backlog.
 
+### `--reviewers`
+
+`--reviewers copilot,local,none` replaces the repository's `review.reviewers` roster for this
+run. It is not a selection argument — it goes to step 7 of each worker rather than to
+`select-issue.sh` — but it is settled here with the others, and it is threaded into every
+worker prompt on exactly the same terms.
+
+It exists because a reviewer can be *unavailable through no fault of the configuration*, which
+is what separates it from every selector above. A monthly Copilot allowance runs out on a
+date nobody chose; an organisation has an outage. The configured roster is right for the
+repository and wrong for this month, and the alternative to a per-run override is editing a
+tracked file in every repository the operator runs the loop against — and then remembering to
+edit it back.
+
+Do not invent one. With nothing given, pass nothing: the repository's roster is the default
+and it is usually correct. `--reviewers none` is the shape to be careful with — it is the
+whole run merging unreviewed, so say so in your first message and again in the closing report,
+rather than only in the per-iteration rows.
+
+Check it before the first spawn, against the same three rules `scripts/select-issue.sh`
+applies to the configured roster: every rung is one of `copilot`, `local` and `none`; the list
+is not empty; and `none`, if present, is last, because no rung after it can ever run. A roster
+that breaks one of those is a stop, not a thing to correct on the user's behalf — say which
+rule and what they gave you. Checking it here rather than letting the first worker discover it
+is the same reasoning that put the config's roster check at selection: a bad roster should
+cost a sentence, not an implementation and a green pull request.
+
 ## 1. The loop
 
 For each iteration up to the bound:
@@ -120,6 +149,23 @@ one of them, verbatim and in full:
 ```
            This run is scoped: pass --project-field Status --project-value "In Progress"
            to select-issue.sh at step 1.
+```
+
+When the run carries `--reviewers`, add a line for it too, and it goes to step 7 rather than
+to selection:
+
+```
+           This run's reviewer roster is --reviewers copilot,local,none. Use it at step 7 in
+           place of review.reviewers.
+```
+
+And when earlier iterations found a rung **UNAVAILABLE**, name those rungs and their reasons —
+see below for which ones qualify:
+
+```
+           These reviewer rungs already reported themselves UNAVAILABLE this run and are not
+           worth probing again: copilot (Copilot code review is not enabled for this
+           organisation).
 ```
 
 Every iteration gets all of them, `all` (as `--all`) included. Dropping one does not narrow
@@ -172,10 +218,37 @@ Also halt if:
 - The bound is reached. Say so plainly: a loop that stopped at its bound with work left is a
   different outcome from a drained backlog, and the user's next move differs.
 
-Record per iteration: issue number and title, pull request number, merged / blocked, how many
-times the worker had to be resumed, and the token cost the agent result reports for that
-worker. Nothing else. Keep the running list short enough that you can still see all of it at
-the end.
+Record per iteration: issue number and title, pull request number, merged / blocked, **which
+rung of the roster reviewed it**, how many times the worker had to be resumed, and the token
+cost the agent result reports for that worker. Nothing else. Keep the running list short
+enough that you can still see all of it at the end.
+
+### Remembering a rung that is down, and not remembering one that is slow
+
+A worker's report names any rung it found **UNAVAILABLE** — the gate's exit 3, which is the
+rung saying it cannot review at all. That is a different outcome from a rung that **refused**
+the work (exit 1), which halts the worker rather than being carried anywhere. Accumulate the
+unavailable ones across the run and thread them into every subsequent worker prompt, exactly
+as you thread the selection arguments. The memory belongs here and nowhere else: every iteration is a fresh subagent, so
+no worker can carry it, and a state file on disk would outlive the run and keep a rung retired
+after its quota reset overnight.
+
+Two failures read alike in a report and are not alike, and only the first is remembered:
+
+- **The rung reported itself UNAVAILABLE.** Synchronous — the mutation, the REST fallback,
+  the re-check, or, for the `local` rung, credentials absent from the environment at zero
+  network cost. One to three seconds, and the rung *told us* it was down. Re-probing it across ten
+  iterations costs about thirty seconds in total; not remembering it costs nothing much
+  either, which is why this is cheap insurance rather than a load-bearing optimisation.
+- **Nothing arrived.** Inferred from silence, after five minutes and four re-runs. Silence is
+  also exactly what a slow-but-working reviewer looks like. Remembering this one retires a
+  working reviewer for the rest of the run, and re-probing it costs three hours and twenty
+  minutes across ten iterations — so it is re-probed every iteration anyway, and never
+  recorded.
+
+A worker that says a rung went silent is not reporting a rung that is down. If a report is
+ambiguous, do not record the rung: the cost of an extra probe is seconds and the cost of a
+wrong retirement is every remaining iteration's review quality.
 
 ### A worker that comes back mid-cycle
 
@@ -252,6 +325,10 @@ columns are the only place a run that regressed is visible.
   no one holding them.
 - **Never widen the bound mid-run** because the backlog turned out to be longer. Finish,
   report, and let the user re-run.
+- **Never reorder or shorten the reviewer roster**, and never add `none` to it because a rung
+  went quiet. The order is the operator's policy about what assurance the default branch gets,
+  and a run that appends `none` to keep moving has decided that on their behalf. A roster that
+  runs out is a `BLOCKED` worker and a halted loop, which is the correct outcome.
 - **Never drop, widen or edit any selection argument mid-run**, and never respond to a worker
   that halted on a selection failure by re-spawning it with an argument removed or changed.
   Dropping the value turns "work the workspace-ci stories" into "work the backlog"; dropping
@@ -266,15 +343,18 @@ columns are the only place a run that regressed is visible.
 
 ## 3. Report
 
-Close with the iteration table, the selection arguments the run was under if it had any, the reason the
-loop stopped in its own words (`BACKLOG EMPTY`, `BLOCKED`, bound reached, worker failure,
-a worker that could not be got past `IN FLIGHT`),
-and — if anything merged without a review because `review.required` is `false` — that fact,
-once, for the whole run.
+Close with the iteration table, the selection arguments and the reviewer roster the run was
+under if it had either, the reason the loop stopped in its own words (`BACKLOG EMPTY`,
+`BLOCKED`, bound reached, worker failure, a worker that could not be got past `IN FLIGHT`),
+every rung found unavailable during the run with its reason, and — if anything merged because
+the roster reached `none` — that fact, once, for the whole run.
 
-The table carries the token cost per iteration, so keep that column in the closing report
-rather than summarising it away. It is what makes the next run comparable to this one, and
-the only signal that separates an expensive iteration from a busy-waiting one.
+The table carries the token cost per iteration and the rung that reviewed each one, so keep
+both columns in the closing report rather than summarising them away. The cost column is what
+makes the next run comparable to this one, and the only signal that separates an expensive
+iteration from a busy-waiting one; the reviewer column is what shows a run that quietly
+degraded from `copilot` to `local` halfway through, which the outcomes alone look identical
+under.
 
 ## Running it on a schedule
 
