@@ -6,9 +6,15 @@
 # Usage: await-review.sh <pr-number> [<reviewer>]
 #        await-review.sh --classify <reviewer>   (stdin: a review as JSON)
 #
-# <reviewer> is `copilot` or `local`, defaulting to `copilot`. `none` is not a
-# reviewer to wait on — a roster that reaches it merges unreviewed, which is a
-# decision the cycle makes rather than a wait it performs.
+# <reviewer> is `copilot`, `local` or `bot:<login>`, defaulting to `copilot`.
+# `none` is not a reviewer to wait on — a roster that reaches it merges
+# unreviewed, which is a decision the cycle makes rather than a wait it
+# performs.
+#
+# `copilot` is sugar for `bot:copilot-pull-request-reviewer[bot]`, and writing
+# the desugared form gets identical behaviour: that login is the one bot this
+# plugin KNOWS, so it carries a built-in timeline filter and a built-in refusal
+# wording. Every other login is a bot the plugin has never seen.
 #
 # Why this is a script and not three numbered steps.
 #
@@ -54,18 +60,40 @@
 # about the work, and advancing past it to a reviewer with different limits is
 # how unreviewable work reaches the default branch. So a refusal is exit 1 and
 # stops the cycle. Only a rung that cannot review at all — the request refused,
-# credentials absent, nothing posted inside the bound — advances the roster.
+# the login not a bot or not installed, credentials absent, nothing posted
+# inside the bound — advances the roster.
+#
+# And a third thing a landed review can be: UNCLASSIFIABLE. A refusal is
+# recognised by its WORDING, and the only wording this plugin has ever observed
+# is Copilot's. A different bot refuses in words of its own, which match nothing
+# here — so a naive classifier would return its refusal as a completed review
+# and the cycle would label and merge on it. That is the same defect the decline
+# check was added for, reintroduced for every bot the plugin has not been
+# taught. So a review from a bot whose refusal wording is unknown is never
+# exit 0: it is exit 5, and a human reads it. An operator who has run that bot
+# and seen it decline supplies the wording in `.claude/backlog.json` as
+# `review.refusals["bot:<login>"]`, and that rung then classifies exactly as
+# copilot does.
 #
 # Exit codes:
 #   0  a review COMPLETED — it left comments, or reported that it generated none
 #   1  the most recent review REFUSED the work; stdout is its body. BLOCKED:
 #      do not advance the roster and do not label the pull request
 #   2  nothing arrived yet. Not a verdict — call it again
-#   3  UNAVAILABLE, synchronously: the request could not be placed, or the
-#      rung's preconditions are absent. Advance the roster, and remember this
-#      rung for the rest of the run — it told us it was down, in a second or
-#      two. Distinct from exit 1, which is the rung REFUSING the work
+#   3  UNAVAILABLE, synchronously: the request could not be placed, the login is
+#      not a bot or is not installed on the repository, or the rung's
+#      preconditions are absent. Advance the roster, and remember this rung for
+#      the rest of the run — it told us it was down, in a second or two.
+#      Distinct from exit 1, which is the rung REFUSING the work
 #   4  usage or precondition failure in the script's own arguments
+#   5  ESCALATION: a review landed from a rung whose refusal wording this plugin
+#      does not know, so it may be a refusal and the script cannot tell. stdout
+#      is the review body. The caller treats it exactly as exit 1 — do not
+#      label, do not advance the roster, stop and report — and it is a separate
+#      code because the run has learned something different: not "the bot
+#      refused" but "the bot may have refused and the plugin cannot tell". A
+#      report that conflates the two teaches its reader a refusal that never
+#      happened
 
 set -uo pipefail
 
@@ -88,18 +116,70 @@ note() { printf 'await-review: %s\n' "$*" >&2; }
 # test: Copilot has posted under more than one spelling, and matching loosely
 # on a name no human account uses is safer than matching exactly on one of them.
 REVIEWER=""
+REVIEWER_KIND=""
 REVIEWER_LOGIN=""
 REVIEWER_MATCH=""
+REVIEWER_REFUSAL=""
 
-resolve_reviewer() { # <reviewer>
+# The one bot this plugin knows, and the one refusal wording it has ever
+# observed. Both are built in, and neither is configurable: `copilot` is not a
+# login the operator chose, and its wording is not something they have to have
+# seen for the gate to work.
+COPILOT_LOGIN='copilot-pull-request-reviewer[bot]'
+# A refusal satisfies any `length > 0` test, which is exactly how it was missed.
+# The apostrophe is matched loosely because GitHub has rendered it both as ' and
+# as a typographic quote.
+COPILOT_REFUSAL="was(n.?t| not) able to review"
+
+# Read cwd-relative, exactly as select-issue.sh reads it, and optional: absent
+# or unparseable means no rung carries a configured wording, which is the safe
+# direction — an unknown bot escalates rather than completing.
+CFG=.claude/backlog.json
+
+regex_escape() { printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g'; }
+
+# Anything but a non-empty string reads as "not configured", which escalates.
+# select-issue.sh has already refused those shapes at step 1; treating them as
+# absent here rather than as a pattern is the same choice made twice, in the
+# direction that cannot merge.
+configured_refusal() { # <rung>
+  [ -f "$CFG" ] || return 0
+  jq -r --arg rung "$1" \
+    '.review.refusals[$rung] | if type == "string" then . else "" end' \
+    "$CFG" 2>/dev/null
+}
+
+# Everything classification needs, and nothing else: no network call, no App
+# token, no cwd beyond the config. `--classify` calls this alone, which is what
+# keeps the fixture corpus offline.
+#
+# The refusal wording is Copilot's, and it is matched for the `local` rung on
+# purpose: that reviewer is told to decline in the same sentence, so one
+# classifier covers both rungs the plugin ships. A `bot:<login>` rung gets its
+# wording from the operator or gets none, and none means escalation.
+resolve_refusal() { # <reviewer>
   case "$1" in
     copilot)
-      REVIEWER=copilot
-      REVIEWER_LOGIN='copilot-pull-request-reviewer[bot]'
-      REVIEWER_MATCH='copilot'
-      ;;
+      REVIEWER=copilot;  REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
     local)
-      REVIEWER=local
+      REVIEWER=local;    REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
+    "bot:$COPILOT_LOGIN")
+      REVIEWER="$1";     REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
+    bot:?*)
+      REVIEWER="$1";     REVIEWER_REFUSAL=$(configured_refusal "$1") ;;
+    none)
+      fail 4 "'none' is not a reviewer to wait on; a roster that reaches none merges unreviewed" ;;
+    *)
+      fail 4 "unknown reviewer '$1'; the rungs are copilot, local and bot:<login>" ;;
+  esac
+}
+
+# The rest of the per-rung data: who to ask, and whose `reviewed` events count.
+resolve_reviewer() { # <reviewer>
+  resolve_refusal "$1"
+  case "$1" in
+    local)
+      REVIEWER_KIND=local
       # The local rung IS the App, so its login has to come from the App rather
       # than from a constant here. That lookup needs the credentials and
       # openssl, which makes "the App is not configured in this environment"
@@ -107,38 +187,57 @@ resolve_reviewer() { # <reviewer>
       # the cost of one API call rather than five minutes.
       REVIEWER_LOGIN=$("$MINT" --login) || exit $?
       [ -n "$REVIEWER_LOGIN" ] || fail 3 "the backlog App reported no login; the local rung cannot be waited on"
-      REVIEWER_MATCH=$(printf '%s' "$REVIEWER_LOGIN" | sed 's/[][\\.^$*+?(){}|]/\\&/g')
-      ;;
-    none)
-      fail 4 "'none' is not a reviewer to wait on; a roster that reaches none merges unreviewed"
+      REVIEWER_MATCH=$(regex_escape "$REVIEWER_LOGIN")
       ;;
     *)
-      fail 4 "unknown reviewer '$1'; the rungs are copilot and local"
+      REVIEWER_KIND=bot
+      case "$1" in
+        copilot) REVIEWER_LOGIN=$COPILOT_LOGIN ;;
+        *)       REVIEWER_LOGIN=${1#bot:} ;;
+      esac
+      if [ "$REVIEWER_LOGIN" = "$COPILOT_LOGIN" ]; then
+        REVIEWER_MATCH='copilot'
+      else
+        # The `[bot]` suffix is dropped before escaping rather than matched,
+        # because the timeline has carried both spellings for the same bot and
+        # the match is an unanchored substring test. So `bot:coderabbitai[bot]`
+        # and `bot:coderabbitai` filter identically, and only the login sent to
+        # GitHub — which REST accepts in the full form only — differs.
+        REVIEWER_MATCH=$(regex_escape "${REVIEWER_LOGIN%"[bot]"}")
+        [ -n "$REVIEWER_MATCH" ] || REVIEWER_MATCH=$(regex_escape "$REVIEWER_LOGIN")
+      fi
       ;;
   esac
 }
 
-# A refusal satisfies any `length > 0` test, which is exactly how it was missed.
-# The apostrophe is matched loosely because GitHub has rendered it both as ' and
-# as a typographic quote.
-#
-# The wording is Copilot's, and it is matched for every rung on purpose: the
-# `local` reviewer is told to use the same sentence when it declines, so that
-# one classifier covers the roster. That is also why a generic `bot:<login>`
-# rung is deliberately out of scope — an unrecognised refusal from an unknown
-# bot would classify as a completed review and merge.
-refused() {
-  printf '%s' "$1" | grep -qiE "was(n.?t| not) able to review"
-}
-
 classify() { # <review json>
-  local state body
+  local state body rc
   state=$(printf '%s' "$1" | jq -r '.state // ""' 2>/dev/null)
   body=$(printf '%s' "$1" | jq -r '.body // ""' 2>/dev/null)
-  if refused "$body"; then
+
+  # A bot whose refusal wording is unknown. Silence here would be a merge: its
+  # decline matches nothing, falls through to the success path and is returned
+  # as a completed review.
+  if [ -z "$REVIEWER_REFUSAL" ]; then
     printf '%s\n' "$body"
-    fail 1 "$REVIEWER REFUSED to review PR #$PR; do not label it, and do not advance the roster"
+    fail 5 "$REVIEWER reviewed PR #$PR, and this plugin does not know how that bot words a refusal -- so it cannot tell a completed review from a declined one. Read the review above: do not label the pull request, and do not advance the roster. Once you have seen this bot decline, put its wording in $CFG as review.refusals[\"$REVIEWER\"] and it classifies exactly as copilot does"
   fi
+
+  printf '%s' "$body" | grep -qiE "$REVIEWER_REFUSAL"
+  rc=$?
+  case "$rc" in
+    0)
+      printf '%s\n' "$body"
+      fail 1 "$REVIEWER REFUSED to review PR #$PR; do not label it, and do not advance the roster" ;;
+    1) ;;
+    # grep answers 2 for a pattern it cannot compile, and a broken pattern read
+    # as "did not match" is a refusal classified as a completed review. Never
+    # let that fall through: select-issue.sh rejects an unusable pattern at
+    # step 1, so reaching here means the config changed under the run.
+    *)
+      fail 4 "review.refusals[\"$REVIEWER\"] in $CFG is not a usable POSIX extended regular expression; nothing can be classified against it" ;;
+  esac
+
   printf '%s review completed [%s]\n%s\n' "$REVIEWER" "$state" "$body"
   exit 0
 }
@@ -149,12 +248,7 @@ if [ "${1:-}" = --classify ]; then
   [ $# -eq 2 ] || fail 4 "usage: await-review.sh --classify <reviewer>  (a review as JSON on stdin)"
   command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
   PR=0
-  case "$2" in
-    copilot) REVIEWER=copilot ;;
-    local)   REVIEWER=local ;;
-    none)    fail 4 "'none' is not a reviewer to wait on; a roster that reaches none merges unreviewed" ;;
-    *)       fail 4 "unknown reviewer '$2'; the rungs are copilot and local" ;;
-  esac
+  resolve_refusal "$2"
   INPUT=$(cat)
   [ -n "$INPUT" ] || fail 2 "nothing to classify"
   classify "$INPUT"
@@ -215,11 +309,23 @@ requested() {
 }
 
 # The bot's node ID is looked up by login rather than hard-coded, so a change on
-# GitHub's side surfaces here as a failed lookup instead of a silent no-op.
+# GitHub's side surfaces here as a failed lookup instead of a silent no-op. The
+# account TYPE comes back from the same call, because `requestReviews` takes
+# `botIds` and a login that is not a Bot cannot be passed to it — while the REST
+# fallback would happily request a REVIEW FROM A PERSON under that login. So a
+# login that resolves to anything but a Bot is unavailable before the fallback
+# is reached. A lookup that fails outright says nothing about the type and is
+# left to the fallback, exactly as it was.
 request_review() {
-  local pr_id bot_id
+  local pr_id account acct_type bot_id
   pr_id=$(gh pr view "$PR" --repo "$REPO" --json id --jq .id 2>/dev/null) || pr_id=""
-  bot_id=$(gh api "/users/$REVIEWER_LOGIN" --jq .node_id 2>/dev/null) || bot_id=""
+  account=$(gh api "/users/$REVIEWER_LOGIN" --jq '"\(.type // "")|\(.node_id // "")"' 2>/dev/null) || account=""
+  acct_type=${account%%|*}
+  bot_id=${account#*|}
+
+  if [ -n "$acct_type" ] && [ "$acct_type" != Bot ]; then
+    fail 3 "$REVIEWER_LOGIN is a $acct_type on GitHub, not a Bot, so no review can be requested from it as one. This rung is unavailable: advance the roster and remember it"
+  fi
 
   if [ -n "$pr_id" ] && [ -n "$bot_id" ]; then
     if gh api graphql -f query='
@@ -244,14 +350,14 @@ request_review() {
   requested
 }
 
-if [ "$REVIEWER" = local ]; then
+if [ "$REVIEWER_KIND" = local ]; then
   note "the local rung posts its own review; nothing to request on PR #$PR"
 elif requested; then
   note "$REVIEWER is already a requested reviewer on PR #$PR"
 elif request_review; then
   note "$REVIEWER is now a requested reviewer on PR #$PR"
 else
-  fail 3 "could not request a $REVIEWER review on PR #$PR; Copilot code review may not be enabled for this organisation. This rung is unavailable: advance the roster and remember it"
+  fail 3 "could not request a $REVIEWER review on PR #$PR; $REVIEWER_LOGIN may not be installed on this repository, and for copilot the organisation may not have code review enabled. This rung is unavailable: advance the roster and remember it"
 fi
 
 # ---------------------------------------------------------------- waiting -----

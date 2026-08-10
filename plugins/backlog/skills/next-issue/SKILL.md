@@ -47,6 +47,7 @@ What each key is used for:
 | `verify` | step 4, the commands that gate the pull request |
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
 | `review.reviewers` | steps 7 and 8, the ordered roster of reviewers that gates the merge |
+| `review.refusals` | step 7 — read by `await-review.sh`, not by you: how a `bot:<login>` rung words a refusal |
 | `worktreeDir` | steps 2 and 10, where the worktree lives |
 
 Read the file for the four keys you use directly. The first three rows belong to step 1's
@@ -445,9 +446,9 @@ one response that cannot be right.
 ## 7. The review — walk the roster
 
 `review.reviewers` is an **ordered roster**, tried in order and failing over on availability:
-`["copilot"]`, `["copilot", "local"]`, `["copilot", "local", "none"]`. `select-issue.sh`
-already validated it at step 1, so by the time you are here the rungs are known and `none`,
-if present, is last.
+`["copilot"]`, `["copilot", "local"]`, `["copilot", "bot:coderabbitai[bot]", "none"]`.
+`select-issue.sh` already validated it at step 1, so by the time you are here the rungs are
+well-formed and `none`, if present, is last.
 
 Two things can override the configured roster, and both come from your prompt rather than
 from the repository:
@@ -465,7 +466,8 @@ step 9. Nothing here is optional for any other rung.
 
 ### The distinction the whole roster turns on
 
-**Unavailability advances the roster. Refusal does not.**
+**Unavailability advances the roster. Refusal does not. And "the plugin cannot tell which"
+does not either.**
 
 A rung that reviewed the pull request and *refused* it — Copilot's `"wasn't able to review
 this pull request because it exceeds the maximum number of files (300)"` — has said something
@@ -474,6 +476,15 @@ unreviewable work reaches the default branch, which is the failure the decline c
 added for: a vendored test suite pushed a pull request past the file limit, Copilot declined,
 a naive `length > 0` check passed, and the cycle merged with no review at all. So a refusal is
 `BLOCKED` and the roster stops. This is the conservative reading, chosen deliberately.
+
+The third outcome exists because a refusal is recognised by its **wording**, and the only
+wording this plugin has ever observed is Copilot's. A `bot:<login>` rung the operator has not
+supplied a wording for could be refusing in words of its own, and nothing here can tell that
+from a review with findings. That is exit 5 — **escalation** — and you treat it exactly as
+exit 1: do not label, do not advance the roster, stop and report. What you must *not* do is
+report it as a refusal. The run has learned something different: not "the bot refused" but
+"the bot may have refused and the plugin cannot tell", and a report that conflates the two
+teaches its reader a refusal that never happened.
 
 ### `copilot`
 
@@ -486,6 +497,31 @@ One blocking `Bash` call, the same shape as step 6's, with the Bash tool's `time
 
 This is the longest wait in the cycle and the one that has attracted busy-waiting. Step 6's
 rules hold here unchanged: not `Monitor`, not `run_in_background`, and not turns of your own.
+
+### `bot:<login>`
+
+Any review bot already installed on the repository, named by its full GitHub login. The call
+is the same one, with the rung as written in the roster — brackets and all, quoted so your
+shell does not glob it:
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> 'bot:coderabbitai[bot]'
+```
+
+Requesting and waiting are identical to `copilot` — which is itself sugar for
+`bot:copilot-pull-request-reviewer[bot]`, and writing the desugared form behaves the same.
+A login that resolves to a person rather than a Bot, or to nothing at all, is exit 3:
+unavailable, advance the roster, record the rung.
+
+**Classification is the part that is not identical, and it is the reason this rung is safe.**
+The plugin knows how to ask a bot and how to tell that it answered; it does not know how that
+bot words a refusal. So unless `review.refusals` in `.claude/backlog.json` supplies that
+wording, every review from this rung is exit 5 — the gate refusing to guess — and a human
+reads it. Where the wording *is* supplied, the rung classifies exactly as `copilot` does.
+
+If you hit exit 5, the fix is not yours to apply: only someone who has watched that bot
+decline can write the pattern, and writing one from memory is precisely how an unrecognised
+refusal gets merged. Report it and say what the review said.
 
 ### `local`
 
@@ -551,15 +587,16 @@ That last call is not ceremony. A posted review is a `reviewed` event on the tim
 is what the gate polls, so **one exit code covers every rung** and "was this reviewed?" never
 becomes something you assert at the end of the longest part of the cycle.
 
-### The exit table — identical for both rungs
+### The exit table — identical for every rung
 
 | exit | meaning | what you do |
 | --- | --- | --- |
 | 0 | a review **completed** — it left comments, or reported it generated none. stdout is its body | continue to step 8. Note which rung it was; your report names it |
 | 1 | the most recent review **REFUSED** the work; stdout is why | `BLOCKED`, and do **not** label and do **not** advance the roster. If it is the 300-file limit, say so and suggest how the work could be split |
 | 2 | the bound was up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. After **four** re-runs — about twenty minutes with nothing posted — this rung is unavailable *for this pull request*: advance the roster. Do **not** report it as having refused, and do not tell the driver to retire it. Silence is exactly what a slow-but-working reviewer looks like |
-| 3 | **UNAVAILABLE**, synchronously — the request was refused, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
+| 3 | **UNAVAILABLE**, synchronously — the request was refused, the login is not a bot or is not installed, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
 | 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
+| 5 | **ESCALATION** — a review landed from a `bot:<login>` rung whose refusal wording is not configured, so it may be a refusal and the gate cannot tell; stdout is the review body | exactly what you do on 1: `BLOCKED`, do **not** label and do **not** advance the roster. Report it as *unclassifiable*, never as a refusal, and quote what the review said so its reader can judge |
 
 **Only exit 0 lets you label the pull request in step 9** — on some rung, or the roster
 reaching `none`.
@@ -608,6 +645,12 @@ session:
   wait and one review would count as two.
 - The `local` rung's login is **discovered** from the App rather than written down. The App is
   the operator's and its slug is not this plugin's to know.
+- A `bot:<login>` rung's account **type** is checked before the request. `requestReviews` takes
+  `botIds`, so a login that is a person cannot be requested as a bot — and the REST fallback
+  would otherwise quietly request a review from that human instead.
+- The refusal wording is **per rung**, and absent means escalate rather than complete. This is
+  the finding the generic rung was held back for: an unrecognised refusal matches nothing,
+  falls through to the success path and returns as a completed review, which is a merge.
 
 `scripts/await-review_test.sh` is the offline fixture corpus for the classification and for
 the unavailable/refused/nothing-yet split; a change to those rules belongs there, not here.
@@ -692,9 +735,10 @@ visible only in a transcript. It is also what lets the loop run unattended: an a
 on its own is blocked, and labelling is not.
 
 No exit from step 7 other than 0 is a completed review. A **refusal** (1) is `BLOCKED`
-outright. Silence (2) and unavailability (3) send you to the next rung, and if the roster runs
-out without reaching `none` they are `BLOCKED` too. In every one of those cases: do **not**
-label the pull request. Leave it open, leave the worktree in place, and stop with a report
+outright, and so is an **escalation** (5) — a review the gate could not classify is not a
+review that completed. Silence (2) and unavailability (3) send you to the next rung, and if
+the roster runs out without reaching `none` they are `BLOCKED` too. In every one of those
+cases: do **not** label the pull request. Leave it open, leave the worktree in place, and stop with a report
 beginning `BLOCKED` that names the pull request, every rung tried and why each failed, so the
 user can tell a pull request that needs a human look from one that merged on its own. Sending
 unreviewed work to the default branch is the one step of this cycle that is not yours to take
@@ -855,11 +899,13 @@ public API. If the run was scoped, name the scope in full — the field as well 
 because the same value can exist on more than one of a board's fields. An outcome from a
 scoped backlog says nothing about the rest of it.
 
-- **Which rung reviewed**, by name, and what it flagged. `copilot` and `local` are different
-  assurances and a report that says only "reviewed" hides which one was had.
+- **Which rung reviewed**, by name, and what it flagged. `copilot`, `local` and a named bot are
+  different assurances and a report that says only "reviewed" hides which one was had.
 - **Any rung you found UNAVAILABLE** — the gate's exit 3 — by name and with the reason:
-  Copilot code review not enabled, the App credentials absent. Not a rung that **refused** the
-  work; that one halts you at `BLOCKED` and never reaches a report like this. Your driver carries those forward into the next
+  Copilot code review not enabled, the App credentials absent, the login not installed on this
+  repository or not a bot at all. Not a rung that **refused** the work, and not one whose review
+  could not be classified; both of those halt you at `BLOCKED` and never reach a report like
+  this. Your driver carries the unavailable ones forward into the next
   iteration, so this line is load bearing rather than decorative. Say it in a form it can
   read back:
 
@@ -899,7 +945,9 @@ Stop and report — do not push through — if any of these happen:
 
 - `select-issue.sh` exits 4 — `.claude/backlog.json` is missing, does not parse, carries an
   unknown `dependencies.style`, has an empty `verify`, carries a `review.reviewers` roster
-  naming an unknown rung or putting `none` anywhere but last, still carries the retired
+  naming an unknown rung or putting `none` anywhere but last, carries a `review.refusals`
+  pattern that is empty, is keyed to a rung whose wording is built in, or will not compile,
+  still carries the retired
   `review.required`, names a milestone that does not exist, or a requested project scope could
   not be resolved. Never re-run it with an argument
   dropped, widened or changed to get past the last two, and never edit
@@ -913,6 +961,10 @@ Stop and report — do not push through — if any of these happen:
 - `await-review.sh` exited 1 on any rung — a reviewer looked at the work and refused it. This
   one does **not** advance the roster: a reviewer with different limits is not a second
   opinion on work the first one could not read.
+- `await-review.sh` exited 5 on any rung — a review landed that the gate could not classify,
+  because that bot's refusal wording is not configured. It does not advance the roster either,
+  for the same reason: it may be that refusal. Report it as unclassifiable rather than as a
+  refusal, and quote the review.
 - The roster is exhausted without a completed review and without reaching `none`.
 - A wait's exit 2 outlasts its re-run budget: six for `await-checks.sh`, four for
   `await-review.sh`, three for `finish-issue.sh`. An exit 2 on its own is not a stop

@@ -759,6 +759,7 @@ esac
 # is a rung nothing can follow -- the roster reads as though it has a fallback
 # when the fallback is unreachable, which is the worse of the two ways to be
 # wrong.
+COPILOT_LOGIN='copilot-pull-request-reviewer[bot]'
 ROSTER=""
 REVIEWER_POS=0
 while [ "$REVIEWER_POS" -lt "$REVIEWER_COUNT" ]; do
@@ -769,11 +770,62 @@ while [ "$REVIEWER_POS" -lt "$REVIEWER_COUNT" ]; do
     none)
       [ "$REVIEWER_POS" -eq "$REVIEWER_COUNT" ] \
         || fail 4 "$CFG: review.reviewers has 'none' at position $REVIEWER_POS of $REVIEWER_COUNT; none merges unreviewed, so no rung after it can ever run -- move it last, or drop the rungs behind it" ;;
-    *) fail 4 "$CFG: review.reviewers names an unknown rung '$RUNG'; the rungs are copilot, local and none" ;;
+    # Any review bot already installed on the repository, named by login. What
+    # the plugin knows about such a bot is: how to ask it, and how to tell that
+    # it answered. What it does NOT know is how that bot words a refusal -- so a
+    # review from one it has not been taught escalates rather than completing.
+    # That is a step-7 outcome; here there is only the shape of the rung.
+    bot:*)
+      RUNG_LOGIN=${RUNG#bot:}
+      [ -n "$RUNG_LOGIN" ] \
+        || fail 4 "$CFG: review.reviewers has a 'bot:' rung with no login; name the bot as it appears on GitHub, brackets included -- bot:coderabbitai[bot]"
+      case "$RUNG_LOGIN" in
+        *[[:space:],]*) fail 4 "$CFG: review.reviewers names 'bot:$RUNG_LOGIN'; a GitHub login holds no whitespace or commas, and a rung holding either cannot survive being passed as one --reviewers item" ;;
+      esac
+      ;;
+    *) fail 4 "$CFG: review.reviewers names an unknown rung '$RUNG'; the rungs are copilot, local, bot:<login> and none" ;;
   esac
   ROSTER="${ROSTER:+$ROSTER -> }$RUNG"
 done
 note "reviewer roster: $ROSTER"
+
+# The per-rung refusal wording. Optional, and the whole point of it is that the
+# plugin ships exactly one pattern -- Copilot's -- because that is the only bot
+# whose refusal anyone here has ever seen. Supplying one is the operator
+# asserting they have watched that bot decline; without it the gate escalates a
+# landed review to a human rather than guessing.
+REFUSALS_KIND=$(jq -r 'if ((.review | has("refusals")) | not) or (.review.refusals == null) then "absent" else (.review.refusals | type) end' "$CFG")
+case "$REFUSALS_KIND" in
+  absent) ;;
+  object)
+    while IFS= read -r KEY; do
+      case "$KEY" in
+        # A key that does nothing is worse than a key that fails: the operator
+        # writes a wording, the run ignores it, and the rung goes on classifying
+        # by rules they think they replaced.
+        copilot|local|"bot:$COPILOT_LOGIN") fail 4 "$CFG: review.refusals names '$KEY', whose refusal wording is built into await-review.sh and is not configurable; only a bot the plugin has never seen needs one" ;;
+        none)     fail 4 "$CFG: review.refusals names 'none', which never reviews anything and so can never refuse" ;;
+        bot:?*)   ;;
+        *)        fail 4 "$CFG: review.refusals names '$KEY'; its keys are bot:<login> rungs, the only rungs whose refusal wording this plugin does not already know" ;;
+      esac
+      REFUSAL_KIND=$(jq -r --arg k "$KEY" '.review.refusals[$k] | type' "$CFG")
+      [ "$REFUSAL_KIND" = string ] \
+        || fail 4 "$CFG: review.refusals[\"$KEY\"] must be a string holding a POSIX extended regular expression (found a $REFUSAL_KIND)"
+      REFUSAL=$(jq -r --arg k "$KEY" '.review.refusals[$k]' "$CFG")
+      [ -n "$REFUSAL" ] \
+        || fail 4 "$CFG: review.refusals[\"$KEY\"] is empty; an empty pattern matches every review, so every review from that rung would read as a refusal -- drop the key to escalate instead"
+      # Compiled here, at step 1, because grep answers 2 for a pattern it cannot
+      # compile and a 2 read as "did not match" turns a refusal into a completed
+      # review. Cheap to catch now; a merge to catch later.
+      printf '' | grep -qE "$REFUSAL" >/dev/null 2>&1
+      GREP_RC=$?
+      [ "$GREP_RC" -le 1 ] \
+        || fail 4 "$CFG: review.refusals[\"$KEY\"] is not a usable POSIX extended regular expression ('$REFUSAL'); nothing could be classified against it"
+      note "refusal wording configured for $KEY"
+    done < <(jq -r '.review.refusals | keys_unsorted[]' "$CFG")
+    ;;
+  *) fail 4 "$CFG: review.refusals must be an object keyed by rung, each value the regular expression that identifies that bot's refusal (found a $REFUSALS_KIND)" ;;
+esac
 
 # The scope is whatever the config pins, unless this run says otherwise. Absent
 # from both, no project call is made at all and selection is exactly what it was

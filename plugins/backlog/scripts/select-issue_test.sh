@@ -1002,11 +1002,57 @@ roster_ok 'none alone, an unreviewed merge chosen on purpose' '{ "reviewers": ["
 roster_fail 'an unknown rung names the rungs that exist' "unknown rung 'coderabbit'" \
   '{ "reviewers": ["copilot", "coderabbit"] }'
 
-# The out-of-scope bot rung, reached for before it exists. It has to fail here
-# rather than at step 7, where an unrecognised refusal from an unknown bot would
-# classify as a completed review and merge.
-roster_fail 'a bot: rung is not a rung yet' "unknown rung 'bot:coderabbit-ai'" \
-  '{ "reviewers": ["copilot", "bot:coderabbit-ai"] }'
+# The generic rung. A bare login is not a rung — `bot:` is what says "this is a
+# review bot, and the plugin knows nothing about it beyond how to ask it", which
+# is the distinction the escalation at step 7 rests on.
+roster_ok 'a bot rung names any installed review bot' \
+  '{ "reviewers": ["copilot", "bot:coderabbitai[bot]"] }'
+
+roster_ok 'a bot rung alone, with a refusal wording supplied' \
+  '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "[Rr]eview skipped" } }'
+
+roster_fail 'a bot rung with no login says what to write' "'bot:' rung with no login" \
+  '{ "reviewers": ["bot:"] }'
+
+# A login holding a space or a comma cannot survive `--reviewers a,b,c`, which
+# is how the driver overrides the roster for a run.
+roster_fail 'a bot login with a space is refused' "a GitHub login holds no whitespace" \
+  '{ "reviewers": ["bot:code rabbit"] }'
+
+roster_fail 'a bot login with a comma is refused' "a GitHub login holds no whitespace" \
+  '{ "reviewers": ["bot:a,b"] }'
+
+# The refusal wording, which is the operator asserting they have SEEN that bot
+# decline. Everything wrong with it has to be wrong here: at step 7 a pattern
+# that will not compile reads as "did not match", which turns a refusal into a
+# completed review and merges it.
+roster_fail 'a refusal pattern that will not compile is refused' 'not a usable POSIX extended regular expression' \
+  '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "*(" } }'
+
+roster_fail 'an empty refusal pattern matches every review' 'review.refusals["bot:coderabbitai[bot]"] is empty' \
+  '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": "" } }'
+
+roster_fail 'a refusal pattern that is not a string' 'must be a string holding' \
+  '{ "reviewers": ["bot:coderabbitai[bot]"], "refusals": { "bot:coderabbitai[bot]": true } }'
+
+roster_fail 'refusals that are not an object' 'must be an object keyed by rung' \
+  '{ "reviewers": ["copilot"], "refusals": ["[Rr]eview skipped"] }'
+
+# A key that does nothing is worse than a key that fails: the operator writes a
+# wording, the run ignores it, and the rung goes on classifying by the rules
+# they think they replaced. Copilot's wording is the plugin's, under either
+# spelling of the rung.
+roster_fail 'a refusal keyed to copilot is refused, not ignored' 'is built into await-review.sh' \
+  '{ "reviewers": ["copilot"], "refusals": { "copilot": "[Rr]eview skipped" } }'
+
+roster_fail 'a refusal keyed to copilots login is refused too' 'is built into await-review.sh' \
+  '{ "reviewers": ["copilot"], "refusals": { "bot:copilot-pull-request-reviewer[bot]": "[Rr]eview skipped" } }'
+
+roster_fail 'a refusal keyed to local is refused' 'is built into await-review.sh' \
+  '{ "reviewers": ["copilot", "local"], "refusals": { "local": "[Rr]eview skipped" } }'
+
+roster_fail 'a refusal keyed to a login with no bot: prefix' 'its keys are bot:<login> rungs' \
+  '{ "reviewers": ["copilot"], "refusals": { "coderabbitai[bot]": "[Rr]eview skipped" } }'
 
 roster_fail 'an empty roster says which of the two is meant' 'review.reviewers is empty' \
   '{ "reviewers": [] }'

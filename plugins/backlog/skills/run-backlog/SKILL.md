@@ -227,7 +227,9 @@ enough that you can still see all of it at the end.
 
 A worker's report names any rung it found **UNAVAILABLE** — the gate's exit 3, which is the
 rung saying it cannot review at all. That is a different outcome from a rung that **refused**
-the work (exit 1), which halts the worker rather than being carried anywhere. Accumulate the
+the work (exit 1) or one whose review the gate could not classify (exit 5, a `bot:<login>`
+rung with no configured refusal wording); both of those halt the worker rather than being
+carried anywhere. Accumulate the
 unavailable ones across the run and thread them into every subsequent worker prompt, exactly
 as you thread the selection arguments. The memory belongs here and nowhere else: every iteration is a fresh subagent, so
 no worker can carry it, and a state file on disk would outlive the run and keep a rung retired

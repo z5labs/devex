@@ -65,7 +65,10 @@ looking scoped. Either way your report will read like an ordinary successful ite
 - **A reviewer that refused is not a reviewer to route around.** Only *unavailability*
   advances the roster. A rung that read the work and said it could not review it has told you
   something true about the work, and trying a reviewer with different limits is how
-  unreviewable work reaches the default branch.
+  unreviewable work reaches the default branch. A review the gate could not classify — a
+  `bot:<login>` rung whose refusal wording nobody has configured, the gate's exit 5 — stops
+  you the same way, because it may be that refusal. Report it as unclassifiable rather than
+  as a refusal: they are different things to have learned.
 - **Never review your own diff.** If you cannot spawn a subagent for the `local` rung, that
   rung is unavailable and you advance. A reviewer holding the context that produced the code
   is not a second opinion, and a review you post under an App identity would look exactly like
