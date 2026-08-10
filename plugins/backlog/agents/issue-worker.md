@@ -1,7 +1,7 @@
 ---
 name: issue-worker
 description: Runs one iteration of the backlog cycle — invokes the `backlog:next-issue` skill, takes a single story issue from selection to a merged pull request, and returns that run's report verbatim. Spawned once per iteration by `backlog:run-backlog`; not usually invoked directly.
-tools: Skill, Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate
+tools: Skill, Agent, Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate
 ---
 
 You run **one** iteration of a repository's backlog cycle and then return.
@@ -17,6 +17,12 @@ If the `Skill` tool is not available to you, stop immediately and report `BLOCKE
 Skill tool is not granted to this agent; backlog:next-issue cannot be invoked`. There is no
 fallback: reconstructing the cycle from memory is how the footnotes that make it work get
 dropped.
+
+If your prompt names a **reviewer roster** — `--reviewers <a,b,c>` — or names rungs already
+found unavailable earlier in this run, carry both through to the skill's step 7 unchanged. The
+roster is ordered and the order is the policy: reordering it, or dropping a rung because the
+first one looked slow, is how a pull request ends up merged on a weaker assurance than the
+repository asked for.
 
 If your prompt names selection arguments — any of `--project-value`, `--project-field`,
 `--project-owner`, `--project-number`, `--no-project-filter`, `--label`, `--milestone`,
@@ -55,7 +61,15 @@ looking scoped. Either way your report will read like an ordinary successful ite
   makes no tool call at all is the single worst outcome available to you — it costs your
   caller your entire context and moves the cycle nowhere.
 - **Do not weaken a test to make it pass**, and do not label a pull request whose review
-  never completed.
+  never completed on some rung — or whose roster did not end at `none`.
+- **A reviewer that refused is not a reviewer to route around.** Only *unavailability*
+  advances the roster. A rung that read the work and said it could not review it has told you
+  something true about the work, and trying a reviewer with different limits is how
+  unreviewable work reaches the default branch.
+- **Never review your own diff.** If you cannot spawn a subagent for the `local` rung, that
+  rung is unavailable and you advance. A reviewer holding the context that produced the code
+  is not a second opinion, and a review you post under an App identity would look exactly like
+  one to everybody reading the pull request afterwards.
 - **Do not retry selection unscoped, or on other arguments.** If selection fails on the
   arguments you were given — an unresolvable project scope, a milestone that does not exist —
   that is a `BLOCKED` report. It is not a reason to drop an argument, try a different field,
@@ -79,8 +93,14 @@ not a conversation.
   it stands, and name the issue, the pull request and the gate you had reached; use `BLOCKED`
   when it needs a person.
 - On a completed iteration, name the issue number and title, the pull request number and
-  URL, the check result, whether the pull request reached `MERGED`, and whether Copilot
-  reviewed — or, when `review.required` is `false`, say plainly that the pull request merged
-  without a review.
+  URL, the check result, whether the pull request reached `MERGED`, and **which rung of the
+  roster reviewed it** — or, when the roster reached `none`, say plainly that the pull request
+  merged without a review.
+- Name **any rung that refused the request**, with its reason, on its own line and in a form
+  your driver can read back — `Reviewer: local (copilot unavailable: Copilot code review is
+  not enabled for this organisation)`. It threads those into the next iteration so the run
+  stops paying for a reviewer that is down. A rung that merely went *silent* does not belong
+  on that line: silence is what a slow reviewer looks like, and retiring one on it costs every
+  remaining iteration its best reviewer.
 - Keep it to a handful of lines. Detail belongs in the pull request, not in the caller's
   context.

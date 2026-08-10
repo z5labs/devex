@@ -691,6 +691,9 @@ LIMIT=$(jq -r '.select.limit // ""' "$CFG")
 PROJECT_KIND=$(jq -r 'if (.select.project // null) == null then "absent" else (.select.project | type) end' "$CFG")
 STYLE=$(jq -r '.dependencies.style // ""' "$CFG")
 VERIFY_N=$(jq -r 'if (.verify | type) == "array" then (.verify | length) else -1 end' "$CFG")
+REVIEW_REQUIRED=$(jq -r 'if ((.review | type) == "object") and (.review | has("required")) then (.review.required | tostring) else "" end' "$CFG")
+REVIEWERS_KIND=$(jq -r 'if (.review | type) != "object" then "no-review" elif ((.review | has("reviewers")) | not) then "absent" else (.review.reviewers | type) end' "$CFG")
+REVIEWERS=$(jq -r 'if (.review.reviewers | type) == "array" then (.review.reviewers | map(tostring) | join(" ")) else "" end' "$CFG")
 
 # Flag over config, for the same reason the project keys work that way: the
 # config describes the repository's backlog, and a run is not entitled to rewrite
@@ -715,6 +718,52 @@ esac
 # nothing local ever looked at, and selection is the first chance to say so.
 [ "$VERIFY_N" -ge 1 ] 2>/dev/null \
   || fail 4 "$CFG: verify must be a non-empty array of commands; run backlog:setup-backlog"
+
+# The reviewer roster, checked in the same place and for the same reason. An
+# unknown rung or a `none` that is not last would otherwise surface at step 7 —
+# forty minutes in, with the implementation written, CI green and a pull request
+# already open — and the only remedy at that point is an edit to this file,
+# which is the one thing a run is not allowed to do to get itself unstuck.
+#
+# `review.required` is refused rather than translated. The migration is
+# mechanical, which is exactly what makes translating it silently the wrong
+# move: the key changed because a repository whose Copilot quota is exhausted
+# has to *learn* that a roster exists, and a config that keeps working unchanged
+# is a config nobody reads.
+if [ -n "$REVIEW_REQUIRED" ]; then
+  case "$REVIEW_REQUIRED" in
+    false) WANT_ROSTER='["none"]' ;;
+    *)     WANT_ROSTER='["copilot"]' ;;
+  esac
+  fail 4 "$CFG: review.required is no longer read; replace it with review.reviewers, an ordered roster tried in order -- $REVIEW_REQUIRED becomes $WANT_ROSTER, and [\"copilot\",\"local\",\"none\"] is what fails over instead of blocking"
+fi
+case "$REVIEWERS_KIND" in
+  array) ;;
+  no-review) fail 4 "$CFG: review must be an object holding a reviewers array; run backlog:setup-backlog" ;;
+  absent)    fail 4 "$CFG: review.reviewers is missing; set it to an ordered roster, [\"copilot\"] at minimum" ;;
+  *)         fail 4 "$CFG: review.reviewers must be an array of rung names (found a $REVIEWERS_KIND)" ;;
+esac
+[ -n "$REVIEWERS" ] \
+  || fail 4 "$CFG: review.reviewers is empty; a roster with no rungs can never review and can never merge, so say which is meant -- [\"copilot\"] to gate, [\"none\"] to merge unreviewed on purpose"
+
+REVIEWER_COUNT=0
+for RUNG in $REVIEWERS; do
+  REVIEWER_COUNT=$((REVIEWER_COUNT + 1))
+  case "$RUNG" in
+    copilot|local|none) ;;
+    *) fail 4 "$CFG: review.reviewers names an unknown rung '$RUNG'; the rungs are copilot, local and none" ;;
+  esac
+done
+# `none` last is a downgrade its operator chose. `none` anywhere else is a rung
+# nothing can follow -- the roster reads as though it has a fallback when the
+# fallback is unreachable, which is the worse of the two ways to be wrong.
+REVIEWER_POS=0
+for RUNG in $REVIEWERS; do
+  REVIEWER_POS=$((REVIEWER_POS + 1))
+  [ "$RUNG" = none ] && [ "$REVIEWER_POS" -ne "$REVIEWER_COUNT" ] \
+    && fail 4 "$CFG: review.reviewers has 'none' at position $REVIEWER_POS of $REVIEWER_COUNT; none merges unreviewed, so no rung after it can ever run -- move it last, or drop the rungs behind it"
+done
+note "reviewer roster: ${REVIEWERS// / -> }"
 
 # The scope is whatever the config pins, unless this run says otherwise. Absent
 # from both, no project call is made at all and selection is exactly what it was
