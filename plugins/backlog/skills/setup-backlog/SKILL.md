@@ -168,6 +168,16 @@ either way and let the user choose; do not switch the style on their behalf.
   unavailable, and an exhausted monthly Copilot allowance then costs a rung rather than the
   run. Add a trailing `"none"` only if the user asks for it; see step 5.
 
+  A `bot:<login>` rung names any other review bot already installed on the repository —
+  `bot:coderabbitai[bot]`. Offer one only if the user says they have such a bot; do not go
+  looking for one, and never write a login you have not been given. Say what comes with it:
+  the plugin knows how to ask that bot and how to tell that it answered, but not how it words
+  a refusal, so every review it posts stops the cycle for a human until the user supplies that
+  wording in `review.refusals`. That entry is the user asserting they have watched that bot
+  decline and are recording the sentence it used — never something you infer, and never
+  something you write from memory of how a bot "probably" phrases it. Copilot's is the one
+  wording the plugin ships, and it is built in rather than configurable.
+
   There is no `required` key any more, and `select-issue.sh` refuses a config that still
   carries one rather than translating it. If you are diffing an existing config that has it,
   say so as a migration and give the mapping: `true` becomes `["copilot"]`, `false` becomes
