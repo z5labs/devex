@@ -927,6 +927,25 @@ checkr_fail '--issue and --all is refused' 'cannot be combined with --all' \
 checkr_fail 'an unknown argument is refused' "unknown argument '--milestones'" \
   story null - "$MILESTONES_ALL" --milestones v0.3.0
 
+# An empty value is never how a narrowing is cleared, and the remedy differs by
+# flag. Naming the wrong one — telling a caller to pass `--all` when what they
+# emptied was the label — is worse than naming none, because `--all` is a
+# different run that would have succeeded.
+checkr_fail 'an empty --milestone points at the clearing flags' 'pass --no-milestone-filter or --all' \
+  story null - "$MILESTONES_ALL" --milestone=
+
+checkr_fail 'an empty --project-value points at --no-project-filter' 'pass --no-project-filter or --all' \
+  story null - "$MILESTONES_ALL" --project-value=
+
+checkr_fail 'an empty --label says the label cannot be cleared' 'there is nothing to clear' \
+  story null - "$MILESTONES_ALL" --label=
+
+# The usage text every argument error prints. `--all` composes with `--label`,
+# so a flat `| --all` at the end of one line would tell the caller their valid
+# run is invalid.
+checkr_fail 'the usage text shows --all composing with --label' 'select-issue.sh [--label <name>] --all' \
+  story null - "$MILESTONES_ALL" --nonsense
+
 printf '\ncross-repository dependencies\n'
 
 # The dependency walk itself, end to end, under `dependencies.style` = `native`

@@ -6,7 +6,7 @@
 #                        [--project-owner <login>] [--project-number <n>]
 #                        [--project-field <name>] [--project-value <value>]
 #        select-issue.sh [--no-milestone-filter] [--no-project-filter]
-#        select-issue.sh --all
+#        select-issue.sh [--label <name>] --all
 #        select-issue.sh --issue <n>
 #        select-issue.sh --extract <blocked-by|depends-on|none> [file]
 #        select-issue.sh --native-deps <repo> [file]
@@ -577,11 +577,29 @@ GIVEN=""       # the project flags this run named, for the messages below
 NARROWING=""   # every flag that sets or clears an *optional* narrowing
 LABELLED=""    # `--label`, which defines the backlog rather than narrowing it
 
-USAGE='usage: select-issue.sh [--label <name>] [--milestone <title> | --no-milestone-filter] [--project-owner <login>] [--project-number <n>] [--project-field <name>] [--project-value <value> | --no-project-filter] | --all | --issue <n>'
+# Three forms, because `--all` and `--issue` are not alternatives to the same
+# things. `--all` drops the optional narrowings and keeps the label, so it
+# composes with `--label` and with nothing else; `--issue` replaces selection
+# outright and composes with nothing at all. One flat line with `| --all |
+# --issue` at the end would say both are exclusive modes, which is wrong for the
+# first and is the text every argument error prints.
+USAGE='usage: select-issue.sh [--label <name>] [--milestone <title> | --no-milestone-filter] [--project-owner <login>] [--project-number <n>] [--project-field <name>] [--project-value <value> | --no-project-filter]
+       select-issue.sh [--label <name>] --all
+       select-issue.sh --issue <n>'
 
 set_opt() { # <flag> <value>
-  [ -n "$2" ] \
-    || fail 4 "$1 needs a non-empty value; to drop every optional narrowing, pass --all"
+  # The remedy for an empty value differs by flag, and naming the wrong one is
+  # worse than naming none: a milestone and a project scope are cleared by their
+  # own flags (or `--all`), while a label cannot be cleared at all because it is
+  # what the backlog is.
+  if [ -z "$2" ]; then
+    case "$1" in
+      --label)     fail 4 "--label needs a non-empty value; the backlog is always defined by a label, so there is nothing to clear" ;;
+      --milestone) fail 4 "--milestone needs a non-empty value; to run with no milestone, pass --no-milestone-filter or --all" ;;
+      --issue)     fail 4 "--issue needs a non-empty value; to search the backlog instead, pass no --issue at all" ;;
+      *)           fail 4 "$1 needs a non-empty value; to run unscoped, pass --no-project-filter or --all" ;;
+    esac
+  fi
   case "$1" in
     --project-owner)  OPT_PROJECT_OWNER=$2;  OPT_PROJECT_OWNER_SET=1;  GIVEN="$GIVEN $1" ;;
     --project-number) OPT_PROJECT_NUMBER=$2; OPT_PROJECT_NUMBER_SET=1; GIVEN="$GIVEN $1" ;;
