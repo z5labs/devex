@@ -394,10 +394,16 @@ POSTER="$HERE/post-review.sh"
 # from the shell that ran the tests would invert the case silently, and the
 # state that matters most is defined by a variable being absent.
 CLEAR=(env -u BACKLOG_APP_ID -u BACKLOG_APP_KEY
-           -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY)
+           -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY
+           -u Z5LABS_REVIEW_APP_ID -u Z5LABS_REVIEW_APP_KEY)
 
 # The credential variables for the case under test. Set before each cred_case.
 cred_env=()
+
+# The `--id-env`/`--key-env` pair the case under test passes, which is what a
+# repository naming its own variables in `review.app` costs every door. Empty is
+# the ordinary case: no names given, the defaults apply.
+cred_flags=()
 
 run_cred() { # <command...>
   (cd "$SCRATCH" && PATH="$SCRATCH/bin:$PATH" FX="$SCRATCH/fx" \
@@ -405,26 +411,33 @@ run_cred() { # <command...>
      exec "${CLEAR[@]}" "${cred_env[@]}" "$@")
 }
 
-# cred_case <expected exit> <substring the message must carry> <name>
+# cred_case <expected exit> <substring the message must carry> <name> [<substring it must NOT carry>]
 #
 # Three doors, one verdict. `--check` is what a caller asks the mint directly,
 # `--preflight` is what the cycle runs before it spends a subagent, and the wait
 # is the rung itself — and a credential state that answered differently through
 # any of them would be a rung whose availability depends on who asked.
+#
+# The fourth argument is what makes the configured names testable at all. Naming
+# the right variable is only half of it: a message that names the configured
+# variable AND the default sends its reader to look at both, and the one they
+# will export is the one they recognise.
 cred_case() {
-  local want=$1 want_msg=$2 name=$3
+  local want=$1 want_msg=$2 name=$3 unwanted=${4:-}
   local door rc out bad_doors=""
   : >"$SCRATCH/fx/calls"
   for door in check preflight wait; do
     case "$door" in
-      check)     out=$(run_cred "$MINT" --check 2>&1);      rc=$? ;;
-      preflight) out=$(run_cred "$POSTER" --preflight 2>&1); rc=$? ;;
-      wait)      out=$(run_cred "$SUT" 12 local 2>&1);       rc=$? ;;
+      check)     out=$(run_cred "$MINT"   "${cred_flags[@]}" --check 2>&1);     rc=$? ;;
+      preflight) out=$(run_cred "$POSTER" "${cred_flags[@]}" --preflight 2>&1); rc=$? ;;
+      wait)      out=$(run_cred "$SUT"    "${cred_flags[@]}" 12 local 2>&1);    rc=$? ;;
     esac
     if [ "$rc" != "$want" ]; then
       bad_doors="$bad_doors $door(want $want got $rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100))"
     elif [ -n "$want_msg" ] && ! printf '%s' "$out" | grep -qF -- "$want_msg"; then
       bad_doors="$bad_doors $door(exit $rc but the message never says '$want_msg')"
+    elif [ -n "$unwanted" ] && printf '%s' "$out" | grep -qF -- "$unwanted"; then
+      bad_doors="$bad_doors $door(exit $rc but the message still says '$unwanted')"
     fi
   done
   if [ -n "$bad_doors" ]; then
@@ -473,6 +486,76 @@ cred_env=(BACKLOG_APP_ID=999)
 cred_case 4 'deliberately not substituted' \
   'and one merge variable is enough to tell the two apart'
 
+cred_env=()
+
+# ------------------------------------------- the names, when they are chosen ---
+printf '\nthe credential names, when the repository names its own\n'
+
+# A GitHub App is installed per account, so an operator with repositories in two
+# accounts has two reviewer Apps and one process environment to hold them.
+# `review.app.idEnv`/`keyEnv` let both be exported at once, under their own
+# names, and the caller passes the pair this repository wants down every door.
+cred_flags=(--id-env Z5LABS_REVIEW_APP_ID --key-env Z5LABS_REVIEW_APP_KEY)
+
+# Unset under the configured names is the same unavailability as before — and
+# the message has to name what to export. The fourth argument is the assertion
+# that carries the issue: an operator told `BACKLOG_REVIEW_APP_ID is not set`
+# while their config says `Z5LABS_REVIEW_APP_ID` has been sent to look at the
+# wrong thing entirely.
+cred_env=()
+cred_case 3 'Z5LABS_REVIEW_APP_ID and Z5LABS_REVIEW_APP_KEY are not set' \
+  'unset under the configured names is still unavailability' \
+  'BACKLOG_REVIEW_APP_ID'
+
+cred_env=(Z5LABS_REVIEW_APP_ID=12345)
+cred_case 4 'Z5LABS_REVIEW_APP_KEY is not' \
+  'half a credential names the configured half that is missing' \
+  'BACKLOG_REVIEW_APP_KEY'
+
+cred_env=(Z5LABS_REVIEW_APP_KEY=/dev/null)
+cred_case 4 'Z5LABS_REVIEW_APP_ID is not' \
+  'and the other half names the other one' \
+  'BACKLOG_REVIEW_APP_ID'
+
+# THE case this whole change exists for, and the one no message can be trusted
+# to describe: the default pair is exported — another account's App, sitting
+# right there — and this repository named a different pair. There is no fallback
+# to it. Minting against it would reach `GET /repos/{owner}/{repo}/installation`
+# for an App installed on the OTHER account, which answers exit 3, which the
+# roster reads as a rung that is down, which on ["copilot", "local", "none"] with
+# Copilot exhausted is a merge with no review at all.
+cred_env=(BACKLOG_REVIEW_APP_ID=999 BACKLOG_REVIEW_APP_KEY=/dev/null)
+cred_case 3 'Z5LABS_REVIEW_APP_ID and Z5LABS_REVIEW_APP_KEY are not set' \
+  'the default pair is not a fallback for the configured one' \
+  'BACKLOG_REVIEW_APP_ID is set'
+
+# The migration message names the configured pair too. Telling an operator to
+# export the default names would give them a working rung reading the wrong
+# account's App on the very next repository.
+cred_env=(BACKLOG_APP_ID=999 BACKLOG_APP_KEY=/dev/null)
+cred_case 4 'Export Z5LABS_REVIEW_APP_ID and Z5LABS_REVIEW_APP_KEY' \
+  'the merge-credential migration names the configured pair'
+
+# Half a pair of NAMES is the same mistake one step earlier: a configured ID
+# beside a defaulted key reads one App's ID against another App's key. Every
+# door refuses it, including the two that would never have called the mint.
+cred_flags=(--id-env Z5LABS_REVIEW_APP_ID)
+cred_env=(Z5LABS_REVIEW_APP_ID=12345 Z5LABS_REVIEW_APP_KEY=/dev/null)
+cred_case 4 'both, or neither' \
+  'half a pair of names is refused at every door'
+
+cred_flags=(--key-env Z5LABS_REVIEW_APP_KEY)
+cred_case 4 'both, or neither' \
+  'and the other half of the pair of names is too'
+
+# A name that cannot BE a variable name. `${!name}` on one is a bash "bad
+# substitution", which would surface as a crash inside a pipeline rather than as
+# the sentence naming what to fix.
+cred_flags=(--id-env Z5LABS-REVIEW-APP-ID --key-env Z5LABS_REVIEW_APP_KEY)
+cred_case 4 'not a legal environment variable name' \
+  'a name that is not a legal variable name is refused'
+
+cred_flags=()
 cred_env=()
 
 # ------------------------------------------------------------ the App ---------
@@ -541,6 +624,24 @@ if command -v openssl >/dev/null 2>&1; then
   else
     bad 'one App backing both credentials is stated, not inferred' "want exit 0 got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
   fi
+  cred_env=()
+
+  # The configured names reach the KEY, not only the messages. Both pairs are
+  # exported here and only one of them is signable: the default pair's key is
+  # /dev/null, so a run that quietly read the default names cannot mint a JWT
+  # and comes back exit 3 — the answer the roster reads as a rung that is down.
+  # Exit 0 is the whole assertion.
+  timeline "$(reviewed 'backlog-bot[bot]' '2026-01-01T00:00:00Z' 'the retry loop swallows the error')"
+  cred_flags=(--id-env Z5LABS_REVIEW_APP_ID --key-env Z5LABS_REVIEW_APP_KEY)
+  cred_env=(Z5LABS_REVIEW_APP_ID=12345 Z5LABS_REVIEW_APP_KEY="$SCRATCH/app.pem"
+            BACKLOG_REVIEW_APP_ID=999 BACKLOG_REVIEW_APP_KEY=/dev/null)
+  W_OUT=$(run_cred "$SUT" "${cred_flags[@]}" 12 local 2>&1); W_RC=$?
+  if [ "$W_RC" = 0 ]; then
+    ok 'the configured names are what actually gets minted' 'exit 0'
+  else
+    bad 'the configured names are what actually gets minted' "want exit 0 got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
+  fi
+  cred_flags=()
   cred_env=()
 else
   printf '  skip openssl is not on PATH; the App identity cases need it\n'

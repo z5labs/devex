@@ -1110,6 +1110,97 @@ roster_fail 'review.required false names its replacement' '["none"]' \
 roster_fail 'a config carrying both is still refused' 'review.required is no longer read' \
   '{ "required": true, "reviewers": ["copilot"] }'
 
+printf '\nthe reviewer App variables\n'
+
+# `review.app.idEnv`/`keyEnv` name the environment variables the `local` rung's
+# App credentials are read from — NAMES, never values, which is what makes them
+# safe in a tracked file. They are validated in the same place as the roster and
+# for the same reason: an issue must not be branched against a credential that
+# cannot be read.
+#
+# What a wrong name costs is the whole reason this validation is loud. A GitHub
+# App is installed per account, so naming the other account's pair mints a JWT
+# for an App that is not installed here; the installation lookup says so;
+# app-token.sh reports exit 3, which is UNAVAILABLE, which the roster reads as a
+# rung that is DOWN. On `["copilot", "local", "none"]` with Copilot's allowance
+# exhausted, that is a merge with no review at all — a misconfiguration wearing
+# an outage's clothes.
+#
+# `roster_ok` and `roster_fail` run the whole script against the review block
+# they are given, so a block that passes here still has to select an issue.
+
+# app_note <name> <substring of stderr> <review json>
+app_note() {
+  roster_run "$3"
+  case "$RUN_ERR" in
+    *"$2"*) pass=$((pass + 1)); printf '  ok   %-58s [noted]\n' "$1" ;;
+    *) fail=$((fail + 1)); printf '  FAIL %-58s diagnostics lack [%s]: %s\n' "$1" "$2" "$RUN_ERR" ;;
+  esac
+}
+
+# Absent is the ordinary case and stays entirely legal: it means both defaults,
+# which is what every repository had before this key existed.
+roster_ok 'no app block at all is the default pair' \
+  '{ "reviewers": ["copilot", "local"] }'
+
+roster_ok 'both names, which is what a second account costs' \
+  '{ "reviewers": ["copilot", "local"], "app": { "idEnv": "Z5LABS_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+# The run says which pair it will read. A run whose reviewer rung later reports
+# a variable is unset should not be the first time those names appear.
+app_note 'the configured names are named in the diagnostics' 'Z5LABS_REVIEW_APP_ID' \
+  '{ "reviewers": ["copilot", "local"], "app": { "idEnv": "Z5LABS_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+# Half a pair. A configured idEnv beside a defaulted keyEnv reads one App's ID
+# against another App's private key — half a credential one step earlier — and
+# GitHub rejects the resulting JWT with nothing in the message pointing at the
+# mismatch.
+roster_fail 'idEnv without keyEnv is half a credential' 'review.app has no keyEnv' \
+  '{ "reviewers": ["local"], "app": { "idEnv": "Z5LABS_REVIEW_APP_ID" } }'
+
+roster_fail 'keyEnv without idEnv is the same mistake' 'review.app has no idEnv' \
+  '{ "reviewers": ["local"], "app": { "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+roster_fail 'a null half is refused as an absent one' 'review.app has no keyEnv' \
+  '{ "reviewers": ["local"], "app": { "idEnv": "Z5LABS_REVIEW_APP_ID", "keyEnv": null } }'
+
+# A block holding neither is not half a pair — pointing at the other key would
+# answer a question nobody asked. It says nothing, and the fix is to remove it.
+roster_fail 'an empty block says to drop it' 'holds neither idEnv nor keyEnv' \
+  '{ "reviewers": ["local"], "app": {} }'
+
+roster_fail 'an empty name reads nothing at all' 'review.app.idEnv is empty' \
+  '{ "reviewers": ["local"], "app": { "idEnv": "", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+# A name that cannot BE a variable name. `${!name}` on one is a bash "bad
+# substitution" inside app-token.sh, which would surface as a crash in a
+# pipeline rather than as the sentence naming the offending value — and the
+# offending value is what the message has to carry, because a login mapped to a
+# variable name by hand is exactly where the dashes come from.
+roster_fail 'a name holding dashes names the offending value' "names 'Z5LABS-REVIEW-APP-ID'" \
+  '{ "reviewers": ["local"], "app": { "idEnv": "Z5LABS-REVIEW-APP-ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+roster_fail 'a name opening with a digit is refused' 'not a legal environment variable name' \
+  '{ "reviewers": ["local"], "app": { "idEnv": "1ST_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+roster_fail 'a name holding a dollar sign is refused' 'not a legal environment variable name' \
+  '{ "reviewers": ["local"], "app": { "idEnv": "REVIEW_APP_ID$", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+# The value confusion, which is the one worth failing loudly on: this key holds
+# a NAME, and a number here is somebody having written the App ID itself into a
+# tracked file.
+roster_fail 'a number is a credential, not a name' 'must be a string naming an environment variable' \
+  '{ "reviewers": ["local"], "app": { "idEnv": 12345, "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
+roster_fail 'app that is not an object' 'review.app must be an object holding idEnv and keyEnv' \
+  '{ "reviewers": ["local"], "app": "Z5LABS_REVIEW_APP_ID" }'
+
+# A misspelling is the failure this catches: `id_env` alongside a real `keyEnv`
+# would otherwise be a key that does nothing while reading, to whoever wrote it,
+# as a key that works.
+roster_fail 'an unknown key is refused, not ignored' "review.app names an unknown key 'id_env'" \
+  '{ "reviewers": ["local"], "app": { "id_env": "Z5LABS_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
+
 printf '\ncross-repository dependencies\n'
 
 # The dependency walk itself, end to end, under `dependencies.style` = `native`

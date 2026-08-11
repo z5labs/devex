@@ -184,6 +184,28 @@ either way and let the user choose; do not switch the style on their behalf.
   say so as a migration and give the mapping: `true` becomes `["copilot"]`, `false` becomes
   `["none"]`, and `["copilot", "local", "none"]` is what the boolean could never express —
   fail over, then fall back — which is the reason the key changed.
+- `review.app` — **omit it unless the user has more than one reviewer App.** Absent means
+  `BACKLOG_REVIEW_APP_ID` and `BACKLOG_REVIEW_APP_KEY`, which is what a single-account
+  operator wants and what every repository had before the key existed. Write it when the user
+  says they own repositories under more than one account, or when their environment already
+  carries a reviewer pair under other names:
+
+  ```json
+  "review": {
+    "reviewers": ["copilot", "local"],
+    "app": {
+      "idEnv":  "Z5LABS_REVIEW_APP_ID",
+      "keyEnv": "Z5LABS_REVIEW_APP_KEY"
+    }
+  }
+  ```
+
+  Both keys or neither — `select-issue.sh` refuses one alone at step 1, because a configured
+  `idEnv` beside a defaulted `keyEnv` reads one App's ID against another App's private key.
+  Each must be a legal environment variable name: a letter or underscore, then letters, digits
+  or underscores. The values are **names, not credentials**; if the user hands you an App ID
+  or a PEM, you have been given the wrong thing — say so rather than writing it down. The
+  multi-account shape is in step 5.
 - `worktreeDir` — `.claude/worktrees`.
 
 Write the result to `.claude/backlog.json`, validated against
@@ -274,7 +296,7 @@ other.
 
 | | the merge credential | the reviewer credential |
 | --- | --- | --- |
-| names | `BACKLOG_APP_ID` / `BACKLOG_APP_KEY` | `BACKLOG_REVIEW_APP_ID` / `BACKLOG_REVIEW_APP_KEY` |
+| names | `BACKLOG_APP_ID` / `BACKLOG_APP_KEY`, fixed | whatever `review.app` names, `BACKLOG_REVIEW_APP_ID` / `BACKLOG_REVIEW_APP_KEY` by default |
 | lives in | repository secrets | the environment the loop runs in |
 | read by | the merge workflow, a `pull_request_target` job that checks out nothing | `scripts/app-token.sh`, inside an unattended agent that runs arbitrary shell |
 | needs | Contents, Pull requests and Issues at **write** | **Pull requests: write, and nothing else** |
@@ -328,14 +350,17 @@ A pile of branches named after already-merged issues is this problem, not untidi
 
 #### The reviewer credential
 
-The `local` rung posts its review under an App identity, and it reads
-`BACKLOG_REVIEW_APP_ID` and `BACKLOG_REVIEW_APP_KEY` from the *environment the loop runs in* —
-repository secrets reach the merge workflow, and they do not reach a loop running on a laptop.
-So this one is not a repository lookup; ask the rung itself, which answers for the cost of
-three environment reads and no network call:
+The `local` rung posts its review under an App identity, and it reads that App's ID and
+private key from the *environment the loop runs in* — repository secrets reach the merge
+workflow, and they do not reach a loop running on a laptop. **Which two variables** it reads
+is `review.app` from step 1, defaulting to `BACKLOG_REVIEW_APP_ID` and
+`BACKLOG_REVIEW_APP_KEY`. So this one is not a repository lookup; ask the rung itself, which
+answers for the cost of three environment reads and no network call — passing the configured
+names, if the config carries any:
 
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --check
+"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --id-env <review.app.idEnv> --key-env <review.app.keyEnv> --check
 ```
 
 - exit 0 → **ok**. The rung can run here.
@@ -343,6 +368,10 @@ three environment reads and no network call:
   `openssl` is not on PATH.
 - exit 4 → **needs a change**, and it is one of the two configuration mistakes below rather
   than an absence. Quote the message; it names the variable to set.
+
+Every message names the variable this repository is configured to read, never the default —
+so quote it verbatim. Paraphrasing it back to `BACKLOG_REVIEW_APP_ID` on a repository whose
+config says `Z5LABS_REVIEW_APP_ID` sends the user to export a variable nothing will read.
 
 This checks *your* environment, which is the loop's only if the user runs the loop from the
 same shell. Say which you checked, and ask if the loop runs somewhere else — a CI job, another
@@ -353,8 +382,51 @@ Its setup, when it is its own App:
 1. Create a GitHub App and install it on this repository with **Pull requests** set to **Read
    and write** — and nothing else. That single permission is everything the rung calls; the
    login lookup and the installation lookup are JWT endpoints and need no grant at all.
-2. Export its App ID as `BACKLOG_REVIEW_APP_ID` and its PEM private key — the text, or a path
-   to a file holding it — as `BACKLOG_REVIEW_APP_KEY`, in the environment the loop runs in.
+2. Export its App ID and its PEM private key — the text, or a path to a file holding it — as
+   the two variables `review.app` names, in the environment the loop runs in.
+
+#### More than one account
+
+A GitHub App is installed per **account**, not globally. An operator with repositories under
+an organisation and under a personal account therefore has two reviewer Apps, and one process
+environment to hold both. Ask which case you are in before writing anything: if the answer is
+one account, `review.app` stays out of the config and there is nothing more to do here.
+
+Where there are two, both are exported once and stay exported, under names of their own:
+
+```
+export Z5LABS_REVIEW_APP_ID=123456
+export Z5LABS_REVIEW_APP_KEY=~/.config/backlog/z5labs-review.pem
+export PERSONAL_REVIEW_APP_ID=654321
+export PERSONAL_REVIEW_APP_KEY=~/.config/backlog/personal-review.pem
+```
+
+and each repository names the pair it wants, in its own `.claude/backlog.json`:
+
+```json
+// z5labs/devex
+"review": { "reviewers": ["copilot", "local"],
+            "app": { "idEnv": "Z5LABS_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }
+
+// Zaba505/ideation
+"review": { "reviewers": ["copilot", "local"],
+            "app": { "idEnv": "PERSONAL_REVIEW_APP_ID", "keyEnv": "PERSONAL_REVIEW_APP_KEY" } }
+```
+
+A third account is two more exports and two more lines. Nothing is re-exported between runs,
+which is the point: with the names fixed, working a repository in the other account began by
+re-exporting the pair from memory, and forgetting was not loud. The wrong account's App
+reaches `GET /repos/{owner}/{repo}/installation`, which answers "not installed", which is
+exit 3 — **UNAVAILABLE**, which the roster reads as a rung that is *down* and fails over. On
+`["copilot", "local", "none"]` with the Copilot allowance exhausted, that is a merge with no
+review at all.
+
+**The merge secrets are untouched by any of this, and must not be changed.** The workflow
+reads `secrets.BACKLOG_APP_ID`, and repository secrets are already scoped per repository: the
+organisation's repositories resolve the organisation's App and the personal ones resolve the
+personal App, under one name, with no collision to resolve. The clash was only ever local, in
+the one environment that has to serve every repository its operator touches. If the user asks
+whether the merge secrets need renaming too, the answer is no.
 
 **One App may back both.** That is a legitimate choice and nothing rejects it — but saying it
 takes **four exports, not two**: the two repository secrets *and* the two reviewer variables,
@@ -464,9 +536,10 @@ If the evidence says Copilot does not review here, **offer a second rung before 
 downgrade.** `review.reviewers: ["copilot", "local"]` keeps a review on every pull request
 where a bare `["copilot"]` would block: the `local` rung is an adversarial review by a fresh,
 context-free subagent, posted under the reviewer App identity from the section above, and it
-needs nothing from GitHub's Copilot subscription. Its cost is
-`BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` in the loop's environment — not the merge
-workflow's secrets, which are never substituted for them — and a subagent per pull request.
+needs nothing from GitHub's Copilot subscription. Its cost is the reviewer pair in the loop's
+environment — the two variables `review.app` names, `BACKLOG_REVIEW_APP_ID`/
+`BACKLOG_REVIEW_APP_KEY` by default, and never the merge workflow's secrets, which are never
+substituted for them — and a subagent per pull request.
 
 `["copilot", "local", "none"]` — or a bare `["none"]` — is the downgrade, and it is a
 different offer. Make it explicitly and never as a default: with `none` in the roster, a pull
@@ -577,16 +650,19 @@ One report, covering:
 4. The environment table: squash-only, required status checks, the reviewer roster, and the
    two App credentials as **two rows with two consequences** —
    `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` as repository secrets (Contents, Pull requests and Issues
-   at write; absent, it costs branch cleanup and the linked-issue close) and
-   `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` in the loop's environment (Pull requests:
-   write only; absent, it costs the `local` rung). Never one row for both: they can be one App
-   and they are still two rows, because they are configured, exposed and rotated separately.
-   Each **ok**, **needs a change**, or **needs admin rights**, with the consequence spelled out
-   for anything not ok.
+   at write; absent, it costs branch cleanup and the linked-issue close) and the reviewer pair
+   in the loop's environment (Pull requests: write only; absent, it costs the `local` rung).
+   Never one row for both: they can be one App and they are still two rows, because they are
+   configured, exposed and rotated separately. Each **ok**, **needs a change**, or **needs
+   admin rights**, with the consequence spelled out for anything not ok.
+
+   Name the reviewer pair by the variables **this repository** reads — `review.app`'s two
+   names, or the defaults where it has no such block. A report naming the defaults on a
+   repository configured to read another pair is a report its reader will act on wrongly.
 
    Name the break here as well when the loop's environment carries `BACKLOG_APP_*` and no
-   `BACKLOG_REVIEW_APP_*`: the first `local` review after this update fails with a sentence
-   naming both variables, and two exports end it.
+   reviewer pair: the first `local` review after this update fails with a sentence naming both
+   variables, and two exports end it.
 5. Permissions — written where, or declined.
 6. What is left for a human: the commit and push of the workflow file (and the `workflow`
    token scope it needs), anything needing admin rights, and the `autoMode` statement if

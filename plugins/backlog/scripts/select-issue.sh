@@ -789,6 +789,85 @@ while [ "$REVIEWER_POS" -lt "$REVIEWER_COUNT" ]; do
 done
 note "reviewer roster: $ROSTER"
 
+# The environment variables the `local` rung's App credentials are read from.
+# Names, not values — nothing secret is in this file — and validated here for
+# exactly the reason the roster is: everything wrong with them is wrong before
+# an issue is branched, and the alternative is finding out at step 7 with the
+# implementation written, CI green and a pull request open.
+#
+# What getting them wrong costs, which is why this is a hard failure rather than
+# a warning. A GitHub App is installed per account; an operator with two
+# accounts has two reviewer Apps and one environment to hold them. Naming the
+# wrong pair mints a JWT for an App that is not installed on this repository,
+# `GET /repos/{owner}/{repo}/installation` answers so, and app-token.sh reports
+# exit 3 — UNAVAILABLE, which the roster reads as a rung that is DOWN. On
+# ["copilot", "local", "none"] with Copilot's allowance gone, that path ends in a
+# merge with no review at all. A misconfiguration indistinguishable from an
+# outage is worth refusing here rather than documenting there.
+APP_KIND=$(jq -r 'if ((.review | has("app")) | not) or (.review.app == null) then "absent" else (.review.app | type) end' "$CFG")
+case "$APP_KIND" in
+  absent) ;;
+  object)
+    # An unknown key is refused rather than ignored, because the shape of the
+    # mistake it catches is a misspelling of one of the two — `id_env`, `idENV`
+    # — and a key that does nothing reads to whoever wrote it as a key that
+    # works. `additionalProperties: false` in the schema says the same thing to
+    # anything that validates against it.
+    while IFS= read -r KEY; do
+      case "$KEY" in
+        idEnv|keyEnv) ;;
+        *) fail 4 "$CFG: review.app names an unknown key '$KEY'; its keys are idEnv and keyEnv, the environment variables the reviewer App's ID and private key are read from" ;;
+      esac
+    done < <(jq -r '.review.app | keys_unsorted[]' "$CFG")
+
+    APP_ID_ENV=$(jq -r 'if (.review.app.idEnv | type) == "string" then .review.app.idEnv else "" end' "$CFG")
+    APP_KEY_ENV=$(jq -r 'if (.review.app.keyEnv | type) == "string" then .review.app.keyEnv else "" end' "$CFG")
+    # jq answers "null" for a key that is absent as readily as for one written
+    # null, and the remedy is the same either way.
+    APP_ID_KIND=$(jq -r '.review.app.idEnv | type' "$CFG")
+    APP_KEY_KIND=$(jq -r '.review.app.keyEnv | type' "$CFG")
+
+    # A block holding neither is not half a pair, and pointing at the other key
+    # would be answering a question nobody asked. It is a block that says
+    # nothing, and the fix is to remove it.
+    if [ "$APP_ID_KIND" = null ] && [ "$APP_KEY_KIND" = null ]; then
+      fail 4 "$CFG: review.app holds neither idEnv nor keyEnv, so it names nothing; drop the block to read the default pair, or name both"
+    fi
+
+    # A configured idEnv beside a defaulted keyEnv is half a credential one step
+    # earlier: it reads one App's ID against another App's private key, and the
+    # JWT that produces is rejected by GitHub with nothing in the message
+    # pointing at the mismatch. So the pair moves together or not at all, and
+    # that is the same rule app-token.sh applies to the flags it is given.
+    for K in idEnv keyEnv; do
+      if [ "$K" = idEnv ]; then
+        VAL=$APP_ID_ENV;  KIND=$APP_ID_KIND;  OTHER=keyEnv
+      else
+        VAL=$APP_KEY_ENV; KIND=$APP_KEY_KIND; OTHER=idEnv
+      fi
+      case "$KIND" in
+        string)
+          [ -n "$VAL" ] \
+            || fail 4 "$CFG: review.app.$K is empty; it names the environment variable the reviewer App's credential is read from, so an empty name reads nothing at all -- write the variable's name, or drop review.app entirely to use the defaults"
+          # `${!name}` on anything else is a bash "bad substitution" inside
+          # app-token.sh, which surfaces as a crash in a pipeline instead of a
+          # sentence naming the offending value.
+          case "$VAL" in
+            [!A-Za-z_]*|*[!A-Za-z0-9_]*)
+              fail 4 "$CFG: review.app.$K names '$VAL', which is not a legal environment variable name; a name is a letter or underscore followed by letters, digits or underscores" ;;
+          esac
+          ;;
+        "null")
+          fail 4 "$CFG: review.app has no $K; supply both idEnv and keyEnv or neither -- a configured $OTHER beside a defaulted $K would read one App's ID against another App's key, which is half a credential wearing a different hat" ;;
+        *)
+          fail 4 "$CFG: review.app.$K must be a string naming an environment variable (found a $KIND); it holds the NAME the credential is read from, never the credential" ;;
+      esac
+    done
+    note "reviewer App credentials: \$$APP_ID_ENV and \$$APP_KEY_ENV"
+    ;;
+  *) fail 4 "$CFG: review.app must be an object holding idEnv and keyEnv, the environment variables the reviewer App's ID and private key are read from (found a $APP_KIND)" ;;
+esac
+
 # The per-rung refusal wording. Optional, and the whole point of it is that the
 # plugin ships exactly one pattern -- Copilot's -- because that is the only bot
 # whose refusal anyone here has ever seen. Supplying one is the operator
