@@ -163,10 +163,11 @@ either way and let the user choose; do not switch the style on their behalf.
   step 3 installs. If you change either, change both, plus the `github.event.label.name`
   guard inside the workflow.
 - `review.reviewers` — an **ordered roster**, tried in order and failing over on
-  availability. `["copilot"]` is the floor. Offer `["copilot", "local"]` where the App from
-  the section below is configured — a second rung costs nothing until the first one is
-  unavailable, and an exhausted monthly Copilot allowance then costs a rung rather than the
-  run. Add a trailing `"none"` only if the user asks for it; see step 5.
+  availability. `["copilot"]` is the floor. Offer `["copilot", "local"]` where the **reviewer**
+  App from the section below is configured — that is its own credential pair, not the merge
+  workflow's — because a second rung costs nothing until the first one is unavailable, and an
+  exhausted monthly Copilot allowance then costs a rung rather than the run. Add a trailing
+  `"none"` only if the user asks for it; see step 5.
 
   A `bot:<login>` rung names any other review bot already installed on the repository —
   `bot:coderabbitai[bot]`. Offer one only if the user says they have such a bot; do not go
@@ -265,7 +266,31 @@ A `403` is **needs admin rights**, not a failure. It means the endpoint exists a
 cannot read it — report the check as unverified and name what the user needs to look at.
 Reporting it as a failure sends someone chasing a problem that may not be there.
 
-### The App token — check this one first
+### The App credentials — check these first
+
+There are **two** of them, and they are checked, reported and fixed separately. They may be
+backed by one App; they are never *assumed* to be, and neither is ever filled in from the
+other.
+
+| | the merge credential | the reviewer credential |
+| --- | --- | --- |
+| names | `BACKLOG_APP_ID` / `BACKLOG_APP_KEY` | `BACKLOG_REVIEW_APP_ID` / `BACKLOG_REVIEW_APP_KEY` |
+| lives in | repository secrets | the environment the loop runs in |
+| read by | the merge workflow, a `pull_request_target` job that checks out nothing | `scripts/app-token.sh`, inside an unattended agent that runs arbitrary shell |
+| needs | Contents, Pull requests and Issues at **write** | **Pull requests: write, and nothing else** |
+| its absence costs | branch cleanup after merge, and the linked-issue close | the `local` reviewer rung |
+
+The grant differs because the *exposure* differs, not because the identity does. The reviewer
+key sits in a process environment anything can print with `env`, and the only
+installation-scoped call the whole rung makes is
+`POST /repos/{owner}/{repo}/pulls/{pr}/reviews`. Giving that key Contents and Issues at write
+buys it nothing and puts the default branch behind a laptop variable.
+
+Two ordinary consequences follow. Rotation becomes independent — a leaked laptop key is
+rotated without stopping the merge workflow — and the timeline stops showing one bot review a
+pull request and then merge it.
+
+#### The merge credential
 
 Everything the merge workflow does *after* the merge depends on it. GitHub does not create
 workflow runs from events triggered by `GITHUB_TOKEN`, so when the workflow merges with its
@@ -290,26 +315,8 @@ entirely to the cycle's own `finish-issue` step — and give the setup, which ne
 1. Create a GitHub App (any account you control; it does not need to be public).
 2. Install it on this repository with **Contents**, **Pull requests** and **Issues** set to
    **Read and write**.
-3. Add its App ID as `BACKLOG_APP_ID` and its PEM private key as `BACKLOG_APP_KEY`.
-
-The **same App backs the `local` reviewer**, and that rung needs the credentials somewhere
-else. Repository secrets reach the merge workflow; they do not reach a loop running on a
-laptop. So `BACKLOG_APP_ID` and `BACKLOG_APP_KEY` must also be present in the *environment the
-loop runs in* — the same two names, deliberately — or `local` is unavailable there and falls
-through. `pull_requests: write` is what `POST /repos/{owner}/{repo}/pulls/{pr}/reviews`
-requires, which the permissions above already cover.
-
-Say both halves when you report this. An operator who adds the secrets and stops has a working
-merge workflow and a `local` rung that silently never runs, which reads in a report as a
-Copilot outage that had no fallback.
-
-Minting an installation token needs **`openssl`** as well as `gh` and `jq`, because an App JWT
-is RS256-signed. `scripts/app-token.sh` checks for it and reports its absence as the rung
-being unavailable rather than failing inside a pipeline; mention it if `command -v openssl`
-comes back empty here.
-
-The loop still works without it. Nothing merges unreviewed and no issue goes unclosed — the
-cycle's own close covers that — so this is a degradation, not a blocker. Report it as one.
+3. Add its App ID as the repository secret `BACKLOG_APP_ID` and its PEM private key as
+   `BACKLOG_APP_KEY`.
 
 Check the symptom directly too, since it is the thing an operator will actually notice:
 
@@ -318,6 +325,67 @@ gh api --paginate repos/<repo>/branches --jq '.[].name' | wc -l
 ```
 
 A pile of branches named after already-merged issues is this problem, not untidiness.
+
+#### The reviewer credential
+
+The `local` rung posts its review under an App identity, and it reads
+`BACKLOG_REVIEW_APP_ID` and `BACKLOG_REVIEW_APP_KEY` from the *environment the loop runs in* —
+repository secrets reach the merge workflow, and they do not reach a loop running on a laptop.
+So this one is not a repository lookup; ask the rung itself, which answers for the cost of
+three environment reads and no network call:
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --check
+```
+
+- exit 0 → **ok**. The rung can run here.
+- exit 3 → **needs a change**, and the message says which: the reviewer pair is absent, or
+  `openssl` is not on PATH.
+- exit 4 → **needs a change**, and it is one of the two configuration mistakes below rather
+  than an absence. Quote the message; it names the variable to set.
+
+This checks *your* environment, which is the loop's only if the user runs the loop from the
+same shell. Say which you checked, and ask if the loop runs somewhere else — a CI job, another
+machine — because there the answer is theirs to give and not yours to look up.
+
+Its setup, when it is its own App:
+
+1. Create a GitHub App and install it on this repository with **Pull requests** set to **Read
+   and write** — and nothing else. That single permission is everything the rung calls; the
+   login lookup and the installation lookup are JWT endpoints and need no grant at all.
+2. Export its App ID as `BACKLOG_REVIEW_APP_ID` and its PEM private key — the text, or a path
+   to a file holding it — as `BACKLOG_REVIEW_APP_KEY`, in the environment the loop runs in.
+
+**One App may back both.** That is a legitimate choice and nothing rejects it — but saying it
+takes **four exports, not two**: the two repository secrets *and* the two reviewer variables,
+pointed at the same App. `app-token.sh` reads the reviewer names only, and never falls back to
+the merge names. A fallback would make the safe configuration the one you opt into, and would
+leave the union grant on the more exposed key with the decision written down nowhere.
+
+**The break every existing installation hits.** An environment that exports `BACKLOG_APP_ID`
+or `BACKLOG_APP_KEY` and *neither* reviewer variable is exit 4 with a sentence naming both —
+not a rung quietly going down. That is the `--check` above, and it is also what the first
+`local` review after this update does if nobody runs it. Report it whenever you see it: it
+happens once, and the fix is the two exports above. Exporting half the reviewer pair is exit 4
+too, for the same reason — nobody sets one on purpose.
+
+An environment with **neither** pair is unchanged: the rung is simply unavailable, at zero
+network cost, and the roster advances past it. That is what keeps `["copilot", "local",
+"none"]` reaching `none` on a machine that has never configured an App instead of blocking
+there.
+
+Say both credentials when you report this. An operator who adds the secrets and stops has a
+working merge workflow and a `local` rung that silently never runs, which reads in a report as
+a Copilot outage that had no fallback.
+
+Minting an installation token needs **`openssl`** as well as `gh` and `jq`, because an App JWT
+is RS256-signed. `scripts/app-token.sh` checks for it and reports its absence as the rung
+being unavailable rather than failing inside a pipeline; mention it if `command -v openssl`
+comes back empty here.
+
+The loop still works with neither credential and no `openssl`. Nothing merges unreviewed and no
+issue goes unclosed — the cycle's own close covers that — so this is a degradation, not a
+blocker. Report it as one.
 
 ### Squash-only merging
 
@@ -395,9 +463,10 @@ that instead of guessing, and note that the definitive test is the first real cy
 If the evidence says Copilot does not review here, **offer a second rung before offering a
 downgrade.** `review.reviewers: ["copilot", "local"]` keeps a review on every pull request
 where a bare `["copilot"]` would block: the `local` rung is an adversarial review by a fresh,
-context-free subagent, posted under the App identity from the section above, and it needs
-nothing from GitHub's Copilot subscription. Its cost is the App's credentials in the loop's
-environment and a subagent per pull request.
+context-free subagent, posted under the reviewer App identity from the section above, and it
+needs nothing from GitHub's Copilot subscription. Its cost is
+`BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` in the loop's environment — not the merge
+workflow's secrets, which are never substituted for them — and a subagent per pull request.
 
 `["copilot", "local", "none"]` — or a bare `["none"]` — is the downgrade, and it is a
 different offer. Make it explicitly and never as a default: with `none` in the roster, a pull
@@ -505,10 +574,19 @@ One report, covering:
    `verify` and `dependencies.style` with the evidence each came from.
 2. The workflow — copied, identical, or differing (with the diff).
 3. Labels — created or already present.
-4. The environment table: squash-only, required status checks, the reviewer roster and the
-   App credentials the `local` rung needs. Each **ok**,
-   **needs a change**, or **needs admin rights**, with the consequence spelled out for
-   anything not ok.
+4. The environment table: squash-only, required status checks, the reviewer roster, and the
+   two App credentials as **two rows with two consequences** —
+   `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` as repository secrets (Contents, Pull requests and Issues
+   at write; absent, it costs branch cleanup and the linked-issue close) and
+   `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` in the loop's environment (Pull requests:
+   write only; absent, it costs the `local` rung). Never one row for both: they can be one App
+   and they are still two rows, because they are configured, exposed and rotated separately.
+   Each **ok**, **needs a change**, or **needs admin rights**, with the consequence spelled out
+   for anything not ok.
+
+   Name the break here as well when the loop's environment carries `BACKLOG_APP_*` and no
+   `BACKLOG_REVIEW_APP_*`: the first `local` review after this update fails with a sentence
+   naming both variables, and two exports end it.
 5. Permissions — written where, or declined.
 6. What is left for a human: the commit and push of the workflow file (and the `workflow`
    token scope it needs), anything needing admin rights, and the `autoMode` statement if

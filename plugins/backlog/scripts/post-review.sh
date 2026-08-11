@@ -36,9 +36,15 @@
 #   1  the review could not be posted for a reason that is not availability —
 #      a rejected payload, a transient GitHub failure. This pull request goes
 #      without this rung; the rung itself is NOT remembered as down.
-#   3  UNAVAILABLE: credentials, openssl or the App installation are missing.
-#      The caller advances the roster and remembers the rung for the run.
-#   4  usage failure
+#   3  UNAVAILABLE: the reviewer App is not configured here, openssl is missing,
+#      or the App is not installed on this repository. The caller advances the
+#      roster and remembers the rung for the run.
+#   4  usage failure, or a reviewer credential that is configured wrong rather
+#      than absent — half of `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY`,
+#      or an installation that still exports only the merge App's names. Both
+#      come straight back from the mint. This is NOT a rung that is down: it is
+#      an environment to fix, and treating it as unavailability is how a
+#      reviewer somebody configured on purpose gets skipped in silence.
 
 set -uo pipefail
 
@@ -54,7 +60,7 @@ note() { printf 'post-review: %s\n' "$*" >&2; }
 if [ "$1" = --preflight ]; then
   [ $# -eq 1 ] || fail 4 "--preflight takes no other argument"
   "$MINT" --check || exit $?
-  note "the App credentials and openssl are present; the local reviewer can run"
+  note "the reviewer App credentials and openssl are present; the local reviewer can run"
   exit 0
 fi
 

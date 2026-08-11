@@ -205,6 +205,9 @@ printf '\nthe wait, against a gh that answers from files\n'
 # must not be short-circuited by a stub that returns the answer directly.
 cat >"$SCRATCH/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+# Every call is logged, so a test can assert what was NOT reached — which is how
+# "this answer costs no network call" is checked rather than asserted.
+[ -n "${FX:-}" ] && printf '%s\n' "$*" >>"$FX/calls"
 q="" path="" post=0 prev=""
 for a in "$@"; do
   [ "$prev" = --jq ] && q=$a
@@ -373,22 +376,107 @@ bot_refusals
 rm -f "$SCRATCH/fx/botid"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 
-# ------------------------------------------------------------ the App ---------
-printf '\nthe local rung and its App identity\n'
+# ---------------------------------------------------- the credential states ---
+printf '\nthe reviewer credential, through every door that reads it\n'
 
 rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
-
-# Credentials absent is a fallthrough, not a crash, and it costs no network call
-# at all — which is the whole reason the roster can afford to try this rung
-# first on a repository that has never configured the App.
 timeline
-W_OUT=$(cd "$SCRATCH" && PATH="$SCRATCH/bin:$PATH" FX="$SCRATCH/fx" \
-  BACKLOG_REVIEW_POLL_COUNT=1 BACKLOG_REVIEW_POLL_SECONDS=0 \
-  BACKLOG_APP_ID= BACKLOG_APP_KEY= "$SUT" 12 local 2>&1)
-W_RC=$?
-if [ "$W_RC" = 3 ]; then ok 'the local rung with no App credentials is unavailable' 'exit 3'
-else bad 'the local rung with no App credentials is unavailable' "want exit 3 got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"; fi
+
+MINT="$HERE/app-token.sh"
+POSTER="$HERE/post-review.sh"
+[ -x "$MINT" ]   || { printf 'app-token.sh is not executable at %s\n' "$MINT" >&2; exit 1; }
+[ -x "$POSTER" ] || { printf 'post-review.sh is not executable at %s\n' "$POSTER" >&2; exit 1; }
+
+# The reviewer rung reads BACKLOG_REVIEW_APP_ID and BACKLOG_REVIEW_APP_KEY and
+# never the merge workflow's BACKLOG_APP_*, so every case here is about WHICH
+# names are set — which means all four have to be cleared first. Inheriting one
+# from the shell that ran the tests would invert the case silently, and the
+# state that matters most is defined by a variable being absent.
+CLEAR=(env -u BACKLOG_APP_ID -u BACKLOG_APP_KEY
+           -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY)
+
+# The credential variables for the case under test. Set before each cred_case.
+cred_env=()
+
+run_cred() { # <command...>
+  (cd "$SCRATCH" && PATH="$SCRATCH/bin:$PATH" FX="$SCRATCH/fx" \
+     BACKLOG_REVIEW_POLL_COUNT=1 BACKLOG_REVIEW_POLL_SECONDS=0 \
+     exec "${CLEAR[@]}" "${cred_env[@]}" "$@")
+}
+
+# cred_case <expected exit> <substring the message must carry> <name>
+#
+# Three doors, one verdict. `--check` is what a caller asks the mint directly,
+# `--preflight` is what the cycle runs before it spends a subagent, and the wait
+# is the rung itself — and a credential state that answered differently through
+# any of them would be a rung whose availability depends on who asked.
+cred_case() {
+  local want=$1 want_msg=$2 name=$3
+  local door rc out bad_doors=""
+  : >"$SCRATCH/fx/calls"
+  for door in check preflight wait; do
+    case "$door" in
+      check)     out=$(run_cred "$MINT" --check 2>&1);      rc=$? ;;
+      preflight) out=$(run_cred "$POSTER" --preflight 2>&1); rc=$? ;;
+      wait)      out=$(run_cred "$SUT" 12 local 2>&1);       rc=$? ;;
+    esac
+    if [ "$rc" != "$want" ]; then
+      bad_doors="$bad_doors $door(want $want got $rc: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-100))"
+    elif [ -n "$want_msg" ] && ! printf '%s' "$out" | grep -qF -- "$want_msg"; then
+      bad_doors="$bad_doors $door(exit $rc but the message never says '$want_msg')"
+    fi
+  done
+  if [ -n "$bad_doors" ]; then
+    bad "$name" "$bad_doors"
+  else
+    ok "$name" "exit $want through all three doors"
+  fi
+
+  # None of these four states may reach GitHub. The exit-3 one is the load
+  # bearing case — a roster of ["copilot", "local", "none"] has to reach `none`
+  # on a machine that never configured an App, and it must not pay a round trip
+  # to find that out — but a misconfiguration has no business minting either.
+  if grep -qE '/app|installation|access_tokens' "$SCRATCH/fx/calls" 2>/dev/null; then
+    bad "$name — and costs no App call" "reached $(grep -E '/app|installation|access_tokens' "$SCRATCH/fx/calls" | tr '\n' ' ')"
+  else
+    ok "$name — and costs no App call" 'no /app, no installation, no token'
+  fi
+}
+
+# 1. Neither pair anywhere. The rung is not configured on this machine, which is
+#    unavailability and nothing worse: the roster advances and reaches `none`.
+cred_env=()
+cred_case 3 'BACKLOG_REVIEW_APP_ID' \
+  'neither reviewer variable and no merge variable is unavailable'
+
+# 2 and 3. Half a credential. Nobody exports one of a pair on purpose, so this
+#    is a typo or a half-finished migration — and reporting it as the rung being
+#    down would advance past a reviewer somebody meant to have.
+cred_env=(BACKLOG_REVIEW_APP_ID=12345)
+cred_case 4 'BACKLOG_REVIEW_APP_KEY is not' \
+  'the reviewer ID without its key is a misconfiguration'
+
+cred_env=(BACKLOG_REVIEW_APP_KEY=/dev/null)
+cred_case 4 'BACKLOG_REVIEW_APP_ID is not' \
+  'the reviewer key without its ID is a misconfiguration'
+
+# 4. The migration. The merge credential is present and the reviewer pair is
+#    not, which is every installation that predates the split, exactly once. It
+#    must NOT be substituted, and it must not read as the rung being down — the
+#    message names both variables and the operator exports two more.
+cred_env=(BACKLOG_APP_ID=999 BACKLOG_APP_KEY=/dev/null)
+cred_case 4 'BACKLOG_REVIEW_APP_ID' \
+  'the merge credential alone is a migration failure, not a fallback'
+
+cred_env=(BACKLOG_APP_ID=999)
+cred_case 4 'deliberately not substituted' \
+  'and one merge variable is enough to tell the two apart'
+
+cred_env=()
+
+# ------------------------------------------------------------ the App ---------
+printf '\nthe local rung and its App identity\n'
 
 if command -v openssl >/dev/null 2>&1; then
   # A real RSA key, generated here rather than committed. The App JWT is
@@ -398,9 +486,8 @@ if command -v openssl >/dev/null 2>&1; then
   # app_run <expected exit> <name>
   app_run() {
     local want=$1 name=$2
-    W_OUT=$(cd "$SCRATCH" && PATH="$SCRATCH/bin:$PATH" FX="$SCRATCH/fx" \
-      BACKLOG_REVIEW_POLL_COUNT=1 BACKLOG_REVIEW_POLL_SECONDS=0 \
-      BACKLOG_APP_ID=12345 BACKLOG_APP_KEY="$SCRATCH/app.pem" "$SUT" 12 local 2>&1)
+    cred_env=(BACKLOG_REVIEW_APP_ID=12345 BACKLOG_REVIEW_APP_KEY="$SCRATCH/app.pem")
+    W_OUT=$(run_cred "$SUT" 12 local 2>&1)
     W_RC=$?
     if [ "$W_RC" = "$want" ]; then
       ok "$name" "exit $W_RC"
@@ -428,6 +515,33 @@ if command -v openssl >/dev/null 2>&1; then
   # yet" rather than "could not be requested".
   timeline
   app_run 2 'the local rung with nothing posted yet is not a verdict'
+
+  # Configured, so the preflight the cycle runs before it spends a subagent says
+  # yes — and says it without a network call, which is the whole reason it runs
+  # before the diff is fetched and the reviewer spawned.
+  cred_env=(BACKLOG_REVIEW_APP_ID=12345 BACKLOG_REVIEW_APP_KEY="$SCRATCH/app.pem")
+  : >"$SCRATCH/fx/calls"
+  W_OUT=$(run_cred "$POSTER" --preflight 2>&1); W_RC=$?
+  if [ "$W_RC" = 0 ] && ! [ -s "$SCRATCH/fx/calls" ]; then
+    ok 'a configured reviewer credential preflights clean' 'exit 0, no gh call'
+  else
+    bad 'a configured reviewer credential preflights clean' "want exit 0 with no gh call, got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
+  fi
+
+  # Reuse stays entirely legal: one App backing both credentials is said by
+  # exporting all four names, and nothing here objects. What was removed is the
+  # INFERENCE, not the arrangement — so the merge pair sitting alongside a
+  # reviewer pair must change nothing at all.
+  timeline "$(reviewed 'backlog-bot[bot]' '2026-01-01T00:00:00Z' 'the retry loop swallows the error')"
+  cred_env=(BACKLOG_REVIEW_APP_ID=12345 BACKLOG_REVIEW_APP_KEY="$SCRATCH/app.pem"
+            BACKLOG_APP_ID=12345 BACKLOG_APP_KEY="$SCRATCH/app.pem")
+  W_OUT=$(run_cred "$SUT" 12 local 2>&1); W_RC=$?
+  if [ "$W_RC" = 0 ]; then
+    ok 'one App backing both credentials is stated, not inferred' 'exit 0'
+  else
+    bad 'one App backing both credentials is stated, not inferred' "want exit 0 got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
+  fi
+  cred_env=()
 else
   printf '  skip openssl is not on PATH; the App identity cases need it\n'
 fi
