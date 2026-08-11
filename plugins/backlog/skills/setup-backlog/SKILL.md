@@ -301,6 +301,7 @@ other.
 | read by | the merge workflow, a `pull_request_target` job that checks out nothing | `scripts/app-token.sh`, inside an unattended agent that runs arbitrary shell |
 | needs | Contents, Pull requests and Issues at **write** | **Pull requests: write, and nothing else** |
 | its absence costs | branch cleanup after merge, and the linked-issue close | the `local` reviewer rung |
+| checked here by | the two names being present, which is all a secret store will show anyone | **minting a token**, which is the whole test |
 
 The grant differs because the *exposure* differs, not because the identity does. The reviewer
 key sits in a process environment anything can print with `env`, and the only
@@ -330,6 +331,20 @@ gh secret list --repo <repo> --json name --jq '[.[].name]'
 `BACKLOG_APP_ID` and `BACKLOG_APP_KEY` must both be present. A `403` here is **needs admin
 rights**, not a failure.
 
+**This is a presence check and nothing more, and the row has to say so.** A repository
+secret's value is readable only from inside a workflow run — that is the entire point of the
+store — so nothing here can sign a JWT with `BACKLOG_APP_KEY` the way the reviewer row below
+does. Two names present cannot tell a working App from an App ID and a PEM belonging to two
+different Apps, or from an App nobody ever installed on this repository. It is the strongest
+statement available, and it is a **weaker statement than the reviewer row's**; reporting the
+two side by side as if they were equally proven is the part that misleads.
+
+Say where the real proof is instead: the merge credential is verified by **the first real
+merge**, and the `::warning` in `assets/auto-merge.yaml` covers only the case where
+`BACKLOG_APP_ID` is unset — a credential that is present and wrong fails the
+`Mint a GitHub App installation token` step instead, which is loud but only once a pull
+request has reached it.
+
 When they are missing, report it as **needs a change** with the consequence stated — merged
 branches will accumulate with nothing to collect them, and the linked-issue close falls
 entirely to the cycle's own `finish-issue` step — and give the setup, which needs a human:
@@ -354,28 +369,88 @@ The `local` rung posts its review under an App identity, and it reads that App's
 private key from the *environment the loop runs in* — repository secrets reach the merge
 workflow, and they do not reach a loop running on a laptop. **Which two variables** it reads
 is `review.app` from step 1, defaulting to `BACKLOG_REVIEW_APP_ID` and
-`BACKLOG_REVIEW_APP_KEY`. So this one is not a repository lookup; ask the rung itself, which
-answers for the cost of three environment reads and no network call — passing the configured
-names, if the config carries any:
+`BACKLOG_REVIEW_APP_KEY`. So this one is not a repository lookup.
+
+**Mint a token.** Not "are the names exported?" — that answer was never in doubt, and a name
+is not a credential. Setup is the one moment in this plugin's life when a human is present
+and nothing has been merged yet, and the alternative to spending it here is learning the same
+thing from a line in a worker report, after the iterations have landed. Ask the rung to do
+the thing it will be asked to do in earnest:
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --check
-"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --id-env <review.app.idEnv> --key-env <review.app.keyEnv> --check
+"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --login
+"${CLAUDE_PLUGIN_ROOT}/scripts/app-token.sh" --token >/dev/null
 ```
 
-- exit 0 → **ok**. The rung can run here.
-- exit 3 → **needs a change**, and the message says which: the reviewer pair is absent, or
-  `openssl` is not on PATH.
-- exit 4 → **needs a change**, and it is one of the two configuration mistakes below rather
-  than an absence. Quote the message; it names the variable to set.
+with `--id-env <review.app.idEnv> --key-env <review.app.keyEnv>` in front of the mode where
+the config carries a `review.app` block.
+
+**Redirect `--token` to `/dev/null`, and never put its output in the report.** What it prints
+is a live installation token, good for an hour and carrying Pull requests: write. The exit
+code is the whole answer; the token is a credential that has no business in a transcript.
+
+Two commands, because they prove two different things and their failures share no remedy.
+`--login` signs the JWT and calls `GET /app`: it proves the key signs and that the ID and the
+key are one App, and it prints who that App is. `--token` goes on to
+`GET /repos/<repo>/installation` and the token exchange: it proves the App is installed
+**here**, and that the installation grants what the rung actually calls.
+
+- **Both exit 0 → ok.** Report the login `--login` printed — `<slug>[bot]` — and say what it
+  is: **the identity every `local` review on this repository will be authored under**, the
+  name a human will see on the timeline beside the pull request. It is worth printing for its
+  own sake; an operator who expected a different bot there has learned something no exit code
+  would have told them.
+- **Any failure → needs a change**, with the matching sentence and remedy below. A `403` from
+  `gh` in the middle of it is **needs admin rights** as everywhere else: report the mint as
+  unverified rather than as failed.
+
+Four things can be individually wrong, and each has its own remedy. All four are exit 3,
+because the roster only ever needed to know the rung cannot run — so read the **message**,
+never the code, and quote it:
+
+| the message says | what is wrong | the remedy |
+| --- | --- | --- |
+| `openssl could not sign` / `produced no signature` | the key in the key variable is not the App's unencrypted RSA private key — a truncated paste, a passphrase-protected key, or a public key | download a fresh `.pem` from the App's settings page and re-export it, or point the variable at the file rather than pasting it |
+| `not two halves of one App` | the signature was produced and GitHub will not accept it for that App ID: the ID names one App and the key belongs to another | open **one** App's settings page and take both values from it. If the App was deleted, there is nothing to fix — create one |
+| `'<slug>' is not installed on <repo>` | the credential names a real App that cannot act here. This is the two-account failure, and it is a **wrong** credential rather than an absent one | install that App on the repository's account with **Pull requests: read and write**, or export the pair belonging to the App already installed there and name it in `review.app` — see the section below |
+| `grants Pull requests at read` / `no Pull requests permission at all` | the App is installed here and the installation is missing the one permission the rung uses | set Pull requests to **Read and write** on the installation. Left alone this surfaces as a 403 on the review POST, after a subagent has read the diff and written the review |
+
+Three more results are not the mint failing, and are reported differently:
+
+- `are not set in the environment ... not configured on this machine` → the rung is simply
+  **not configured here**, which is an absence and not a mistake. Report it as **needs a
+  change** only if the user wants the `local` rung; otherwise it is the expected state of a
+  machine that has never had an App, and the roster advances past it at zero cost. The
+  message says so in as many words, which is what keeps it from reading like the
+  wrong-App row above.
+- `openssl is not on PATH` → **this row's cause, and report it here.** It is not a separate
+  environment note for the operator to connect back to the reviewer themselves: an App JWT is
+  RS256-signed, so without `openssl` the `local` rung cannot run on this machine whatever the
+  credentials say. Install it, and the rest of the row becomes answerable.
+- **exit 4** → a configuration mistake rather than an absence: half the reviewer pair
+  exported, half a pair of *names* passed, or the merge pair present with no reviewer pair.
+  These are the two cases spelled out below; quote the message, which names the variable.
 
 Every message names the variable this repository is configured to read, never the default —
 so quote it verbatim. Paraphrasing it back to `BACKLOG_REVIEW_APP_ID` on a repository whose
 config says `Z5LABS_REVIEW_APP_ID` sends the user to export a variable nothing will read.
 
-This checks *your* environment, which is the loop's only if the user runs the loop from the
-same shell. Say which you checked, and ask if the loop runs somewhere else — a CI job, another
-machine — because there the answer is theirs to give and not yours to look up.
+**The mint is the only thing this check puts on the network.** Nothing else here goes looking
+for the reviewer App: no permissions endpoint, no installation listing, no scan for other Apps
+the account might own. The two commands above are the whole check, and they are enough because
+the mint already performs, in order, every step that can be individually wrong.
+
+**And it must never fail `setup-backlog`.** Capture the exit code, put the row in the report,
+and carry on with the rest of step 5 — a reviewer App that cannot mint is one row of a report,
+and the squash setting, the required checks and the Copilot verdict are all still worth
+printing. A setup run that stops here has told the operator less than one that finishes.
+
+This mints from *your* environment, which is the loop's only if the user runs the loop from
+the same shell. Say which you checked, and ask if the loop runs somewhere else — a CI job,
+another machine — because there the answer is theirs to give and not yours to look up. What
+you can hand them for that machine is `app-token.sh --check`, which is the precondition block
+alone and makes no request; it is a weaker answer than the mint, and on a host you cannot
+reach it is the only one available.
 
 Its setup, when it is its own App:
 
@@ -436,8 +511,8 @@ leave the union grant on the more exposed key with the decision written down now
 
 **The break every existing installation hits.** An environment that exports `BACKLOG_APP_ID`
 or `BACKLOG_APP_KEY` and *neither* reviewer variable is exit 4 with a sentence naming both —
-not a rung quietly going down. That is the `--check` above, and it is also what the first
-`local` review after this update does if nobody runs it. Report it whenever you see it: it
+not a rung quietly going down. The mint above stops there and says so, and it is also what the
+first `local` review after this update does if nobody runs it. Report it whenever you see it: it
 happens once, and the fix is the two exports above. Exporting half the reviewer pair is exit 4
 too, for the same reason — nobody sets one on purpose.
 
@@ -450,10 +525,13 @@ Say both credentials when you report this. An operator who adds the secrets and 
 working merge workflow and a `local` rung that silently never runs, which reads in a report as
 a Copilot outage that had no fallback.
 
-Minting an installation token needs **`openssl`** as well as `gh` and `jq`, because an App JWT
-is RS256-signed. `scripts/app-token.sh` checks for it and reports its absence as the rung
-being unavailable rather than failing inside a pipeline; mention it if `command -v openssl`
-comes back empty here.
+There is deliberately **no separate `openssl` note here.** Minting an installation token needs
+it as well as `gh` and `jq`, because an App JWT is RS256-signed — and that fact belongs to the
+reviewer row, which is the only thing in this plugin that signs one. `app-token.sh` reports its
+absence as that rung being unavailable, so it arrives already attached to the row it explains.
+A tool note in its own paragraph is a fact the operator has to connect back to the reviewer
+themselves, and the one who does not connect it reads a missing `openssl` and a broken reviewer
+as two problems.
 
 The loop still works with neither credential and no `openssl`. Nothing merges unreviewed and no
 issue goes unclosed — the cycle's own close covers that — so this is a degradation, not a
@@ -648,13 +726,29 @@ One report, covering:
 2. The workflow — copied, identical, or differing (with the diff).
 3. Labels — created or already present.
 4. The environment table: squash-only, required status checks, the reviewer roster, and the
-   two App credentials as **two rows with two consequences** —
-   `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` as repository secrets (Contents, Pull requests and Issues
-   at write; absent, it costs branch cleanup and the linked-issue close) and the reviewer pair
-   in the loop's environment (Pull requests: write only; absent, it costs the `local` rung).
-   Never one row for both: they can be one App and they are still two rows, because they are
-   configured, exposed and rotated separately. Each **ok**, **needs a change**, or **needs
+   two App credentials as **two rows with two consequences**. Never one row for both: they can
+   be one App and they are still two rows, because they are configured, exposed, rotated —
+   and, as of this check, *verified* — separately. Each **ok**, **needs a change**, or **needs
    admin rights**, with the consequence spelled out for anything not ok.
+
+   **The merge credential** — `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` as repository secrets;
+   Contents, Pull requests and Issues at write; absent, it costs branch cleanup and the
+   linked-issue close. Say in the row that this is a **presence check only**: the private key
+   is unreadable outside a workflow run, so nothing at setup can mint from it, and its first
+   real proof is the first real merge. Two names present is the strongest available statement
+   and it is a weaker one than the row below.
+
+   **The reviewer credential** — the pair in the loop's environment; Pull requests: write and
+   nothing else; absent, it costs the `local` rung. This row carries the **result of an actual
+   mint**, so say which of the two it is. On **ok**, print the App's login and name it as the
+   identity `local` reviews on this repository will be authored under. On a failure, give the
+   one sentence and the one remedy that match the message — a key that will not sign, an ID and
+   key from two Apps, an App not installed here, or an installation without Pull requests:
+   write — and never the other three.
+
+   The asymmetry is the point of showing both: one row was proven and one was looked up, and a
+   report that presents them as equally checked has told its reader something untrue about the
+   merge side.
 
    Name the reviewer pair by the variables **this repository** reads — `review.app`'s two
    names, or the defaults where it has no such block. A report naming the defaults on a
