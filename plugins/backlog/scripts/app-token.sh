@@ -9,7 +9,8 @@
 #
 #        --check   preconditions only; makes no network call
 #        --login   the App's bot login, `<slug>[bot]`
-#        --token   an installation token for this repository
+#        --token   an installation token for this repository, minted only after
+#                  the installation is confirmed to grant Pull requests: write
 #
 # Environment, by default:
 #   BACKLOG_REVIEW_APP_ID   the reviewer App's numeric ID
@@ -84,12 +85,40 @@
 # `openssl` surfacing as an empty signature and a 401 is the failure this check
 # exists to convert into a sentence.
 #
+# Four things can be individually wrong, and each gets its own sentence. They
+# are not variations on one failure: no two of them share a remedy, and a
+# message that hedges between them sends its reader to the wrong settings page.
+#
+#   the key does not sign          `openssl dgst` fails or produces nothing
+#   the ID and the key are         `GET /app` rejects the JWT — the signature is
+#     two different Apps'          good and it is not this App's
+#   the App is not installed       `GET /repos/{owner}/{repo}/installation` 404s
+#     on this repository           with the JWT accepted a call earlier
+#   the installation is missing    the token exchange succeeds and the token it
+#     Pull requests: write         returns cannot post a review
+#
+# `--token` therefore calls `GET /app` on its way through, which `--login`
+# already did and `--token` previously skipped. It costs one cheap JWT request
+# per mint and it buys the second and third rows above being told apart: without
+# it both arrive as a failed installation lookup, and the only honest sentence
+# is "not installed, or the JWT was rejected" — a hedge between "install the App
+# here" and "you exported two halves of two Apps", which have no step in common.
+#
+# The fourth row is checked rather than left to fail later because the failure
+# it produces is a 403 on `POST /pulls/{pr}/reviews` — after the subagent has
+# read the diff and written the review. It stays exit 3, like the others: an
+# installation that cannot post a review is a rung that cannot run, and the
+# roster's job at that point is to fail over rather than to block.
+#
 # Exit codes:
 #   0  fine — for --check, the preconditions hold; otherwise stdout is the answer
 #   3  UNAVAILABLE: the rung is not configured on this machine at all, openssl
-#      is missing, or the App cannot be reached or is not installed on this
-#      repository. The caller treats this as a rung that is down, not as an
-#      error in the work.
+#      is missing, or the App cannot be reached, is not installed on this
+#      repository, or is installed without the one permission the rung uses. The
+#      caller treats this as a rung that is down, not as an error in the work.
+#      One exit code, four sentences: the roster only ever needed to know that
+#      the rung cannot run, and the operator needs to know which of the four it
+#      was, so the distinction lives in the message and not in the code.
 #   4  usage failure, or a credential that is CONFIGURED WRONG rather than
 #      absent — half a pair of names, half a pair of values, or the merge pair
 #      present with no reviewer pair. None of the three is a rung being down, and
@@ -200,7 +229,7 @@ if [ -z "$APP_ID" ]; then
   # Neither pair anywhere: the rung is simply not configured on this machine.
   # This one stays exit 3 and stays free, because it is the answer that lets a
   # roster of ["copilot", "local", "none"] reach `none` instead of blocking.
-  fail 3 "$ID_ENV and $KEY_ENV are not set in the environment"
+  fail 3 "$ID_ENV and $KEY_ENV are not set in the environment, so the local rung is not configured on this machine. This is an absent credential and not a wrong one -- nothing here names an App -- so there is nothing to correct unless the rung is wanted, in which case export the pair"
 fi
 
 case "$APP_ID" in
@@ -250,8 +279,8 @@ PAYLOAD=$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' "$((NOW - 60))" "$((NOW + 540)
 
 UNSIGNED="$(printf '%s' "$HEADER" | b64url).$(printf '%s' "$PAYLOAD" | b64url)"
 SIGNATURE=$(printf '%s' "$UNSIGNED" | openssl dgst -sha256 -sign "$KEYFILE" -binary 2>/dev/null | b64url) \
-  || fail 3 "openssl could not sign the App JWT; check that $KEY_ENV is the reviewer App's RSA private key"
-[ -n "$SIGNATURE" ] || fail 3 "openssl produced no signature; check that $KEY_ENV is the reviewer App's RSA private key"
+  || fail 3 "openssl could not sign the App JWT with the key in $KEY_ENV; it has to be the App's unencrypted RSA private key -- the .pem GitHub hands you when you generate one -- and a truncated paste, a passphrase-protected key or a public key all land here"
+[ -n "$SIGNATURE" ] || fail 3 "openssl produced no signature from the key in $KEY_ENV; it has to be the App's unencrypted RSA private key -- the .pem GitHub hands you when you generate one -- and a truncated paste, a passphrase-protected key or a public key all land here"
 JWT="$UNSIGNED.$SIGNATURE"
 
 # `gh api -H Authorization:` rather than GH_TOKEN, because an App JWT has to be
@@ -259,9 +288,20 @@ JWT="$UNSIGNED.$SIGNATURE"
 # Authorization header the caller supplied alone.
 app_api() { gh api -H "Authorization: Bearer $JWT" "$@"; }
 
+# ------------------------------------------------------------- the app --------
+# `GET /app` is the JWT's own endpoint: it is answered by the App the ID names
+# and needs no installation anywhere, so it asks exactly one question — is this
+# signature this App's? Both modes ask it, and `--token` asks it before looking
+# for an installation on purpose. A JWT that GitHub will not accept and an App
+# that is simply not installed here produce the same 404 from the installation
+# lookup, and the remedies are "check the pair against one App's settings page"
+# and "install the App on this account" — which share no step, so a message that
+# offered both would be wrong for whichever reader acted on it.
+SLUG=$(app_api /app --jq .slug 2>/dev/null) || SLUG=""
+[ -n "$SLUG" ] && [ "$SLUG" != null ] \
+  || fail 3 "the App JWT was rejected by GET /app, so the ID in $ID_ENV and the key in $KEY_ENV are not two halves of one App -- the signature was produced, GitHub just does not accept it for App $APP_ID. Open one App's settings page and take both values from it, or the App has been deleted"
+
 if [ "$MODE" = --login ]; then
-  SLUG=$(app_api /app --jq .slug 2>/dev/null) || SLUG=""
-  [ -n "$SLUG" ] || fail 3 "the App JWT was rejected by GET /app; check $ID_ENV and $KEY_ENV are the same App"
   # A bot's login is its slug plus `[bot]`, and that is the login the review
   # appears under on the timeline — which is what the review gate filters on.
   printf '%s[bot]\n' "$SLUG"
@@ -270,14 +310,41 @@ fi
 
 REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || REPO=""
 [ -n "$REPO" ] || fail 3 "cannot resolve the repository slug from gh"
+OWNER=${REPO%%/*}
 
+# Not installed here, with the JWT already known good. This is the multi-account
+# failure, and it is a credential naming the WRONG App rather than a rung nobody
+# configured — the two are both exit 3 and the roster treats them alike, but
+# only one of them is a mistake, and the operator cannot act on a sentence that
+# will not say which they are looking at. So the message names the App that was
+# read, the account it would have to be installed on, and the alternative of
+# exporting the other account's pair instead.
 INSTALL_ID=$(app_api "/repos/$REPO/installation" --jq .id 2>/dev/null) || INSTALL_ID=""
 case "$INSTALL_ID" in
-  ''|null|*[!0-9]*) fail 3 "the reviewer App is not installed on $REPO, or its JWT was rejected; install it with Pull requests at read and write, which is all this rung calls" ;;
+  ''|null|*[!0-9]*)
+    fail 3 "$ID_ENV and $KEY_ENV name the App '$SLUG', and '$SLUG' is not installed on $REPO. The rung IS configured on this machine, so this is a credential pointing at an App that cannot act here rather than an absent one: either install '$SLUG' on the $OWNER account with Pull requests at read and write, which is all this rung calls, or export the pair belonging to the App already installed on $OWNER and name that pair in .claude/backlog.json under review.app.idEnv and review.app.keyEnv" ;;
 esac
 
-TOKEN=$(app_api --method POST "/app/installations/$INSTALL_ID/access_tokens" --jq .token 2>/dev/null) || TOKEN=""
-[ -n "$TOKEN" ] && [ "$TOKEN" != null ] \
-  || fail 3 "the App installation on $REPO issued no access token"
+# One POST, read twice. The response carries the grant beside the token, so
+# asking what the installation may do costs nothing here and a second call
+# everywhere else — and a second POST would mint a second token to throw away.
+RESPONSE=$(app_api --method POST "/app/installations/$INSTALL_ID/access_tokens" 2>/dev/null) || RESPONSE=""
+TOKEN=$(printf '%s' "$RESPONSE" | jq -r '.token // empty' 2>/dev/null) || TOKEN=""
+[ -n "$TOKEN" ] \
+  || fail 3 "the installation of '$SLUG' on $REPO issued no access token"
+
+# `unknown` is the response shape changing under us, and it is deliberately not
+# a failure: the rung works today without this key, and inventing an outage from
+# a field that moved would take down a reviewer that can still review.
+PULLS=$(printf '%s' "$RESPONSE" \
+  | jq -r 'if has("permissions") then (.permissions.pull_requests // "none") else "unknown" end' 2>/dev/null) \
+  || PULLS=unknown
+case "$PULLS" in
+  write|unknown|'') ;;
+  *)
+    GRANT="Pull requests at $PULLS"
+    [ "$PULLS" = none ] && GRANT="no Pull requests permission at all"
+    fail 3 "the installation of '$SLUG' on $REPO grants $GRANT, and the only call this rung makes is POST /repos/$REPO/pulls/{pr}/reviews, which needs write. Set Pull requests to Read and write on that installation -- it is the single permission the rung uses. Left alone, the review is written and then rejected with a 403, after the work of reading the diff has already been done" ;;
+esac
 
 printf '%s\n' "$TOKEN"

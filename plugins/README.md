@@ -164,6 +164,22 @@ and whether Copilot code review is really enabled — reporting what it cannot f
 without repository-admin rights, and offering a second reviewer rung rather than
 a downgrade when Copilot is not there.
 
+The reviewer credential it verifies by **minting a token**, not by checking that
+a variable is exported. Setup is the one moment when a human is present and
+nothing has merged yet, and the mint performs in order the four things that can
+be individually wrong — the key does not sign, the ID and the key are two
+different Apps', the App is not installed on this repository, the installation
+lacks Pull requests: write — each of which gets its own sentence and its own
+remedy, pinned offline by
+[`scripts/app-token_test.sh`](backlog/scripts/app-token_test.sh). All four are
+exit 3 at rung time, because the roster only ever needed to know the rung cannot
+run; the operator needs to know which of the four, so the distinction lives in
+the message. Succeeding also prints the App's login, which is the identity the
+reviews will appear under. The merge credential cannot be checked that way — a
+repository secret's value is unreadable outside a workflow run — so its row
+stays a presence check and says so, and its first real proof is the first real
+merge.
+
 ## Convention
 
 Each plugin is a self-contained directory:
