@@ -85,7 +85,10 @@
 #      preconditions are absent. Advance the roster, and remember this rung for
 #      the rest of the run — it told us it was down, in a second or two.
 #      Distinct from exit 1, which is the rung REFUSING the work
-#   4  usage or precondition failure in the script's own arguments
+#   4  usage or precondition failure in the script's own arguments — or, for the
+#      `local` rung, a reviewer credential that is configured wrong rather than
+#      absent, returned by the mint. That is an environment to fix and not a
+#      rung that is down, so it does not advance the roster
 #   5  ESCALATION: a review landed from a rung whose refusal wording this plugin
 #      does not know, so it may be a refusal and the script cannot tell. stdout
 #      is the review body. The caller treats it exactly as exit 1 — do not
@@ -181,10 +184,12 @@ resolve_reviewer() { # <reviewer>
     local)
       REVIEWER_KIND=local
       # The local rung IS the App, so its login has to come from the App rather
-      # than from a constant here. That lookup needs the credentials and
-      # openssl, which makes "the App is not configured in this environment"
-      # exit 3 before any waiting happens — a fallthrough, not a crash, and at
-      # the cost of one API call rather than five minutes.
+      # than from a constant here. That lookup needs the reviewer credentials
+      # and openssl, which makes "the App is not configured in this
+      # environment" exit 3 before any waiting happens — a fallthrough, not a
+      # crash, and at the cost of one API call rather than five minutes. A
+      # credential that is present but configured wrong comes back as exit 4
+      # through the same line, and is deliberately not the same answer.
       REVIEWER_LOGIN=$("$MINT" --login) || exit $?
       [ -n "$REVIEWER_LOGIN" ] || fail 3 "the backlog App reported no login; the local rung cannot be waited on"
       REVIEWER_MATCH=$(regex_escape "$REVIEWER_LOGIN")

@@ -534,11 +534,22 @@ and posted to the pull request under the backlog App's identity. Four steps, in 
 "${CLAUDE_PLUGIN_ROOT}/scripts/post-review.sh" --preflight
 ```
 
-Exit 3 means the rung is unavailable — `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` absent from the
-environment, or `openssl` not on PATH. That is a fallthrough, not a crash, and it costs no
-network call: advance the roster and record the rung. The preflight is first because
+Exit 3 means the rung is unavailable — `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` absent
+from the environment, or `openssl` not on PATH. That is a fallthrough, not a crash, and it
+costs no network call: advance the roster and record the rung. The preflight is first because
 everything after it costs a fresh agent and a whole diff, and learning afterwards that the
 App was never configured is the expensive way to learn it.
+
+**Exit 4 here is not a rung being down, and must not advance the roster.** It means the
+reviewer credential is configured *wrong* rather than absent: half the pair exported, or an
+installation that still exports only the merge workflow's `BACKLOG_APP_ID`/`BACKLOG_APP_KEY`.
+Those two are a different App's credentials by design — the merge key lives in a repository
+secret and carries Contents, Pull requests and Issues at write, while the reviewer key lives
+in this loop's process environment and needs Pull requests: write and nothing else — so they
+are never substituted for the reviewer's. The message says which name to set. Stop and report
+it; do not work around it by dropping to the next rung, because every installation that
+predates the split lands here exactly once and skipping past it is how it stays unfixed.
+Pointing both at one App is still fine, and is said by exporting all four names.
 
 If the `Agent` tool is not available to you, the rung is unavailable too. Record it and
 advance — **do not review your own diff.** A reviewer holding the context that produced the
@@ -595,7 +606,7 @@ becomes something you assert at the end of the longest part of the cycle.
 | 1 | the most recent review **REFUSED** the work; stdout is why | `BLOCKED`, and do **not** label and do **not** advance the roster. If it is the 300-file limit, say so and suggest how the work could be split |
 | 2 | the bound was up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. After **four** re-runs — about twenty minutes with nothing posted — this rung is unavailable *for this pull request*: advance the roster. Do **not** report it as having refused, and do not tell the driver to retire it. Silence is exactly what a slow-but-working reviewer looks like |
 | 3 | **UNAVAILABLE**, synchronously — the request was refused, the login is not a bot or is not installed, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
-| 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
+| 4 | usage or precondition failure — including a `local` reviewer credential that is half-set, or an environment still carrying only the merge App's `BACKLOG_APP_*` | `BLOCKED`; the plugin or the environment is wrong, not the pull request. Quote the message, which names the variable to set. Do **not** advance the roster: a credential configured wrong is not a rung that is down |
 | 5 | **ESCALATION** — a review landed from a `bot:<login>` rung whose refusal wording is not configured, so it may be a refusal and the gate cannot tell; stdout is the review body | exactly what you do on 1: `BLOCKED`, do **not** label and do **not** advance the roster. Report it as *unclassifiable*, never as a refusal, and quote what the review said so its reader can judge |
 
 **Only exit 0 lets you label the pull request in step 9** — on some rung, or the roster
