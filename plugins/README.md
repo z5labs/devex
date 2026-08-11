@@ -124,6 +124,19 @@ work does not advance the roster: a reviewer with different limits is not a
 second opinion on work the first one could not read, and advancing there is
 precisely how unreviewable work reaches the default branch.
 
+That App's credentials come from two environment variables, and `review.app`
+names which two — `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` by default.
+An App is installed per *account*, so an operator with repositories under an
+organisation and a personal account has two reviewer Apps and one environment to
+hold both; with the names fixed, working the other account began by re-exporting
+the pair from memory. Forgetting was not loud: the wrong account's App is not
+installed here, the installation lookup says so, and that is exit 3 —
+UNAVAILABLE, which the roster reads as a rung that is *down* and fails over. The
+names are names, not values, so they belong in the tracked config while the
+credentials stay in the environment. The merge side is untouched: repository
+secrets are already per repository, so `secrets.BACKLOG_APP_ID` resolves to a
+different App in each account with no collision.
+
 The tail of the cycle is
 [`scripts/finish-issue.sh`](backlog/scripts/finish-issue.sh) rather than five
 more numbered steps. Waiting for the merge, closing the issue, verifying it

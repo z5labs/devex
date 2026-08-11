@@ -3,7 +3,7 @@
 # await-review.sh — request a review from one rung of the roster, wait for it,
 # and say what landed.
 #
-# Usage: await-review.sh <pr-number> [<reviewer>]
+# Usage: await-review.sh [--id-env <name>] [--key-env <name>] <pr-number> [<reviewer>]
 #        await-review.sh --classify <reviewer>   (stdin: a review as JSON)
 #
 # <reviewer> is `copilot`, `local` or `bot:<login>`, defaulting to `copilot`.
@@ -47,6 +47,15 @@
 #   * The login filter, because a `reviewed` event from anyone would otherwise
 #     end the wait. The repository owner glancing at the pull request while the
 #     reviewer was still working would satisfy an unfiltered loop.
+#
+# `--id-env` and `--key-env` name the environment variables the reviewer App's
+# credentials come from, and matter to the `local` rung alone — it is the only
+# one whose login has to be asked of the App rather than written down. They are
+# handed to `app-token.sh` untouched. They come from the caller, which read
+# `review.app` out of `.claude/backlog.json` once at step 0: this script already
+# reads that file for `review.refusals`, and reading the credential names from
+# it as well would let the rung wait on a login minted from one App while
+# `post-review.sh` posted under another.
 #
 # What the reviewer argument changed, and what it did not. Nothing about the
 # shape above is Copilot-specific — request, wait on the timeline, classify what
@@ -190,7 +199,7 @@ resolve_reviewer() { # <reviewer>
       # crash, and at the cost of one API call rather than five minutes. A
       # credential that is present but configured wrong comes back as exit 4
       # through the same line, and is deliberately not the same answer.
-      REVIEWER_LOGIN=$("$MINT" --login) || exit $?
+      REVIEWER_LOGIN=$(mint --login) || exit $?
       [ -n "$REVIEWER_LOGIN" ] || fail 3 "the backlog App reported no login; the local rung cannot be waited on"
       REVIEWER_MATCH=$(regex_escape "$REVIEWER_LOGIN")
       ;;
@@ -262,9 +271,57 @@ if [ "${1:-}" = --classify ]; then
   classify "$INPUT"
 fi
 
-[ $# -ge 1 ] || fail 4 "usage: await-review.sh <pr-number> [<reviewer>]"
-[ $# -le 2 ] || fail 4 "usage: await-review.sh <pr-number> [<reviewer>]"
-PR=$1
+USAGE='usage: await-review.sh [--id-env <name>] [--key-env <name>] <pr-number> [<reviewer>]'
+
+# Forwarded verbatim to the mint, which is the only reader of a credential here
+# and owns every rule about what a name may look like. The pair arriving
+# together is checked here rather than there, because on every rung but `local`
+# the mint is never called and nothing else would ever look.
+MINT_ARGS=()
+ID_ENV_SET=0
+KEY_ENV_SET=0
+ARGS=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --id-env|--key-env)
+      [ $# -ge 2 ] || fail 4 "$1 needs a value; $USAGE"
+      MINT_ARGS[${#MINT_ARGS[@]}]=$1
+      MINT_ARGS[${#MINT_ARGS[@]}]=$2
+      if [ "$1" = --id-env ]; then ID_ENV_SET=1; else KEY_ENV_SET=1; fi
+      shift 2 ;;
+    --id-env=*|--key-env=*)
+      MINT_ARGS[${#MINT_ARGS[@]}]=$1
+      if [ "${1%%=*}" = --id-env ]; then ID_ENV_SET=1; else KEY_ENV_SET=1; fi
+      shift ;;
+    # Reaching here means `--classify` was not the first argument, which is the
+    # only place it is accepted. Saying so beats "unknown argument", which is
+    # what it would otherwise get: classification reads no credential, so the
+    # names have no business on that form and there is nothing to reorder.
+    --classify)
+      fail 4 "--classify must be the first argument, and takes no credential names -- classification reads a review on stdin and no credential at all" ;;
+    --*)
+      fail 4 "unknown argument '$1'; $USAGE" ;;
+    *)
+      ARGS[${#ARGS[@]}]=$1
+      shift ;;
+  esac
+done
+
+[ "$ID_ENV_SET" -eq "$KEY_ENV_SET" ] \
+  || fail 4 "--id-env and --key-env name one App's two halves, so they are passed together or not at all; pass both, or neither"
+
+# The branch is not decoration. `"${arr[@]}"` on an EMPTY array under `set -u`
+# is an unbound variable on bash 3.2, which is what macOS ships — so the
+# ordinary invocation, the one that passes no names at all, is exactly the one
+# that would die there.
+mint() { # <mode>
+  if [ "${#MINT_ARGS[@]}" -gt 0 ]; then "$MINT" "${MINT_ARGS[@]}" "$1"; else "$MINT" "$1"; fi
+}
+
+[ "${#ARGS[@]}" -ge 1 ] || fail 4 "$USAGE"
+[ "${#ARGS[@]}" -le 2 ] || fail 4 "$USAGE"
+PR=${ARGS[0]}
 case "$PR" in ''|*[!0-9]*) fail 4 "pull request number must be an integer (got '$PR')" ;; esac
 
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
@@ -274,7 +331,7 @@ REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
   || fail 4 "cannot resolve the repository slug from gh"
 [ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
 
-resolve_reviewer "${2:-copilot}"
+resolve_reviewer "${ARGS[1]:-copilot}"
 
 # --------------------------------------------------------------- reading ------
 # The most recent review by this rung, as {state, body}, or nothing.

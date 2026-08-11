@@ -48,9 +48,10 @@ What each key is used for:
 | `merge.label`, `merge.workflow` | step 9, handing the merge to GitHub |
 | `review.reviewers` | steps 7 and 8, the ordered roster of reviewers that gates the merge |
 | `review.refusals` | step 7 — read by `await-review.sh`, not by you: how a `bot:<login>` rung words a refusal |
+| `review.app` | step 7, the `local` rung — the two environment variables its App credentials are read from. You read them here and pass them on the command line; the scripts deliberately do not read this file for them |
 | `worktreeDir` | steps 2 and 10, where the worktree lives |
 
-Read the file for the four keys you use directly. The first three rows belong to step 1's
+Read the file for the five keys you use directly. The first three rows belong to step 1's
 script, which re-reads and validates them itself — including rejecting an empty `verify`,
 which parses fine and would otherwise surface as a pull request nothing local ever checked.
 
@@ -526,7 +527,25 @@ refusal gets merged. Report it and say what the review said.
 ### `local`
 
 An adversarial review, produced by a fresh subagent that has never seen your implementation,
-and posted to the pull request under the backlog App's identity. Four steps, in this order:
+and posted to the pull request under the backlog App's identity.
+
+**The credential names come from you.** This rung's App ID and private key are read from two
+environment variables, and *which two* is `review.app` from step 0 — defaulting to
+`BACKLOG_REVIEW_APP_ID` and `BACKLOG_REVIEW_APP_KEY` when the config carries no `review.app`
+block. Where it does, every call in this section takes them:
+
+```
+--id-env <review.app.idEnv> --key-env <review.app.keyEnv>
+```
+
+Pass both or neither; one alone is refused, because a configured `idEnv` beside a defaulted
+`keyEnv` reads one App's ID against another App's private key. And do not let the scripts
+read the config themselves — two readers of one key can disagree, and the way they would
+disagree here is the rung waiting on a login minted from one App while the review was posted
+under another. The commands below omit the pair for brevity; add it wherever the config has
+one.
+
+Four steps, in this order:
 
 **1. Preflight, before anything is spawned.**
 
@@ -534,16 +553,21 @@ and posted to the pull request under the backlog App's identity. Four steps, in 
 "${CLAUDE_PLUGIN_ROOT}/scripts/post-review.sh" --preflight
 ```
 
-Exit 3 means the rung is unavailable — `BACKLOG_REVIEW_APP_ID`/`BACKLOG_REVIEW_APP_KEY` absent
-from the environment, or `openssl` not on PATH. That is a fallthrough, not a crash, and it
-costs no network call: advance the roster and record the rung. The preflight is first because
-everything after it costs a fresh agent and a whole diff, and learning afterwards that the
-App was never configured is the expensive way to learn it.
+Exit 3 means the rung is unavailable — the configured pair is absent from the environment, or
+`openssl` is not on PATH. That is a fallthrough, not a crash, and it costs no network call:
+advance the roster and record the rung. The preflight is first because everything after it
+costs a fresh agent and a whole diff, and learning afterwards that the App was never
+configured is the expensive way to learn it.
+
+Quote the message rather than paraphrasing it. It names the variable this repository is
+configured to read and never the default, and an operator told to export
+`BACKLOG_REVIEW_APP_ID` when their config says `Z5LABS_REVIEW_APP_ID` has been sent to look at
+the wrong thing entirely.
 
 **Exit 4 here is not a rung being down, and must not advance the roster.** It means the
-reviewer credential is configured *wrong* rather than absent: half the pair exported, or an
-installation that still exports only the merge workflow's `BACKLOG_APP_ID`/`BACKLOG_APP_KEY`.
-Those two are a different App's credentials by design — the merge key lives in a repository
+reviewer credential is configured *wrong* rather than absent: half the pair exported, half the
+pair of *names* passed, or an installation that still exports only the merge workflow's
+`BACKLOG_APP_ID`/`BACKLOG_APP_KEY`. Those two are a different App's credentials by design — the merge key lives in a repository
 secret and carries Contents, Pull requests and Issues at write, while the reviewer key lives
 in this loop's process environment and needs Pull requests: write and nothing else — so they
 are never substituted for the reviewer's. The message says which name to set. Stop and report
@@ -606,7 +630,7 @@ becomes something you assert at the end of the longest part of the cycle.
 | 1 | the most recent review **REFUSED** the work; stdout is why | `BLOCKED`, and do **not** label and do **not** advance the roster. If it is the 300-file limit, say so and suggest how the work could be split |
 | 2 | the bound was up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. After **four** re-runs — about twenty minutes with nothing posted — this rung is unavailable *for this pull request*: advance the roster. Do **not** report it as having refused, and do not tell the driver to retire it. Silence is exactly what a slow-but-working reviewer looks like |
 | 3 | **UNAVAILABLE**, synchronously — the request was refused, the login is not a bot or is not installed, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
-| 4 | usage or precondition failure — including a `local` reviewer credential that is half-set, or an environment still carrying only the merge App's `BACKLOG_APP_*` | `BLOCKED`; the plugin or the environment is wrong, not the pull request. Quote the message, which names the variable to set. Do **not** advance the roster: a credential configured wrong is not a rung that is down |
+| 4 | usage or precondition failure — including a `local` reviewer credential that is half-set, a `--id-env`/`--key-env` pair passed half, or an environment still carrying only the merge App's `BACKLOG_APP_*` | `BLOCKED`; the plugin or the environment is wrong, not the pull request. Quote the message, which names the variable to set — the *configured* one, so pass it on unchanged. Do **not** advance the roster: a credential configured wrong is not a rung that is down |
 | 5 | **ESCALATION** — a review landed from a `bot:<login>` rung whose refusal wording is not configured, so it may be a refusal and the gate cannot tell; stdout is the review body | exactly what you do on 1: `BLOCKED`, do **not** label and do **not** advance the roster. Report it as *unclassifiable*, never as a refusal, and quote what the review said so its reader can judge |
 
 **Only exit 0 lets you label the pull request in step 9** — on some rung, or the roster
@@ -958,7 +982,8 @@ Stop and report — do not push through — if any of these happen:
   unknown `dependencies.style`, has an empty `verify`, carries a `review.reviewers` roster
   naming an unknown rung or putting `none` anywhere but last, carries a `review.refusals`
   pattern that is empty, is keyed to a rung whose wording is built in, or will not compile,
-  still carries the retired
+  carries a `review.app` block holding one of `idEnv`/`keyEnv` without the other or a value
+  that is not a legal environment variable name, still carries the retired
   `review.required`, names a milestone that does not exist, or a requested project scope could
   not be resolved. Never re-run it with an argument
   dropped, widened or changed to get past the last two, and never edit
