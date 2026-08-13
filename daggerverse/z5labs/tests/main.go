@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -1021,15 +1022,34 @@ func (t *Tests) AppPublishesEveryRepositoryNamed(ctx context.Context) error {
 			return fmt.Errorf("expected reference %d to name %s:%s pinned to a digest, got %q", i, repository, version, refs[i])
 		}
 	}
-	// The tag listing is the check that the version is the only tag: a
-	// publish deriving a second tag from the branch or the commit would
-	// still leave every assertion above true.
+	// The tag listing is the check that the version is the only tag a
+	// consumer can pull as a release: a publish deriving a second tag from
+	// the branch or the commit would still leave every assertion above true.
+	//
+	// The signature tags are the one exception, and they are checked rather
+	// than excused. Cosign's layout stores a signature under a tag it
+	// computes from the digest, so those names are load bearing — a
+	// signature under any other name is one `cosign verify` never finds —
+	// and the set is asserted to be exactly the manifests that were
+	// published, index and platforms alike.
 	tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, "hello")
 	if err != nil {
 		return fmt.Errorf("listTags: %v", err)
 	}
-	if len(tags) != 1 || tags[0] != version {
-		return fmt.Errorf("expected the version to be the only published tag, got %v", tags)
+	release, signatures := partitionTags(tags)
+	if len(release) != 1 || release[0] != version {
+		return fmt.Errorf("expected the version to be the only release tag, got %v (all tags: %v)", release, tags)
+	}
+	digest, err := digestOf(refs[0])
+	if err != nil {
+		return err
+	}
+	wantSignatures, err := signatureTagsFor(ctx, testRegistry(svc, secret), "hello", digest)
+	if err != nil {
+		return err
+	}
+	if !slices.Equal(signatures, wantSignatures) {
+		return fmt.Errorf("signature tags: want %v, got %v (all tags: %v)", wantSignatures, signatures, tags)
 	}
 	return nil
 }

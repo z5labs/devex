@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"sort"
+	"strings"
 
 	"dagger/tests/internal/dagger"
 )
@@ -156,6 +158,50 @@ func (t *Tests) AppSignatureDoesNotVerifyForAnotherKey(ctx context.Context) erro
 	}
 	return nil
 }
+
+// signatureTagsFor is the tags cosign computes to find the signatures of a
+// published digest and of every manifest beneath it, sorted.
+//
+// It is derived from what the registry holds rather than from the module's
+// own idea of the layout, so a test comparing against it is asserting that
+// a signature exists for each manifest that was really published.
+func signatureTagsFor(ctx context.Context, registry *dagger.OciRegistry, repository, digest string) ([]string, error) {
+	index, err := fetchManifest(ctx, registry, repository, digest)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{strings.ReplaceAll(digest, ":", "-") + signatureTagSuffix}
+	for _, child := range index.Manifests {
+		out = append(out, strings.ReplaceAll(child.Digest, ":", "-")+signatureTagSuffix)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// partitionTags splits a repository's tags into the release tags and the
+// signature tags.
+//
+// Signature tags are told apart by the suffix, which is cosign's rule and
+// not this suite's: a consumer's tooling makes the same split, and a test
+// that used a different one would pass over a layout cosign could not read.
+func partitionTags(tags []string) (release, signatures []string) {
+	for _, tag := range tags {
+		if strings.HasSuffix(tag, signatureTagSuffix) {
+			signatures = append(signatures, tag)
+			continue
+		}
+		release = append(release, tag)
+	}
+	sort.Strings(release)
+	sort.Strings(signatures)
+	return release, signatures
+}
+
+// signatureTagSuffix is what cosign appends to the digest-derived tag it
+// stores a signature under. Spelled out here rather than imported from the
+// module, so a rename there is a test failure rather than a silent
+// agreement between two halves of one codebase.
+const signatureTagSuffix = ".sig"
 
 // cosign is a container holding the cosign CLI, a registry credential and
 // the public key to verify against.
