@@ -105,6 +105,27 @@ second line is a real cosign attestation index sitting on that tag today,
 so the fallback is not theoretical. `oras-go` does the fallback itself;
 nothing in this repo has to choose.
 
+The consumer side of that was measured on 2026-08-13, anonymously, with
+`oras` v1.2.3 — a client built on `oras-go`, so it inherits the fallback and
+needs no flag to use it. `oras discover ghcr.io/actions/actions-runner:latest`
+returns a real referrer (`application/vnd.dev.sigstore.bundle.v0.3+json`),
+and the whole read path works against GHCR:
+
+```
+oras discover "$repo:$tag" --artifact-type <type> --format json   # .manifests[].digest
+oras manifest fetch "$repo@$referrer"                             # .layers[0].digest
+oras blob fetch "$repo@$layer" --output -                          # the document
+```
+
+Note `--format json` keys the list `manifests`, not `referrers`. The other
+half of that measurement is the negative one, and it is what
+`daggerverse/z5labs`'s package doc now warns adopters about:
+`cosign verify-attestation` against an image whose attestations are
+referrers only exits 1 with `Error: no matching attestations:` — a message
+indistinguishable from an image that was never attested. cosign reads its
+own `sha256-<hex>.att` tag convention and does not consult referrers unless
+built with `--experimental-oci11`.
+
 Two consequences worth knowing before debugging one of them:
 
 - **The fallback tries to delete a manifest, and GHCR refuses.** Attaching a

@@ -16,6 +16,13 @@ import (
 // They live here rather than beside the generation because they are a
 // contract with whoever lists referrers, not a detail of the `go` module
 // that wrote the bytes.
+//
+// Referrers are the *only* way these are discoverable — nothing here writes
+// a second copy under cosign's `sha256-<hex>.att` tag, so
+// `cosign verify-attestation` reports no attestations against an image this
+// module published. That is a decision, and the package doc records it
+// along with the commands that do find them; see "Why the documents are
+// referrers alone" in main.go.
 const (
 	spdxArtifactType      = "application/spdx+json"
 	cycloneDxArtifactType = "application/vnd.cyclonedx+json"

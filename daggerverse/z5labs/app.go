@@ -324,6 +324,12 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// Those documents are attached as OCI referrers of the digest and are
+// discoverable that way alone, so `cosign verify-attestation` finds nothing
+// even though they are there. The package doc says why and gives the
+// `oras discover` commands that do find them; a consumer pointed at this
+// method needs that section too.
+//
 // The image is signed too, and not merely the provenance statement about
 // it: the manifest list and every per-platform manifest beneath it each
 // carry a cosign signature, so a consumer runs
