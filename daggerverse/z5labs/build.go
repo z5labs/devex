@@ -186,24 +186,38 @@ func (g *GoChain) buildBinaryForPlatform(platform, pkg, binaryName, version, com
 	}).File(binaryName)
 }
 
-// imageForPlatform packages binary as a scratch image pinned to platform.
-// The platform option creates an empty container; we do not call
+// imageForEntry packages entry as a scratch image pinned to platform. The
+// platform option creates an empty container; we do not call
 // From("scratch") because Docker's "scratch" is a base name, not a pullable
 // image.
 //
-// The entrypoint is the binary's absolute path, so the app runs whatever
+// The entrypoint is the executable's absolute path, so the app runs whatever
 // PATH says. The PATH is the module's standardized value and is set here
 // rather than anywhere a caller can reach — see the constants above.
+//
+// The entry lands owned by the image's non-root user and read-only, which is
+// the same treatment every contributed byte gets and for the same reason: an
+// image whose files the application can rewrite is one whose published digest
+// stops describing what is running. It is 0555 rather than 0444 because this
+// is the one file in the image that is exec'd.
+//
+// This is the only place an image is built, and everything reaches it —
+// GoChain.App by way of AppBuilder, and AppBuilder by way of a caller's
+// prebuilt executable. A caller-supplied entrypoint is not an exemption from
+// any of the above; it is the same code with a different file in it.
 //
 // annotations are applied per variant rather than to the manifest list a
 // publish assembles from them: a caller pulls one platform, and an
 // annotation that lived only on the index would be invisible to everything
 // that resolved a platform first. Keys are applied in sorted order so two
 // builds of one commit produce the same manifest bytes.
-func imageForPlatform(platform dagger.Platform, binaryName string, binary *dagger.File, annotations map[string]string) *dagger.Container {
-	entrypoint := appDir + "/" + binaryName
+func imageForEntry(platform dagger.Platform, name string, entry *dagger.File, annotations map[string]string) *dagger.Container {
+	entrypoint := appDir + "/" + name
 	ctr := dag.Container(dagger.ContainerOpts{Platform: platform}).
-		WithFile(entrypoint, binary).
+		WithFile(entrypoint, entry, dagger.ContainerWithFileOpts{
+			Owner:       appOwner,
+			Permissions: entryMode,
+		}).
 		WithEnvVariable("PATH", appPath).
 		WithEntrypoint([]string{entrypoint})
 	keys := make([]string, 0, len(annotations))

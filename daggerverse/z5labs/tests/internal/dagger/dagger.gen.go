@@ -363,6 +363,9 @@ type Void string
 type WorkspaceID string
 
 // A unique identifier for an object.
+type Z5LabsAppBuilderID string
+
+// A unique identifier for an object.
 type Z5LabsAppID string
 
 // A unique identifier for an object.
@@ -13458,6 +13461,16 @@ func (r *Query) LoadWorkspaceFromID(id WorkspaceID) *Workspace {
 	q = q.Arg("id", id)
 
 	return &Workspace{
+		query: q,
+	}
+}
+
+// Load a Z5LabsAppBuilder from its ID.
+func (r *Query) LoadZ5LabsAppBuilderFromID(id Z5LabsAppBuilderID) *Z5LabsAppBuilder {
+	q := r.query.Select("loadZ5LabsAppBuilderFromID")
+	q = q.Arg("id", id)
+
+	return &Z5LabsAppBuilder{
 		query: q,
 	}
 }

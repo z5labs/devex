@@ -123,9 +123,22 @@ type variant struct {
 // Name is not published. It names the contribution in an error, which is
 // the whole reason it is carried: a publish that fails because one document
 // of five will not parse has to be able to say which one.
+//
+// The bytes themselves are carried beside the document, in exactly one of
+// Content and Tree, and that is what turns an asserted document into a
+// checkable one: a publish hashes them and refuses a document naming some
+// other digest. Before this they were not held at all — the image had them and
+// nothing connected them to the document — so a document about the wrong
+// artifact was undetectable by construction. digest.go carries the rule and
+// why it runs where it runs.
 type contribution struct {
 	Name string
 	File *dagger.File
+	// Content is the file that entered the image: an application's own
+	// executable, or a contributed file. Nil for a directory contribution.
+	Content *dagger.File
+	// Tree is the directory that entered the image. Nil for everything else.
+	Tree *dagger.Directory
 }
 
 // Container returns the image built for platform.

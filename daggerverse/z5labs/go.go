@@ -225,9 +225,16 @@ func (g *GoChain) App(
 	if err != nil {
 		return nil, err
 	}
-	annotations := ociAnnotations(facts, version)
-
-	variants := make([]*variant, 0, len(platforms))
+	// The App is assembled through the generic constructor rather than beside
+	// it. That is what keeps the two from drifting: there is one place an
+	// image is built, one place a variant set is validated and one place an
+	// empty one is refused, and every Go build exercises all of it. The
+	// consequence is accepted knowingly — anything Z5labs.App cannot express,
+	// this chain cannot express either — and the build facts below are not a
+	// counterexample: they go through an unexported seam precisely because
+	// they are things the chain *observed*, and a caller who could state them
+	// would be asserting a provenance nobody can check.
+	builder := newAppBuilder(version).withBuildFacts(facts, pkg)
 	for _, platform := range platforms {
 		binary := g.buildBinaryForPlatform(string(platform), pkg, binaryName, version, facts.ShortSHA)
 		// The document describing the binary is generated here, by the
@@ -245,22 +252,23 @@ func (g *GoChain) App(
 		// simply not what an image is assembled from.
 		//
 		// Nothing is evaluated yet: dag.Go().Spdx returns a lazy
-		// *dagger.File, so an app nobody publishes costs no scan.
-		variants = append(variants, &variant{
-			Platform:  platform,
-			Container: imageForPlatform(platform, binaryName, binary, annotations),
-			Contributions: []contribution{
-				{Name: binaryName, File: dag.Go().Spdx(binary, g.Source)},
-			},
-		})
+		// *dagger.File, so an app nobody publishes costs no scan. That is
+		// also why the document's digest is checked at publish rather than
+		// here — see digest.go.
+		//
+		// The name is stated rather than read off the binary, which is the
+		// one thing this path does not share with WithVariant: reading a
+		// *dagger.File's name resolves it, and resolving a binary that has
+		// not been compiled would force every platform's cross-compile here.
+		// The chain already knows the name — it came out of go.mod — so it
+		// says so. withVariantNamed records the same thing from the other
+		// side.
+		builder, err = builder.withVariantNamed(platform, binaryName, binary, dag.Go().Spdx(binary, g.Source))
+		if err != nil {
+			return nil, err
+		}
 	}
-	return &App{
-		Version:   version,
-		Commit:    facts.SHA,
-		SourceURI: annotations[annotationSource],
-		Pkg:       pkg,
-		Variants:  variants,
-	}, nil
+	return builder.Build(ctx)
 }
 
 // defaultPlatforms is the pair every z5labs application is built for
