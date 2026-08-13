@@ -70,11 +70,21 @@ const (
 // The directory rather than the file in it, and the two are different
 // promises. The entrypoint's own 0555 stops it being rewritten; it does not
 // stop it being unlinked and replaced, because that is a write to the
-// *directory*. A /app the application could write would therefore leave a
-// running container able to swap out the binary its published digest describes,
-// which is the same failure contributed content's read-only modes exist to
-// prevent, one level up. Root-owned and 0755 is what a real base image's
-// directories already look like.
+// *directory*. A /app the application's user could write would therefore leave
+// a running container able to swap out the binary its published digest
+// describes, which is the same failure contributed content's read-only modes
+// exist to prevent, one level up.
+//
+// Two things this does not claim, both of which are easy to read into it.
+// Root-owned and 0755 does not stop *root*, which bypasses the permission
+// check — and root is who these images run as until devex#399 lands a non-root
+// user, exactly as the same caveat under HOME's mode says. What it does is make
+// the promise true for every other user a deployment can pick, and pin the mode
+// now so that #399 lands on a /app that has not quietly regressed in the
+// meantime. It is also the mode a real base image's directories already have,
+// which is why it is 0755 rather than the 0555 HOME gets: /app is ordinary
+// image structure, and an image that later gains a base layer should not have
+// to explain a directory mode nothing else in the filesystem shares.
 const wantImageAppDirStat = "755 0:0"
 
 // wantImageHomeStat is what HOME's directory has to look like on disk, in the

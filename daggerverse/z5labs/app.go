@@ -207,10 +207,16 @@ type contribution struct {
 // as for the one that is right, and a Container that refused to hand back a
 // container whose configuration failed the gate would withhold the bytes at
 // exactly the moment somebody is trying to find out what is wrong with them;
-// `docker load` and a look at the config is how that is done. Nothing reaches
-// a registry unchecked as a result, because the only way out of this module is
-// Publish, and Publish checks these same session-cached containers rather than
-// a rebuild of them.
+// `docker load` and a look at the config is how that is done.
+//
+// That is a statement about *this module's* publish path and not a guarantee
+// about the bytes. What comes back is an ordinary core Container, and a caller
+// who wants to can push it themselves — `container --platform=linux/amd64
+// publish --address=…` — which goes round this gate exactly as it goes round
+// the annotations, the assembled SBOMs, the provenance and the signature that
+// make a z5labs release what it is. An image that leaves through Publish has
+// been checked; an image somebody exported from here and pushed by hand is
+// theirs.
 //
 // +cache="session"
 func (a *App) Container(ctx context.Context, platform dagger.Platform) (*dagger.Container, error) {
@@ -870,8 +876,13 @@ type imageConfig struct {
 	// when a runtime is given none.
 	DefaultArgs []string
 	// ExposedPorts is every port the image declares, each rendered
-	// "<port>/<protocol>" — the form a reader of a Dockerfile's EXPOSE line
-	// would recognize — and sorted, so two reads of one image compare equal.
+	// "<port>/<protocol>" with the protocol lower-cased — the form the OCI
+	// image config's own ExposedPorts keys take, and the one a Dockerfile's
+	// EXPOSE line is written in — and sorted, so two reads of one image
+	// compare equal. Dagger's NetworkProtocol is spelled "TCP"; rendering it
+	// as it comes would leave an expectation written the way every other
+	// document in the ecosystem writes it refused against a value that looks
+	// identical.
 	ExposedPorts []string
 	// Labels is the image's labels, name to value. They are not the manifest
 	// annotations imageForEntry writes: Dagger keeps the two apart, and a
@@ -923,6 +934,9 @@ func expectedImageConfig(entrypoint string) imageConfig {
 // the rootfs to be solved, which is why it can run before the builds Publish
 // forces further down.
 func (a *App) assertImageConfiguration(ctx context.Context) error {
+	if err := checkExpectedEntrypoint(a.Payload.Entry); err != nil {
+		return fmt.Errorf("refusing to publish: %v", err)
+	}
 	want := expectedImageConfig(a.Payload.Entry)
 	for _, v := range a.Variants {
 		got, err := readImageConfig(ctx, v.Container)
@@ -936,59 +950,91 @@ func (a *App) assertImageConfiguration(ctx context.Context) error {
 	return nil
 }
 
+// checkExpectedEntrypoint reports why a declared entry cannot be the
+// entrypoint of an image this pipeline publishes, or nil when it can.
+//
+// The entrypoint is the one field of the configuration whose expected value is
+// not a constant — it is whatever the constructor declared the payload's entry
+// to be — so comparing the image against it can only catch the image and the
+// declaration disagreeing. It cannot catch the declaration itself being wrong,
+// and "an absolute path, /app/<binary>" is a promise the package doc makes to
+// everyone writing a `COPY --from=` line. This is where that half is checked,
+// against the constant, before the declaration is used as an expectation.
+//
+// It is a free function over a string for the reason everything else in this
+// check is a free function over what was read: no constructor in this module
+// produces an entry outside /app, so driving these branches through the public
+// API is impossible and they would be deletable with every test still green.
+func checkExpectedEntrypoint(entry string) error {
+	if strings.TrimSpace(entry) == "" {
+		return fmt.Errorf("this application declares no entry to exec, so there is nothing to hold its images' entrypoint to")
+	}
+	name, ok := strings.CutPrefix(entry, appDir+"/")
+	if !ok || name == "" || strings.Contains(name, "/") {
+		return fmt.Errorf(
+			"this application's entry is %q, and every image this pipeline publishes execs a binary directly in %s",
+			entry, appDir)
+	}
+	return nil
+}
+
 // readImageConfig reads ctr's OCI configuration into the struct the
 // comparison runs over.
+//
+// Every read names the field it was reading. A publish that cannot read an
+// image's configuration is a rare failure and an opaque one — the caller has
+// seven API calls and one message — so the field is worth the words.
 func readImageConfig(ctx context.Context, ctr *dagger.Container) (imageConfig, error) {
 	env, err := containerEnv(ctx, ctr)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("environment: %v", err)
 	}
 	user, err := ctr.User(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("user: %v", err)
 	}
 	entrypoint, err := ctr.Entrypoint(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("entrypoint: %v", err)
 	}
 	workdir, err := ctr.Workdir(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("working directory: %v", err)
 	}
 	args, err := ctr.DefaultArgs(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("default arguments: %v", err)
 	}
 	ports, err := ctr.ExposedPorts(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("exposed ports: %v", err)
 	}
 	exposed := make([]string, 0, len(ports))
 	for i := range ports {
 		number, err := ports[i].Port(ctx)
 		if err != nil {
-			return imageConfig{}, err
+			return imageConfig{}, fmt.Errorf("exposed ports: %v", err)
 		}
 		protocol, err := ports[i].Protocol(ctx)
 		if err != nil {
-			return imageConfig{}, err
+			return imageConfig{}, fmt.Errorf("exposed ports: %v", err)
 		}
-		exposed = append(exposed, fmt.Sprintf("%d/%s", number, protocol))
+		exposed = append(exposed, fmt.Sprintf("%d/%s", number, strings.ToLower(string(protocol))))
 	}
 	sort.Strings(exposed)
 	labels, err := ctr.Labels(ctx)
 	if err != nil {
-		return imageConfig{}, err
+		return imageConfig{}, fmt.Errorf("labels: %v", err)
 	}
 	named := make(map[string]string, len(labels))
 	for i := range labels {
 		name, err := labels[i].Name(ctx)
 		if err != nil {
-			return imageConfig{}, err
+			return imageConfig{}, fmt.Errorf("labels: %v", err)
 		}
 		value, err := labels[i].Value(ctx)
 		if err != nil {
-			return imageConfig{}, err
+			return imageConfig{}, fmt.Errorf("labels: %v", err)
 		}
 		named[name] = value
 	}

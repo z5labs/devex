@@ -289,16 +289,25 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 		}
 		return cfg
 	}
-	// withLabels is an expectation for the rows about labels this pipeline
-	// does not set today. The label branches would otherwise have only their
-	// empty-expectation halves driven, which is the shape of unexecutable
-	// check this whole split exists to avoid: a base layer is exactly what
-	// makes a demanded label real, and it must not arrive to find the branch
-	// deleted.
-	withLabels := func(labels map[string]string) *imageConfig {
+	// demanding is an expectation that asks for something this pipeline does
+	// not promise today.
+	//
+	// Every field but the entrypoint is expected empty right now, so a table
+	// built only from the real expectation would drive one side of each
+	// comparison and leave the other unexecutable — the exact shape of check
+	// this whole split exists to avoid. Concretely: with only empty
+	// expectations, replacing each comparison with a hard-coded `!= ""` or
+	// `len(...) != 0` leaves every row green, and the day expectedImageConfig
+	// grows a non-empty User for devex#399 the check would silently be
+	// asserting nothing. So each field is also driven against an expectation
+	// that demands a value, in both directions.
+	demanding := func(mutate func(*imageConfig)) *imageConfig {
 		cfg := expectedImageConfig(entry)
-		cfg.Labels = labels
+		mutate(&cfg)
 		return &cfg
+	}
+	withLabels := func(labels map[string]string) *imageConfig {
+		return demanding(func(c *imageConfig) { c.Labels = labels })
 	}
 
 	cases := []struct {
@@ -453,6 +462,59 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 			cfg:    standard(func(c *imageConfig) { c.Labels = map[string]string{"org.opencontainers.image.title": "hello"} }),
 			expect: withLabels(map[string]string{"org.opencontainers.image.title": "hello"}),
 		},
+
+		// The other side of every field this pipeline expects empty today.
+		// See demanding: without these, each comparison could be a hard-coded
+		// test for emptiness and this table would not know.
+		{
+			// This is the row devex#399 turns into the ordinary case.
+			name:   "no user, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
+			want:   `sets its user to nothing, but every image this pipeline publishes sets its user to "65532:65532"`,
+		},
+		{
+			name:   "exactly the user demanded",
+			cfg:    standard(func(c *imageConfig) { c.User = appOwner }),
+			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
+		},
+		{
+			name:   "no working directory, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.WorkingDir = appDir }),
+			want:   `sets its working directory to nothing, but every image this pipeline publishes sets it to "/app"`,
+		},
+		{
+			name:   "exactly the working directory demanded",
+			cfg:    standard(func(c *imageConfig) { c.WorkingDir = appDir }),
+			expect: demanding(func(c *imageConfig) { c.WorkingDir = appDir }),
+		},
+		{
+			name:   "no default arguments, where the pipeline demands them",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+			want:   `sets its default arguments to nothing, but every image this pipeline publishes sets them to ["serve"]`,
+		},
+		{
+			name:   "exactly the default arguments demanded",
+			cfg:    standard(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+			expect: demanding(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+		},
+		{
+			// Lower-cased, which is the form readImageConfig renders and the
+			// form the OCI config's own keys take. A row written "8080/TCP"
+			// against this expectation would be refused, which is what the
+			// rendering exists to prevent.
+			name:   "no exposed port, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
+			want:   `exposes nothing, but every image this pipeline publishes exposes ["8080/tcp"]`,
+		},
+		{
+			name:   "exactly the port demanded",
+			cfg:    standard(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
+			expect: demanding(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
+		},
 	}
 	for _, c := range cases {
 		expect := expectedImageConfig(entry)
@@ -471,6 +533,70 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 		}
 		if !strings.Contains(err.Error(), c.want) {
 			return fmt.Errorf("expected the refusal of %s to carry %q, got: %v", c.name, c.want, err)
+		}
+	}
+
+	// The entrypoint's expected value is the payload's declaration rather than
+	// a constant, so the comparison above can only catch the image and the
+	// declaration disagreeing. checkExpectedEntrypoint is the half that holds
+	// the declaration itself to the layout the package doc promises, and these
+	// are its cases: no constructor here produces any of the refused ones,
+	// which is exactly why they are driven from a table.
+	entrypoints := []struct {
+		entry string
+		// want is a substring the refusal must carry, or "" when the entry
+		// has to be accepted.
+		want string
+		why  string
+	}{
+		{
+			entry: appDir + "/hello",
+			why:   "the ordinary case: a binary directly in the application's own directory",
+		},
+		{
+			entry: "",
+			want:  "declares no entry to exec",
+			why:   "an application with no declared entry has no entrypoint to hold an image to",
+		},
+		{
+			entry: appPluginDir + "/hello",
+			want:  `entry is "/usr/local/bin/hello"`,
+			why:   "the plugin directory is an extension's to fill, and an app that exec'd out of it would make \"the app does not need the PATH\" true by accident",
+		},
+		{
+			entry: appDir + "/nested/hello",
+			want:  `entry is "/app/nested/hello"`,
+			why:   "a directory below the standardized one, which no COPY --from= line written against the layout would find",
+		},
+		{
+			entry: "app/hello",
+			want:  `entry is "app/hello"`,
+			why:   "a relative path, which would resolve against a working directory this pipeline never sets",
+		},
+		{
+			entry: appDir + "/",
+			want:  `entry is "/app/"`,
+			why:   "the directory itself, which is not a binary and would exec nothing",
+		},
+		{
+			entry: appDir + "hello",
+			want:  `entry is "/apphello"`,
+			why:   "a path that merely starts with the directory's name, which a prefix test written without the separator would accept",
+		},
+	}
+	for _, c := range entrypoints {
+		err := checkExpectedEntrypoint(c.entry)
+		if c.want == "" {
+			if err != nil {
+				return fmt.Errorf("expected the entry %q to be accepted (%s), got: %v", c.entry, c.why, err)
+			}
+			continue
+		}
+		if err == nil {
+			return fmt.Errorf("expected the entry %q to be refused (%s), got nil", c.entry, c.why)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of the entry %q (%s) to carry %q, got: %v", c.entry, c.why, c.want, err)
 		}
 	}
 	return nil

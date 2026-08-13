@@ -151,9 +151,11 @@
 //
 // The check is a publish-time gate and App.Container deliberately does not run
 // it: an inspection seam has to hand back the image that is wrong as readily as
-// the one that is right. Nothing ships unchecked as a result, because Publish
-// is the only way out of this module and it checks the same session-cached
-// containers Container hands over.
+// the one that is right. It gates this module's publish path rather than the
+// bytes — a caller who takes the container away and pushes it themselves goes
+// round this check exactly as they go round the annotations, the SBOMs, the
+// provenance and the signature — which is the sense in which a z5labs image is
+// one that App.Publish published.
 //
 // The one case that genuinely cannot move is a variable whose value is a fact
 // about the image's own filesystem layout, for a program whose source you do
