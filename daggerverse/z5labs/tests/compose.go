@@ -316,12 +316,20 @@ func (t *Tests) AppRefusesToComposeAcrossPlatforms(ctx context.Context) error {
 // that the refusal names both sides.
 //
 // Both sides, because a caller told only that a path is taken has to go and
-// find out by what — and the two cases here are told apart by nothing else.
-// Composing the same plugin twice collides with an application composed
-// earlier; contributing a file where a plugin already is collides the other
-// way round, through the seam that was there first. Either way the image would
-// hold one thing while its documents describe two, which is the undetectable
-// incompleteness this whole mechanism exists to prevent.
+// find out by what. Composing the same plugin twice collides with an
+// application composed earlier, and the refusal names it: the image would
+// otherwise hold one thing while its documents describe two, which is the
+// undetectable incompleteness this whole mechanism exists to prevent.
+//
+// Contributing a file where a plugin already is used to be the same collision
+// arriving through the seam that was there first, and after devex#427 it is
+// refused *before* the collision rule is consulted — every composed entry lives
+// in the plugin directory, and no contribution may reach that directory whether
+// or not something is already in it. So the second half asserts a refusal that
+// names the directory rather than the holder. That is a strengthening and not a
+// gap: the path is protected by a rule that does not depend on a plugin having
+// been composed there first, and the holder-naming property is what the first
+// half is for.
 func (t *Tests) AppRefusesToComposeOntoOccupiedPaths(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
@@ -346,8 +354,9 @@ func (t *Tests) AppRefusesToComposeOntoOccupiedPaths(ctx context.Context) error 
 	if err == nil {
 		return fmt.Errorf("expected contributing a file at %s to be refused, got nil", wantComposedEntry)
 	}
-	if !strings.Contains(err.Error(), "the entry of the application composed at") {
-		return fmt.Errorf("expected the refusal to name what holds %s, got: %s", wantComposedEntry, err.Error())
+	if !strings.Contains(err.Error(), wantPluginDir) {
+		return fmt.Errorf("expected the refusal of a contribution at %s to name the plugin directory, got: %s",
+			wantComposedEntry, err.Error())
 	}
 	return nil
 }
