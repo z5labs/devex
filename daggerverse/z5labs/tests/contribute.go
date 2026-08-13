@@ -335,6 +335,98 @@ func (t *Tests) AppRefusesContributionsThatCollide(ctx context.Context) error {
 	return nil
 }
 
+// AppRefusesContributionsToThePluginDirectory asserts that the one directory on
+// the image's PATH is filled by composition and by nothing else.
+//
+// The image contract has always said that /usr/local/bin is where an
+// extension's executables land. Until devex#427 the two halves of the module
+// disagreed about what that meant: WithFile lands content 0444, so a binary
+// contributed there was not executable and the directory was unusable through
+// the seam that names a single file, while WithDirectory lands a tree 0555, so
+// wrapping the same binary in a directory worked — and the rule the mode policy
+// enforced by omission was bypassed by the shape of the call. Both halves are
+// asserted here, in both directions, because the decision is that neither
+// helper reaches the directory and the bypass is the one that shipped.
+//
+// What makes it a rule about paths rather than about modes is the last case: a
+// tree contributed at /usr/local is refused without anything reading what is in
+// it. Whether it carries a bin/ is a property of the caller's tree rather than
+// of the call, and a rule that has to look inside changes its mind between
+// builds.
+//
+// The positive half is the point of the negative half and is asserted in the
+// same test rather than left to be inferred from a comment: the same base, with
+// the same directory, takes a composed application's entry and runs it **by
+// bare name**, which is what a base image's plugin discovery does. That is the
+// path the contract describes, and it works because composition carries a
+// platform on every byte and pairs the variant sets — which is exactly what a
+// *dagger.File and a *dagger.Directory cannot do.
+func (t *Tests) AppRefusesContributionsToThePluginDirectory(ctx context.Context) error {
+	const version = "v2.5.0"
+	platforms := []dagger.Platform{hostPlatform()}
+	base := prebuiltApp(helloDir(), "hello", version, platforms).Build()
+	fixture := newContributionFixture("bundle\n")
+
+	cases := []struct {
+		name string
+		app  *dagger.Z5LabsApp
+		want string
+	}{
+		{
+			name: "a file onto the PATH, where a base image's plugin discovery would find it",
+			app:  base.WithFile(wantPluginDir+"/gen", fixture.File, fixture.FileDocument),
+			want: "is inside " + wantPluginDir,
+		},
+		{
+			name: "a file at the plugin directory itself",
+			app:  base.WithFile(wantPluginDir, fixture.File, fixture.FileDocument),
+			want: wantPluginDir + " is the plugin directory",
+		},
+		{
+			// The bypass. A tree lands 0555 throughout, so before devex#427
+			// this was the way to put an executable of no stated architecture
+			// into every variant's plugin directory.
+			name: "a tree at the plugin directory, which lands executable",
+			app:  base.WithDirectory(wantPluginDir, fixture.Dir, fixture.DirDocument),
+			want: wantPluginDir + " is the plugin directory",
+		},
+		{
+			name: "a tree that would contain the plugin directory",
+			app:  base.WithDirectory("/usr/local", fixture.Dir, fixture.DirDocument),
+			want: "would contain " + wantPluginDir,
+		},
+	}
+	for _, c := range cases {
+		if _, err := c.app.ID(ctx); err == nil {
+			return fmt.Errorf("expected %s to be refused, got nil", c.name)
+		} else if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of %s to name %q, got: %s", c.name, c.want, err.Error())
+		}
+	}
+
+	// Beside it is not inside it. The rule is about the one directory the PATH
+	// resolves against, so a refusal that had spread to /usr/local generally
+	// would go red here rather than being discovered by an adopter with a
+	// certificate bundle.
+	beside := "/usr/local/share/ca-certificates/corp.crt"
+	if _, err := base.WithFile(beside, fixture.File, fixture.FileDocument).ID(ctx); err != nil {
+		return fmt.Errorf("expected a contribution at %s to be accepted, got: %v", beside, err)
+	}
+
+	// And the seam that may fill it does. Run by bare name rather than by
+	// absolute path: the contract is that the directory is on the PATH, and an
+	// absolute-path exec would pass on an image where it was not.
+	derived := base.WithApp(composedPlugin(wantPluginName, "v0.5.0", platforms))
+	out, err := derived.Container(hostPlatform()).WithExec([]string{wantPluginName}).Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("run the composed plugin through the image's PATH: %w", err)
+	}
+	if want := "plugin ok\n"; out != want {
+		return fmt.Errorf("the composed plugin printed %q, want %q", out, want)
+	}
+	return nil
+}
+
 // AppCustomizedImageStaysAttested asserts that an image a caller contributed
 // to is attested exactly as one they did not: the documents account for every
 // contribution, the provenance still describes what was published, and the

@@ -23,6 +23,13 @@ import (
 // contribution mechanism exists to prevent, arriving through the mechanism
 // itself.
 //
+// The plugin directory's rows are the exception, and they answer a different
+// question: what may reach the one directory the image's PATH resolves against.
+// Only composition may, because only composition names the architecture of what
+// it brings — see contribute.go. They are a table row rather than a mode bit
+// because a rule enforced by a mode was bypassed by wrapping a binary in a
+// directory, which is what devex#427 closed.
+//
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
 //
@@ -96,6 +103,41 @@ func checkContributionPaths() error {
 			path: "/home/nonroot/.config/app.yaml",
 			want: "/home/nonroot/.config/app.yaml",
 			why:  "read-only content under HOME, which the image does carry and which is deliberately not refused",
+		},
+		{
+			path:    "/usr/local/bin",
+			refusal: "/usr/local/bin is the plugin directory",
+			why:     "the plugin directory itself, which App.WithApp fills and no contribution may",
+		},
+		{
+			path:    "/usr/local/bin/gen",
+			refusal: "/usr/local/bin/gen is inside /usr/local/bin",
+			why:     "an executable contributed onto the PATH, which names no architecture and lands in every variant",
+		},
+		{
+			path:    "/usr/local/bin/../bin/gen",
+			refusal: "is inside /usr/local/bin",
+			why:     "a path that reaches the plugin directory only after cleaning, which a prefix test on the raw string would miss",
+		},
+		{
+			path:    "/usr/local",
+			refusal: "/usr/local would contain /usr/local/bin",
+			why:     "a tree over the plugin directory, which is the bypass a mode bit could not refuse",
+		},
+		{
+			path:    "/usr",
+			refusal: "/usr would contain /usr/local/bin",
+			why:     "a tree further up, refused for the same reason and without reading what is in it",
+		},
+		{
+			path: "/usr/local/binaries",
+			want: "/usr/local/binaries",
+			why:  "a sibling whose name merely opens with the plugin directory's, which is not inside it",
+		},
+		{
+			path: "/usr/local/share/ca-certificates/corp.crt",
+			want: "/usr/local/share/ca-certificates/corp.crt",
+			why:  "content beside the plugin directory, which is refused by nothing — the rule is about that one directory",
 		},
 	}
 	for _, c := range cases {
