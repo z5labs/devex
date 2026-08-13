@@ -1,6 +1,8 @@
 // Package main implements the z5labs daggerverse module: opinionated CI
-// and release pipelines for Go projects. Construct via the GoApp or GoLib
-// factories on Z5labs; call the terminal Ci method to run the pipeline.
+// and release pipelines for Go projects. Start at Z5labs.Go for the source
+// tree and the standardized checks over it; the GoApp factory still carries
+// the multi-arch build and the signed publish, until the second half of the
+// chainable API replaces it. Either way, the terminal Ci runs the pipeline.
 //
 // The lint stage runs golangci-lint v2. A repository adopting this pipeline
 // keeps its `.golangci.yml` in the v2 dialect — the file opens with
@@ -19,9 +21,27 @@ import (
 //go:embed configs/golangci.yml
 var defaultLintConfig []byte
 
-// Z5labs is the root module type. Construct project archetypes via
-// GoApp / GoLib.
+// Z5labs is the root module type. Construct the Go language chain via Go,
+// and the release pipeline via GoApp.
 type Z5labs struct{}
+
+// Go returns the Go language chain bound to source: the standardized
+// checks — gofmt, go vet, golangci-lint and `go test -race` — over a Go
+// source tree, configured by the chain's With* methods and run by its
+// terminal Ci.
+//
+// This is what a Go library needs and all it needs, which is why the
+// library archetype it replaces is gone: a library is a source tree you
+// never build an application from. An application starts here too; the
+// build and the publish sit downstream of this chain rather than beside it.
+//
+// The returned object is GoChain rather than Go because the `go` module
+// this one depends on already owns that name — see GoChain's doc comment.
+//
+// +cache="session"
+func (m *Z5labs) Go(source *dagger.Directory) *GoChain {
+	return &GoChain{Source: source, TestRace: true}
+}
 
 // GoApp wires up an opinionated CI/release pipeline for a `package main`
 // Go application. Call Ci to run checks + multi-arch build + conditional
@@ -166,29 +186,4 @@ func (m *Z5labs) GoApp(
 		IDTokenService:      idTokenService,
 		SigningKey:          signingKey,
 	}
-}
-
-// GoLib wires up the checks-only pipeline for a Go library. v1 has no
-// publish equivalent for libraries.
-func (m *Z5labs) GoLib(
-	source *dagger.Directory,
-	// A `.golangci.yml` replacing the bundled default policy.
-	//
-	// The lint stage runs golangci-lint v2, so this file must be written
-	// in the v2 dialect — it has to open with `version: "2"`. The majors
-	// are not interchangeable: a v2 binary refuses a v1 file outright,
-	// before running any linter. Pass lintVersion to move the whole stage,
-	// dialect included, to another release.
-	//
-	// +optional
-	lintConfig *dagger.File,
-	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
-	// Empty takes the version pinned by the `go` module, which is a v2
-	// release; pinning a "v1.x" release here rolls the stage — and the
-	// config dialect it requires — back to v1.
-	//
-	// +optional
-	lintVersion string,
-) *GoLib {
-	return &GoLib{Source: source, LintConfig: lintConfig, LintVersion: lintVersion}
 }

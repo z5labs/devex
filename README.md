@@ -35,7 +35,7 @@ dagger install github.com/z5labs/devex/daggerverse/<module>
 | [`qemu`](daggerverse/qemu) | Boot guest systems under [QEMU](https://www.qemu.org/). |
 | [`random`](daggerverse/random) | Generate random values. |
 | [`workspace-ci`](daggerverse/workspace-ci) | Plan change-aware, memoized CI for a workspace of Dagger modules. |
-| [`z5labs`](daggerverse/z5labs) | Scaffold project archetypes (GoApp / GoLib). |
+| [`z5labs`](daggerverse/z5labs) | Standardized Go CI (`Go`) and release pipelines (`GoApp`). |
 | [`zig`](daggerverse/zig) | Wrap the [Zig](https://ziglang.org/) toolchain. |
 
 See [`daggerverse/CLAUDE.md`](daggerverse/CLAUDE.md) for module conventions

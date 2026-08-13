@@ -102,9 +102,10 @@ func (t *Tests) All(
 	if parallel > 0 {
 		jobs = jobs.WithLimit(parallel)
 	}
-	jobs = jobs.WithJob("GoLibCiPassesForValidSource", t.GoLibCiPassesForValidSource)
-	jobs = jobs.WithJob("GoLibCiFailsForFailingTest", t.GoLibCiFailsForFailingTest)
-	jobs = jobs.WithJob("GoLibCiRoutesLintVersion", t.GoLibCiRoutesLintVersion)
+	jobs = jobs.WithJob("GoCiPassesForValidSource", t.GoCiPassesForValidSource)
+	jobs = jobs.WithJob("GoCiFailsForFailingTest", t.GoCiFailsForFailingTest)
+	jobs = jobs.WithJob("GoCiRoutesLintVersion", t.GoCiRoutesLintVersion)
+	jobs = jobs.WithJob("GoCiLintConfigOverridesBundledPolicy", t.GoCiLintConfigOverridesBundledPolicy)
 	jobs = jobs.WithJob("BuilderBinaryProducesCompiledBinary", t.BuilderBinaryProducesCompiledBinary)
 	jobs = jobs.WithJob("BuilderContainerProducesScratchImageWithBinary", t.BuilderContainerProducesScratchImageWithBinary)
 	jobs = jobs.WithJob("GoAppCiRejectsMissingGitDir", t.GoAppCiRejectsMissingGitDir)
@@ -224,37 +225,70 @@ func curlManifestDigest(ctx context.Context, svc *dagger.Service, host, user, pw
 	return "", fmt.Errorf("no Docker-Content-Digest header in response headers: %q", out)
 }
 
-// GoLibCiPassesForValidSource asserts that GoLib.Ci against a clean,
-// vet-clean, gofmt-clean library fixture returns no error.
+// GoCiPassesForValidSource asserts that Go.Ci against a clean, vet-clean,
+// gofmt-clean library fixture returns no error.
 //
 // This is also what proves the bundled configs/golangci.yml and the
 // pinned golangci-lint speak the same dialect. The two majors reject each
 // other's config files outright, so a v1 config reaching a v2 binary — or
 // the reverse — fails this test before any linter runs.
-func (t *Tests) GoLibCiPassesForValidSource(ctx context.Context) error {
-	if err := dag.Z5Labs().GoLib(helloLibDir()).Ci(ctx); err != nil {
-		return fmt.Errorf("GoLib.Ci on hello-lib: %w", err)
+func (t *Tests) GoCiPassesForValidSource(ctx context.Context) error {
+	if err := dag.Z5Labs().Go(helloLibDir()).Ci(ctx); err != nil {
+		return fmt.Errorf("Go.Ci on hello-lib: %w", err)
 	}
 	return nil
 }
 
-// GoLibCiRoutesLintVersion asserts the archetype's lintVersion reaches the
-// lint stage rather than being accepted and dropped.
+// GoCiRoutesLintVersion asserts WithLint's version reaches the lint stage
+// rather than being accepted and dropped.
 //
 // It pins a version the `go` module refuses to read a major out of, so the
 // assertion is a message naming that version — which can only have come
 // from the lint stage. Proving routing this way costs no container work,
 // and a pin that *is* valid is exercised where the behaviour lives, in the
 // `go` module's own suite.
-func (t *Tests) GoLibCiRoutesLintVersion(ctx context.Context) error {
-	err := dag.Z5Labs().GoLib(helloLibDir(), dagger.Z5LabsGoLibOpts{
-		LintVersion: "1.64.8",
-	}).Ci(ctx)
+func (t *Tests) GoCiRoutesLintVersion(ctx context.Context) error {
+	err := dag.Z5Labs().Go(helloLibDir()).
+		WithLint(dagger.Z5LabsGoChainWithLintOpts{Version: "1.64.8"}).
+		Ci(ctx)
 	if err == nil {
-		return fmt.Errorf(`expected GoLib.Ci with lintVersion "1.64.8" to fail, got nil`)
+		return fmt.Errorf(`expected Go.Ci with lint version "1.64.8" to fail, got nil`)
 	}
 	if msg := err.Error(); !strings.Contains(msg, `golangci-lint version "1.64.8"`) {
 		return fmt.Errorf("expected the error to name the rejected lint version, got: %s", msg)
+	}
+	return nil
+}
+
+// GoCiLintConfigOverridesBundledPolicy asserts WithLint's config replaces
+// the bundled configs/golangci.yml rather than being accepted and dropped.
+//
+// The supplied file is a well-formed v2 config enabling a linter that does
+// not exist, which golangci-lint refuses to start with. The same fixture
+// passes under the bundled policy — that is GoCiPassesForValidSource — so a
+// failure here can only come from the caller's file having reached the
+// stage.
+//
+// The assertion is on golangci-lint's exit code rather than on its message
+// because the message does not survive the module boundary: a failing
+// WithExec inside a dependency arrives as `exit code: N` and nothing else,
+// with the command's output visible only in the trace. Exit 3 is the code
+// golangci-lint uses for a configuration it cannot load, as opposed to 1
+// for issues it found, so it says specifically that a config was read and
+// rejected — the bundled one loads clean, so it was this one.
+func (t *Tests) GoCiLintConfigOverridesBundledPolicy(ctx context.Context) error {
+	cfg := dag.Directory().
+		WithNewFile(".golangci.yml", "version: \"2\"\n\nlinters:\n  default: none\n  enable:\n    - nosuchlinterexists\n").
+		File(".golangci.yml")
+
+	err := dag.Z5Labs().Go(helloLibDir()).
+		WithLint(dagger.Z5LabsGoChainWithLintOpts{Config: cfg}).
+		Ci(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Go.Ci with a config naming an unknown linter to fail, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit code: 3") {
+		return fmt.Errorf("expected golangci-lint's config-error exit code 3, got: %s", msg)
 	}
 	return nil
 }
@@ -840,12 +874,16 @@ func (t *Tests) BuilderBinaryProducesCompiledBinary(ctx context.Context) error {
 	return nil
 }
 
-// GoLibCiFailsForFailingTest asserts that GoLib.Ci surfaces a test
-// failure as an error containing "FAIL" or "exit code: 1".
-func (t *Tests) GoLibCiFailsForFailingTest(ctx context.Context) error {
-	err := dag.Z5Labs().GoLib(failingLibDir()).Ci(ctx)
+// GoCiFailsForFailingTest asserts that Go.Ci surfaces a test failure as an
+// error containing "FAIL" or "exit code: 1".
+//
+// The test stage is not opt-in — this calls Ci with no With* configuration
+// at all — so a library whose tests fail cannot pass the check by simply
+// not asking for tests.
+func (t *Tests) GoCiFailsForFailingTest(ctx context.Context) error {
+	err := dag.Z5Labs().Go(failingLibDir()).Ci(ctx)
 	if err == nil {
-		return fmt.Errorf("expected GoLib.Ci on failing-lib to error, got nil")
+		return fmt.Errorf("expected Go.Ci on failing-lib to error, got nil")
 	}
 	msg := err.Error()
 	if !strings.Contains(msg, "exit code: 1") && !strings.Contains(msg, "FAIL") {

@@ -262,7 +262,8 @@ breaks is the *lowercased* cache field a scalar-returning method emits
 (`go *string`), so a method that returns an object emits no field and there
 is nothing to collide. The returned type namespacing to `Z5LabsGo` is a real
 observation but not the mechanism; a type named `Go` would have been fine
-too.
+too — as long as no dependency of that module already owns the name, which
+is a separate constraint and is the next section.
 
 So the rule is about the **return type**, not the name in isolation, and it
 is per generated method rather than per module: adding a scalar-returning
@@ -276,6 +277,36 @@ the **module name**, not from the Go type's spelling. Module `z5labs` gives
 `Z5Labs` in the bindings even though the Go source declares `type Z5labs
 struct{}`, and secondary objects namespace onto that same normalized prefix.
 The casing difference is the generator's, not a typo.
+
+### A local object may not be named after one of your dependencies' objects
+
+The measurement above says a keyword-named *object* is safe. It is — but only
+where the name is free. A module's dependencies occupy their objects' bare
+names in that module's own type space, so an object declared locally with a
+name a dependency already owns is resolved as the **dependency's**, and the
+module fails to load before any codegen happens:
+
+```
+failed to load module dependencies: failed to add object to module "z5labs":
+failed to validate type def: object "Z5labs" function "Go" cannot return
+external type from dependency module "go"
+```
+
+That is `daggerverse/z5labs` declaring `type Go struct{...}` while depending on
+`daggerverse/go`, whose root object is literally `Go` (devex#403). The spike in
+devex#402 could not have caught it: its throwaway module pair had no such
+dependency, so the name was free there and is not here.
+
+Two things worth carrying:
+
+- It is about the **type**, not the method. `func (m *Z5labs) Go(source
+  *dagger.Directory) *GoChain` loads fine and keeps `dagger call go ...` as the
+  CLI path; only the returned type had to be renamed. So a collision costs a
+  type's spelling, never the API's shape.
+- The clash is with the dependency's object names as they appear *inside* this
+  module (`Go`, `GoCi`, ... for a dep named `go`), not with the namespaced
+  names a consumer sees (`Z5LabsGo`). Check `internal/dagger/<dep>.gen.go` for
+  the names already taken before picking one.
 
 ### Unexported types are where module-object state belongs
 

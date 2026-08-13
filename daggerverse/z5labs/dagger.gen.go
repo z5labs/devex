@@ -73,6 +73,42 @@ func (r *Z5labs) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r GoChain) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Source      *dagger.Directory
+		LintConfig  *dagger.File
+		LintVersion string
+		TestRace    bool
+		BuildTags   []string
+	}
+	concrete.Source = r.Source
+	concrete.LintConfig = r.LintConfig
+	concrete.LintVersion = r.LintVersion
+	concrete.TestRace = r.TestRace
+	concrete.BuildTags = r.BuildTags
+	return json.Marshal(&concrete)
+}
+
+func (r *GoChain) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Source      *dagger.Directory
+		LintConfig  *dagger.File
+		LintVersion string
+		TestRace    bool
+		BuildTags   []string
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Source = concrete.Source
+	r.LintConfig = concrete.LintConfig
+	r.LintVersion = concrete.LintVersion
+	r.TestRace = concrete.TestRace
+	r.BuildTags = concrete.BuildTags
+	return nil
+}
+
 func (r GoApp) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source              *dagger.Directory
@@ -150,34 +186,6 @@ func (r *GoApp) UnmarshalJSON(bs []byte) error {
 	r.IDTokenRequestToken = concrete.IDTokenRequestToken
 	r.SigningKey = concrete.SigningKey
 	r.IDTokenService = concrete.IDTokenService
-	return nil
-}
-
-func (r GoLib) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		Source      *dagger.Directory
-		LintConfig  *dagger.File
-		LintVersion string
-	}
-	concrete.Source = r.Source
-	concrete.LintConfig = r.LintConfig
-	concrete.LintVersion = r.LintVersion
-	return json.Marshal(&concrete)
-}
-
-func (r *GoLib) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		Source      *dagger.Directory
-		LintConfig  *dagger.File
-		LintVersion string
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.Source = concrete.Source
-	r.LintConfig = concrete.LintConfig
-	r.LintVersion = concrete.LintVersion
 	return nil
 }
 
@@ -356,20 +364,83 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
-	case "GoLib":
+	case "GoChain":
 		switch fnName {
 		case "Ci":
-			var parent GoLib
+			var parent GoChain
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*GoLib).Ci(&parent, ctx)
+			return nil, (*GoChain).Ci(&parent, ctx)
+		case "WithBuild":
+			var parent GoChain
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var tags []string
+			if inputArgs["tags"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tags"]), &tags)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tags", err))
+				}
+			}
+			return (*GoChain).WithBuild(&parent, tags), nil
+		case "WithLint":
+			var parent GoChain
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			var config *dagger.File
+			if inputArgs["config"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["config"]), &config)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg config", err))
+				}
+			}
+			return (*GoChain).WithLint(&parent, version, config), nil
+		case "WithTest":
+			var parent GoChain
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var race bool
+			if inputArgs["race"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["race"]), &race)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg race", err))
+				}
+			}
+			return (*GoChain).WithTest(&parent, race), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
 	case "Z5labs":
 		switch fnName {
+		case "Go":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var source *dagger.Directory
+			if inputArgs["source"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
+				}
+			}
+			return (*Z5labs).Go(&parent, source), nil
 		case "GoApp":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
@@ -489,34 +560,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, lintVersion, platforms, registryService, insecure, idTokenRequestUrl, idTokenRequestToken, idTokenService, signingKey), nil
-		case "GoLib":
-			var parent Z5labs
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var source *dagger.Directory
-			if inputArgs["source"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
-				}
-			}
-			var lintConfig *dagger.File
-			if inputArgs["lintConfig"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["lintConfig"]), &lintConfig)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintConfig", err))
-				}
-			}
-			var lintVersion string
-			if inputArgs["lintVersion"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["lintVersion"]), &lintVersion)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintVersion", err))
-				}
-			}
-			return (*Z5labs).GoLib(&parent, source, lintConfig, lintVersion), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
