@@ -858,6 +858,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Z5labs).ImageSbomSelfTest(&parent, ctx)
+		case "SourceRedactionSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).SourceRedactionSelfTest(&parent, ctx)
 		case "VariantSetSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
