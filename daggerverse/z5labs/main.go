@@ -34,6 +34,25 @@
 // The application's own entrypoint does not rely on any of that. It is an
 // absolute path — /app/<binary> — so the app runs whatever the PATH says.
 // PATH exists for what an extension adds, not for finding the app itself.
+// /app itself is root-owned and 0755: the directory the entrypoint sits in is
+// what decides whether the binary can be unlinked and replaced, and one the
+// application could write is one whose published digest stops describing what
+// is running.
+//
+// The rest of the OCI configuration is part of the contract too, and every bit
+// of it is empty:
+//
+//	User          nothing — devex#399, which is open, is the image's own user
+//	WorkingDir    nothing — see "# No working directory" below
+//	Cmd           no default arguments
+//	ExposedPorts  none
+//	Labels        none — the per-platform OCI *annotations* are a separate field
+//
+// Empty is a promise rather than an omission, and it is asserted as such: a
+// publish reads back the whole configuration of every variant and refuses one
+// that carries a field this pipeline did not write. Each of those would
+// otherwise be inherited, silently, from the first base layer this module
+// builds on (devex#426).
 //
 // # HOME is a directory; TMPDIR is a mount point
 //
@@ -124,9 +143,17 @@
 //
 // The half of this that is not an opinion: because nothing caller-facing can
 // set a variable, an image's environment is assertable *in full* rather than
-// merely documented, and a publish asserts it — see App.Publish. A caller seam
-// would make that check unverifiable in principle, because "exactly this set"
-// stops being a property of the pipeline the moment anyone can add to it.
+// merely documented, and a publish asserts it — see App.Publish. The same
+// argument, and the same check, covers the rest of the image's configuration.
+// A caller seam would make that check unverifiable in principle, because
+// "exactly this set" stops being a property of the pipeline the moment anyone
+// can add to it.
+//
+// The check is a publish-time gate and App.Container deliberately does not run
+// it: an inspection seam has to hand back the image that is wrong as readily as
+// the one that is right. Nothing ships unchecked as a result, because Publish
+// is the only way out of this module and it checks the same session-cached
+// containers Container hands over.
 //
 // The one case that genuinely cannot move is a variable whose value is a fact
 // about the image's own filesystem layout, for a program whose source you do

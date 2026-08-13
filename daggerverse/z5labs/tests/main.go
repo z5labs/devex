@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -55,7 +56,26 @@ const (
 	wantPluginDir   = "/usr/local/bin"
 	wantImageHome   = "/home/nonroot"
 	wantImageTmpDir = "/tmp"
+	// wantImageAppDir is the directory the application's own executable lives
+	// in and that its entrypoint names absolutely. It is pinned here for the
+	// reason the others are: `COPY --from=<image> /app/thing` is a line
+	// written a long way from this repository.
+	wantImageAppDir = "/app"
 )
+
+// wantImageAppDirStat is what the executable's directory has to look like on
+// disk, in the "<mode> <uid>:<gid>" form statInImage reports: mode 0755, owned
+// by root.
+//
+// The directory rather than the file in it, and the two are different
+// promises. The entrypoint's own 0555 stops it being rewritten; it does not
+// stop it being unlinked and replaced, because that is a write to the
+// *directory*. A /app the application could write would therefore leave a
+// running container able to swap out the binary its published digest describes,
+// which is the same failure contributed content's read-only modes exist to
+// prevent, one level up. Root-owned and 0755 is what a real base image's
+// directories already look like.
+const wantImageAppDirStat = "755 0:0"
 
 // wantImageHomeStat is what HOME's directory has to look like on disk, in the
 // "<mode> <uid>:<gid>" form statInImage reports: mode 0555, owned by root.
@@ -137,7 +157,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppRejectsSourceWithoutGitMetadata", t.AppRejectsSourceWithoutGitMetadata)
 	jobs = jobs.WithJob("AppContainerRunsTheEntrypoint", t.AppContainerRunsTheEntrypoint)
 	jobs = jobs.WithJob("AppContainersCoverEveryPlatformInOrder", t.AppContainersCoverEveryPlatformInOrder)
-	jobs = jobs.WithJob("AppImagesCarryTheStandardEnvironment", t.AppImagesCarryTheStandardEnvironment)
+	jobs = jobs.WithJob("AppImagesCarryTheStandardConfiguration", t.AppImagesCarryTheStandardConfiguration)
 	jobs = jobs.WithJob("AppBuildTagsReachTheCompiler", t.AppBuildTagsReachTheCompiler)
 	jobs = jobs.WithJob("AppStampsEveryPlatformVariant", t.AppStampsEveryPlatformVariant)
 	jobs = jobs.WithJob("AppRebuildIsByteIdenticalPerPlatform", t.AppRebuildIsByteIdenticalPerPlatform)
@@ -605,23 +625,26 @@ func (t *Tests) AppContainersCoverEveryPlatformInOrder(ctx context.Context) erro
 	return nil
 }
 
-// AppImagesCarryTheStandardEnvironment asserts every image carries exactly
-// the standardized environment, and that the entrypoint does not depend on
-// it.
+// AppImagesCarryTheStandardConfiguration asserts every image carries exactly
+// the OCI configuration the module promises — the standardized environment,
+// the entrypoint, and nothing else — and that the entrypoint does not depend
+// on the environment.
 //
-// Exactly, not at least: the contract an extension writes against is that
-// the environment is knowable, and a stray variable — a credential leaked
-// in from a build step, a debug flag — ships silently inside something
-// people pull. The plugin directory is asserted to be on the PATH by name
-// because that is the promise a `COPY` line is written against, and the
-// entrypoint is asserted absolute because the app must run whatever the
-// PATH says: PATH is for what an extension adds, not for finding the app.
+// Exactly, not at least, and that applies to every field rather than to the
+// environment alone: the contract an extension writes against is that the
+// image's configuration is knowable, and a stray variable — a credential
+// leaked in from a build step, a debug flag — ships silently inside something
+// people pull, as would a CMD, a WORKDIR or a label nobody here wrote. The
+// plugin directory is asserted to be on the PATH by name because that is the
+// promise a `COPY` line is written against, and the entrypoint is asserted to
+// be one absolute path in /app because the app must run whatever the PATH
+// says: PATH is for what an extension adds, not for finding the app.
 //
-// Two of the three variables also say something about the image's filesystem —
-// HOME names a directory that is there and TMPDIR one that is not — and this
-// is the test that checks it, once, on the host's platform. See
-// assertHomeAndScratch.
-func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error {
+// Part of the contract is also a claim about the image's filesystem — HOME
+// names a directory that is there, TMPDIR one that is not, and /app one the
+// application cannot write — and this is the test that checks it, once, on the
+// host's platform. See assertHomeAndScratch.
+func (t *Tests) AppImagesCarryTheStandardConfiguration(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
@@ -629,28 +652,100 @@ func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error 
 	platforms := []dagger.Platform{"linux/amd64", "linux/arm64"}
 	app := dag.Z5Labs().Go(src).App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
 	for _, platform := range platforms {
-		ctr := app.Container(platform)
-		if err := assertStandardEnvironment(ctx, ctr, string(platform)); err != nil {
+		if err := assertStandardImageConfig(ctx, app.Container(platform), string(platform)); err != nil {
 			return err
 		}
-		entrypoint, err := ctr.Entrypoint(ctx)
-		if err != nil {
-			return fmt.Errorf("%s: read entrypoint: %v", platform, err)
-		}
-		if len(entrypoint) != 1 || !strings.HasPrefix(entrypoint[0], "/") {
-			return fmt.Errorf("%s: expected a single absolute entrypoint, got %v", platform, entrypoint)
-		}
-		// An entrypoint that happened to sit in the plugin directory would
-		// make "the app does not need the PATH" true by accident.
-		if strings.HasPrefix(entrypoint[0], wantPluginDir+"/") {
-			return fmt.Errorf("%s: the app's own binary is in the plugin directory %s, which is an extension's to fill", platform, wantPluginDir)
-		}
 	}
-	// Two of the three variables are also claims about the image's filesystem,
-	// and this is where they are checked — on the host's platform, because
-	// materializing a foreign one costs a cross-compile to learn the same
-	// thing.
+	// The claims about the filesystem are checked here — on the host's
+	// platform, because materializing a foreign one costs a cross-compile to
+	// learn the same thing.
 	return assertHomeAndScratch(ctx, app.Container(hostPlatform()), string(hostPlatform()))
+}
+
+// assertStandardImageConfig checks ctr's whole OCI configuration is the one
+// the module promises: the standardized environment, an entrypoint in the
+// application's own directory, and nothing else at all.
+//
+// "Nothing else at all" is the part that is easy to read past. The module
+// promises no user, no working directory, no default arguments, no exposed
+// ports and no labels, and each of those is a promise an adopter relies on
+// rather than a field nobody got round to setting — a CMD would be appended to
+// the entrypoint by every runtime, a WORKDIR would change what every relative
+// path in a deployment resolves against, and a label is something people read
+// `org.opencontainers.image.*` out of. They are pinned here, literally, for the
+// reason wantImagePath is: a test that asked the module what it promises would
+// agree with whatever the module changed it to.
+//
+// Reading them costs an image-config read and no build, which is why this runs
+// on every variant of every image the suite looks at, while the filesystem half
+// of the contract runs once — see assertHomeAndScratch.
+func assertStandardImageConfig(ctx context.Context, ctr *dagger.Container, what string) error {
+	if err := assertStandardEnvironment(ctx, ctr, what); err != nil {
+		return err
+	}
+	entrypoint, err := ctr.Entrypoint(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read entrypoint: %v", what, err)
+	}
+	// One absolute path, in the application's own directory. An entrypoint
+	// that happened to sit in the plugin directory would make "the app does
+	// not need the PATH" true by accident, and one anywhere else would break
+	// every `COPY --from=` line written against the layout.
+	if len(entrypoint) != 1 || !strings.HasPrefix(entrypoint[0], wantImageAppDir+"/") {
+		return fmt.Errorf("%s: the entrypoint is %v, want a single absolute path in %s", what, entrypoint, wantImageAppDir)
+	}
+	user, err := ctr.User(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image's user: %v", what, err)
+	}
+	// Empty, which is what these images promise today and is uid 0 at
+	// runtime. devex#399 is where that becomes 65532:65532, and this line is
+	// what makes landing it a deliberate change to the pinned contract rather
+	// than a silent one.
+	if user != "" {
+		return fmt.Errorf("%s: the image sets its user to %q, want an image that sets none", what, user)
+	}
+	workdir, err := ctr.Workdir(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image's working directory: %v", what, err)
+	}
+	if workdir != "" {
+		return fmt.Errorf("%s: the image sets its working directory to %q, want an image that sets none", what, workdir)
+	}
+	args, err := ctr.DefaultArgs(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image's default arguments: %v", what, err)
+	}
+	if len(args) != 0 {
+		return fmt.Errorf("%s: the image sets its default arguments to %v, want an image that sets none", what, args)
+	}
+	ports, err := ctr.ExposedPorts(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image's exposed ports: %v", what, err)
+	}
+	if len(ports) != 0 {
+		return fmt.Errorf("%s: the image exposes %d port(s), want an image that exposes none", what, len(ports))
+	}
+	labels, err := ctr.Labels(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image's labels: %v", what, err)
+	}
+	// The per-platform OCI annotations are a different field and are asserted
+	// elsewhere; an image that carried them as labels would be describing
+	// itself twice, in two places consumers read differently.
+	if len(labels) != 0 {
+		names := make([]string, 0, len(labels))
+		for i := range labels {
+			name, err := labels[i].Name(ctx)
+			if err != nil {
+				return fmt.Errorf("%s: read a label's name: %v", what, err)
+			}
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		return fmt.Errorf("%s: the image carries the labels %v, want an image that carries none", what, names)
+	}
+	return nil
 }
 
 // assertStandardEnvironment checks ctr's environment is exactly the
@@ -697,32 +792,36 @@ func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what 
 	return nil
 }
 
-// assertHomeAndScratch checks the half of the environment contract that is a
-// claim about the image's filesystem rather than about its config: HOME names
-// a directory the image really has, owned by root and writable by nobody, and
-// TMPDIR names one it deliberately does not.
+// assertHomeAndScratch checks the half of the image contract that is a claim
+// about the image's filesystem rather than about its config: HOME names a
+// directory the image really has, owned by root and writable by nobody, TMPDIR
+// names one it deliberately does not, and the directory the entrypoint lives in
+// is root's too.
 //
-// Both halves are asserted because both are things an adopter is told and
+// All three are asserted because all three are things an adopter is told and
 // cannot see. A HOME naming a directory that is not there would leave every
 // $HOME read failing ENOENT and every write racing the runtime's writable
 // layer, which is what pinning HOME was supposed to end; a /tmp that appeared
 // in the image would make the "mount scratch space yourself" instruction
 // optional in a way that works until somebody turns on
-// readOnlyRootFilesystem.
+// readOnlyRootFilesystem; and a writable /app would let a running container
+// replace the binary its digest describes — see wantImageAppDirStat, which is
+// the one of the three that nothing covered before devex#426.
 //
 // The mode and the owner go through statInImage because a glob reports
 // neither, and the scratch directory's absence goes through the rootfs listing
 // because statInImage would report a missing path as a failed exec rather than
-// as an answer.
+// as an answer. Both directories are stat'd in one exec, so a mode that is
+// right on one and wrong on the other cannot pass unnoticed.
 //
-// It is called once, on one platform, rather than from assertStandardEnvironment
-// beside the config half. Reading an image's environment costs nothing — no
+// It is called once, on one platform, rather than from assertStandardImageConfig
+// beside the config half. Reading an image's configuration costs nothing — no
 // build is solved to answer it — while reading its filesystem forces the whole
 // image to materialize, which on a platform that is not the host is a
-// cross-compile. Both halves are written by imageForEntry, the one place an
-// image is built, and neither varies by platform or by entry point, so paying
-// that on every variant of every app this suite builds buys nothing — and this
-// suite is already the workspace's longest leg.
+// cross-compile. Every part of it is written by imageForEntry, the one place an
+// image is built, and none of it varies by platform or by entry point, so
+// paying that on every variant of every app this suite builds buys nothing —
+// and this suite is already the workspace's longest leg.
 func assertHomeAndScratch(ctx context.Context, ctr *dagger.Container, what string) error {
 	top, err := ctr.Rootfs().Entries(ctx)
 	if err != nil {
@@ -736,12 +835,18 @@ func assertHomeAndScratch(ctx context.Context, ctr *dagger.Container, what strin
 				what, wantImageTmpDir)
 		}
 	}
-	modes, err := statInImage(ctx, ctr, []string{wantImageHome})
+	modes, err := statInImage(ctx, ctr, []string{wantImageHome, wantImageAppDir})
 	if err != nil {
 		return fmt.Errorf("%s: %v", what, err)
 	}
-	if modes[wantImageHome] != wantImageHomeStat {
-		return fmt.Errorf("%s: %s is %q, want %q", what, wantImageHome, modes[wantImageHome], wantImageHomeStat)
+	want := map[string]string{
+		wantImageHome:   wantImageHomeStat,
+		wantImageAppDir: wantImageAppDirStat,
+	}
+	for _, path := range []string{wantImageAppDir, wantImageHome} {
+		if modes[path] != want[path] {
+			return fmt.Errorf("%s: %s is %q, want %q", what, path, modes[path], want[path])
+		}
 	}
 	return nil
 }
@@ -1456,7 +1561,7 @@ func (t *Tests) AppPublishesTheContainersItReturned(ctx context.Context) error {
 	if built != published {
 		return fmt.Errorf("Container returned %s, the registry holds %s", built, published)
 	}
-	return assertStandardEnvironment(ctx, pulled, "the published "+string(hostPlatform())+" variant")
+	return assertStandardImageConfig(ctx, pulled, "the published "+string(hostPlatform())+" variant")
 }
 
 // AppPublishRefusesAnUnusableTarget asserts the publish refuses a target it

@@ -10,7 +10,7 @@ import (
 // contribute content, and where they may not.
 //
 // It sits on the module rather than in tests/ for the reason
-// ImageEnvironmentSelfTest records: the rules are unexported pure functions,
+// ImageConfigSelfTest records: the rules are unexported pure functions,
 // and driving every branch of them through the public API would mean building
 // a real multi-platform app per row of the table below. The end-to-end half —
 // that the refusal really is wired into WithFile and WithDirectory, and that

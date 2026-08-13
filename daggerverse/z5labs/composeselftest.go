@@ -12,7 +12,7 @@ import (
 // payload may be composed into another's image.
 //
 // It sits on the module rather than in tests/ for the reason
-// ImageEnvironmentSelfTest and ContributionPathSelfTest record, and here the
+// ImageConfigSelfTest and ContributionPathSelfTest record, and here the
 // reason is stronger than economy. Two of these rules cannot be driven through
 // the public API at all: no constructor in this module can declare a payload
 // of more than one file, and no caller-facing seam can put an environment

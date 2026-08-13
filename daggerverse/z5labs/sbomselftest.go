@@ -17,7 +17,7 @@ import (
 // say the same thing about it.
 //
 // It sits on the module rather than in tests/ for the reason
-// ImageEnvironmentSelfTest records, and for one more that is specific to
+// ImageConfigSelfTest records, and for one more that is specific to
 // this rule. The interesting case is an image assembled from *several*
 // sources. App.WithFile and App.WithDirectory do now put a second contribution
 // into an image — AppCustomizedImageStaysAttested publishes one and reads the

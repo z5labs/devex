@@ -12,7 +12,7 @@ import (
 // executables can become an application, and which cannot.
 //
 // It sits on the module for the reason ContributionPathSelfTest and
-// ImageEnvironmentSelfTest do: the rules are unexported pure functions, and
+// ImageConfigSelfTest do: the rules are unexported pure functions, and
 // driving every branch of them through the public API would mean compiling a
 // real executable per row of the tables below. The end-to-end half — that the
 // refusals really are wired into WithVariant and Build, and that an accepted

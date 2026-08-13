@@ -837,13 +837,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Z5labs).Go(&parent, source), nil
-		case "ImageEnvironmentSelfTest":
+		case "ImageConfigSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Z5labs).ImageEnvironmentSelfTest(&parent, ctx)
+			return nil, (*Z5labs).ImageConfigSelfTest(&parent, ctx)
 		case "ImageSbomSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

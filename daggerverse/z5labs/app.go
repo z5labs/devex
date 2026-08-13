@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
@@ -197,6 +199,18 @@ type contribution struct {
 // nothing here promises that the second invocation reuses the first's
 // containers. A caller that needs one build inspected and then published
 // chains both onto one call.
+//
+// What this container has *not* been through is the image-configuration
+// check. That is a publish-time gate — App.Publish holds every variant to
+// expectedImageConfig before the first byte moves — and it deliberately does
+// not run here. An inspection seam exists for the image that is wrong as much
+// as for the one that is right, and a Container that refused to hand back a
+// container whose configuration failed the gate would withhold the bytes at
+// exactly the moment somebody is trying to find out what is wrong with them;
+// `docker load` and a look at the config is how that is done. Nothing reaches
+// a registry unchecked as a result, because the only way out of this module is
+// Publish, and Publish checks these same session-cached containers rather than
+// a rebuild of them.
 //
 // +cache="session"
 func (a *App) Container(ctx context.Context, platform dagger.Platform) (*dagger.Container, error) {
@@ -565,7 +579,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	if err != nil {
 		return nil, err
 	}
-	if err := a.assertImageEnvironment(ctx); err != nil {
+	if err := a.assertImageConfiguration(ctx); err != nil {
 		return nil, err
 	}
 	// A composed payload is proven complete by running it, and nothing about
@@ -829,33 +843,263 @@ func expectedImageEnv() map[string]string {
 	}
 }
 
-// assertImageEnvironment refuses to publish an image whose environment is
-// not exactly the standardized set. It reads each variant's environment and
-// hands the comparison to diffImageEnv.
-func (a *App) assertImageEnvironment(ctx context.Context) error {
-	want := expectedImageEnv()
+// imageConfig is an image's OCI configuration, in full: every field of it
+// this module has an opinion about, which is every field the config carries
+// that a caller of this module could observe.
+//
+// It is a plain struct of what was *read* rather than a container, for the
+// reason diffImageEnv's doc comment gives at length and which applies to
+// every field here rather than only to the environment: the promise this
+// module makes about most of them is "empty", and an empty field cannot be
+// made non-empty through the public API, so a check driven only through that
+// API can exercise the accepting side and nothing else. Split this way,
+// ImageConfigSelfTest drives every branch in process and
+// assertImageConfiguration is left with the part that genuinely needs a
+// container.
+type imageConfig struct {
+	// Env is the image's environment, name to value.
+	Env map[string]string
+	// User is the OCI configuration's User field. Empty means the runtime
+	// picks, which today means root — see expectedImageConfig.
+	User string
+	// Entrypoint is what the image execs, argument by argument.
+	Entrypoint []string
+	// WorkingDir is the OCI configuration's WorkingDir field.
+	WorkingDir string
+	// DefaultArgs is the image's CMD: the arguments appended to Entrypoint
+	// when a runtime is given none.
+	DefaultArgs []string
+	// ExposedPorts is every port the image declares, each rendered
+	// "<port>/<protocol>" — the form a reader of a Dockerfile's EXPOSE line
+	// would recognize — and sorted, so two reads of one image compare equal.
+	ExposedPorts []string
+	// Labels is the image's labels, name to value. They are not the manifest
+	// annotations imageForEntry writes: Dagger keeps the two apart, and a
+	// container carrying six annotations reads back zero labels (measured,
+	// Dagger v0.21.8).
+	Labels map[string]string
+}
+
+// expectedImageConfig is the OCI configuration every image this module
+// publishes carries, in full, for an image whose entrypoint is entrypoint.
+//
+// "In full" is the same claim expectedImageEnv makes about the environment,
+// widened to the rest of the configuration and true for the same reason: no
+// caller-facing method sets any of these fields, so what an image promises is
+// a property of the pipeline rather than of the call that built it.
+//
+// Every field but the entrypoint is empty, and that is the promise rather than
+// an absence of one. An image with no working directory, no default arguments,
+// no exposed ports and no labels is one whose behaviour is what its entrypoint
+// does, and each of those would otherwise be inherited from a base layer the
+// moment this module builds on one — which is the direction it is going. The
+// package doc's "The image contract" is where the same set is written for
+// adopters, and "# No working directory" is why that field in particular is a
+// decision.
+//
+// User is empty because these images run as root today. That is devex#399,
+// which is open, and the whole of fixing it here is this field and the
+// WithUser that has to go beside it in imageForEntry: this check is what stops
+// the next refactor dropping it again once it lands.
+//
+// The entrypoint is a parameter because it is the one part of the
+// configuration that is a property of the application rather than of the
+// module. It comes from the payload the constructor declared, which is the
+// same value composition reads — never from the image, which is what is being
+// checked.
+func expectedImageConfig(entrypoint string) imageConfig {
+	return imageConfig{
+		Env:        expectedImageEnv(),
+		User:       "",
+		Entrypoint: []string{entrypoint},
+	}
+}
+
+// assertImageConfiguration refuses to publish an image whose configuration is
+// not exactly what expectedImageConfig describes. It reads each variant's
+// configuration and hands the comparison to diffImageConfig.
+//
+// It costs an image-config read per variant and no build: nothing here forces
+// the rootfs to be solved, which is why it can run before the builds Publish
+// forces further down.
+func (a *App) assertImageConfiguration(ctx context.Context) error {
+	want := expectedImageConfig(a.Payload.Entry)
 	for _, v := range a.Variants {
-		vars, err := v.Container.EnvVariables(ctx)
+		got, err := readImageConfig(ctx, v.Container)
 		if err != nil {
-			return fmt.Errorf("read the %s image's environment: %v", v.Platform, err)
+			return fmt.Errorf("read the %s image's configuration: %v", v.Platform, err)
 		}
-		got := make(map[string]string, len(vars))
-		for i := range vars {
-			name, err := vars[i].Name(ctx)
-			if err != nil {
-				return fmt.Errorf("read the %s image's environment: %v", v.Platform, err)
-			}
-			value, err := vars[i].Value(ctx)
-			if err != nil {
-				return fmt.Errorf("read the %s image's environment: %v", v.Platform, err)
-			}
-			got[name] = value
-		}
-		if err := diffImageEnv(got, want); err != nil {
+		if err := diffImageConfig(got, want); err != nil {
 			return fmt.Errorf("refusing to publish: the %s image %v", v.Platform, err)
 		}
 	}
 	return nil
+}
+
+// readImageConfig reads ctr's OCI configuration into the struct the
+// comparison runs over.
+func readImageConfig(ctx context.Context, ctr *dagger.Container) (imageConfig, error) {
+	env, err := containerEnv(ctx, ctr)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	user, err := ctr.User(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	entrypoint, err := ctr.Entrypoint(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	workdir, err := ctr.Workdir(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	args, err := ctr.DefaultArgs(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	ports, err := ctr.ExposedPorts(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	exposed := make([]string, 0, len(ports))
+	for i := range ports {
+		number, err := ports[i].Port(ctx)
+		if err != nil {
+			return imageConfig{}, err
+		}
+		protocol, err := ports[i].Protocol(ctx)
+		if err != nil {
+			return imageConfig{}, err
+		}
+		exposed = append(exposed, fmt.Sprintf("%d/%s", number, protocol))
+	}
+	sort.Strings(exposed)
+	labels, err := ctr.Labels(ctx)
+	if err != nil {
+		return imageConfig{}, err
+	}
+	named := make(map[string]string, len(labels))
+	for i := range labels {
+		name, err := labels[i].Name(ctx)
+		if err != nil {
+			return imageConfig{}, err
+		}
+		value, err := labels[i].Value(ctx)
+		if err != nil {
+			return imageConfig{}, err
+		}
+		named[name] = value
+	}
+	return imageConfig{
+		Env:          env,
+		User:         user,
+		Entrypoint:   entrypoint,
+		WorkingDir:   workdir,
+		DefaultArgs:  args,
+		ExposedPorts: exposed,
+		Labels:       named,
+	}, nil
+}
+
+// diffImageConfig reports how an image's configuration differs from what this
+// pipeline publishes, and reports nothing when it does not differ.
+//
+// One difference is reported rather than all of them, and it names the
+// property and the value found — "sets its working directory to "/app"" and
+// not "the configuration is wrong". A refusal arrives at a release pipeline,
+// hours from anyone who can read the image, so it has to carry what the reader
+// would otherwise have to go and look up.
+//
+// The environment goes through diffImageEnv rather than being folded in here,
+// because its messages are the ones an operator has already seen and because
+// "exactly this set, in both directions" is a rule the scalar fields do not
+// have. Everything else is a comparison against a stated value, empty
+// included: an empty expectation is checked exactly as hard as a non-empty
+// one, which is the half that would otherwise rot the moment a base layer
+// starts contributing a WORKDIR or a CMD nobody here wrote.
+func diffImageConfig(got, want imageConfig) error {
+	if err := diffImageEnv(got.Env, want.Env); err != nil {
+		return err
+	}
+	if got.User != want.User {
+		return fmt.Errorf("sets its user to %s, but every image this pipeline publishes sets its user to %s",
+			describeImageValue(got.User), describeImageValue(want.User))
+	}
+	if !slices.Equal(got.Entrypoint, want.Entrypoint) {
+		return fmt.Errorf("sets its entrypoint to %s, but every image this pipeline publishes execs the entry its payload declares, %s",
+			describeImageList(got.Entrypoint), describeImageList(want.Entrypoint))
+	}
+	if got.WorkingDir != want.WorkingDir {
+		return fmt.Errorf("sets its working directory to %s, but every image this pipeline publishes sets it to %s",
+			describeImageValue(got.WorkingDir), describeImageValue(want.WorkingDir))
+	}
+	if !slices.Equal(got.DefaultArgs, want.DefaultArgs) {
+		return fmt.Errorf("sets its default arguments to %s, but every image this pipeline publishes sets them to %s",
+			describeImageList(got.DefaultArgs), describeImageList(want.DefaultArgs))
+	}
+	if !slices.Equal(got.ExposedPorts, want.ExposedPorts) {
+		return fmt.Errorf("exposes %s, but every image this pipeline publishes exposes %s",
+			describeImageList(got.ExposedPorts), describeImageList(want.ExposedPorts))
+	}
+	return diffImageLabels(got.Labels, want.Labels)
+}
+
+// diffImageLabels reports how an image's labels differ from the set this
+// pipeline publishes.
+//
+// Equality in both directions, the same rule and for the same reason as
+// diffImageEnv: a label nobody here wrote is the visible half of a base layer
+// this module has not decided what to do with yet, and a published image is
+// something other people read `org.opencontainers.image.*` out of.
+func diffImageLabels(got, want map[string]string) error {
+	for _, name := range sortedKeys(got) {
+		expected, ok := want[name]
+		if !ok {
+			return fmt.Errorf("carries a label this pipeline never sets, %s=%q; %s",
+				name, got[name], describeExpectedLabels(want))
+		}
+		if got[name] != expected {
+			return fmt.Errorf("sets the label %s=%q, but every image this pipeline publishes carries %s=%q",
+				name, got[name], name, expected)
+		}
+	}
+	for _, name := range sortedKeys(want) {
+		if _, ok := got[name]; !ok {
+			return fmt.Errorf("carries no %s label", name)
+		}
+	}
+	return nil
+}
+
+// describeExpectedLabels says what the label set is supposed to be, in a form
+// that reads as a sentence whether it is empty or not. "a published image's
+// labels are exactly " with nothing after it is the message this avoids.
+func describeExpectedLabels(want map[string]string) string {
+	if len(want) == 0 {
+		return "a published image carries no labels"
+	}
+	return "a published image's labels are exactly " + strings.Join(sortedKeys(want), ", ")
+}
+
+// describeImageValue renders one configuration value for a refusal, naming
+// emptiness rather than printing an empty pair of quotes. A message reading
+// `want ""` leaves its reader unable to tell a promise of "empty" from a
+// value the check failed to read.
+func describeImageValue(v string) string {
+	if v == "" {
+		return "nothing"
+	}
+	return strconv.Quote(v)
+}
+
+// describeImageList is describeImageValue for the fields that are lists.
+func describeImageList(v []string) string {
+	if len(v) == 0 {
+		return "nothing"
+	}
+	return fmt.Sprintf("%q", v)
 }
 
 // diffImageEnv reports how an image's environment differs from the
@@ -873,9 +1117,13 @@ func (a *App) assertImageEnvironment(ctx context.Context) error {
 // caller-facing can put a variable on an image today, so driving the
 // unexpected-variable branch through the public API is impossible and the
 // strongest half of the check would be unexecutable — deletable tomorrow
-// with every test still green. Split this way, ImageEnvironmentSelfTest
-// drives every branch in process, and assertImageEnvironment is left with
+// with every test still green. Split this way, ImageConfigSelfTest
+// drives every branch in process, and readImageConfig is left with
 // the part that genuinely needs a container: reading the environment.
+//
+// That argument is not the environment's alone, which is why diffImageConfig
+// is shaped the same way around the rest of the image's configuration
+// (devex#426).
 //
 // The branch stops being hypothetical as soon as an image has a base layer
 // to inherit from, which is the direction this module is going.

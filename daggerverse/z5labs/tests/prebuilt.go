@@ -105,7 +105,7 @@ func (t *Tests) AppFromPrebuiltExecutablesIsHardenedLikeAnyOther(ctx context.Con
 		if len(got) != 1 || got[0] != entrypoint {
 			return fmt.Errorf("%s: entrypoint is %v, want [%s]", platform, got, entrypoint)
 		}
-		if err := assertStandardEnvironment(ctx, ctr, string(platform)); err != nil {
+		if err := assertStandardImageConfig(ctx, ctr, string(platform)); err != nil {
 			return err
 		}
 
