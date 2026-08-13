@@ -36,11 +36,11 @@
 //
 // # Verifying a published image, and finding what is attached to it
 //
-// A publish leaves four kinds of thing on the registry: the image, a cosign
-// signature over every manifest beneath the tag, an SPDX and a CycloneDX
-// SBOM per platform, and one signed SLSA provenance statement. The
-// signature and the documents are discovered two different ways, and which
-// way is not something an adopter can guess by looking at the image.
+// A publish leaves more on the registry than the image: a cosign signature
+// over every manifest beneath the tag, an SPDX and a CycloneDX SBOM per
+// platform, and one signed SLSA provenance statement. The signature and the
+// documents are discovered two different ways, and which way is not
+// something an adopter can guess by looking at the image.
 //
 // The signature is written in cosign's own layout — a `sha256-<hex>.sig`
 // tag beside each digest it signs — so checking it is a command a consumer
@@ -55,7 +55,10 @@
 // `sha256-<hex>.att` tag, so cosign's matching command finds nothing.
 // Against an image published here,
 //
-//	cosign verify-attestation ghcr.io/<owner>/<app>:<version> --type slsaprovenance1 ...
+//	cosign verify-attestation ghcr.io/<owner>/<app>:<version> \
+//	  --type slsaprovenance1 \
+//	  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/' \
+//	  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 //
 // exits 1 with
 //
@@ -67,53 +70,93 @@
 // adopter who runs the natural first command and stops concludes the
 // publish attached nothing.
 //
-// # Listing and reading the attached documents
+// # Listing the attached documents
 //
-// Any client that speaks the referrers API finds them, and needs no flag to
-// do it against a registry that implements no referrers API: GHCR answers
-// 404 there and oras-go takes the referrers-tag-scheme fallback by itself.
-// Measured against ghcr.io with oras v1.2.3 on 2026-08-13,
+// Finding them takes a client that falls back to the referrers tag scheme,
+// which is a narrower thing than a client that speaks the referrers API.
+// GHCR implements no referrers API and answers 404 there, so a tool that
+// asks and stops — cosign, crane, a hand-written GET on
+// /v2/<name>/referrers/<digest> — reports nothing attached, which is the
+// same wrong conclusion by a second route. oras-go takes the fallback
+// itself, so anything built on it needs no flag for it. Measured with oras
+// v1.2.3 against ghcr.io on 2026-08-13, as is every command below.
 //
 //	oras discover ghcr.io/<owner>/<app>:<version>
 //
-// lists everything attached to the release. A document is selected by its
-// artifact type, which is what attaching them under distinct types is for:
-// application/spdx+json and application/vnd.cyclonedx+json for the SBOMs,
-// application/vnd.in-toto+json for the provenance. Each referrer manifest
-// holds exactly one layer and that layer is the document, so reading one is
-// a discover and two fetches:
+// lists everything attached to the release. Against a private package,
+// authenticate first — `oras login ghcr.io -u <user> --password-stdin` with
+// a token carrying read:packages — because an unauthenticated discover
+// fails on authorization rather than returning an empty list, which is one
+// more failure that reads like "nothing is attached".
+//
+// # Reading one document, anchored to a verified digest
+//
+// Take the digest from the signature check rather than resolving the tag a
+// second time. The tag is a mutable name, and the whole value of doing both
+// checks is that they are about the same bytes; cosign prints the digest it
+// verified in its JSON output.
 //
 //	repo=ghcr.io/<owner>/<app>
-//	referrer=$(oras discover "$repo:<version>" \
+//	digest=$(cosign verify "$repo:<version>" \
+//	  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/' \
+//	  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+//	  --output json | jq -r '.[0].critical.image["docker-manifest-digest"]')
+//
+//	referrer=$(oras discover "$repo@$digest" \
 //	  --artifact-type application/vnd.in-toto+json \
 //	  --format json | jq -r '.manifests[0].digest')
 //	layer=$(oras manifest fetch "$repo@$referrer" | jq -r '.layers[0].digest')
-//	oras blob fetch "$repo@$layer" --output -
+//	oras blob fetch "$repo@$layer" --output - > provenance.intoto.jsonl
 //
-// There is one provenance statement per publish but one SBOM pair per
-// platform, so each SBOM type has several referrers. They are told apart by
-// the layer's org.opencontainers.image.title annotation —
-// `<binary>-linux-amd64.spdx.json` and its CycloneDX and per-platform
-// counterparts — which is `.layers[0].annotations` on the manifest fetched
-// above, not something `oras discover` prints.
+// A document is selected by its artifact type, which is what attaching them
+// under distinct types is for: application/spdx+json and
+// application/vnd.cyclonedx+json for the SBOMs, application/vnd.in-toto+json
+// for the provenance. Each referrer manifest holds exactly one layer, and
+// that layer is the document. On oras v1.2.3 `--format json` keys the list
+// `manifests`; if these pipelines start yielding an empty `$referrer` under
+// a newer client, that key is the first thing to re-check, because a
+// renamed key fails as a null rather than as an error.
 //
-// What comes back for the provenance is a DSSE envelope, and it verifies on
-// its own bytes: its signature carries cosign's `cert` extension field
-// holding the Fulcio chain, so the identity that signed is recoverable from
-// the envelope without fetching anything beside it.
+// The `[0]` above is correct only because there is one provenance statement
+// per publish. Each SBOM type has one referrer per platform, so selecting an
+// SBOM means picking on the layer's org.opencontainers.image.title
+// annotation — `<binary>-linux-amd64.spdx.json` and its CycloneDX and
+// per-platform counterparts — which is `.layers[0].annotations` on each
+// referrer's own manifest, not something `oras discover` prints. Taking
+// `[0]` for an SBOM silently picks an arbitrary platform's.
 //
-// The two checks are one verification because they are anchored to one
-// digest. Verify the signature, take the digest cosign resolved, and list
-// the referrers of that digest — the documents that come back are attached
-// to the bytes whose signature was just checked. Listing the referrers of
-// the tag instead checks documents against a mutable name.
+// # What can be checked about the envelope, and what cannot
 //
-// One asymmetry to know rather than discover: the image signature is
-// recorded in the public transparency log and the provenance envelope is
-// not, so the envelope's certificate cannot be independently placed inside
-// its own validity window the way the signature's can. The signature is the
-// identity anchor; the envelope is bound to it by being a referrer of a
-// digest that anchor covers.
+// The provenance is a DSSE envelope. Its statement, and the identity that
+// signed it, are readable from those bytes alone:
+//
+//	jq -r .payload provenance.intoto.jsonl | base64 -d | jq .
+//	jq -r '.signatures[0].cert' provenance.intoto.jsonl |
+//	  openssl x509 -noout -text | grep -A1 'Subject Alternative Name'
+//
+// The first prints the in-toto statement — subject digest, build type and
+// predicate. The second prints the workflow identity out of the leaf of the
+// Fulcio chain, which dsseEnvelope carries in cosign's `cert` extension
+// field for exactly this reason.
+//
+// Checking the *signature* over that statement needs DSSE tooling rather
+// than a cosign subcommand, because none of this is in cosign's attestation
+// layout: the signature is over the DSSE pre-authentication encoding of the
+// payload type and the payload, not over the payload bytes. verifyEnvelope
+// in tests/attest.go is this repository's reference implementation of that
+// check, and it is about thirty lines.
+//
+// And there is a limit here worth stating rather than leaving to be
+// discovered. The image signature is recorded in the public transparency log
+// and the provenance envelope is not, so checking the envelope establishes
+// "this signature matches a certificate claiming this identity" and not
+// "that certificate was inside its validity window when it signed" — the
+// property the log provides, and the one sign.go's defaultRekorURL comment
+// says makes keyless signing a trade rather than a hole. What anchors the
+// envelope today is indirect: it is a referrer of a digest whose signature
+// *is* logged, which is the other reason the digest above comes from cosign
+// rather than from resolving the tag. Closing that gap directly is
+// devex#419.
 //
 // # Why the documents are referrers alone
 //

@@ -117,14 +117,22 @@ oras manifest fetch "$repo@$referrer"                             # .layers[0].d
 oras blob fetch "$repo@$layer" --output -                          # the document
 ```
 
-Note `--format json` keys the list `manifests`, not `referrers`. The other
-half of that measurement is the negative one, and it is what
-`daggerverse/z5labs`'s package doc now warns adopters about:
-`cosign verify-attestation` against an image whose attestations are
+On **oras v1.2.3**, `--format json` keys the list `manifests`, not
+`referrers` — measured on the invocation above, not carried over from the
+older `-o json`. Tie any future re-check to a version: a renamed key here
+fails as a `jq` null and an empty reference, never as an error, so it looks
+like an image with nothing attached.
+
+The other half of that measurement is the negative one, and it is what
+`daggerverse/z5labs`'s package doc now warns adopters about: `cosign
+verify-attestation` (v2.4.1) against an image whose attestations are
 referrers only exits 1 with `Error: no matching attestations:` — a message
 indistinguishable from an image that was never attested. cosign reads its
-own `sha256-<hex>.att` tag convention and does not consult referrers unless
-built with `--experimental-oci11`.
+own `sha256-<hex>.att` tag convention; consulting referrers is behind the
+runtime flag `--experimental-oci11` on the versions that have it, not a
+build option. Note this is also why a *client that speaks the referrers API*
+is not the requirement — the requirement is a client that takes the tag
+scheme fallback, which is `oras-go` and things built on it.
 
 Two consequences worth knowing before debugging one of them:
 
