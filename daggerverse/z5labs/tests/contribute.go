@@ -659,12 +659,16 @@ func (t *Tests) AppCustomizedImageStillNeedsProvenance(ctx context.Context) erro
 // documented caveat, and they are asserted rather than described because both
 // are Dagger's behaviour rather than this module's:
 //
-//   - the copy into an image preserves the link, and the permissions the module
-//     normalizes a tree with do not touch it — so an admitted link really is in
-//     the published image, at whatever mode it arrived with;
+//   - the copy into an image preserves the link, unchanged and still a link
+//     through the normalization the module copies a tree with — so an admitted
+//     link really would be in the published image;
 //   - Directory.Export preserves it too, which is what the refusal firing at
 //     all establishes: the module walks an export, and a walk that saw a
-//     regular file there would have described the target's bytes instead.
+//     regular file there would have described the target's bytes instead. It is
+//     driven with an absolute link as well as a relative one, because the
+//     absolute case is what rules out the middle answer the issue offered — a
+//     link resolving inside the contributed tree — and it would be a silent
+//     hole if Dagger ever resolved or dropped those on export.
 //
 // Both readers of a contributed tree are driven. DirectoryDocument is the paved
 // path, where an adopter is refused at the call that would have produced the
@@ -690,15 +694,18 @@ func (t *Tests) AppRefusesTreesCarryingSymlinks(ctx context.Context) error {
 		WithDirectory("/srv", dag.Directory().
 			WithDirectory("content", linked, dagger.DirectoryWithDirectoryOpts{Permissions: 0o555}).
 			Directory("content"), dagger.ContainerWithDirectoryOpts{Owner: wantOwner}).
-		WithExec([]string{"sh", "-c", "stat -c '%F %a' /srv/current.html; readlink /srv/current.html"}).
+		WithExec([]string{"sh", "-c", "stat -c '%F' /srv/current.html; readlink /srv/current.html"}).
 		Stdout(ctx)
 	if err != nil {
 		return fmt.Errorf("read a copied tree's symlink: %v", err)
 	}
-	if got := strings.Fields(strings.TrimSpace(out)); len(got) != 4 || got[0] != "symbolic" || got[3] != "index.html" {
+	// The mode is deliberately not asserted: a symlink's own permission bits
+	// are 0777 on Linux and cannot be set, so neither Dagger nor this module
+	// could change them and an assertion here would pass whatever happened.
+	// What is worth guarding is that the copy does not turn the link into
+	// something else, which is what the two fields below say.
+	if got := strings.Fields(strings.TrimSpace(out)); len(got) != 3 || got[0] != "symbolic" || got[2] != "index.html" {
 		return fmt.Errorf("expected the copy to preserve the link, got %q", strings.TrimSpace(out))
-	} else if got[2] == wantDirectoryMode {
-		return fmt.Errorf("the copy applied the module's mode to a symlink (%q); the refusal's premise no longer holds", out)
 	}
 
 	// The paved path: the helper that would produce the document refuses to.
@@ -706,6 +713,19 @@ func (t *Tests) AppRefusesTreesCarryingSymlinks(ctx context.Context) error {
 		return fmt.Errorf("expected DirectoryDocument over a tree with a symlink to be refused, got nil")
 	} else if !strings.Contains(err.Error(), `current.html is a symbolic link to "index.html"`) {
 		return fmt.Errorf("expected the refusal to name the link and its target, got: %v", err)
+	}
+
+	// An absolute link, through a real export. This is the measurement the
+	// decision rests on: the target is a path in this module's filesystem
+	// during the export and a different file inside the image, so a rule that
+	// admitted a link "resolving inside the contributed tree" would be deciding
+	// on the wrong filesystem. Its own tree, so the refusal has to lead with it
+	// rather than with the relative link above.
+	absolute := dag.Directory().WithSymlink("/etc/passwd", "passwd")
+	if _, err := dag.Z5Labs().DirectoryDocument(absolute, treePath).Contents(ctx); err == nil {
+		return fmt.Errorf("expected a tree carrying an absolute symlink to be refused, got nil")
+	} else if !strings.Contains(err.Error(), `passwd is a symbolic link to "/etc/passwd"`) {
+		return fmt.Errorf("expected the export to preserve an absolute link and the refusal to name it, got: %v", err)
 	}
 
 	// The publish path, for a caller carrying a document of their own.
@@ -728,6 +748,16 @@ func (t *Tests) AppRefusesTreesCarryingSymlinks(ctx context.Context) error {
 		return fmt.Errorf("expected a publish carrying a tree with a symlink to be refused, got nil")
 	} else if !strings.Contains(err.Error(), `current.html is a symbolic link to "index.html"`) {
 		return fmt.Errorf("expected the publish to be refused for the link rather than for the document, got: %v", err)
+	} else if !strings.Contains(err.Error(), treePath+" in the "+string(platform)+" image:") ||
+		strings.Contains(err.Error(), "the document describing") {
+		// The wording is asserted, not only the substring above. A refused
+		// tree is a fault in what was contributed and reaches the reader as
+		// one; the publish's other failure — a document about other bytes —
+		// carries "the document describing", and a caller sent to rewrite a
+		// document that is fine would be looking in the wrong place. Both
+		// sentences would contain the link, so only the frame tells them
+		// apart.
+		return fmt.Errorf("expected the refusal to name the contribution rather than its document, got: %v", err)
 	}
 	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
 	if err != nil {

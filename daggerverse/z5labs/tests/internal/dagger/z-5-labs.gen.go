@@ -265,7 +265,7 @@ func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (../../.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/documentselftest.go:33:1)
+func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/documentselftest.go:35:1)
 	if r.contributedTreeSelfTest != nil {
 		return nil
 	}
@@ -988,7 +988,7 @@ func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (../../../..
 // carries one file element per file in the tree, because "the contribution is
 // described" and "every file in the image is accounted for" are different
 // promises and only the second one is the point.
-func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:314:1)
+func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:325:1)
 	assertNotNil("dir", dir)
 	assertNotNil("document", document)
 	q := r.query.Select("withDirectory")
@@ -1024,7 +1024,7 @@ func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *
 // useless. Platform-specific executables arrive as an App instead: App.WithApp
 // composes one, matched platform by platform, and lands its entry in the plugin
 // directory.
-func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:254:1)
+func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:265:1)
 	assertNotNil("file", file)
 	assertNotNil("document", document)
 	q := r.query.Select("withFile")

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // ContributedTreeSelfTest checks what a contributed tree may hold: directories
@@ -112,6 +114,60 @@ func (m *Z5labs) ContributedTreeSelfTest(ctx context.Context) error {
 				return os.Symlink("v1.0.0", filepath.Join(dir, "current"))
 			},
 			refusal: []string{"current is a symbolic link to \"v1.0.0\""},
+		},
+		{
+			// The walk finishes and the refusal names every offending entry,
+			// so a tree that is full of links says so once rather than one
+			// link per export.
+			name: "several links in one tree",
+			build: func(dir string) error {
+				if err := writeTreeFiles(dir, "v1/index.html", "v2/index.html"); err != nil {
+					return err
+				}
+				for _, link := range []struct{ target, name string }{
+					{"v2", "current"},
+					{"v1/index.html", "old.html"},
+					{"v2/index.html", "new.html"},
+				} {
+					if err := os.Symlink(link.target, filepath.Join(dir, link.name)); err != nil {
+						return err
+					}
+				}
+				return nil
+			},
+			refusal: []string{
+				`current is a symbolic link to "v2"`,
+				"The same is true of new.html, old.html in the same tree",
+			},
+		},
+		{
+			// The kinds below are the rest of what an image cannot carry. They
+			// are here because DirectoryDocument's doc comment promises them by
+			// name, and because a mislabelled entry — the wrong arm of the mode
+			// switch — is invisible until somebody hits one.
+			name: "a named pipe",
+			build: func(dir string) error {
+				return syscall.Mkfifo(filepath.Join(dir, "events"), 0o644)
+			},
+			refusal: []string{"events is a named pipe", "not content this module can contribute"},
+		},
+		{
+			name: "a socket",
+			build: func(dir string) error {
+				addr, err := net.ResolveUnixAddr("unix", filepath.Join(dir, "control.sock"))
+				if err != nil {
+					return err
+				}
+				l, err := net.ListenUnix("unix", addr)
+				if err != nil {
+					return err
+				}
+				// The socket has to outlive the listener, because what is
+				// under test is a tree that holds one.
+				l.SetUnlinkOnClose(false)
+				return l.Close()
+			},
+			refusal: []string{"control.sock is a socket"},
 		},
 	}
 

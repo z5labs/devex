@@ -112,20 +112,31 @@ import (
 // tree without it. That last one made the claim in digest.go false, in the
 // exact mechanism devex#410 added to make an asserted document checkable.
 //
-// Three things were measured against Dagger v0.21.8 before choosing, because
+// Four things were measured against Dagger v0.21.8 before choosing, because
 // the answer depends on them (devex#428):
 //
 //   - Directory.Export preserves a link as a link, relative and absolute
 //     alike. So the export the digest is computed over really does carry the
 //     link, and the walk really does skip it.
-//   - The copy into a container preserves it too, and Directory.withDirectory's
-//     permissions do not apply to it. So the image really does end up holding a
-//     link nothing described.
+//   - The copy into a container preserves it too, unchanged. So the image
+//     really does end up holding a link nothing described. Its mode is not the
+//     module's to set and never was: a symlink's permission bits are 0777 on
+//     Linux and cannot be changed, which is the sense in which the
+//     normalization above does not reach it.
 //   - An absolute link exported to this module's filesystem points into *this
 //     module's* filesystem. /etc/passwd in a contributed tree is one path
 //     during the export and a different file in the image, which is why
 //     "allowed when it resolves inside the contributed tree" is not a rule that
 //     can be checked where the module can check anything.
+//   - WithFile needs no rule of its own, which is the one measurement that
+//     closed a seam rather than opening one. Directory.File on a link resolves
+//     it: what comes back is the target's bytes as an ordinary file, so the
+//     digest and the image get the same content and there is nothing for a link
+//     to hide behind. A *dagger.File is bytes, and a link is not bytes.
+//
+// Composition needs no rule of its own either. App.WithApp carries the inner
+// application's contributions into the outer image as contributions, tree
+// handle and all, so the outer publish walks them again — see compose.go.
 //
 // The alternatives were to follow links, to keep skipping them, or to admit
 // them and describe them. Following one puts a digest for bytes that are not in

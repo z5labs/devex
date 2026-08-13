@@ -354,31 +354,50 @@ func validateLicenseExpression(license string) error {
 // adopter on the paved path is refused at the call that produced the document,
 // and contentDigest at publish time, so a caller who brought a document of
 // their own is refused before the first byte is pushed.
+// The walk finishes rather than stopping at the first refused entry, and the
+// refusal names all of them. A tree carrying one link is a mistake to fix; a
+// tree carrying forty is a versioned documentation site, and its author needs
+// to learn that this rule is not for them in one round trip rather than in
+// forty — each of which costs a full export here, and a build as well on the
+// publish path.
 func walkTree(root string) ([]bomFile, error) {
 	var out []bomFile
+	var bad *unsupportedEntry
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
-		}
-		if !d.IsDir() && !d.Type().IsRegular() {
-			return unsupportedEntryAt(root, path, d)
-		}
-		if d.IsDir() {
-			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
+		rel = filepath.ToSlash(rel)
+		if !d.IsDir() && !d.Type().IsRegular() {
+			if bad == nil {
+				bad = unsupportedEntryAt(rel, path, d)
+			} else {
+				bad.note(rel)
+			}
+			return nil
+		}
+		// Once the tree is refused there is nothing left to describe, so the
+		// files that follow are not hashed. The walk continues only to finish
+		// naming what has to be fixed.
+		if d.IsDir() || bad != nil {
+			return nil
+		}
 		sum256, sum1, err := fileDigests(path)
 		if err != nil {
 			return err
 		}
-		out = append(out, bomFile{Path: filepath.ToSlash(rel), Sha1: sum1, Sha256: sum256})
+		out = append(out, bomFile{Path: rel, Sha1: sum1, Sha256: sum256})
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+	if bad != nil {
+		return nil, bad
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
@@ -401,40 +420,74 @@ type unsupportedEntry struct {
 	// Target is where a symbolic link points, verbatim. It is carried because
 	// it is the whole content of the refusal for the case that matters: a
 	// caller who did not know their tree held a link needs to be told what it
-	// pointed at to find it.
-	Target string
+	// pointed at to find it. TargetErr is why it could not be read, when it
+	// could not: the doc comment on DirectoryDocument promises the refusal
+	// names what the link points at, so the one case where it cannot has to
+	// say so rather than read as a link that pointed nowhere.
+	Target    string
+	TargetErr string
+	// More names the other entries in the same tree the walk refused, and
+	// Rest counts the ones past the point where naming them stopped being
+	// useful.
+	More []string
+	Rest int
 }
+
+// unsupportedEntriesNamed is how many offending entries the refusal lists
+// before it starts counting instead. It is a message read in a terminal, and
+// enough of the list to recognise what kind of tree this is beats all of it.
+const unsupportedEntriesNamed = 8
 
 func (e *unsupportedEntry) Error() string {
 	what := e.Path + " is " + e.Kind
-	if e.Target != "" {
+	switch {
+	case e.Target != "":
 		what += " to " + strconv.Quote(e.Target)
+	case e.TargetErr != "":
+		what += " whose target could not be read (" + e.TargetErr + ")"
 	}
-	return what + ", and that is not content this module can contribute: " +
+	msg := what + ", and that is not content this module can contribute: " +
 		"it is copied into the image as it stands, the mode this module sets does not reach through it, the rules " +
 		"that refuse a contribution landing on top of something never see the path it names, and it is in no " +
 		"document and no digest — so a tree carrying one is indistinguishable from the same tree without it. " +
 		"Contribute what it points at instead, at the path it should have in the image"
+	if len(e.More) == 0 {
+		return msg
+	}
+	rest := strings.Join(e.More, ", ")
+	if e.Rest > 0 {
+		rest += fmt.Sprintf(" and %d more", e.Rest)
+	}
+	return msg + ". The same is true of " + rest + " in the same tree"
 }
 
-// unsupportedEntryAt describes the entry the walk refused.
+// note records another refused entry beside the one the message leads with.
+func (e *unsupportedEntry) note(rel string) {
+	if len(e.More) < unsupportedEntriesNamed {
+		e.More = append(e.More, rel)
+		return
+	}
+	e.Rest++
+}
+
+// unsupportedEntryAt describes the entry the walk refused. rel is its path
+// relative to the tree's root and path is where it is on disk.
 //
 // The link target is read with os.Readlink rather than resolved: what the
 // refusal has to name is what the caller wrote, and resolving it here would
 // resolve it against this module's own filesystem — which the measurement in
 // contribute.go shows is not the filesystem the link will land in.
-func unsupportedEntryAt(root, path string, d fs.DirEntry) error {
-	rel, err := filepath.Rel(root, path)
-	if err != nil {
-		rel = path
-	}
-	bad := &unsupportedEntry{Path: filepath.ToSlash(rel), Kind: "an entry of a kind an image cannot carry"}
+func unsupportedEntryAt(rel, path string, d fs.DirEntry) *unsupportedEntry {
+	bad := &unsupportedEntry{Path: rel, Kind: "an entry of a kind an image cannot carry"}
 	switch {
 	case d.Type()&fs.ModeSymlink != 0:
 		bad.Kind = "a symbolic link"
-		if target, err := os.Readlink(path); err == nil {
-			bad.Target = target
+		target, err := os.Readlink(path)
+		if err != nil {
+			bad.TargetErr = err.Error()
+			break
 		}
+		bad.Target = target
 	case d.Type()&fs.ModeDevice != 0:
 		bad.Kind = "a device node"
 	case d.Type()&fs.ModeNamedPipe != 0:
