@@ -138,6 +138,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
 	jobs = jobs.WithJob("AppRefusesToPublishWithoutProvenanceMachinery", t.AppRefusesToPublishWithoutProvenanceMachinery)
 	jobs = jobs.WithJob("AppRedactsCredentialsFromTheSourceAnnotation", t.AppRedactsCredentialsFromTheSourceAnnotation)
+	jobs = jobs.WithJob("AppSignsEveryPublishedManifest", t.AppSignsEveryPublishedManifest)
+	jobs = jobs.WithJob("AppSignatureDoesNotVerifyForAnotherKey", t.AppSignatureDoesNotVerifyForAnotherKey)
 
 	return jobs.Run(ctx)
 }

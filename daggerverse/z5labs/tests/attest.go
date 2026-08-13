@@ -359,6 +359,13 @@ func (t *Tests) AppAttestsTwoSegmentRepositories(ctx context.Context) error {
 // until somebody goes looking, so the pipeline that quietly drops it is
 // the one nobody notices. The registry is checked afterwards to confirm
 // the refusal happened before the push and not after it.
+//
+// It is the *image signature's* refusal too, and deliberately not a second
+// test. One signer signs the provenance envelope and the image, and it is
+// resolved once before the first byte moves, so "cannot attest" and "cannot
+// sign" are the same failure at the same moment. Splitting them would mean
+// two refusals to keep in agreement, and the way they would drift is one of
+// them quietly becoming conditional.
 func (t *Tests) AppRefusesToPublishWithoutProvenanceMachinery(ctx context.Context) error {
 	const (
 		version    = "v6.0.0"

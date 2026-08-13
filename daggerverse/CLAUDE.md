@@ -145,6 +145,52 @@ Two rules that follow, and that are easy to undo by accident:
   service and exchanges a real token; only the signing key differs from
   production, where an ephemeral key is certified by the public sigstore CA.
 
+## Signing an image: copy cosign's layout, do not design one
+
+A signature is worth exactly what the command that verifies it is worth, and
+the command a consumer already has is `cosign verify`. So `daggerverse/z5labs`
+writes cosign's layout rather than something of its own: for a manifest at
+`sha256:<hex>`, a one-layer OCI **image** manifest under the tag
+`sha256-<hex>.sig` in the same repository, the layer holding the simple-signing
+payload under `application/vnd.dev.cosign.simplesigning.v1+json` and the
+signature living in the layer's annotations.
+
+Three things that are easy to get wrong and are not obvious from the spec:
+
+- **Sign the index *and* every per-platform manifest.** A consumer verifies the
+  tag, which resolves to the manifest list; their runtime then pulls the
+  per-platform manifest, a different digest the index signature says nothing
+  about. Signing only the index leaves `cosign verify <tag>` passing over bytes
+  nothing checked, which is worse than not signing. This is what cosign's own
+  `--recursive` is for.
+- **The signature manifest needs a real image config**
+  (`application/vnd.oci.image.config.v1+json` over `{}`), not the OCI empty
+  descriptor `oras.PackManifest` picks. Readers go through
+  go-containerregistry's image type; the artifact-manifest shape is legal OCI
+  and is not what they parse. `daggerverse/oci`'s `PushLayer` exists for
+  exactly this and assembles the manifest by hand.
+- **Keyless signing needs a transparency log entry, not just a certificate.**
+  The Fulcio certificate binding the ephemeral key to a workload identity lives
+  for minutes, so by verification time it has expired and nothing establishes it
+  was valid when it signed. The Rekor entry's countersignature is what does.
+  Embed the bundle in the `dev.sigstore.cosign/bundle` annotation rather than
+  leaving it to be looked up, so a consumer behind a network that cannot reach
+  `rekor.sigstore.dev` can still verify.
+
+### zot parses any tag ending in `.sig`, and a short digest panics it
+
+The `oci` test suite runs against **zot**, not `registry:2`, and zot inspects
+every pushed tag to decide whether it is a cosign signature
+(`zot/pkg/meta.isSignature`). It assumes a full-length digest and slices
+`tag[:71]`, so a made-up short tag like `sha256-0123456789abcdef.sig` panics the
+handler. What reaches the client is `500 Internal Server Error` with an empty
+body — which reads as a malformed manifest and is a malformed *tag*.
+
+Compute signature tags from a digest the registry just returned, in tests as
+well as in production. Half an hour went into the manifest before the trace was
+read; `dagger trace <id> --progress=plain` had the panic and its stack in it all
+along.
+
 ## Function name mangling
 
 Go method names get re-cased for the GraphQL API: acronyms become uppercase in

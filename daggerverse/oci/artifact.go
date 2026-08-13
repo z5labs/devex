@@ -14,6 +14,7 @@ import (
 
 	"dagger/oci/internal/dagger"
 
+	specs "github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2"
 	orascontent "oras.land/oras-go/v2/content"
@@ -104,6 +105,159 @@ func (reg *Registry) PushArtifact(
 		return "", c.scrub(fmt.Errorf("push artifact to %s: %v", c.ref(repository, tag), err))
 	}
 	return manifest.Digest.String(), nil
+}
+
+// PushLayer pushes one file to repository:tag as a single-layer OCI image
+// manifest and returns the manifest digest.
+//
+// It exists because two families of consumer read a document's meaning off
+// the *layer* rather than off the manifest: they resolve a tag whose name
+// they compute themselves, take the one layer whose media type they
+// recognise, and read the rest out of that layer's annotations. Cosign's
+// signature layout is the one this repository needs — `sha256-<hex>.sig`,
+// one `application/vnd.dev.cosign.simplesigning.v1+json` layer, the
+// signature in an annotation beside it — but nothing here knows that. This
+// function is handed a tag, some bytes, a media type and a set of
+// annotations, exactly as Attach is handed a file and an artifact type, and
+// that is all it ever learns.
+//
+// The three ways it differs from PushArtifact and Attach, each of which is
+// why neither of those could be stretched to cover it:
+//
+//   - The layer's media type is the caller's. PushArtifact gives every layer
+//     application/octet-stream, which is right for a document a consumer
+//     fetches by digest and wrong for one a consumer finds by filtering
+//     layers on their type.
+//   - The layer's annotations are the caller's. Both of the others set the
+//     standard title annotation and nothing else, so there is nowhere to put
+//     a signature.
+//   - The config is a real empty image config rather than the OCI empty
+//     descriptor oras.PackManifest would choose. Readers of this layout go
+//     through go-containerregistry's image type, which expects an image
+//     manifest carrying an image config; the artifact-manifest shape is
+//     legal OCI and is not what they parse.
+//
+// The manifest is addressed by tag, so pushing the same tag twice replaces
+// it — which is what a caller re-signing a digest wants, and is the
+// difference from Attach, where each call adds a referrer.
+//
+// +cache="never"
+func (reg *Registry) PushLayer(
+	ctx context.Context,
+	// Repository to push to.
+	repository string,
+	// Tag to push under. Callers of this function normally compute it from
+	// a digest rather than taking it from a human.
+	tag string,
+	// The bytes to push: one file, one layer.
+	content *dagger.File,
+	// The layer's media type, which is what a consumer filters layers on.
+	mediaType string,
+	// Annotations to set on the layer, as a JSON object whose values are
+	// strings. Empty sets none. It is JSON rather than a map because codegen
+	// has no map type.
+	//
+	// +optional
+	annotations string,
+) (string, error) {
+	if err := validateRepository(repository); err != nil {
+		return "", err
+	}
+	if err := validateTag(tag); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(mediaType) == "" {
+		return "", errors.New("mediaType is required")
+	}
+	if content == nil {
+		return "", errors.New("content is required")
+	}
+	layerAnnotations, err := decodeAnnotations(annotations)
+	if err != nil {
+		return "", err
+	}
+
+	c, err := reg.connect(ctx)
+	if err != nil {
+		return "", err
+	}
+	repo, err := c.repository(repository)
+	if err != nil {
+		return "", err
+	}
+
+	work, err := os.MkdirTemp("", "oci-push-layer-*")
+	if err != nil {
+		return "", fmt.Errorf("create work dir: %v", err)
+	}
+	defer os.RemoveAll(work)
+
+	path := filepath.Join(work, "content")
+	if _, err := content.Export(ctx, path); err != nil {
+		return "", fmt.Errorf("export layer content: %v", err)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path is this function's own temp dir
+	if err != nil {
+		return "", fmt.Errorf("read layer content: %v", err)
+	}
+
+	store := memory.New()
+	// "{}" rather than an empty body: an image config is a JSON document,
+	// and a reader that parses it should find a document rather than a
+	// parse error. It is the same config cosign writes.
+	config := []byte("{}")
+	configDesc := orascontent.NewDescriptorFromBytes(ocispec.MediaTypeImageConfig, config)
+	if err := store.Push(ctx, configDesc, bytes.NewReader(config)); err != nil {
+		return "", fmt.Errorf("stage image config: %v", err)
+	}
+	layerDesc := orascontent.NewDescriptorFromBytes(mediaType, data)
+	layerDesc.Annotations = layerAnnotations
+	if err := store.Push(ctx, layerDesc, bytes.NewReader(data)); err != nil {
+		return "", fmt.Errorf("stage layer: %v", err)
+	}
+
+	// Assembled and marshalled here rather than handed to oras.PackManifest,
+	// because PackManifest owns the config and the artifactType and this
+	// function's whole purpose is that its caller owns the shape.
+	manifest := ocispec.Manifest{
+		Versioned: specs.Versioned{SchemaVersion: 2},
+		MediaType: ocispec.MediaTypeImageManifest,
+		Config:    configDesc,
+		Layers:    []ocispec.Descriptor{layerDesc},
+	}
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		return "", fmt.Errorf("encode layer manifest: %v", err)
+	}
+	manifestDesc := orascontent.NewDescriptorFromBytes(ocispec.MediaTypeImageManifest, manifestBytes)
+	if err := store.Push(ctx, manifestDesc, bytes.NewReader(manifestBytes)); err != nil {
+		return "", fmt.Errorf("stage layer manifest: %v", err)
+	}
+	if err := store.Tag(ctx, manifestDesc, tag); err != nil {
+		return "", fmt.Errorf("tag layer manifest: %v", err)
+	}
+	if _, err := oras.Copy(ctx, store, tag, repo, tag, oras.DefaultCopyOptions); err != nil {
+		return "", c.scrub(fmt.Errorf("push layer to %s: %v", c.ref(repository, tag), err))
+	}
+	return manifestDesc.Digest.String(), nil
+}
+
+// decodeAnnotations reads the JSON object PushLayer takes its annotations
+// as. Empty means none, which is different from an empty object only in
+// that neither is an error.
+//
+// The value type is string rather than any: an annotation is a string by
+// the OCI spec, and silently stringifying a number here would produce a
+// manifest whose annotation a caller never wrote.
+func decodeAnnotations(raw string) (map[string]string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var out map[string]string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, fmt.Errorf("annotations must be a JSON object of string values: %v", err)
+	}
+	return out, nil
 }
 
 // Attach uploads content as an OCI referrer of subject and returns the

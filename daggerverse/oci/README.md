@@ -35,6 +35,7 @@ a cached `PushImage` would report success without uploading anything.
 - [Registry](#registry) — bind a registry host and its credentials
 - [PushImage](#pushimage) — publish container variants as an image or manifest list
 - [PushArtifact](#pushartifact) — publish a directory as an OCI artifact
+- [PushLayer](#pushlayer) — publish one file as a tagged, annotated single-layer manifest
 - [Copy](#copy) — copy a reference into this registry, all manifests intact
 - [Attach](#attach) — upload a referrer against a subject manifest
 - [Referrers](#referrers) — list what is attached to a subject
@@ -237,6 +238,48 @@ named by its path in the standard `org.opencontainers.image.title`
 annotation. Layers are ordered by path, so the same directory always produces
 the same manifest. One tar layer for the whole tree would make
 [Fetch](#fetch) return an archive rather than the bytes that went in.
+
+### PushLayer
+
+Pushes one file to `repository:tag` as a single-layer OCI image manifest, with
+a caller-chosen layer media type and caller-chosen layer annotations, and
+returns the manifest digest.
+
+```go
+digest, err := reg.PushLayer(ctx, "z5labs/myapp", "sha256-<hex>.sig", payload,
+    "application/vnd.dev.cosign.simplesigning.v1+json",
+    dagger.OciRegistryPushLayerOpts{Annotations: `{"dev.cosignproject.cosign/signature":"..."}`})
+```
+
+It exists for the consumers that read a document's meaning off the *layer*
+rather than off the manifest: they resolve a tag they computed themselves,
+take the one layer whose media type they recognise, and read the rest out of
+that layer's annotations. Cosign's signature layout is the one this repository
+publishes — `daggerverse/z5labs` signs every published manifest this way — but
+nothing in this module knows that.
+
+Three things differ from [PushArtifact](#pushartifact) and [Attach](#attach),
+and each is why neither could be stretched to cover it:
+
+- The layer's media type is the caller's. The other two give every layer
+  `application/octet-stream`, which is right for a document fetched by digest
+  and wrong for one found by filtering layers on their type.
+- The layer's annotations are the caller's. The other two set the standard
+  title annotation and nothing else, so there is nowhere to put a signature.
+- The config is a real empty image config rather than the OCI empty descriptor
+  `oras.PackManifest` would choose. These readers go through
+  go-containerregistry's image type, which expects an image manifest carrying
+  an image config; the artifact-manifest shape is legal OCI and is not what
+  they parse.
+
+`annotations` is a JSON object of string values rather than a map because
+codegen has no map type. Anything else — a JSON number, a bare string, a list
+— is refused rather than coerced, because an annotation the caller did not
+write is where this layout keeps the signature.
+
+The manifest is addressed by tag, so pushing the same tag twice replaces it.
+That is the difference from [Attach](#attach), where each call adds another
+referrer, and it is what a caller re-signing a digest wants.
 
 ### Copy
 
