@@ -125,6 +125,7 @@ type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 
 	id                       *ID
 	imageEnvironmentSelfTest *Void
+	versionTagsSelfTest      *Void
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -223,11 +224,36 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:31:1)
+func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:212:1)
 	if r.imageEnvironmentSelfTest != nil {
 		return nil
 	}
 	q := r.query.Select("imageEnvironmentSelfTest")
+
+	return q.Execute(ctx)
+}
+
+// VersionTagsSelfTest checks the tag family a release is published under,
+// case by case, against the rule rather than against a release.
+//
+// It is a check of its own because the failure it guards is not one a
+// publish can show you. A derivation that moves a tag it should not have —
+// a prerelease that walks `v1`, a date-shaped version that invents a
+// `2026.08` — succeeds at the registry and is discovered by a consumer whose
+// `FROM` line resolved to something they never asked for, by which time it
+// is published and someone has pulled it. So every shape that distinguishes
+// the rule is stated here, including the accepting ones: a derivation that
+// published one tag for everything would pass a table of prereleases alone.
+//
+// It sits on the module rather than in tests/ for the same reason
+// ImageEnvironmentSelfTest does — the function is unexported — and because a
+// table of thirty versions costs one in-process call here and thirty
+// publishes there.
+func (r *Z5Labs) VersionTagsSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:29:1)
+	if r.versionTagsSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("versionTagsSelfTest")
 
 	return q.Execute(ctx)
 }
@@ -410,10 +436,24 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 //
 // One manifest list is pushed per repository, naming every platform
 // variant, so a consumer pulls a repository and gets their architecture.
-// The returned references are `<address>/<repository>:<version>@<digest>`:
+// The returned references are `<address>/<repository>:<tag>@<digest>`:
 // pinned, because a tag is a mutable name and a caller anchoring a
 // deployment or a release note to what shipped has to be able to name
 // immutable bytes.
+//
+// # One release, a family of tags
+//
+// A release is published under every tag its version implies, not under the
+// version alone: `v1.2.3` also comes to name `v1.2`, `v1` and `latest`, so a
+// consumer can pin at the level of risk they want. Every tag of one release
+// names one digest — the same manifest list, pushed once — and one reference
+// comes back per tag, in the order the tags were written.
+//
+// A SemVer **prerelease** publishes its own full version tag and moves none
+// of the moving ones, and a version that is not SemVer publishes as a single
+// tag. versionTags derives the family and is where those rules are stated;
+// it is a pure function of the version, so what it cannot see — a release
+// published out of order walking `v1` backwards — is recorded there too.
 //
 // Every published digest carries an SPDX and a CycloneDX document per
 // platform and a signed SLSA provenance statement whose build identity
@@ -453,7 +493,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:329:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:343:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 

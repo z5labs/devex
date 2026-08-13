@@ -281,10 +281,24 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 //
 // One manifest list is pushed per repository, naming every platform
 // variant, so a consumer pulls a repository and gets their architecture.
-// The returned references are `<address>/<repository>:<version>@<digest>`:
+// The returned references are `<address>/<repository>:<tag>@<digest>`:
 // pinned, because a tag is a mutable name and a caller anchoring a
 // deployment or a release note to what shipped has to be able to name
 // immutable bytes.
+//
+// # One release, a family of tags
+//
+// A release is published under every tag its version implies, not under the
+// version alone: `v1.2.3` also comes to name `v1.2`, `v1` and `latest`, so a
+// consumer can pin at the level of risk they want. Every tag of one release
+// names one digest — the same manifest list, pushed once — and one reference
+// comes back per tag, in the order the tags were written.
+//
+// A SemVer **prerelease** publishes its own full version tag and moves none
+// of the moving ones, and a version that is not SemVer publishes as a single
+// tag. versionTags derives the family and is where those rules are stated;
+// it is a pure function of the version, so what it cannot see — a release
+// published out of order walking `v1` backwards — is recorded there too.
 //
 // Every published digest carries an SPDX and a CycloneDX document per
 // platform and a signed SLSA provenance statement whose build identity
@@ -352,6 +366,16 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	if len(a.Variants) == 0 {
 		return nil, fmt.Errorf("this app carries no images to publish")
 	}
+	// The family is derived before the first byte moves, for the same reason
+	// the signer is: a version that cannot be a tag has no family and no
+	// single tag either, and learning that after the push is learning it from
+	// an untagged manifest. It also re-runs the version validation App made,
+	// which is what keeps the refusal of SemVer build metadata a property of
+	// publishing rather than of one constructor.
+	tags, err := versionTags(a.Version)
+	if err != nil {
+		return nil, err
+	}
 	// Provenance is resolved before the first byte is pushed, so a run that
 	// cannot produce it fails without leaving a half-attested image behind.
 	// It is also why this is not an "if configured" branch: an attestation
@@ -389,7 +413,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	for _, v := range a.Variants {
 		containers = append(containers, v.Container)
 	}
-	refs := make([]string, 0, len(repositories))
+	refs := make([]string, 0, len(repositories)*len(tags))
 	for _, repository := range repositories {
 		// Push, attach, then tag. The ordering is the whole subject of
 		// attachAttestations' doc comment; read that before changing it.
@@ -403,7 +427,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 		}
 		facts := buildFacts{
 			Repository: repository,
-			Tags:       []string{a.Version},
+			Tags:       tags,
 			Digest:     digest,
 			Platforms:  a.platformNames(),
 			Pkg:        a.Pkg,
@@ -428,12 +452,21 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 				err, digest, repository, alreadyPublished(refs))
 		}
 		// Only now does the release become something a consumer can name. The
-		// tag moves last because it is the only step whose effect is visible
-		// to anyone who did not push it.
-		if _, err := registry.Tag(ctx, repository, digest, a.Version); err != nil {
-			return nil, fmt.Errorf("tag %s as %s:%s%s: %v", digest, repository, a.Version, alreadyPublished(refs), err)
+		// tags move last because they are the only step whose effect is
+		// visible to anyone who did not push it.
+		//
+		// They are written narrowest first — the full version, then v1.2, then
+		// v1, then latest — because a failure part way through leaves the tags
+		// after it unmoved, and the wider a tag is the more consumers a
+		// half-finished release would have handed the new bytes to. The
+		// immutable one costs nothing to write first: it named no release
+		// before this one.
+		for _, tag := range tags {
+			if _, err := registry.Tag(ctx, repository, digest, tag); err != nil {
+				return nil, fmt.Errorf("tag %s as %s:%s%s: %v", digest, repository, tag, alreadyPublished(refs), err)
+			}
+			refs = append(refs, fmt.Sprintf("%s/%s:%s@%s", a.Registry, repository, tag, digest))
 		}
-		refs = append(refs, fmt.Sprintf("%s/%s:%s@%s", a.Registry, repository, a.Version, digest))
 	}
 	return refs, nil
 }
