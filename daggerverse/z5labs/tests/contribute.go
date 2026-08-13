@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"sort"
 	"strings"
@@ -45,10 +47,20 @@ type contributionFixture struct {
 // a literal, because that is the path an adopter takes: a caller who has to
 // hand-write SPDX to ship a certificate bundle writes something worthless, and
 // a worthless document is worse than an absent one.
+//
+// The content arrives world-writable, which is the case the module's promise
+// actually names — "a caller contributing a world-writable file, or one owned
+// by root". Left at dag.Directory()'s defaults the mode assertions would only
+// be proving 0644→0444 and 0755→0555, so a regression that passed the caller's
+// mode straight through would still go red, but only for modes *less*
+// permissive than the module's. The dangerous direction is the other one, and
+// 0777 is what makes it load bearing.
 func newContributionFixture(bundle string) *contributionFixture {
-	file := dag.Directory().WithNewFile("ca-certificates.crt", bundle).File("ca-certificates.crt")
+	file := dag.Directory().
+		WithNewFile("ca-certificates.crt", bundle, dagger.DirectoryWithNewFileOpts{Permissions: 0o777}).
+		File("ca-certificates.crt")
 	tree := dag.Directory().
-		WithNewFile("index.html", "<!doctype html>\n").
+		WithNewFile("index.html", "<!doctype html>\n", dagger.DirectoryWithNewFileOpts{Permissions: 0o777}).
 		WithNewFile("partials/nav.html", "<nav></nav>\n")
 	return &contributionFixture{
 		FilePath:     "/etc/ssl/certs/ca-certificates.crt",
@@ -125,7 +137,14 @@ func (t *Tests) AppContributionsLandInEveryVariant(ctx context.Context) error {
 		for _, name := range fixture.DirFiles {
 			paths = append(paths, fixture.DirPath+"/"+name)
 		}
-		modes, err := statInImage(ctx, ctr, paths)
+		// The directories the copy had to create on the way are read too. They
+		// are the image's structure rather than the caller's content, so they
+		// are root-owned and 0755 — the layout a real base image would already
+		// have, and deliberately not writable by the user the app runs as. A
+		// contribution that made its parents world-writable, or owned by the
+		// application, would be a hole this test would otherwise not see.
+		parents := []string{"/etc", "/etc/ssl", "/etc/ssl/certs", "/srv"}
+		modes, err := statInImage(ctx, ctr, append(append([]string{}, paths...), parents...))
 		if err != nil {
 			return fmt.Errorf("%s: %v", platform, err)
 		}
@@ -133,6 +152,10 @@ func (t *Tests) AppContributionsLandInEveryVariant(ctx context.Context) error {
 		for _, p := range paths[1:] {
 			want[p] = wantDirectoryMode + " " + wantOwner
 		}
+		for _, p := range parents {
+			want[p] = "755 0:0"
+		}
+		paths = append(paths, parents...)
 		var wrong []string
 		for _, p := range paths {
 			if modes[p] != want[p] {
@@ -380,6 +403,16 @@ func (t *Tests) AppCustomizedImageStaysAttested(ctx context.Context) error {
 			if doc.Components[name] == "" {
 				return fmt.Errorf("the %s document lists no checksum for %s; it has %v", what, name, doc.Components)
 			}
+		}
+		// One component's checksum is pinned to the bytes that were actually
+		// contributed, rather than merely asserted to exist and to match the
+		// other format. Two documents agree on a wrong digest exactly as
+		// readily as on a right one, so without this the pair would not catch a
+		// document describing something other than what is in the image.
+		wantSum := sha256.Sum256([]byte(fixture.FileContents))
+		if got := doc.Components[fixture.FilePath]; got != hex.EncodeToString(wantSum[:]) {
+			return fmt.Errorf("the %s document gives %s the checksum %q, want %q, which the contributed bytes hash to",
+				what, fixture.FilePath, got, hex.EncodeToString(wantSum[:]))
 		}
 	}
 	for name, sum := range spdx.Components {

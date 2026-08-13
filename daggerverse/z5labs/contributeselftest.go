@@ -51,7 +51,11 @@ func checkContributionPaths() error {
 		{path: "/srv/templates", want: "/srv/templates", why: "a directory"},
 		{path: "/srv/templates/", want: "/srv/templates", why: "a trailing slash is not a different path"},
 		{path: "/srv/./templates//index.html", want: "/srv/templates/index.html", why: "a path that cleans to another"},
-		{path: "  /srv/templates  ", want: "/srv/templates", why: "surrounding whitespace, which a shell leaves behind"},
+		{
+			path: "/srv/data ",
+			want: "/srv/data ",
+			why:  "a trailing space, which is a legal path on Linux and is taken literally rather than trimmed",
+		},
 
 		{path: "", refusal: "requires a path", why: "no path at all"},
 		{path: "   ", refusal: "requires a path", why: "whitespace, which is not a path"},
@@ -59,6 +63,11 @@ func checkContributionPaths() error {
 			path:    "etc/hosts",
 			refusal: "is not an absolute path",
 			why:     "a relative path, which would resolve against a working directory this module never sets",
+		},
+		{
+			path:    " /srv/templates",
+			refusal: "is not an absolute path",
+			why:     "a leading space: refused rather than trimmed, because trimming would land content somewhere the caller did not say",
 		},
 		{path: "./config.yml", refusal: "is not an absolute path", why: "an explicitly relative path"},
 		{path: "/", refusal: "root is not a path to contribute at", why: "the whole filesystem"},
@@ -91,38 +100,68 @@ func checkContributionPaths() error {
 // The taken set below mixes an entrypoint with an earlier contribution on
 // purpose: they are the same kind of claim on a path, and a rule that
 // protected only one of them would let a caller replace the binary the
-// provenance describes.
+// provenance describes. What each refusal *says* is asserted too, because the
+// two cases read very differently to whoever hits them — being told that
+// something was "already contributed" at the path your own application's
+// binary occupies sends you looking for a contribution nobody made.
 func checkContributionOverlaps() error {
-	taken := []string{"/app/hello", "/srv/templates", "/etc/ssl/certs/ca-certificates.crt"}
+	const binary = "the application's own binary"
+	const contributed = "content already contributed"
+	taken := []occupied{
+		{Path: "/app/hello", Holder: binary + ", which the image runs"},
+		{Path: "/srv/templates", Holder: contributed},
+		{Path: "/etc/ssl/certs/ca-certificates.crt", Holder: contributed},
+	}
 	cases := []struct {
 		path string
-		// hit is the taken path the candidate collides with, or "" when it
-		// collides with nothing.
+		// hit is a substring the refusal must carry, naming what the candidate
+		// collided with, or "" when it collides with nothing.
 		hit string
-		why string
+		// holder is a substring naming what holds the path it collided with.
+		holder string
+		why    string
 	}{
 		{path: "/etc/hosts", why: "somewhere nothing else claims"},
 		{path: "/srv/templates-v2", why: "a sibling whose name merely opens with another's"},
 		{path: "/app/config.yml", why: "beside the binary, which is not on top of it"},
+		{path: "/srv/data ", why: "a path whose trailing space keeps it clear of /srv/data"},
 
-		{path: "/srv/templates", hit: "/srv/templates", why: "exactly where something already is"},
-		{path: "/srv/templates/index.html", hit: "/srv/templates", why: "inside a contributed tree, where it would shadow a described file"},
-		{path: "/srv", hit: "/srv/templates", why: "a tree containing a contributed one, which would replace it wholesale"},
-		{path: "/app/hello", hit: "/app/hello", why: "the entrypoint itself"},
-		{path: "/app", hit: "/app/hello", why: "a tree over the entrypoint's directory"},
+		{path: "/srv/templates", hit: "already there", holder: contributed, why: "exactly where something already is"},
 		{
-			path: "/etc/ssl/certs/ca-certificates.crt",
-			hit:  "/etc/ssl/certs/ca-certificates.crt",
-			why:  "a second contribution at one path, where the later one silently wins",
+			path:   "/srv/templates/index.html",
+			hit:    "inside /srv/templates",
+			holder: contributed,
+			why:    "inside a contributed tree, where it would shadow a described file",
+		},
+		{
+			path:   "/srv",
+			hit:    "would contain /srv/templates",
+			holder: contributed,
+			why:    "a tree containing a contributed one, which would replace it wholesale",
+		},
+		{path: "/app/hello", hit: "already there", holder: binary, why: "the entrypoint itself"},
+		{path: "/app", hit: "would contain /app/hello", holder: binary, why: "a tree over the entrypoint's directory"},
+		{
+			path:   "/etc/ssl/certs/ca-certificates.crt",
+			hit:    "already there",
+			holder: contributed,
+			why:    "a second contribution at one path, where the later one silently wins",
 		},
 	}
 	for _, c := range cases {
-		got, why := overlappingPath(c.path, taken)
-		if got != c.hit {
-			return fmt.Errorf("expected %q (%s) to collide with %q, got %q", c.path, c.why, c.hit, got)
+		got := overlappingPath(c.path, taken)
+		if c.hit == "" {
+			if got != "" {
+				return fmt.Errorf("expected %q (%s) to collide with nothing, got %q", c.path, c.why, got)
+			}
+			continue
 		}
-		if c.hit != "" && strings.TrimSpace(why) == "" {
-			return fmt.Errorf("the collision of %q with %q is reported without saying how", c.path, c.hit)
+		if !strings.Contains(got, c.hit) {
+			return fmt.Errorf("expected the refusal of %q (%s) to carry %q, got %q", c.path, c.why, c.hit, got)
+		}
+		if !strings.Contains(got, c.holder) {
+			return fmt.Errorf("expected the refusal of %q (%s) to name %q as what holds the path, got %q",
+				c.path, c.why, c.holder, got)
 		}
 	}
 	return nil

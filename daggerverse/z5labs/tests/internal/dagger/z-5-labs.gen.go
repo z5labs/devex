@@ -720,7 +720,7 @@ func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]strin
 // carries one file element per file in the tree, because "the contribution is
 // described" and "every file in the image is accounted for" are different
 // promises and only the second one is the point.
-func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:170:1)
+func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:196:1)
 	assertNotNil("dir", dir)
 	assertNotNil("document", document)
 	q := r.query.Select("withDirectory")
@@ -752,7 +752,7 @@ func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *
 // this — a raw file carries no platform, so a helper landing one in the
 // executable directory would silently admit a binary built for the wrong
 // architecture. Platform-specific executables arrive as an App instead.
-func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:126:1)
+func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:152:1)
 	assertNotNil("file", file)
 	assertNotNil("document", document)
 	q := r.query.Select("withFile")

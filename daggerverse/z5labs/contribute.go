@@ -43,6 +43,32 @@ import (
 // carries the assembly; Z5labs.FileDocument and Z5labs.DirectoryDocument
 // produce a document for content whose ecosystem has no module able to.
 //
+// What is enforced is that a document arrives, that it parses as SPDX 2.3 and
+// that it describes exactly one thing — not that it describes *these* bytes.
+// Nothing here compares the document's checksums against the content beside
+// it, so a caller who passes the wrong document publishes an SBOM about bytes
+// that are not in the image. That is a deliberate limit rather than an
+// oversight, and it is the same limit every contribution has always had: a
+// language chain's own document is produced from the binary it built, and this
+// module has no way to re-derive an arbitrary ecosystem's document to check it
+// against. What the seam removes is the *undescribed* contribution, which is
+// the case nothing downstream could even ask about. A wrong document is at
+// least a claim someone made, in a signed artifact, checkable against the image
+// by anyone who pulls it. The paved path is honest by construction, because the
+// two helpers above compute their digests from the content themselves.
+//
+// # The directories on the way are the image's, not the contribution's
+//
+// Contributing at /etc/ssl/certs/ca-certificates.crt on a scratch image brings
+// /etc, /etc/ssl and /etc/ssl/certs into existence. Those are the image's
+// structure rather than the caller's content: they are created root-owned and
+// 0755, which is the conventional layout an image with a real base layer would
+// already have, and which is deliberately *not* writable by the non-root user
+// the application runs as. They carry no bytes, so there is nothing for a
+// checksum to describe and nothing an SBOM omits by not listing them — the
+// contribution documents enumerate files for the same reason. Only the
+// contributed path itself, and everything under it, is the module's to own.
+//
 // # There is no environment helper
 //
 // Deliberately, and permanently: see the package doc's "Environment is a
@@ -218,22 +244,41 @@ func (a *App) acceptContribution(ctx context.Context, method, raw string, docume
 	if err != nil {
 		return "", err
 	}
-	if other, why := overlappingPath(clean, taken); other != "" {
+	if why := overlappingPath(clean, taken); why != "" {
 		return "", fmt.Errorf(
-			"%s cannot contribute at %s: %s %s, and content that landed on top of it would leave the image's documents "+
-				"describing bytes that are not in it", method, clean, why, other)
+			"%s cannot contribute at %s: %s, and content that landed on top of it would leave the image's documents "+
+				"describing bytes that are not in it", method, clean, why)
 	}
 	return clean, nil
 }
 
-// occupiedPaths is every path in the image that something already owns: the
+// occupied is one path something in the image already holds, and what holds
+// it — a noun phrase, because it is read as the subject of the refusal.
+//
+// The holder is carried rather than derived because it is the whole content of
+// the message: "something is already contributed at /app/hello" is a confusing
+// thing to tell a caller about their own application's binary, and the
+// entrypoint collision is the one an adopter hits first.
+type occupied struct {
+	Path   string
+	Holder string
+}
+
+// occupiedPaths is every path in the image that something already holds: the
 // entrypoint each variant runs, and everything contributed before now.
 //
 // The entrypoint is read from the containers rather than recomputed, because
 // App does not know what built it and deliberately holds no binary name. It is
-// an image *config* read, so it costs a round trip and no build.
-func (a *App) occupiedPaths(ctx context.Context) ([]string, error) {
-	out := append([]string{}, a.ContributedPaths...)
+// an image *config* read — no build is solved to answer it — and Dagger serves
+// the repeat within a session from cache, so a chain of contributions does not
+// pay for it once per call. It is deliberately not captured into a field on
+// App: the containers are what the entrypoint is a property of, and a copy in
+// App state is a value that can disagree with them.
+func (a *App) occupiedPaths(ctx context.Context) ([]occupied, error) {
+	out := make([]occupied, 0, len(a.ContributedPaths)+len(a.Variants))
+	for _, p := range a.ContributedPaths {
+		out = append(out, occupied{Path: p, Holder: "content already contributed"})
+	}
 	for _, v := range a.Variants {
 		entrypoint, err := v.Container.Entrypoint(ctx)
 		if err != nil {
@@ -245,7 +290,10 @@ func (a *App) occupiedPaths(ctx context.Context) ([]string, error) {
 			// and treating an argument as a reserved path would refuse a
 			// contribution for no reason.
 			if strings.HasPrefix(arg, "/") {
-				out = append(out, imagepath.Clean(arg))
+				out = append(out, occupied{
+					Path:   imagepath.Clean(arg),
+					Holder: "the application's own binary, which the image runs",
+				})
 			}
 		}
 	}
@@ -259,25 +307,34 @@ func (a *App) occupiedPaths(ctx context.Context) ([]string, error) {
 // working directory, which this module never sets — so "etc/hosts" would land
 // at /etc/hosts today and somewhere else the moment an image gains a workdir,
 // with nothing in the document to say which.
+//
+// The path is cleaned — "/srv/./templates//index.html" and a trailing slash
+// are normalized — and it is otherwise taken literally. In particular
+// surrounding whitespace is *not* stripped: " /srv/data" is refused for not
+// being absolute rather than silently accepted, and "/srv/data " lands at
+// "/srv/data ", which is a legal path on Linux and is what the caller asked
+// for. Trimming instead would put content somewhere other than where the
+// caller said, with nothing in the image or the document to say so, and that
+// is the failure this whole file is written to avoid — arriving through a
+// convenience.
 func validateContributionPath(method, raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
+	if strings.TrimSpace(raw) == "" {
 		return "", fmt.Errorf("%s requires a path in the image to contribute at", method)
 	}
-	if !strings.HasPrefix(trimmed, "/") {
+	if !strings.HasPrefix(raw, "/") {
 		return "", fmt.Errorf(
 			"%s: %q is not an absolute path, and a relative one would resolve against a working directory this pipeline never sets",
 			method, raw)
 	}
-	clean := imagepath.Clean(trimmed)
+	clean := imagepath.Clean(raw)
 	if clean == "/" {
 		return "", fmt.Errorf("%s: the image's root is not a path to contribute at", method)
 	}
 	return clean, nil
 }
 
-// overlappingPath reports which of taken the candidate would collide with,
-// and how, or "" when it collides with nothing.
+// overlappingPath reports how the candidate collides with something already in
+// the image, or "" when it collides with nothing.
 //
 // Overlap is the general form of two failures that look different and are the
 // same: contributing twice at one path, where the second silently replaces the
@@ -285,17 +342,19 @@ func validateContributionPath(method, raw string) (string, error) {
 // In every case the image ends up holding one thing while its documents
 // describe two, which is precisely the undetectable incompleteness the whole
 // contribution mechanism exists to prevent. A collision with the entrypoint is
-// the same failure with the binary on the losing side.
-func overlappingPath(candidate string, taken []string) (string, string) {
+// the same failure with the binary on the losing side, and it says so: what
+// each collision is *with* is carried in the message, because a caller told
+// only that a path is taken has to go and find out by what.
+func overlappingPath(candidate string, taken []occupied) string {
 	for _, other := range taken {
 		switch {
-		case candidate == other:
-			return other, "something is already contributed at"
-		case strings.HasPrefix(candidate, other+"/"):
-			return other, "it is inside"
-		case strings.HasPrefix(other, candidate+"/"):
-			return other, "it would contain"
+		case candidate == other.Path:
+			return other.Holder + " is already there"
+		case strings.HasPrefix(candidate, other.Path+"/"):
+			return "it is inside " + other.Path + ", which is " + other.Holder
+		case strings.HasPrefix(other.Path, candidate+"/"):
+			return "it would contain " + other.Path + ", which is " + other.Holder
 		}
 	}
-	return "", ""
+	return ""
 }
