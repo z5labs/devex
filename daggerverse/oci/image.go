@@ -47,6 +47,14 @@ func (reg *Registry) PushImage(
 	// than one pushes a manifest list naming every platform.
 	variants []*dagger.Container,
 ) (string, error) {
+	// Repository before tag, which is the order this function reported its
+	// refusals in before the body was shared with PushImageUntagged. pushImage
+	// checks the repository again and that is the point: the duplicated check
+	// is what keeps the order a property of this signature rather than of
+	// whichever body happens to run.
+	if err := validateRepository(repository); err != nil {
+		return "", err
+	}
 	if err := validateTag(tag); err != nil {
 		return "", err
 	}

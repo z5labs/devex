@@ -386,7 +386,11 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 			Version:    a.Version,
 		}
 		if err := a.attachAttestations(ctx, registry, sgn, facts); err != nil {
-			return nil, fmt.Errorf("%v; %s was left untagged in %s, so nothing resolves to it%s",
+			// "no tag" rather than "nothing": the digest in this very message
+			// resolves, and a caller who wants to look at what was left behind
+			// should be able to. What the ordering buys is that no *name*
+			// reaches it, so nobody arrives at it by pulling a release.
+			return nil, fmt.Errorf("%v; %s was left untagged in %s, so no tag resolves to it%s",
 				err, digest, repository, alreadyPublished(refs))
 		}
 		// Only now does the release become something a consumer can name. The

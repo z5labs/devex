@@ -85,11 +85,21 @@ func brokenReferrersRegistry(ctx context.Context) (*dagger.Service, string, *dag
 	return svc, pwdHex, secret, nil
 }
 
-// digestPattern picks a manifest digest out of a failure message, which is
-// where the only handle on an untagged manifest is: nothing names it, so a
+// untaggedDigest picks the untagged manifest's digest out of a failure
+// message, which is where the only handle on it is: nothing names it, so a
 // test that wants to look at what a failed publish left behind has to read the
 // digest out of what the failure said.
-var digestPattern = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
+//
+// It is anchored to the clause Publish writes rather than matching any digest
+// in the message, and that is load bearing. The failure reads
+// "<attach error>; <digest> was left untagged in <repo>...", and the attach
+// error names digests of its own — the subject it was attaching to, and on a
+// later document the referrers that already landed. A bare sha256 match would
+// take the first of those, and the probe below would then confirm that some
+// manifest is present while proving nothing about the image. Requiring the
+// clause also makes this fail loudly if the message ever stops carrying the
+// digest, instead of quietly latching onto a different one.
+var untaggedDigest = regexp.MustCompile(`(sha256:[0-9a-f]{64}) was left untagged`)
 
 // tagListing returns the tags a repository holds, treating a repository the
 // registry will not list at all as holding none.
@@ -233,10 +243,11 @@ func (t *Tests) AppPublishLeavesNoTagWhenAttachFails(ctx context.Context) error 
 	// ordering under test — push first, name it last — would be indistinguishable
 	// from a push that had simply been skipped. The digest comes out of the
 	// failure message, which is the only place a caller can get it either.
-	digest := digestPattern.FindString(pubErr.Error())
-	if digest == "" {
-		return fmt.Errorf("the failure names no digest, so nothing can check what was left behind: %s", pubErr.Error())
+	match := untaggedDigest.FindStringSubmatch(pubErr.Error())
+	if match == nil {
+		return fmt.Errorf("the failure names no untagged digest, so nothing can check what was left behind: %s", pubErr.Error())
 	}
+	digest := match[1]
 	code, err = curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, fresh, digest)
 	if err != nil {
 		return fmt.Errorf("curl probe %s@%s: %v", fresh, digest, err)
@@ -256,8 +267,21 @@ func (t *Tests) AppPublishLeavesNoTagWhenAttachFails(ctx context.Context) error 
 	if err != nil {
 		return fmt.Errorf("seed %s:%s: %v", published, version, err)
 	}
-	if _, err := configured.Publish(ctx, []string{published}); err == nil {
+	_, pubErr = configured.Publish(ctx, []string{published})
+	if pubErr == nil {
 		return fmt.Errorf("expected Publish over an existing version to fail against a registry that refuses referrers, got nil")
+	}
+	// The same two checks as the fresh case, and for a stronger reason. An
+	// incumbent tag is unmoved by any failure that happens before the tag is
+	// written — a refused target, a credential, a build error — so without
+	// pinning the failure to the attach, this half would stay green over a
+	// publish that never reached the registry at all and would assert nothing
+	// about the ordering.
+	if !strings.Contains(pubErr.Error(), "attach") {
+		return fmt.Errorf("expected the failure over an existing version to name the attach, got: %s", pubErr.Error())
+	}
+	if !strings.Contains(pubErr.Error(), "untagged") {
+		return fmt.Errorf("expected the failure over an existing version to say the digest was left untagged, got: %s", pubErr.Error())
 	}
 	resolved, err := testRegistry(svc, secret).Resolve(ctx, published, version)
 	if err != nil {

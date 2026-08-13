@@ -67,6 +67,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PushImageUntaggedPublishesNoTag", t.PushImageUntaggedPublishesNoTag)
 	jobs = jobs.WithJob("TagNamesAnUntaggedDigestAndMovesAnExistingTag", t.TagNamesAnUntaggedDigestAndMovesAnExistingTag)
 	jobs = jobs.WithJob("TagFailsForAnAbsentDigest", t.TagFailsForAnAbsentDigest)
+	jobs = jobs.WithJob("TagRefusesIncompleteArguments", t.TagRefusesIncompleteArguments)
 	jobs = jobs.WithJob("CopyPreservesAllManifests", t.CopyPreservesAllManifests)
 	jobs = jobs.WithJob("PushArtifactThenFetchRoundTripsContent", t.PushArtifactThenFetchRoundTripsContent)
 	jobs = jobs.WithJob("AttachThenFetchRoundTripsContent", t.AttachThenFetchRoundTripsContent)

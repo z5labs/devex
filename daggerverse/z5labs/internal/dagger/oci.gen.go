@@ -350,7 +350,7 @@ func (r *OciRegistry) Attach(ctx context.Context, repository string, subject str
 // The source is read with this registry's credentials when it lives on this
 // registry, and anonymously otherwise; cross-registry copies needing source
 // credentials are a follow-up, not a silent reuse of the destination's.
-func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string, tag string) (string, error) { // oci (../../../../daggerverse/oci/image.go:260:1)
+func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string, tag string) (string, error) { // oci (../../../../daggerverse/oci/image.go:268:1)
 	if r.copy != nil {
 		return *r.copy, nil
 	}
@@ -550,7 +550,7 @@ func (r *OciRegistry) PushImage(ctx context.Context, repository string, tag stri
 // this opens is not one a publish has to design around. A caller that leaves a
 // digest untagged indefinitely is a caller relying on something no registry
 // promises.
-func (r *OciRegistry) PushImageUntagged(ctx context.Context, repository string, variants []*Container) (string, error) { // oci (../../../../daggerverse/oci/image.go:80:1)
+func (r *OciRegistry) PushImageUntagged(ctx context.Context, repository string, variants []*Container) (string, error) { // oci (../../../../daggerverse/oci/image.go:88:1)
 	if r.pushImageUntagged != nil {
 		return *r.pushImageUntagged, nil
 	}
@@ -627,7 +627,7 @@ func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string
 // Nothing is re-uploaded. The manifest is fetched and PUT back under the new
 // name, which is bytes the registry already holds; the blobs it names are
 // untouched.
-func (r *OciRegistry) Tag(ctx context.Context, repository string, digest string, tag string) (string, error) { // oci (../../../../daggerverse/oci/image.go:201:1)
+func (r *OciRegistry) Tag(ctx context.Context, repository string, digest string, tag string) (string, error) { // oci (../../../../daggerverse/oci/image.go:209:1)
 	if r.tag != nil {
 		return *r.tag, nil
 	}

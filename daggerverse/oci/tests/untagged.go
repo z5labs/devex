@@ -185,3 +185,38 @@ func (t *Tests) TagFailsForAnAbsentDigest(ctx context.Context) error {
 	}
 	return nil
 }
+
+// TagRefusesIncompleteArguments asserts Tag names the argument that is missing
+// rather than sending an unusable reference at a registry.
+//
+// It needs no registry, and that is not an economy — it is the assertion. Tag
+// validates before it connects, so a case that reached a registry at all would
+// mean the validation had been skipped. The handle below names a host nothing
+// resolves and has no service behind it, so anything that got as far as the
+// network would fail with a dial error instead of the message expected here.
+func (t *Tests) TagRefusesIncompleteArguments(ctx context.Context) error {
+	client := dag.Oci().Registry("test-registry.invalid")
+	digest := "sha256:" + strings.Repeat("a", 64)
+
+	cases := []struct {
+		repository, digest, tag string
+		want, why               string
+	}{
+		{repository: "", digest: digest, tag: "v1", want: "repository is required", why: "no repository to tag in"},
+		{repository: " ", digest: digest, tag: "v1", want: "repository is required", why: "a whitespace repository"},
+		{repository: "app", digest: "", tag: "v1", want: "digest is required", why: "nothing to point the tag at"},
+		{repository: "app", digest: digest, tag: "", want: "tag is required", why: "no name to give it"},
+		{repository: "app", digest: digest, tag: " ", want: "tag is required", why: "a whitespace tag"},
+	}
+	for _, c := range cases {
+		_, err := client.Tag(ctx, c.repository, c.digest, c.tag)
+		if err == nil {
+			return fmt.Errorf("Tag(%q, %q, %q) was accepted (%s)", c.repository, c.digest, c.tag, c.why)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("Tag(%q, %q, %q) (%s): want a refusal carrying %q, got: %v",
+				c.repository, c.digest, c.tag, c.why, c.want, err)
+		}
+	}
+	return nil
+}
