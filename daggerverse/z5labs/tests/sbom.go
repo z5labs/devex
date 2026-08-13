@@ -37,9 +37,10 @@ import (
 // same failure from outside.
 //
 // The multi-source case — an image with contributions from more than one
-// place, where de-duplication and the merge actually do work — is not
-// reachable from here until devex#392 adds the helpers that admit a second
-// contribution. Z5labs.ImageSbomSelfTest drives that directly and says why.
+// place — is AppCustomizedImageStaysAttested, which publishes an image a
+// caller contributed a file and a directory to and reads the same documents
+// back. The de-duplication and merge rules underneath both are driven directly
+// by Z5labs.ImageSbomSelfTest, which says why they are not a publish per case.
 func (t *Tests) AppSbomsDescribeThePublishedImage(ctx context.Context) error {
 	const (
 		version    = "v9.0.0"

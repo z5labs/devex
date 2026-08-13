@@ -19,12 +19,14 @@ import (
 // It sits on the module rather than in tests/ for the reason
 // ImageEnvironmentSelfTest records, and for one more that is specific to
 // this rule. The interesting case is an image assembled from *several*
-// sources, and until devex#392 lands there is no caller-facing way to put a
-// second contribution into one — every image a published App can build has
-// exactly one. So a suite built out of real publishes can only ever exercise
-// the single-contribution case, which is the case that already worked before
-// this existed. Driving the assembly directly is what makes the de-duplication
-// and the cross-format agreement guarantees rather than comments.
+// sources. App.WithFile and App.WithDirectory do now put a second contribution
+// into an image — AppCustomizedImageStaysAttested publishes one and reads the
+// documents back — but a real publish per case is not a way to drive a
+// de-duplication table: the case that matters here is two contributions
+// sharing a component, which needs two ecosystem documents and a synthesized
+// overlap rather than a certificate bundle. Driving the assembly directly is
+// what makes the de-duplication and the cross-format agreement guarantees
+// rather than comments.
 //
 // It runs in process over synthesized documents and needs no container, so it
 // is cheap enough to be a check of its own.
@@ -671,8 +673,9 @@ func sortedComponentKeys(m map[string]assembledComponent) []string {
 // Its placement is the whole mechanism behind "a publish that cannot produce
 // a complete document fails rather than warning", and the branches are
 // unreachable from the public API — nothing caller-facing can build a
-// variant with no contributions, or with a document that will not parse,
-// until devex#392 lands. So they are driven here, against a real
+// variant with no contributions, and a document that will not parse can only
+// arrive through App.WithFile, which takes it as bytes and cannot read them
+// without resolving the file it was handed. So they are driven here, against a real
 // *dagger.File, rather than left as code nothing executes. If someone later
 // moves the call below the push for latency, the happy-path tests stay green
 // and this is what goes red.

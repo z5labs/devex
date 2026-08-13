@@ -75,6 +75,15 @@ type App struct {
 	//
 	// +private
 	Variants []*variant
+	// ContributedPaths are the image paths a caller has contributed content
+	// at, in the order they were contributed. It is what makes a second
+	// contribution overlapping the first refusable — see contribute.go —
+	// and it is a field rather than something derived from the variants
+	// because a variant's contributions are named for error messages and
+	// a language chain's are named after a binary rather than a path.
+	//
+	// +private
+	ContributedPaths []string
 
 	// +private
 	Registry string

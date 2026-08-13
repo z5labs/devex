@@ -116,6 +116,7 @@ func (r App) MarshalJSON() ([]byte, error) {
 		SourceURI           string
 		Pkg                 string
 		Variants            []*variant
+		ContributedPaths    []string
 		Registry            string
 		RegistryUsername    string
 		RegistryAuth        *dagger.Secret
@@ -131,6 +132,7 @@ func (r App) MarshalJSON() ([]byte, error) {
 	concrete.SourceURI = r.SourceURI
 	concrete.Pkg = r.Pkg
 	concrete.Variants = r.Variants
+	concrete.ContributedPaths = r.ContributedPaths
 	concrete.Registry = r.Registry
 	concrete.RegistryUsername = r.RegistryUsername
 	concrete.RegistryAuth = r.RegistryAuth
@@ -150,6 +152,7 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 		SourceURI           string
 		Pkg                 string
 		Variants            []*variant
+		ContributedPaths    []string
 		Registry            string
 		RegistryUsername    string
 		RegistryAuth        *dagger.Secret
@@ -169,6 +172,7 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 	r.SourceURI = concrete.SourceURI
 	r.Pkg = concrete.Pkg
 	r.Variants = concrete.Variants
+	r.ContributedPaths = concrete.ContributedPaths
 	r.Registry = concrete.Registry
 	r.RegistryUsername = concrete.RegistryUsername
 	r.RegistryAuth = concrete.RegistryAuth
@@ -335,6 +339,62 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*App).Publish(&parent, ctx, repositories)
+		case "WithDirectory":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var path string
+			if inputArgs["path"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["path"]), &path)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg path", err))
+				}
+			}
+			var dir *dagger.Directory
+			if inputArgs["dir"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dir"]), &dir)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dir", err))
+				}
+			}
+			var document *dagger.File
+			if inputArgs["document"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["document"]), &document)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg document", err))
+				}
+			}
+			return (*App).WithDirectory(&parent, ctx, path, dir, document)
+		case "WithFile":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var path string
+			if inputArgs["path"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["path"]), &path)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg path", err))
+				}
+			}
+			var file *dagger.File
+			if inputArgs["file"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["file"]), &file)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg file", err))
+				}
+			}
+			var document *dagger.File
+			if inputArgs["document"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["document"]), &document)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg document", err))
+				}
+			}
+			return (*App).WithFile(&parent, ctx, path, file, document)
 		case "WithInsecure":
 			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
@@ -527,6 +587,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Z5labs":
 		switch fnName {
+		case "ContributionPathSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).ContributionPathSelfTest(&parent, ctx)
 		case "DirectoryDocument":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

@@ -248,6 +248,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppContainersCoverEveryPlatformInOrder(&parent, ctx)
+		case "AppContributionsLandInEveryVariant":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppContributionsLandInEveryVariant(&parent, ctx)
+		case "AppCustomizedImageStaysAttested":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppCustomizedImageStaysAttested(&parent, ctx)
+		case "AppCustomizedImageStillNeedsProvenance":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppCustomizedImageStillNeedsProvenance(&parent, ctx)
 		case "AppDocumentHelpersDescribeContentWithNoEcosystem":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -325,6 +346,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppRedactsCredentialsFromTheSourceAnnotation(&parent, ctx)
+		case "AppRefusesContributionsThatCollide":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppRefusesContributionsThatCollide(&parent, ctx)
 		case "AppRefusesPlaintextRegistryUnlessInsecure":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
