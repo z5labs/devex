@@ -106,6 +106,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoCiFailsForFailingTest", t.GoCiFailsForFailingTest)
 	jobs = jobs.WithJob("GoCiRoutesLintVersion", t.GoCiRoutesLintVersion)
 	jobs = jobs.WithJob("GoCiLintConfigOverridesBundledPolicy", t.GoCiLintConfigOverridesBundledPolicy)
+	jobs = jobs.WithJob("GoCiRunsWithRaceByDefault", t.GoCiRunsWithRaceByDefault)
+	jobs = jobs.WithJob("GoCiChainsEveryWithMethod", t.GoCiChainsEveryWithMethod)
 	jobs = jobs.WithJob("BuilderBinaryProducesCompiledBinary", t.BuilderBinaryProducesCompiledBinary)
 	jobs = jobs.WithJob("BuilderContainerProducesScratchImageWithBinary", t.BuilderContainerProducesScratchImageWithBinary)
 	jobs = jobs.WithJob("GoAppCiRejectsMissingGitDir", t.GoAppCiRejectsMissingGitDir)
@@ -260,6 +262,49 @@ func (t *Tests) GoCiRoutesLintVersion(ctx context.Context) error {
 	return nil
 }
 
+// GoCiRunsWithRaceByDefault asserts the test stage runs with the race
+// detector unless a caller says otherwise, and that WithTest(false) is
+// what says otherwise.
+//
+// The fixture's test passes under `go test` and fails under `go test
+// -race`, so the two halves of this assertion cannot both hold unless the
+// default really is on and the flag really reaches the stage. Asserting
+// the default this way is what keeps it a property of the chain rather
+// than of whoever constructed it: a GoChain built without the detector set
+// would pass every other test in this suite.
+func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
+	err := dag.Z5Labs().Go(raceLibDir()).Ci(ctx)
+	if err == nil {
+		return fmt.Errorf("expected Go.Ci on race-lib to fail with the race detector on by default, got nil")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "exit code: 1") && !strings.Contains(msg, "FAIL") {
+		return fmt.Errorf("expected a test-stage failure on race-lib, got: %s", msg)
+	}
+
+	if err := dag.Z5Labs().Go(raceLibDir()).WithTest(false).Ci(ctx); err != nil {
+		return fmt.Errorf("Go.Ci on race-lib with WithTest(false): %w", err)
+	}
+	return nil
+}
+
+// GoCiChainsEveryWithMethod asserts each With* method returns a chain the
+// next call can be made on, and that a fully configured chain still runs.
+//
+// WithBuild records tags nothing consumes until App lands, so what is
+// asserted here is that supplying them neither errors nor disturbs the
+// checks — not that they reached a build.
+func (t *Tests) GoCiChainsEveryWithMethod(ctx context.Context) error {
+	err := dag.Z5Labs().Go(helloLibDir()).
+		WithLint(dagger.Z5LabsGoChainWithLintOpts{}).
+		WithTest(true).
+		WithBuild([]string{"integration"}).
+		Ci(ctx)
+	if err != nil {
+		return fmt.Errorf("Go.Ci on a fully configured chain: %w", err)
+	}
+	return nil
+}
+
 // GoCiLintConfigOverridesBundledPolicy asserts WithLint's config replaces
 // the bundled configs/golangci.yml rather than being accepted and dropped.
 //
@@ -272,10 +317,13 @@ func (t *Tests) GoCiRoutesLintVersion(ctx context.Context) error {
 // The assertion is on golangci-lint's exit code rather than on its message
 // because the message does not survive the module boundary: a failing
 // WithExec inside a dependency arrives as `exit code: N` and nothing else,
-// with the command's output visible only in the trace. Exit 3 is the code
-// golangci-lint uses for a configuration it cannot load, as opposed to 1
-// for issues it found, so it says specifically that a config was read and
-// rejected — the bundled one loads clean, so it was this one.
+// with the command's output visible only in the trace. Exit 3 is
+// golangci-lint's general failure code as opposed to 1 for issues it
+// found, so what it rules out is the stage merely reporting lint findings;
+// it is not specific to configuration. The evidence that the caller's file
+// is what reached the stage is the differential above — this fixture
+// passes under the bundled policy — and the exit code only pins the
+// failure to the lint stage rather than to fmt, vet or test.
 func (t *Tests) GoCiLintConfigOverridesBundledPolicy(ctx context.Context) error {
 	cfg := dag.Directory().
 		WithNewFile(".golangci.yml", "version: \"2\"\n\nlinters:\n  default: none\n  enable:\n    - nosuchlinterexists\n").
@@ -1262,6 +1310,12 @@ func (t *Tests) GoAppBuildFailsWithoutGitMetadata(ctx context.Context) error {
 // helloLibDir returns the on-disk hello-lib fixture (library variant).
 func helloLibDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/hello-lib")
+}
+
+// raceLibDir returns the race-lib fixture: a library whose test passes
+// under `go test` and fails under `go test -race`.
+func raceLibDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/race-lib")
 }
 
 // failingLibDir returns the failing-lib fixture (test fails).

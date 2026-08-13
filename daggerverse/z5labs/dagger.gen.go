@@ -78,13 +78,13 @@ func (r GoChain) MarshalJSON() ([]byte, error) {
 		Source      *dagger.Directory
 		LintConfig  *dagger.File
 		LintVersion string
-		TestRace    bool
+		NoRace      bool
 		BuildTags   []string
 	}
 	concrete.Source = r.Source
 	concrete.LintConfig = r.LintConfig
 	concrete.LintVersion = r.LintVersion
-	concrete.TestRace = r.TestRace
+	concrete.NoRace = r.NoRace
 	concrete.BuildTags = r.BuildTags
 	return json.Marshal(&concrete)
 }
@@ -94,7 +94,7 @@ func (r *GoChain) UnmarshalJSON(bs []byte) error {
 		Source      *dagger.Directory
 		LintConfig  *dagger.File
 		LintVersion string
-		TestRace    bool
+		NoRace      bool
 		BuildTags   []string
 	}
 	err := json.Unmarshal(bs, &concrete)
@@ -104,7 +104,7 @@ func (r *GoChain) UnmarshalJSON(bs []byte) error {
 	r.Source = concrete.Source
 	r.LintConfig = concrete.LintConfig
 	r.LintVersion = concrete.LintVersion
-	r.TestRace = concrete.TestRace
+	r.NoRace = concrete.NoRace
 	r.BuildTags = concrete.BuildTags
 	return nil
 }

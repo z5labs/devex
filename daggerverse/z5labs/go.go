@@ -40,8 +40,16 @@ type GoChain struct {
 	LintConfig *dagger.File
 	// +private
 	LintVersion string
+	// NoRace carries the test stage's race-detector setting inverted, so
+	// that the zero value is the safe one. The detector is on unless a
+	// caller turns it off, and a field spelled the other way round would
+	// make that guarantee a property of the constructor rather than of the
+	// type: every future construction path — App, a literal in this
+	// package — would have to remember to set it, and forgetting would
+	// weaken the check with no compile error and no failing test.
+	//
 	// +private
-	TestRace bool
+	NoRace bool
 	// +private
 	BuildTags []string
 }
@@ -60,7 +68,13 @@ type GoChain struct {
 //
 // Both arguments are optional, because pinning a version and replacing the
 // policy are independent decisions and requiring one to state the other
-// would make every version pin also a policy fork.
+// would make every version pin also a policy fork. An argument left out
+// leaves that setting alone rather than clearing it, so the independence
+// holds across calls as well as within one: `with-lint --config=x
+// with-lint --version=y` keeps both, where an unconditional assignment
+// would have dropped the config and run the bundled policy the caller
+// thought they had replaced. Nothing can un-set either one, which is not a
+// use case — a caller who wants the defaults does not call this.
 //
 // +cache="session"
 func (g *GoChain) WithLint(
@@ -69,8 +83,12 @@ func (g *GoChain) WithLint(
 	// +optional
 	config *dagger.File,
 ) *GoChain {
-	g.LintVersion = version
-	g.LintConfig = config
+	if version != "" {
+		g.LintVersion = version
+	}
+	if config != nil {
+		g.LintConfig = config
+	}
 	return g
 }
 
@@ -85,21 +103,20 @@ func (g *GoChain) WithLint(
 //
 // +cache="session"
 func (g *GoChain) WithTest(race bool) *GoChain {
-	g.TestRace = race
+	g.NoRace = !race
 	return g
 }
 
-// WithBuild configures the build stage. tags are passed to the Go
-// toolchain as `-tags a,b,c`, selecting which `//go:build`-constrained
-// files compile.
+// WithBuild records build tags for the App terminal. Ci does not build, so
+// tags have no effect on it today.
 //
-// Nothing in this chain builds yet: Ci is checks-only, exactly as the
-// library archetype it replaces was, and the build belongs to App — the
+// tags are passed to the Go toolchain as `-tags a,b,c`, selecting which
+// `//go:build`-constrained files compile. The build belongs to App — the
 // terminal that produces container images — which lands with the second
-// half of this API. Tags recorded here are what App will build with. They
-// are accepted now because the shape of the chain is what is being fixed,
-// and a caller who sets them today gets no error and, until App exists, no
-// effect.
+// half of this API, and these are the tags it will build with. The method
+// is here now because the shape of the chain is what is being fixed; until
+// App exists a caller who sets tags gets no error and no effect, which is
+// why that is the first thing this comment says.
 //
 // +cache="session"
 func (g *GoChain) WithBuild(tags []string) *GoChain {
@@ -115,5 +132,5 @@ func (g *GoChain) WithBuild(tags []string) *GoChain {
 // +check
 // +cache="session"
 func (g *GoChain) Ci(ctx context.Context) error {
-	return sharedCheck(ctx, g.Source, g.LintConfig, g.LintVersion, g.TestRace)
+	return sharedCheck(ctx, g.Source, g.LintConfig, g.LintVersion, !g.NoRace)
 }

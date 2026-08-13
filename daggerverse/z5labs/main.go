@@ -40,7 +40,7 @@ type Z5labs struct{}
 //
 // +cache="session"
 func (m *Z5labs) Go(source *dagger.Directory) *GoChain {
-	return &GoChain{Source: source, TestRace: true}
+	return &GoChain{Source: source}
 }
 
 // GoApp wires up an opinionated CI/release pipeline for a `package main`

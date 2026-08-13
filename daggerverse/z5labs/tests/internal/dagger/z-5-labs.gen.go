@@ -703,7 +703,7 @@ func (r *Z5LabsGoChain) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoCha
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
-func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:117:1)
+func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:134:1)
 	if r.ci != nil {
 		return nil
 	}
@@ -761,18 +761,17 @@ func (r *Z5LabsGoChain) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// WithBuild configures the build stage. tags are passed to the Go
-// toolchain as `-tags a,b,c`, selecting which `//go:build`-constrained
-// files compile.
+// WithBuild records build tags for the App terminal. Ci does not build, so
+// tags have no effect on it today.
 //
-// Nothing in this chain builds yet: Ci is checks-only, exactly as the
-// library archetype it replaces was, and the build belongs to App — the
+// tags are passed to the Go toolchain as `-tags a,b,c`, selecting which
+// `//go:build`-constrained files compile. The build belongs to App — the
 // terminal that produces container images — which lands with the second
-// half of this API. Tags recorded here are what App will build with. They
-// are accepted now because the shape of the chain is what is being fixed,
-// and a caller who sets them today gets no error and, until App exists, no
-// effect.
-func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:105:1)
+// half of this API, and these are the tags it will build with. The method
+// is here now because the shape of the chain is what is being fixed; until
+// App exists a caller who sets tags gets no error and no effect, which is
+// why that is the first thing this comment says.
+func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:122:1)
 	q := r.query.Select("withBuild")
 	q = q.Arg("tags", tags)
 
@@ -783,9 +782,9 @@ func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../
 
 // Z5LabsGoChainWithLintOpts contains options for Z5LabsGoChain.WithLint
 type Z5LabsGoChainWithLintOpts struct {
-	Version string // z5labs (../../../../../daggerverse/z5labs/go.go:68:2)
+	Version string // z5labs (../../../../../daggerverse/z5labs/go.go:82:2)
 
-	Config *File // z5labs (../../../../../daggerverse/z5labs/go.go:70:2)
+	Config *File // z5labs (../../../../../daggerverse/z5labs/go.go:84:2)
 }
 
 // WithLint configures the lint stage.
@@ -802,8 +801,14 @@ type Z5LabsGoChainWithLintOpts struct {
 //
 // Both arguments are optional, because pinning a version and replacing the
 // policy are independent decisions and requiring one to state the other
-// would make every version pin also a policy fork.
-func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:66:1)
+// would make every version pin also a policy fork. An argument left out
+// leaves that setting alone rather than clearing it, so the independence
+// holds across calls as well as within one: `with-lint --config=x
+// with-lint --version=y` keeps both, where an unconditional assignment
+// would have dropped the config and run the bundled policy the caller
+// thought they had replaced. Nothing can un-set either one, which is not a
+// use case — a caller who wants the defaults does not call this.
+func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:80:1)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -829,7 +834,7 @@ func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoCha
 // `with-test` would silently drop the race detector the pipeline otherwise
 // guarantees. Turning it off is a real weakening of the check, so the
 // caller states it.
-func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:87:1)
+func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:105:1)
 	q := r.query.Select("withTest")
 	q = q.Arg("race", race)
 
