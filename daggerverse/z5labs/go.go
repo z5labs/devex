@@ -182,9 +182,15 @@ func (g *GoChain) App(
 	// published under. Any OCI-tag-safe string; SemVer build metadata is
 	// refused.
 	version string,
+	// The package to build, in go build package syntax, relative to the
+	// source root.
+	//
 	// +optional
 	// +default="."
 	pkg string,
+	// The platforms to build for, e.g. linux/amd64. Empty takes the
+	// pipeline's pair, linux/amd64 and linux/arm64.
+	//
 	// +optional
 	platforms []dagger.Platform,
 ) (*App, error) {

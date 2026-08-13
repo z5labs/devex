@@ -585,11 +585,18 @@ func (r *Z5LabsGoChain) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoCha
 
 // Z5LabsGoChainAppOpts contains options for Z5LabsGoChain.App
 type Z5LabsGoChainAppOpts struct {
-
+	//
+	// The package to build, in go build package syntax, relative to the
+	// source root.
+	//
+	//
 	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/go.go:187:2)
-
-	Platforms []Platform // z5labs (../../../../../daggerverse/z5labs/go.go:189:2)
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/go.go:190:2)
+	//
+	// The platforms to build for, e.g. linux/amd64. Empty takes the
+	// pipeline's pair, linux/amd64 and linux/arm64.
+	//
+	Platforms []Platform // z5labs (../../../../../daggerverse/z5labs/go.go:195:2)
 }
 
 // App builds the application at pkg for every platform and returns it.
