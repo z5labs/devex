@@ -107,13 +107,49 @@ func (m *Z5labs) SourceRedactionSelfTest(ctx context.Context) error {
 			name: "an at sign inside the password",
 			raw:  "https://user:" + secret + "@extra@github.com/org/repo.git",
 			want: "https://github.com/org/repo.git",
-			why:  "the userinfo ends at the last at sign in the authority, not the first: splitting on the first would leave half the credential in the value",
+			why:  "url.Parse escapes the inner at sign and splits at the last one, so this row pins the parsing branch rather than the fallback",
+		},
+		{
+			name: "an at sign inside a password that also defeats the parser",
+			raw:  "https://user:" + secretPercent + "@extra@github.com/org/repo.git",
+			want: "https://github.com/org/repo.git",
+			why:  "the same shape through the fallback, which is where the split at the last at sign is this module's own to get right: splitting at the first would leave the tail of the credential in the value",
+		},
+		{
+			name: "a password carrying an unencoded slash",
+			raw:  "https://user:" + secret + "/CD@github.com/org/repo.git",
+			want: "",
+			why:  "a slash ends the authority, so the at sign falls outside it and the string reads as having no userinfo at all — and a slash is in the base64 alphabet tokens are drawn from, which makes this the likeliest way a pasted remote fails to parse",
+		},
+		{
+			name: "a password carrying an unencoded question mark",
+			raw:  "https://user:" + secret + "?CD@github.com/org/repo.git",
+			want: "",
+			why:  "the query delimiter ends the authority the same way, and the same reading applies",
+		},
+		{
+			name: "a password carrying an unencoded hash",
+			raw:  "https://user:" + secret + "#CD@github.com/org/repo.git",
+			want: "",
+			why:  "the fragment delimiter, the third of them, and the last shape that could put the at sign out of reach",
 		},
 		{
 			name: "userinfo beside an unparseable path",
 			raw:  "https://user:" + secret + "@github.com/or%zg/repo.git",
 			want: "",
 			why:  "the redaction cannot be confirmed by re-parsing, so the annotation is omitted rather than published on trust",
+		},
+		{
+			name: "userinfo behind an empty scheme",
+			raw:  "://user:" + secret + "@github.com/org/repo.git",
+			want: "",
+			why:  "no tool writes this, but it is a credential in an authority, and the fallback runs on strings nothing accepted: the userinfo comes off and the remainder still will not parse, so nothing is published",
+		},
+		{
+			name: "an at sign in the path of a remote that will not parse",
+			raw:  "https://github.com/or%zg/re@po.git",
+			want: "",
+			why:  "the price of the rule above: nothing here is secret, but in a string no parser accepted an at sign after the authority cannot be shown to be part of the path, and an absent annotation beats one that is present and wrong",
 		},
 
 		{
