@@ -3,14 +3,19 @@ module dagger/z-5-labs
 go 1.26.2
 
 require (
+	github.com/CycloneDX/cyclonedx-go v0.11.0
 	github.com/Khan/genqlient v0.8.1
 	github.com/dagger/otel-go v1.43.1-0.20260429234604-565634f4374b
+	github.com/spdx/tools-golang v0.5.7
 	github.com/vektah/gqlparser/v2 v2.5.33
 	go.opentelemetry.io/otel v1.43.0
 	go.opentelemetry.io/otel/trace v1.43.0
 )
 
-require github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
+require (
+	github.com/anchore/go-struct-converter v0.1.0 // indirect
+	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
+)
 
 require (
 	github.com/99designs/gqlgen v0.17.90 // indirect

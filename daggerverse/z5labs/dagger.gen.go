@@ -527,6 +527,76 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Z5labs":
 		switch fnName {
+		case "DirectoryDocument":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var dir *dagger.Directory
+			if inputArgs["dir"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["dir"]), &dir)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg dir", err))
+				}
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var license string
+			if inputArgs["license"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["license"]), &license)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg license", err))
+				}
+			}
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			return (*Z5labs).DirectoryDocument(&parent, ctx, dir, name, license, version)
+		case "FileDocument":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var file *dagger.File
+			if inputArgs["file"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["file"]), &file)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg file", err))
+				}
+			}
+			var license string
+			if inputArgs["license"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["license"]), &license)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg license", err))
+				}
+			}
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			return (*Z5labs).FileDocument(&parent, ctx, file, license, name, version)
 		case "Go":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
@@ -548,6 +618,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Z5labs).ImageEnvironmentSelfTest(&parent, ctx)
+		case "ImageSbomSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).ImageSbomSelfTest(&parent, ctx)
 		case "VersionTagsSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

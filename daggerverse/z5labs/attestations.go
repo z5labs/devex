@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"dagger/z-5-labs/internal/dagger"
@@ -27,6 +28,19 @@ const (
 	spdxArtifactType      = "application/spdx+json"
 	cycloneDxArtifactType = "application/vnd.cyclonedx+json"
 )
+
+// documentStem names one platform's pair of documents.
+//
+// It is the repository's last segment and the platform, because that is
+// what an App knows: it holds no binary name — it does not know it came
+// from a language chain at all — and the documents describe the published
+// image rather than any artifact inside it. A consumer picks a platform's
+// document off the org.opencontainers.image.title annotation, so the
+// platform has to be in here; the "/" in it becomes a "-" so the value is
+// a legal file name.
+func documentStem(repository string, platform dagger.Platform) string {
+	return basenameAfterSlash(repository) + "-" + strings.ReplaceAll(string(platform), "/", "-")
+}
 
 // attachAttestations attaches this app's documents and its signed
 // provenance to the digest that was just published.
@@ -85,26 +99,59 @@ const (
 // what it compiled and produced the documents; this knows which identity
 // vouched for the run; and the `oci` module attaches bytes to a digest
 // without knowing that any of them are an SBOM or an attestation — it is
-// handed a file and an artifact type, and that is all it ever learns. The
-// loop below is the same: it reads a name, a type and a file off each
-// variant and never asks what any of them describes.
+// handed a file and an artifact type, and that is all it ever learns.
+//
+// This module sits between those two and does know, because assembling one
+// document out of several is not something a party ignorant of the format
+// can do. What #330 asked for and what still holds is that the *attachment*
+// stays ignorant: nothing below this function learns what any of these
+// bytes mean.
 //
 // One document pair per platform, not one per release. A manifest list is
-// several binaries, each with its own bytes and its own checksum, and a
-// single document claiming to describe "the" binary would have to name one
-// of those checksums and be wrong about the rest. The documents are told
-// apart by their title annotation; the artifact type stays the format,
-// because that is what a consumer filters on.
+// several images, each with its own bytes and its own contents, and a
+// single document claiming to describe "the" image would have to pick one
+// of them and be wrong about the rest. The documents are told apart by
+// their title annotation; the artifact type stays the format, because that
+// is what a consumer filters on.
+//
+// The pair is *assembled* here rather than carried from the build, because
+// the subject is the digest that was just published and it does not exist
+// until the push has happened. What was carried from the build is one
+// document per contribution — see sbom.go, which is where the reasoning for
+// the whole arrangement lives. The fallible half of assembly, reading and
+// parsing those documents, has already happened by the time this runs:
+// Publish resolves them before the first byte moves, so a run that cannot
+// produce a complete document fails without leaving an image behind.
 func (a *App) attachAttestations(
 	ctx context.Context,
 	registry *dagger.OciRegistry,
 	sgn *signer,
 	facts buildFacts,
+	boms []variantBom,
 ) error {
-	for _, v := range a.Variants {
-		for _, doc := range v.Documents {
-			if _, err := registry.Attach(ctx, facts.Repository, facts.Digest, doc.File, doc.Type); err != nil {
-				return fmt.Errorf("attach %s to %s: %v", doc.Name, facts.Digest, err)
+	assembledAt := time.Now()
+	for _, vb := range boms {
+		stem := documentStem(facts.Repository, vb.Platform)
+		ib := vb.assemble(facts.Repository, facts.Digest, a.Version, assembledAt)
+		rendered := []struct {
+			name   string
+			kind   string
+			render func() ([]byte, error)
+		}{
+			{name: stem + ".spdx.json", kind: spdxArtifactType, render: ib.spdxDocument},
+			{name: stem + ".cdx.json", kind: cycloneDxArtifactType, render: ib.cycloneDxDocument},
+		}
+		for _, doc := range rendered {
+			raw, err := doc.render()
+			if err != nil {
+				return fmt.Errorf("assemble %s: %v", doc.name, err)
+			}
+			file, err := writeWorkdirFile(doc.name, raw)
+			if err != nil {
+				return fmt.Errorf("write %s: %v", doc.name, err)
+			}
+			if _, err := registry.Attach(ctx, facts.Repository, facts.Digest, file, doc.kind); err != nil {
+				return fmt.Errorf("attach %s to %s: %v", doc.name, facts.Digest, err)
 			}
 		}
 	}

@@ -120,10 +120,41 @@
 // The `[0]` above is correct only because there is one provenance statement
 // per publish. Each SBOM type has one referrer per platform, so selecting an
 // SBOM means picking on the layer's org.opencontainers.image.title
-// annotation — `<binary>-linux-amd64.spdx.json` and its CycloneDX and
-// per-platform counterparts — which is `.layers[0].annotations` on each
-// referrer's own manifest, not something `oras discover` prints. Taking
-// `[0]` for an SBOM silently picks an arbitrary platform's.
+// annotation — `<app>-linux-amd64.spdx.json` and its CycloneDX and
+// per-platform counterparts, where `<app>` is the last segment of the
+// repository — which is `.layers[0].annotations` on each referrer's own
+// manifest, not something `oras discover` prints. Taking `[0]` for an SBOM
+// silently picks an arbitrary platform's.
+//
+// # What the SBOMs describe, and how many of them there are
+//
+// Two per platform, and they describe **the image**: every byte in it, not
+// only the executable a language chain built. Their subject is the published
+// digest, so a consumer who pulled `<repo>@<digest>` can check the document
+// is about the bytes they have rather than taking it on trust.
+//
+// There are no other SBOMs on the digest and there is deliberately nothing
+// per-file or per-contribution to go looking for. Each thing that enters an
+// image arrives with its own SPDX document — that is how the image-level
+// pair can exist at all without a scanner — but those are *inputs* to the
+// assembly and are not published. One document of a given artifact type per
+// platform is what makes selecting one unambiguous; several would leave a
+// consumer picking, silently, between a complete document and a partial one.
+//
+// Read them the same way as the provenance above, with
+// `--artifact-type application/spdx+json` or
+// `--artifact-type application/vnd.cyclonedx+json`, then pick the platform
+// off the title annotation. Inside, the image is the package the document
+// DESCRIBES; each thing that was contributed to it is a package the image
+// CONTAINS; and what each of those was built from hangs off it by
+// DEPENDS_ON. CycloneDX says the same thing with the image as
+// `metadata.component` and the same graph under `dependencies`.
+//
+// A publish that cannot assemble a complete document for every platform
+// fails, and fails before pushing, exactly as one that cannot produce
+// provenance does. An SBOM that accounts for some of an image is well
+// formed, attaches cleanly and is indistinguishable from a complete one, so
+// "attach what we have and warn" is not a behaviour this pipeline offers.
 //
 // # What can be checked about the envelope, and what cannot
 //

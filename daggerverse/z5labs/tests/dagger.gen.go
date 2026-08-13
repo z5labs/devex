@@ -248,6 +248,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppContainersCoverEveryPlatformInOrder(&parent, ctx)
+		case "AppDocumentHelpersDescribeContentWithNoEcosystem":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppDocumentHelpersDescribeContentWithNoEcosystem(&parent, ctx)
 		case "AppImagesCarryTheStandardEnvironment":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -346,6 +353,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppReleaseMovesTheMovingTags(&parent, ctx)
+		case "AppSbomsDescribeThePublishedImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppSbomsDescribeThePublishedImage(&parent, ctx)
 		case "AppSignatureDoesNotVerifyForAnotherKey":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

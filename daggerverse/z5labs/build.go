@@ -231,12 +231,3 @@ func parsePlatform(p string) (goos, goarch string, err error) {
 	return parts[0], parts[1], nil
 }
 
-// renamed gives file a new name without reading its bytes into this module.
-// An attachment's title annotation is taken from the file's name, and the
-// `go` module names its documents after the binary — which is the same name
-// for every platform, so the names have to be made distinct on this side of
-// the boundary rather than by teaching the `go` module about platforms it
-// does not build for.
-func renamed(file *dagger.File, name string) *dagger.File {
-	return dag.Directory().WithFile(name, file).File(name)
-}

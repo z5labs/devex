@@ -139,6 +139,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenSigningFails", t.AppPublishLeavesNoTagWhenSigningFails)
 	jobs = jobs.WithJob("AppAnnotatesEveryPlatformVariant", t.AppAnnotatesEveryPlatformVariant)
 	jobs = jobs.WithJob("AppAttachesSbomsAndProvenance", t.AppAttachesSbomsAndProvenance)
+	jobs = jobs.WithJob("AppSbomsDescribeThePublishedImage", t.AppSbomsDescribeThePublishedImage)
+	jobs = jobs.WithJob("AppDocumentHelpersDescribeContentWithNoEcosystem", t.AppDocumentHelpersDescribeContentWithNoEcosystem)
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
 	jobs = jobs.WithJob("AppRefusesToPublishWithoutProvenanceMachinery", t.AppRefusesToPublishWithoutProvenanceMachinery)
 	jobs = jobs.WithJob("AppRedactsCredentialsFromTheSourceAnnotation", t.AppRedactsCredentialsFromTheSourceAnnotation)
