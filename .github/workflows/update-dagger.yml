@@ -123,7 +123,16 @@ jobs:
               echo "::error::Module.checks for $mod diverges from 'dagger check -l' at this Dagger version; the planner may under-run CI. Reconcile before merging." >&2
               rc=1
             fi
-            count=$(( count + $(printf '%s\n' "$stable" | grep -c .) ))
+            # Plenty of modules legitimately declare no checks of their own --
+            # the root module and every service module keep theirs in a sibling
+            # tests/ module -- so an empty $stable is the normal case, not a
+            # failure. Count with awk rather than `grep -c .`: grep exits 1 when
+            # it matches nothing, that status becomes the status of the
+            # assignment, and the step runs under `bash -e` (a GitHub default
+            # that `set -uo pipefail` does not turn off), so the first
+            # checkless module would abort the whole guard with a bare exit 1 --
+            # no diff, no ::error::, nothing to read. awk always exits 0.
+            count=$(( count + $(printf '%s\n' "$stable" | awk 'NF { n++ } END { print n + 0 }') ))
           done < <(find . -name dagger.json -not -path './.git/*' | sort)
           [ "$rc" -eq 0 ] && echo "check enumeration agrees ($count checks)"
           exit "$rc"
