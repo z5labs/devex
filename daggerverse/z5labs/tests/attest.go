@@ -12,7 +12,7 @@ import (
 	"dagger/tests/internal/dagger"
 )
 
-// The artifact types GoApp attaches under. Duplicated here on purpose:
+// The artifact types a publish attaches under. Duplicated here on purpose:
 // a test that imported the module's own constants would pass whatever
 // the module renamed them to, and these strings are a contract with
 // every consumer that lists referrers.
@@ -23,7 +23,7 @@ const (
 )
 
 // testRegistry builds an oci handle onto the local registry service, for
-// reading back what GoApp published.
+// reading back what a publish left behind.
 func testRegistry(svc *dagger.Service, secret *dagger.Secret) *dagger.OciRegistry {
 	return dag.Oci().Registry(registryAlias+":5000", dagger.OciRegistryOpts{
 		Username: "ci",
@@ -55,7 +55,23 @@ type manifest struct {
 	} `json:"manifests"`
 }
 
-// GoAppCiAnnotatesEveryPlatformVariant asserts that a published image
+// digestOf recovers the digest a reference is pinned to.
+//
+// Publish returns `<address>/<repository>:<version>@<digest>`, so the tests
+// that need the digest read it out of what Publish reported rather than
+// asking the registry for it — reading it back would make every assertion
+// downstream a statement about the registry's view instead of about what
+// the publish claimed. The one test that compares those two views on
+// purpose is AppPublishReturnsDigestPinnedReferences.
+func digestOf(reference string) (string, error) {
+	_, digest, ok := strings.Cut(reference, "@")
+	if !ok || !strings.HasPrefix(digest, "sha256:") {
+		return "", fmt.Errorf("expected a digest-pinned reference, got %q", reference)
+	}
+	return digest, nil
+}
+
+// AppAnnotatesEveryPlatformVariant asserts that a published image
 // carries the standard OCI source annotations, on every platform variant
 // and not merely on the index.
 //
@@ -65,9 +81,12 @@ type manifest struct {
 // to everything downstream of that resolution. The values are checked
 // against the git state the fixture was built with, so a plausible-but-
 // wrong annotation fails.
-func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error {
-	const tag = "v3.1.4"
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+func (t *Tests) AppAnnotatesEveryPlatformVariant(ctx context.Context) error {
+	const (
+		version    = "v3.1.4"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
@@ -79,27 +98,28 @@ func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error 
 	if err != nil {
 		return err
 	}
-	platforms := []string{"linux/amd64", "linux/arm64"}
-	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        registryAlias + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       platforms,
-	})).Ci(ctx)
+	platforms := []dagger.Platform{"linux/amd64", "linux/arm64"}
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
 	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
+		return fmt.Errorf("Publish: %v", err)
+	}
+	digest, err := digestOf(refs[0])
+	if err != nil {
+		return err
 	}
 
 	headSha, err := headFullSha(ctx, src)
 	if err != nil {
 		return err
 	}
+	commitTime, err := headCommitTime(ctx, src)
+	if err != nil {
+		return err
+	}
 	registry := testRegistry(svc, secret)
 
-	index, err := fetchManifest(ctx, registry, "hello", digest)
+	index, err := fetchManifest(ctx, registry, repository, digest)
 	if err != nil {
 		return err
 	}
@@ -107,7 +127,7 @@ func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error 
 		return fmt.Errorf("expected %d platform variants under %s, got %d", len(platforms), digest, len(index.Manifests))
 	}
 	for _, entry := range index.Manifests {
-		variant, err := fetchManifest(ctx, registry, "hello", entry.Digest)
+		variant, err := fetchManifest(ctx, registry, repository, entry.Digest)
 		if err != nil {
 			return err
 		}
@@ -115,31 +135,23 @@ func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error 
 		want := map[string]string{
 			"org.opencontainers.image.revision": headSha,
 			"org.opencontainers.image.source":   fixtureOriginURL,
-			"org.opencontainers.image.version":  tag,
+			// The version is the caller's now, and is present on every
+			// build rather than only on one that happened to be tagged.
+			"org.opencontainers.image.version": version,
+			// The commit time, not the build time: a wall-clock value here
+			// would make every rebuild of one commit a different manifest.
+			"org.opencontainers.image.created": commitTime,
 		}
 		for key, value := range want {
 			if got := variant.Annotations[key]; got != value {
 				return fmt.Errorf("%s variant %s: expected %q, got %q", platform, key, value, got)
 			}
 		}
-		created := variant.Annotations["org.opencontainers.image.created"]
-		if created == "" {
-			return fmt.Errorf("%s variant carries no org.opencontainers.image.created", platform)
-		}
-		// The commit time, not the build time: a wall-clock value here
-		// would make every rebuild of one commit a different manifest.
-		commitTime, err := headCommitTime(ctx, src)
-		if err != nil {
-			return err
-		}
-		if created != commitTime {
-			return fmt.Errorf("%s variant created=%q, expected the commit time %q", platform, created, commitTime)
-		}
 	}
 	return nil
 }
 
-// GoAppCiRedactsCredentialsFromTheSourceAnnotation asserts a
+// AppRedactsCredentialsFromTheSourceAnnotation asserts a
 // credential-bearing origin remote does not travel in the published
 // image's source annotation.
 //
@@ -148,13 +160,16 @@ func (t *Tests) GoAppCiAnnotatesEveryPlatformVariant(ctx context.Context) error 
 // annotation is readable by anyone who can pull the image. So the host
 // and path have to survive — the annotation is useless without them —
 // while the userinfo must not.
-func (t *Tests) GoAppCiRedactsCredentialsFromTheSourceAnnotation(ctx context.Context) error {
-	const tag = "v7.0.0"
+func (t *Tests) AppRedactsCredentialsFromTheSourceAnnotation(ctx context.Context) error {
+	const (
+		version    = "v7.0.0"
+		repository = "hello"
+	)
 	token, err := dag.Random().Sha256(ctx)
 	if err != nil {
 		return fmt.Errorf("random sha256 (fake checkout token): %v", err)
 	}
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
@@ -176,20 +191,17 @@ func (t *Tests) GoAppCiRedactsCredentialsFromTheSourceAnnotation(ctx context.Con
 	if err != nil {
 		return err
 	}
-	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        registryAlias + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       []string{hostPlatform()},
-	})).Ci(ctx)
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
 	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
+		return fmt.Errorf("Publish: %v", err)
+	}
+	digest, err := digestOf(refs[0])
+	if err != nil {
+		return err
 	}
 
-	image, err := fetchManifest(ctx, testRegistry(svc, secret), "hello", digest)
+	image, err := fetchManifest(ctx, testRegistry(svc, secret), repository, digest)
 	if err != nil {
 		return err
 	}
@@ -203,7 +215,7 @@ func (t *Tests) GoAppCiRedactsCredentialsFromTheSourceAnnotation(ctx context.Con
 	return nil
 }
 
-// GoAppCiAttachesSbomsAndProvenance asserts that a publish leaves an
+// AppAttachesSbomsAndProvenance asserts that a publish leaves an
 // SPDX document, a CycloneDX document and a signed provenance statement
 // attached to the digest it returned, each retrievable from the registry
 // and told apart by its artifact type.
@@ -213,9 +225,12 @@ func (t *Tests) GoAppCiRedactsCredentialsFromTheSourceAnnotation(ctx context.Con
 // checked to be the published digest, and the build identity is checked
 // to be the one the token endpoint minted. An attestation nobody
 // verifies is a file.
-func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
-	const tag = "v5.0.0"
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+func (t *Tests) AppAttachesSbomsAndProvenance(ctx context.Context) error {
+	const (
+		version    = "v5.0.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
@@ -231,22 +246,19 @@ func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        registryAlias + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       []string{hostPlatform()},
-	})).Ci(ctx)
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
 	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
+		return fmt.Errorf("Publish: %v", err)
+	}
+	digest, err := digestOf(refs[0])
+	if err != nil {
+		return err
 	}
 
 	registry := testRegistry(svc, secret)
 	for _, artifactType := range []string{spdxArtifactType, cycloneDxArtifactType, provenanceArtifactType} {
-		found, err := referrersOf(ctx, registry, "hello", digest, artifactType)
+		found, err := referrersOf(ctx, registry, repository, digest, artifactType)
 		if err != nil {
 			return err
 		}
@@ -255,7 +267,7 @@ func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
 		}
 	}
 
-	envelope, err := attachedDocument(ctx, registry, "hello", digest, provenanceArtifactType)
+	envelope, err := attachedDocument(ctx, registry, repository, digest, provenanceArtifactType)
 	if err != nil {
 		return err
 	}
@@ -263,17 +275,17 @@ func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return checkStatement(statement, digest, prov.Claims)
+	return checkStatement(statement, digest, repository, prov.Claims)
 }
 
-// GoAppCiAttestsTwoSegmentBinaryNames asserts a publish whose binary name
+// AppAttestsTwoSegmentRepositories asserts a publish whose repository
 // carries a "/" still lands all three attestations.
 //
-// A two-segment binary name is not an edge case, it is the only working
+// A two-segment repository is not an edge case, it is the only working
 // GHCR configuration: GHCR has no single-segment repositories, so
-// `ghcr.io/<name>` cannot exist and the owner has to be folded into the
-// binary name — folding it into the registry instead breaks the attach,
-// because the oci module keys its credential on the registry address.
+// `ghcr.io/<name>` cannot exist and the owner is part of the repository
+// path — folding it into the registry address instead breaks the attach,
+// because the oci module keys its credential on that address.
 //
 // It is checked end to end because the break was not in the push: the
 // provenance envelope is written to the module's own filesystem before it
@@ -283,12 +295,12 @@ func (t *Tests) GoAppCiAttachesSbomsAndProvenance(ctx context.Context) error {
 // red build (devex#363). The SBOMs go through Dagger's Directory.withFile
 // and were never affected, so they are asserted here too — the point is
 // that the whole publish survives the name, not one document of it.
-func (t *Tests) GoAppCiAttestsTwoSegmentBinaryNames(ctx context.Context) error {
+func (t *Tests) AppAttestsTwoSegmentRepositories(ctx context.Context) error {
 	const (
-		tag        = "v8.0.0"
+		version    = "v8.0.0"
 		repository = "z5labs/hello"
 	)
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
@@ -304,18 +316,14 @@ func (t *Tests) GoAppCiAttestsTwoSegmentBinaryNames(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	digest, err := dag.Z5Labs().GoApp(src, prov.opts(dagger.Z5LabsGoAppOpts{
-		BinaryName:      repository,
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        registryAlias + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-		Platforms:       []string{hostPlatform()},
-	})).Ci(ctx)
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
 	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
+		return fmt.Errorf("Publish: %v", err)
+	}
+	digest, err := digestOf(refs[0])
+	if err != nil {
+		return err
 	}
 
 	registry := testRegistry(svc, secret)
@@ -340,10 +348,10 @@ func (t *Tests) GoAppCiAttestsTwoSegmentBinaryNames(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return checkStatement(statement, digest, prov.Claims)
+	return checkStatement(statement, digest, repository, prov.Claims)
 }
 
-// GoAppCiRefusesToPublishWithoutProvenanceMachinery asserts a publish
+// AppRefusesToPublishWithoutProvenanceMachinery asserts a publish
 // that cannot produce provenance fails, and fails before pushing.
 //
 // Skipping provenance would be worse than failing: an image published
@@ -351,9 +359,12 @@ func (t *Tests) GoAppCiAttestsTwoSegmentBinaryNames(ctx context.Context) error {
 // until somebody goes looking, so the pipeline that quietly drops it is
 // the one nobody notices. The registry is checked afterwards to confirm
 // the refusal happened before the push and not after it.
-func (t *Tests) GoAppCiRefusesToPublishWithoutProvenanceMachinery(ctx context.Context) error {
-	const tag = "v6.0.0"
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
+func (t *Tests) AppRefusesToPublishWithoutProvenanceMachinery(ctx context.Context) error {
+	const (
+		version    = "v6.0.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
@@ -361,28 +372,39 @@ func (t *Tests) GoAppCiRefusesToPublishWithoutProvenanceMachinery(ctx context.Co
 	if err != nil {
 		return err
 	}
-	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:       "^refs/tags/v.+",
-		Registry:        registryAlias + ":5000",
-		AuthUsername:    "ci",
-		Auth:            secret,
-		RegistryService: svc,
-		Insecure:        true,
-	}).Ci(ctx)
+	_, err = dag.Z5Labs().Go(src).
+		App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}).
+		WithRegistry(registryAlias+":5000", "ci", secret).
+		WithRegistryService(svc).
+		WithInsecure().
+		Publish(ctx, []string{repository})
 	if err == nil {
-		return fmt.Errorf("expected Ci to refuse to publish without the id token machinery, got nil")
+		return fmt.Errorf("expected Publish to refuse to publish without the id token machinery, got nil")
 	}
-	for _, want := range []string{"idTokenRequestUrl", "idTokenRequestToken", "provenance"} {
+	// The refusal names the inputs as a caller supplies them and the
+	// environment variables they usually come from, because the two failures
+	// look different from the two ends. Both are asserted: naming only the
+	// GitHub Actions variables would leave a CLI caller guessing at the
+	// flags, and naming only the flags would leave the CI case without the
+	// permission that is almost always what is actually missing.
+	for _, want := range []string{
+		"withOidc --request-url",
+		"withOidc --request-token",
+		"ACTIONS_ID_TOKEN_REQUEST_URL",
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+		"id-token: write",
+		"provenance",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the refusal to name %q, got: %s", want, err.Error())
 		}
 	}
-	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, "hello", tag)
+	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
 	if err != nil {
 		return fmt.Errorf("curl probe: %v", err)
 	}
 	if code == 200 {
-		return fmt.Errorf("Ci refused the publish but manifest %s is present in the registry", tag)
+		return fmt.Errorf("Publish refused the publish but manifest %s is present in the registry", version)
 	}
 	return nil
 }
@@ -485,10 +507,18 @@ func verifyEnvelope(raw []byte, public *ecdsa.PublicKey) (map[string]any, error)
 	return statement, nil
 }
 
-// checkStatement asserts the statement is about the published digest and
-// reports the identity the token endpoint minted — not values a caller
-// could have supplied, which is the property that makes it provenance.
-func checkStatement(statement map[string]any, digest string, claims map[string]any) error {
+// checkStatement asserts the statement is about the published digest, that
+// it names the repository actually published to, and that it reports the
+// identity the token endpoint minted — not values a caller could have
+// supplied, which is the property that makes it provenance.
+//
+// The repository assertion is the half that used to be impossible to get
+// wrong and is now worth stating: the repository was derived from the
+// binary name before, so a predicate naming something else could not
+// happen. It is an input now, and a predicate that named the binary rather
+// than the destination would be a plausible statement about the wrong
+// artifact.
+func checkStatement(statement map[string]any, digest, repository string, claims map[string]any) error {
 	if got := statement["predicateType"]; got != "https://slsa.dev/provenance/v1" {
 		return fmt.Errorf("expected a SLSA v1 predicate, got %v", got)
 	}
@@ -499,6 +529,9 @@ func checkStatement(statement map[string]any, digest string, claims map[string]a
 	subject, err := object(subjects[0], "subject[0]")
 	if err != nil {
 		return err
+	}
+	if got := subject["name"]; got != repository {
+		return fmt.Errorf("expected the statement's subject to be named %q, got %v", repository, got)
 	}
 	digests, err := object(subject["digest"], "subject[0].digest")
 	if err != nil {
@@ -550,6 +583,13 @@ func checkStatement(statement map[string]any, digest string, claims map[string]a
 	}
 	if got := workflow["ref"]; got != claims["job_workflow_ref"] {
 		return fmt.Errorf("expected workflow ref %v, got %v", claims["job_workflow_ref"], got)
+	}
+	image, err := object(external["image"], "predicate.buildDefinition.externalParameters.image")
+	if err != nil {
+		return err
+	}
+	if got := image["repository"]; got != repository {
+		return fmt.Errorf("expected the predicate to name the published repository %q, got %v", repository, got)
 	}
 	return nil
 }

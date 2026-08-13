@@ -401,6 +401,30 @@ spike says nothing about what `WithPlatform`, image building or a
 `Platform()`-returning call do with a `linux/arm/v7`; treat those as
 untested.
 
+### Backticks in a parameter's doc comment rename its CLI placeholder
+
+A parameter's doc comment becomes that flag's usage string, and the flag
+parser reads a **backticked word** in a usage string as the placeholder to
+print in place of the type. So
+
+```go
+// The package to build, in `go build` package syntax.
+//
+// +optional
+// +default="."
+pkg string,
+```
+
+renders as `--pkg go build` rather than `--pkg string` — the type is gone
+and the help now names something that is not a value the flag takes. It is
+silent: the module builds, the bindings generate, and only `--help` shows
+it.
+
+Write parameter docs in plain prose. Backticks are fine in a *function* or
+*type* doc comment, which is rendered as prose; it is only the per-parameter
+comments that become usage strings. If a parameter's doc really needs to
+quote a command, name it without the backticks.
+
 ### Method parameters named `r` collide with the generated receiver
 
 The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,

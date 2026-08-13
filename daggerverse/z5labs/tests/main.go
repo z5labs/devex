@@ -33,19 +33,30 @@ const fixtureOriginURL = "https://example.com/z5labs/fixture.git"
 const curlImage = "curlimages/curl:8.10.1"
 
 // skopeoImage is what these tests read individual platform variants back
-// out of the registry with. The module under test no longer uses skopeo —
+// out of the registry with. The module under test does not use skopeo —
 // it publishes through the oci module — so this pin is the test harness's
 // alone and is free to move independently. ":latest" is a moving target.
 const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
 
-// hostPlatform is the platform Builder builds for. Test module code runs
-// in a linux container on the engine, so runtime.GOARCH here is the
-// engine's architecture — the same one Builder resolves.
-func hostPlatform() string { return "linux/" + runtime.GOARCH }
+// wantImagePath is the PATH the module promises every image it builds
+// carries, and wantPluginDir is the directory on it that an extension's
+// executables land in.
+//
+// Both are written out here rather than read from the module: they are a
+// contract with everyone who writes a `FROM` or a `COPY --from=` line
+// against a published image, and a test that imported the module's own
+// constants would agree with whatever the module changed them to. That is
+// the whole point of pinning them — changing either breaks published
+// Dockerfiles, so changing either has to break this test first.
+const (
+	wantImagePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	wantPluginDir = "/usr/local/bin"
+)
 
-// hostArch is hostPlatform's GOARCH component, as skopeo's
-// --override-arch spells it.
-func hostArch() string { return runtime.GOARCH }
+// hostPlatform is the platform a single-platform test builds for. Test
+// module code runs in a linux container on the engine, so runtime.GOARCH
+// here is the engine's architecture — the only one a test can execute.
+func hostPlatform() dagger.Platform { return dagger.Platform("linux/" + runtime.GOARCH) }
 
 // pullVariant pulls the given platform's variant of image:tag out of the
 // local registry and imports it as a container, so a test can look at the
@@ -64,9 +75,9 @@ func hostArch() string { return runtime.GOARCH }
 // nonce varies this pull's cache key. Pass a distinct value when a test
 // pulls the same tag more than once and needs the later pulls to be real
 // pulls rather than the first one's cached result.
-func pullVariant(svc *dagger.Service, host, user, pwd, image, tag, platform, nonce string) *dagger.Container {
-	arch := platform
-	if _, a, ok := strings.Cut(platform, "/"); ok {
+func pullVariant(svc *dagger.Service, host, user, pwd, image, tag string, platform dagger.Platform, nonce string) *dagger.Container {
+	arch := string(platform)
+	if _, a, ok := strings.Cut(string(platform), "/"); ok {
 		arch = a
 	}
 	ref := fmt.Sprintf("docker://%s:5000/%s:%s", host, image, tag)
@@ -80,7 +91,7 @@ func pullVariant(svc *dagger.Service, host, user, pwd, image, tag, platform, non
 			"sh", arch, ref,
 		}).
 		File("/img.tar")
-	return dag.Container(dagger.ContainerOpts{Platform: dagger.Platform(platform)}).Import(tarball)
+	return dag.Container(dagger.ContainerOpts{Platform: platform}).Import(tarball)
 }
 
 type Tests struct{}
@@ -108,36 +119,31 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("GoCiLintConfigOverridesBundledPolicy", t.GoCiLintConfigOverridesBundledPolicy)
 	jobs = jobs.WithJob("GoCiRunsWithRaceByDefault", t.GoCiRunsWithRaceByDefault)
 	jobs = jobs.WithJob("GoCiChainsEveryWithMethod", t.GoCiChainsEveryWithMethod)
-	jobs = jobs.WithJob("BuilderBinaryProducesCompiledBinary", t.BuilderBinaryProducesCompiledBinary)
-	jobs = jobs.WithJob("BuilderContainerProducesScratchImageWithBinary", t.BuilderContainerProducesScratchImageWithBinary)
-	jobs = jobs.WithJob("GoAppCiRejectsMissingGitDir", t.GoAppCiRejectsMissingGitDir)
-	jobs = jobs.WithJob("GoAppCiPassesForValidSource", t.GoAppCiPassesForValidSource)
-	jobs = jobs.WithJob("GoAppCiSkipsPublishWhenNoRefMatches", t.GoAppCiSkipsPublishWhenNoRefMatches)
-	jobs = jobs.WithJob("GoAppCiErrorsWhenPublishOnMatchesButCredsMissing", t.GoAppCiErrorsWhenPublishOnMatchesButCredsMissing)
-	jobs = jobs.WithJob("GoAppCiPublishesOnMatchingBranch", t.GoAppCiPublishesOnMatchingBranch)
-	jobs = jobs.WithJob("GoAppCiPublishesOnMatchingTag", t.GoAppCiPublishesOnMatchingTag)
-	jobs = jobs.WithJob("GoAppCiPublishesToAllMatchingTags", t.GoAppCiPublishesToAllMatchingTags)
-	jobs = jobs.WithJob("GoAppCiReturnsThePushedDigest", t.GoAppCiReturnsThePushedDigest)
-	jobs = jobs.WithJob("GoAppCiRefusesPlaintextRegistryUnlessInsecure", t.GoAppCiRefusesPlaintextRegistryUnlessInsecure)
-	jobs = jobs.WithJob("GoAppCiNormalizesRemoteOriginRefs", t.GoAppCiNormalizesRemoteOriginRefs)
-	jobs = jobs.WithJob("GoAppCiTagBeatsBranch", t.GoAppCiTagBeatsBranch)
-	jobs = jobs.WithJob("GoAppBuildFailsWithoutGitMetadata", t.GoAppBuildFailsWithoutGitMetadata)
-	jobs = jobs.WithJob("GoAppStampsWhenPublishOnDoesNotMatch", t.GoAppStampsWhenPublishOnDoesNotMatch)
-	jobs = jobs.WithJob("GoAppCiStampedBinaryMatchesImageTagAndBuilder", t.GoAppCiStampedBinaryMatchesImageTagAndBuilder)
-	jobs = jobs.WithJob("GoAppCiStampsEveryPlatformVariant", t.GoAppCiStampsEveryPlatformVariant)
-	jobs = jobs.WithJob("GoAppCiRebuildIsByteIdenticalPerPlatform", t.GoAppCiRebuildIsByteIdenticalPerPlatform)
-	jobs = jobs.WithJob("GoAppCiAnnotatesEveryPlatformVariant", t.GoAppCiAnnotatesEveryPlatformVariant)
-	jobs = jobs.WithJob("GoAppCiAttachesSbomsAndProvenance", t.GoAppCiAttachesSbomsAndProvenance)
-	jobs = jobs.WithJob("GoAppCiAttestsTwoSegmentBinaryNames", t.GoAppCiAttestsTwoSegmentBinaryNames)
-	jobs = jobs.WithJob("GoAppCiRefusesToPublishWithoutProvenanceMachinery", t.GoAppCiRefusesToPublishWithoutProvenanceMachinery)
-	jobs = jobs.WithJob("GoAppCiRedactsCredentialsFromTheSourceAnnotation", t.GoAppCiRedactsCredentialsFromTheSourceAnnotation)
+	jobs = jobs.WithJob("AppValidatesTheVersion", t.AppValidatesTheVersion)
+	jobs = jobs.WithJob("AppRejectsSourceWithoutGitMetadata", t.AppRejectsSourceWithoutGitMetadata)
+	jobs = jobs.WithJob("AppContainerRunsTheEntrypoint", t.AppContainerRunsTheEntrypoint)
+	jobs = jobs.WithJob("AppContainersCoverEveryPlatformInOrder", t.AppContainersCoverEveryPlatformInOrder)
+	jobs = jobs.WithJob("AppImagesCarryTheStandardEnvironment", t.AppImagesCarryTheStandardEnvironment)
+	jobs = jobs.WithJob("AppBuildTagsReachTheCompiler", t.AppBuildTagsReachTheCompiler)
+	jobs = jobs.WithJob("AppStampsEveryPlatformVariant", t.AppStampsEveryPlatformVariant)
+	jobs = jobs.WithJob("AppRebuildIsByteIdenticalPerPlatform", t.AppRebuildIsByteIdenticalPerPlatform)
+	jobs = jobs.WithJob("AppPublishReturnsDigestPinnedReferences", t.AppPublishReturnsDigestPinnedReferences)
+	jobs = jobs.WithJob("AppPublishesEveryRepositoryNamed", t.AppPublishesEveryRepositoryNamed)
+	jobs = jobs.WithJob("AppPublishesTheContainersItReturned", t.AppPublishesTheContainersItReturned)
+	jobs = jobs.WithJob("AppPublishRefusesAnUnusableTarget", t.AppPublishRefusesAnUnusableTarget)
+	jobs = jobs.WithJob("AppRefusesPlaintextRegistryUnlessInsecure", t.AppRefusesPlaintextRegistryUnlessInsecure)
+	jobs = jobs.WithJob("AppAnnotatesEveryPlatformVariant", t.AppAnnotatesEveryPlatformVariant)
+	jobs = jobs.WithJob("AppAttachesSbomsAndProvenance", t.AppAttachesSbomsAndProvenance)
+	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
+	jobs = jobs.WithJob("AppRefusesToPublishWithoutProvenanceMachinery", t.AppRefusesToPublishWithoutProvenanceMachinery)
+	jobs = jobs.WithJob("AppRedactsCredentialsFromTheSourceAnnotation", t.AppRedactsCredentialsFromTheSourceAnnotation)
 
 	return jobs.Run(ctx)
 }
 
 // localRegistry stands up a docker registry:2 service with htpasswd auth.
 // Returns the service, the plaintext password (for curl probes), and the
-// password as a *dagger.Secret (for GoApp.Auth). User is always "ci".
+// password as a *dagger.Secret (for App.WithRegistry). User is always "ci".
 func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret, error) {
 	pwdHex, err := dag.Random().Sha256(ctx)
 	if err != nil {
@@ -180,6 +186,35 @@ func localRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret
 	return svc, pwdHex, secret, nil
 }
 
+// publishable configures app with everything a publish requires: the local
+// registry, the credential, plain HTTP, and the provenance machinery.
+//
+// Every publishing test needs all four, and none of them is optional —
+// a publish that cannot produce provenance is refused, which is what
+// AppRefusesToPublishWithoutProvenanceMachinery asserts from the other
+// side.
+func publishable(app *dagger.Z5LabsApp, svc *dagger.Service, secret *dagger.Secret, prov *provenanceHarness) *dagger.Z5LabsApp {
+	return prov.apply(app.
+		WithRegistry(registryAlias+":5000", "ci", secret).
+		WithRegistryService(svc).
+		WithInsecure())
+}
+
+// manifestAccept is the Accept header set every manifest read sends.
+//
+// A registry serves whichever manifest kind the client will take and
+// answers 404 for one it will not, so an incomplete set here reports a
+// published image as absent. The OCI *image manifest* is in the list
+// because a single-platform publish stores one: an index naming one
+// variant and a bare manifest are both legal, and which you get is the
+// registry's business rather than something a test should depend on.
+// Leaving it out made a publish that had demonstrably landed — the tag was
+// in /v2/<name>/tags/list — read back as a 404.
+const manifestAccept = `-H 'Accept: application/vnd.oci.image.index.v1+json' ` +
+	`-H 'Accept: application/vnd.oci.image.manifest.v1+json' ` +
+	`-H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' ` +
+	`-H 'Accept: application/vnd.docker.distribution.manifest.v2+json'`
+
 // curlProbeManifest issues a basic-auth GET against the registry's
 // manifest endpoint and returns the HTTP status code. host is the
 // registry hostname reachable from this session (use Service.Hostname).
@@ -187,8 +222,8 @@ func curlProbeManifest(ctx context.Context, svc *dagger.Service, host, user, pwd
 	out, err := dag.Container().From(curlImage).
 		WithServiceBinding(host, svc).
 		WithExec([]string{"sh", "-c", fmt.Sprintf(
-			`curl -s -o /dev/null -w "%%{http_code}" -H 'Accept: application/vnd.oci.image.index.v1+json' -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
-			user, pwd, host, image, tag,
+			`curl -s -o /dev/null -w "%%{http_code}" %s -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
+			manifestAccept, user, pwd, host, image, tag,
 		)}).
 		Stdout(ctx)
 	if err != nil {
@@ -202,16 +237,16 @@ func curlProbeManifest(ctx context.Context, svc *dagger.Service, host, user, pwd
 // registry's view of what it stored, which is what makes it an independent
 // check on a digest the module under test reported.
 //
-// The Accept headers matter: a registry serves whichever manifest kind the
-// client will take, and the digest of a manifest list is not the digest of
-// any image inside it. Naming the index types first is what makes this the
-// digest of what was actually pushed.
+// The Accept headers matter beyond reachability: the digest of a manifest
+// list is not the digest of any image inside it, so naming the index types
+// first is what makes this the digest of what was actually pushed. See
+// manifestAccept for why the image-manifest type is in the set too.
 func curlManifestDigest(ctx context.Context, svc *dagger.Service, host, user, pwd, image, tag string) (string, error) {
 	out, err := dag.Container().From(curlImage).
 		WithServiceBinding(host, svc).
 		WithExec([]string{"sh", "-c", fmt.Sprintf(
-			`curl -fsS -o /dev/null -D - -H 'Accept: application/vnd.oci.image.index.v1+json' -H 'Accept: application/vnd.docker.distribution.manifest.list.v2+json' -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
-			user, pwd, host, image, tag,
+			`curl -fsS -o /dev/null -D - %s -u %s:%s http://%s:5000/v2/%s/manifests/%s`,
+			manifestAccept, user, pwd, host, image, tag,
 		)}).
 		Stdout(ctx)
 	if err != nil {
@@ -290,9 +325,9 @@ func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
 // GoCiChainsEveryWithMethod asserts each With* method returns a chain the
 // next call can be made on, and that a fully configured chain still runs.
 //
-// WithBuild records tags nothing consumes until App lands, so what is
-// asserted here is that supplying them neither errors nor disturbs the
-// checks — not that they reached a build.
+// WithBuild's tags reach App rather than Ci, so what is asserted here is
+// that supplying them neither errors nor disturbs the checks. That they
+// reach the compiler is AppBuildTagsReachTheCompiler.
 func (t *Tests) GoCiChainsEveryWithMethod(ctx context.Context) error {
 	err := dag.Z5Labs().Go(helloLibDir()).
 		WithLint(dagger.Z5LabsGoChainWithLintOpts{}).
@@ -341,312 +376,575 @@ func (t *Tests) GoCiLintConfigOverridesBundledPolicy(ctx context.Context) error 
 	return nil
 }
 
-// GoAppCiPublishesOnMatchingTag asserts that a matching tag ref pushes
-// to <registry>/<binary>:<stripped-tag>.
-func (t *Tests) GoAppCiPublishesOnMatchingTag(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", []string{"v1.2.3"})
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/tags/v.+",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", "v1.2.3")
-	if err != nil {
-		return fmt.Errorf("curl probe: %v", err)
-	}
-	if code != 200 {
-		return fmt.Errorf("expected manifest v1.2.3 to return 200, got %d", code)
-	}
-	return nil
-}
-
-// GoAppCiPublishesToAllMatchingTags asserts that when multiple tag refs
-// match, every one is pushed under its own image tag.
-func (t *Tests) GoAppCiPublishesToAllMatchingTags(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", []string{"v1.0.0", "v1.0.1"})
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/tags/v.+",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	for _, want := range []string{"v1.0.0", "v1.0.1"} {
-		code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", want)
-		if err != nil {
-			return fmt.Errorf("curl probe %s: %v", want, err)
-		}
-		if code != 200 {
-			return fmt.Errorf("expected manifest %s to return 200, got %d", want, code)
-		}
-	}
-	return nil
-}
-
-// GoAppCiReturnsThePushedDigest asserts Ci reports the digest of what it
-// published, and that the digest is the registry's own rather than a value
-// this pipeline computed for itself. A caller anchoring an attestation, a
-// deployment or a release note to it has to be naming the artifact the
-// registry actually holds; a tag is not an immutable name and Ci returning
-// only an error left callers with no other way to say which bytes shipped.
-func (t *Tests) GoAppCiReturnsThePushedDigest(ctx context.Context) error {
-	const tag = "v2.0.0"
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	digest, err := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/tags/v.+",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	}).Ci(ctx)
-	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	if !strings.HasPrefix(digest, "sha256:") {
-		return fmt.Errorf("expected Ci to return a sha256 digest, got %q", digest)
-	}
-	stored, err := curlManifestDigest(ctx, svc, host, "ci", pwdHex, "hello", tag)
-	if err != nil {
-		return fmt.Errorf("read stored digest: %v", err)
-	}
-	if stored != digest {
-		return fmt.Errorf("Ci reported digest %s, the registry holds %s for tag %s", digest, stored, tag)
-	}
-	return nil
-}
-
-// GoAppCiRefusesPlaintextRegistryUnlessInsecure asserts TLS verification is
-// not inferred from registryService being set.
+// GoCiFailsForFailingTest asserts that Go.Ci surfaces a test failure as an
+// error containing "FAIL" or "exit code: 1".
 //
-// The publish path used to disable verification whenever a service was
-// present, so a caller who supplied one for their own reasons — a private
-// registry that happens to be a Dagger service — silently published over an
-// unverified connection they never asked for. Verification is now the
-// caller's explicit choice, and with insecure left off a plain-HTTP registry
-// is refused rather than accommodated.
-func (t *Tests) GoAppCiRefusesPlaintextRegistryUnlessInsecure(ctx context.Context) error {
-	const tag = "v3.0.0"
-	src, err := gitFixture(ctx, helloDir(), "main", []string{tag})
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/tags/v.+",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-	}).Ci(ctx)
+// The test stage is not opt-in — this calls Ci with no With* configuration
+// at all — so a library whose tests fail cannot pass the check by simply
+// not asking for tests.
+func (t *Tests) GoCiFailsForFailingTest(ctx context.Context) error {
+	err := dag.Z5Labs().Go(failingLibDir()).Ci(ctx)
 	if err == nil {
-		return fmt.Errorf("expected Ci to refuse a plain-HTTP registry with insecure off, got nil")
+		return fmt.Errorf("expected Go.Ci on failing-lib to error, got nil")
 	}
-	// The refusal has to mean nothing was pushed, not that the push
-	// succeeded and the report was wrong.
-	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", tag)
-	if err != nil {
-		return fmt.Errorf("curl probe: %v", err)
-	}
-	if code == 200 {
-		return fmt.Errorf("Ci reported a failure but manifest %s is present in the registry", tag)
+	msg := err.Error()
+	if !strings.Contains(msg, "exit code: 1") && !strings.Contains(msg, "FAIL") {
+		return fmt.Errorf("expected error to contain \"exit code: 1\" or \"FAIL\", got: %s", msg)
 	}
 	return nil
 }
 
-// GoAppCiNormalizesRemoteOriginRefs asserts that a HEAD ref shaped as
-// refs/remotes/origin/main is normalized to refs/heads/main and matches
-// publishOn="^refs/heads/main$".
-func (t *Tests) GoAppCiNormalizesRemoteOriginRefs(ctx context.Context) error {
-	// Build a fixture where HEAD is detached but
-	// refs/remotes/origin/main points at it. Branch ref "main" should
-	// not exist; the only ref at HEAD is refs/remotes/origin/main.
-	ctr := dag.Go().Container(helloDir()).
+// versionCase is one row of AppValidatesTheVersion's table.
+type versionCase struct {
+	version string
+	// want is a substring the refusal must carry, or "" when the version
+	// has to be accepted.
+	want string
+	// why records what the row is for, so a failure names the rule rather
+	// than the string.
+	why string
+}
+
+// AppValidatesTheVersion asserts the version a caller states is checked
+// against the OCI tag charset, as a table rather than only by releasing.
+//
+// A table is the point. The version used to be derived from HEAD and
+// sanitized — any character outside the charset became "-" — which is the
+// right trade for a value the pipeline invented and the wrong one for a
+// value the caller states, because two versions that differ only outside
+// the charset would sanitize to one tag and the second publish would
+// silently replace the first. There is no way to observe that from a
+// release: both publishes succeed. So the rule is asserted directly, on
+// every shape of input that distinguishes it, including the accepting
+// cases — a validator that refused everything would pass a table of
+// refusals alone.
+//
+// The build is never evaluated here. Validation happens before App reads
+// anything, so a refused version costs one call and no compile, and an
+// accepted one costs the git read the fixture has already paid for.
+func (t *Tests) AppValidatesTheVersion(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	cases := []versionCase{
+		{version: "v1.2.3", why: "the ordinary tagged release"},
+		{version: "1.0.0", why: "a version with no v prefix"},
+		{version: "1.0.0-rc.1", why: "a SemVer prerelease, which is entirely inside the charset"},
+		{version: "latest", why: "a plain moving tag"},
+		{version: "_internal", why: `"_" is the one non-alphanumeric an OCI tag may open with`},
+		{version: "2026.08.12", why: "a date-shaped version"},
+		{version: "abc1234-2026-01-01T00-00-00Z", why: "the shape the old HEAD-derived version had"},
+		{version: strings.Repeat("a", 128), why: "exactly the 128-character limit"},
+
+		{version: "", want: "version is required", why: "an omitted version"},
+		{
+			version: "1.0.0+build.7",
+			want:    "build metadata",
+			why:     "SemVer build metadata, which must be refused rather than mangled",
+		},
+		{
+			version: "1.0.0+build.7",
+			// Deliberately not the bare "1.0.0": that is a prefix of the
+			// rejected version itself, which the message already quotes, so
+			// the row would pass even if the message never mentioned the
+			// collapsed tag. `release "1.0.0"` can only come from the
+			// stripped form, which is the thing two releases would silently
+			// share and the whole reason this branch is separate.
+			want: `release "1.0.0"`,
+			why:  "the refusal has to name what the two builds would collapse to",
+		},
+		{version: "-1.0.0", want: "starts with", why: `an OCI tag may not open with "-"`},
+		{version: ".1.0.0", want: "starts with", why: `an OCI tag may not open with "."`},
+		{version: "release/v1.2.3", want: "not in the OCI tag charset", why: "a slash, which the old sanitizer rewrote"},
+		{version: "v1 0", want: "not in the OCI tag charset", why: "a space"},
+		{version: "v1.0.0#1", want: "not in the OCI tag charset", why: "punctuation outside the charset"},
+		{version: strings.Repeat("a", 129), want: "OCI tag limit", why: "one character past the limit"},
+	}
+	for _, c := range cases {
+		_, err := dag.Z5Labs().Go(src).
+			App(c.version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}).
+			ID(ctx)
+		if c.want == "" {
+			if err != nil {
+				return fmt.Errorf("expected version %q to be accepted (%s), got: %v", c.version, c.why, err)
+			}
+			continue
+		}
+		if err == nil {
+			return fmt.Errorf("expected version %q to be refused (%s), got nil", c.version, c.why)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of %q (%s) to carry %q, got: %s", c.version, c.why, c.want, err.Error())
+		}
+	}
+	return nil
+}
+
+// AppRejectsSourceWithoutGitMetadata asserts App refuses a source tree
+// that is not a git working tree, and says so.
+//
+// The commit stamp comes from HEAD and from nothing else, so a tree with
+// no HEAD cannot be built into an app at all. Failing here rather than
+// somewhere inside the compile is what keeps the message about the input
+// the caller got wrong instead of about a bare git error.
+func (t *Tests) AppRejectsSourceWithoutGitMetadata(ctx context.Context) error {
+	_, err := dag.Z5Labs().Go(helloDir()).App("v1.0.0").ID(ctx)
+	if err == nil {
+		return fmt.Errorf("expected App on a source with no .git to error, got nil")
+	}
+	if !strings.Contains(err.Error(), "git working tree") {
+		return fmt.Errorf("expected the error to mention \"git working tree\", got: %s", err.Error())
+	}
+	return nil
+}
+
+// AppContainerRunsTheEntrypoint asserts App.Container produces an image
+// whose entrypoint runs the compiled binary.
+func (t *Tests) AppContainerRunsTheEntrypoint(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	out, err := dag.Z5Labs().Go(src).
+		App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}).
+		Container(hostPlatform()).
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("run the app image's entrypoint: %w", err)
+	}
+	if out != "hello\n" {
+		return fmt.Errorf("expected %q, got %q", "hello\n", out)
+	}
+	return nil
+}
+
+// AppContainersCoverEveryPlatformInOrder asserts Containers returns one
+// image per platform in the order the platforms were given, and that
+// Container names the same images individually.
+//
+// Order is asserted because it is the only thing that tells the variants
+// apart from the outside: Containers hands back containers and nothing
+// else, so a caller matching a platform to an image is matching by index.
+// Naming a platform that was not built is an error rather than an empty
+// result, because a silently absent variant is a publish that quietly
+// ships fewer architectures than it was asked for.
+func (t *Tests) AppContainersCoverEveryPlatformInOrder(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	platforms := []dagger.Platform{"linux/arm64", "linux/amd64"}
+	app := dag.Z5Labs().Go(src).App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
+	containers, err := app.Containers(ctx)
+	if err != nil {
+		return fmt.Errorf("Containers: %v", err)
+	}
+	if len(containers) != len(platforms) {
+		return fmt.Errorf("expected %d images, got %d", len(platforms), len(containers))
+	}
+	for i, want := range platforms {
+		got, err := containers[i].Platform(ctx)
+		if err != nil {
+			return fmt.Errorf("read platform of image %d: %v", i, err)
+		}
+		if got != want {
+			return fmt.Errorf("expected image %d to be %s, got %s", i, want, got)
+		}
+		single, err := app.Container(want).Platform(ctx)
+		if err != nil {
+			return fmt.Errorf("Container(%s): %v", want, err)
+		}
+		if single != want {
+			return fmt.Errorf("Container(%s) returned a %s image", want, single)
+		}
+	}
+	if _, err := app.Container("linux/riscv64").Platform(ctx); err == nil {
+		return fmt.Errorf("expected Container on a platform this app was not built for to error, got nil")
+	}
+	return nil
+}
+
+// AppImagesCarryTheStandardEnvironment asserts every image carries exactly
+// the standardized environment, and that the entrypoint does not depend on
+// it.
+//
+// Exactly, not at least: the contract an extension writes against is that
+// the environment is knowable, and a stray variable — a credential leaked
+// in from a build step, a debug flag — ships silently inside something
+// people pull. The plugin directory is asserted to be on the PATH by name
+// because that is the promise a `COPY` line is written against, and the
+// entrypoint is asserted absolute because the app must run whatever the
+// PATH says: PATH is for what an extension adds, not for finding the app.
+func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	platforms := []dagger.Platform{"linux/amd64", "linux/arm64"}
+	app := dag.Z5Labs().Go(src).App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
+	for _, platform := range platforms {
+		ctr := app.Container(platform)
+		if err := assertStandardEnvironment(ctx, ctr, string(platform)); err != nil {
+			return err
+		}
+		entrypoint, err := ctr.Entrypoint(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: read entrypoint: %v", platform, err)
+		}
+		if len(entrypoint) != 1 || !strings.HasPrefix(entrypoint[0], "/") {
+			return fmt.Errorf("%s: expected a single absolute entrypoint, got %v", platform, entrypoint)
+		}
+		// An entrypoint that happened to sit in the plugin directory would
+		// make "the app does not need the PATH" true by accident.
+		if strings.HasPrefix(entrypoint[0], wantPluginDir+"/") {
+			return fmt.Errorf("%s: the app's own binary is in the plugin directory %s, which is an extension's to fill", platform, wantPluginDir)
+		}
+	}
+	return nil
+}
+
+// assertStandardEnvironment checks ctr's environment is exactly the
+// standardized set.
+func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what string) error {
+	vars, err := ctr.EnvVariables(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: read the image environment: %v", what, err)
+	}
+	got := map[string]string{}
+	for i := range vars {
+		name, err := vars[i].Name(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: read an environment variable's name: %v", what, err)
+		}
+		value, err := vars[i].Value(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: read %s: %v", what, name, err)
+		}
+		got[name] = value
+	}
+	if len(got) != 1 {
+		return fmt.Errorf("%s: expected the image environment to be PATH alone, got %v", what, got)
+	}
+	if got["PATH"] != wantImagePath {
+		return fmt.Errorf("%s: expected PATH=%q, got %q", what, wantImagePath, got["PATH"])
+	}
+	onPath := false
+	for _, dir := range strings.Split(got["PATH"], ":") {
+		if dir == wantPluginDir {
+			onPath = true
+		}
+	}
+	if !onPath {
+		return fmt.Errorf("%s: the plugin directory %s is not on the image's PATH %q", what, wantPluginDir, got["PATH"])
+	}
+	return nil
+}
+
+// gitFixture overlays a fresh single-commit git repo on base. branch is
+// the working-branch name; tags is a slice of annotated tags created on
+// the single commit.
+//
+// The tags no longer decide anything — the version is the caller's — but a
+// fixture that can carry them keeps the git state a real repository has.
+func gitFixture(ctx context.Context, base *dagger.Directory, branch string, tags []string) (*dagger.Directory, error) {
+	ctr := dag.Go().Container(base).
 		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
 		WithEnvVariable("GIT_AUTHOR_EMAIL", "ci@example.com").
 		WithEnvVariable("GIT_COMMITTER_NAME", "CI").
 		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
-		WithExec([]string{"git", "init", "--initial-branch=main", "."}).
+		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
 		WithExec([]string{"git", "add", "."}).
 		WithExec([]string{"git", "commit", "-m", "initial"}).
-		WithExec([]string{"git", "update-ref", "refs/remotes/origin/main", "HEAD"}).
-		WithExec([]string{"git", "checkout", "--detach", "HEAD"}).
-		WithExec([]string{"git", "branch", "-D", "main"})
+		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL})
+	for _, tag := range tags {
+		ctr = ctr.WithExec([]string{"git", "tag", "-a", tag, "-m", tag})
+	}
 	if _, err := ctr.Sync(ctx); err != nil {
-		return fmt.Errorf("build detached fixture: %v", err)
+		return nil, err
 	}
-	src := ctr.Directory("/src")
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/heads/main$",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
-	if err != nil {
-		return fmt.Errorf("listTags: %v", err)
-	}
-	if len(tags) != 1 {
-		return fmt.Errorf("expected exactly 1 tag after publish, got %v", tags)
-	}
-	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", tags[0])
-	if err != nil {
-		return fmt.Errorf("curl probe: %v", err)
-	}
-	if code != 200 {
-		return fmt.Errorf("expected branch-from-origin manifest to return 200, got %d", code)
-	}
-	return nil
+	return ctr.Directory("/src"), nil
 }
 
-// GoAppCiTagBeatsBranch asserts that when both a tag and a branch ref
-// match at HEAD, both are pushed under their respective image tags
-// ("tag wins precedence" semantically means the tag-named manifest is
-// the canonical release; the spec also requires the branch-named one
-// to be pushed).
-func (t *Tests) GoAppCiTagBeatsBranch(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", []string{"v1.2.3"})
+// helloDir returns the on-disk hello (app) fixture.
+func helloDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/hello")
+}
+
+// stampedDir returns the stamped (app) fixture: a main package that
+// declares the two package-level vars the build stamps and prints them.
+func stampedDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/stamped")
+}
+
+// taggedDir returns the build-tag fixture: a main package whose output says
+// which `//go:build` constraint was selected.
+func taggedDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/tagged")
+}
+
+// helloLibDir returns the on-disk hello-lib fixture (library variant).
+func helloLibDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/hello-lib")
+}
+
+// raceLibDir returns the race-lib fixture: a library whose test passes
+// under `go test` and fails under `go test -race`.
+func raceLibDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/race-lib")
+}
+
+// failingLibDir returns the failing-lib fixture (test fails).
+func failingLibDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/failing-lib")
+}
+
+// headShortSha returns `git rev-parse --short HEAD` for a git-backed
+// source, so a test can compare the stamp against the commit it came from.
+func headShortSha(ctx context.Context, src *dagger.Directory) (string, error) {
+	out, err := dag.Go().Container(src).
+		WithExec([]string{"git", "rev-parse", "--short", "HEAD"}).
+		Stdout(ctx)
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse: %v", err)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// stampOf runs the stamped fixture's entrypoint in ctr and returns the
+// version and commit it reports.
+func stampOf(ctx context.Context, ctr *dagger.Container) (version, commit string, err error) {
+	out, err := ctr.
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
+	if err != nil {
+		return "", "", fmt.Errorf("run stamped binary: %v", err)
+	}
+	return parseStampLine(out)
+}
+
+// parseStampLine parses the stamped fixture's single line of output,
+// "version=<v> commit=<c>". Neither value can contain a space: commit is a
+// short SHA and version is an OCI-tag-safe string.
+func parseStampLine(out string) (version, commit string, err error) {
+	fields := strings.Fields(strings.TrimSpace(out))
+	if len(fields) != 2 {
+		return "", "", fmt.Errorf("unexpected stamp output %q", out)
+	}
+	version, okV := strings.CutPrefix(fields[0], "version=")
+	commit, okC := strings.CutPrefix(fields[1], "commit=")
+	if !okV || !okC {
+		return "", "", fmt.Errorf("unexpected stamp output %q", out)
+	}
+	return version, commit, nil
+}
+
+// alpineImage is the minimal container a built binary is inspected in.
+// ":latest" is a moving target, so the tag is pinned.
+const alpineImage = "alpine:3.22"
+
+// binaryContains reports whether the raw bytes of bin contain needle.
+// grep -a treats the binary as text so a match is reported rather than
+// collapsed into "binary file matches".
+func binaryContains(ctx context.Context, bin *dagger.File, needle string) (bool, error) {
+	out, err := dag.Container().From(alpineImage).
+		WithFile("/bin/app", bin).
+		WithExec([]string{"sh", "-c", `grep -a -q -- "$1" /bin/app && echo yes || echo no`, "sh", needle}).
+		Stdout(ctx)
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) == "yes", nil
+}
+
+// AppBuildTagsReachTheCompiler asserts WithBuild's tags select which files
+// compile, rather than being accepted and dropped.
+//
+// WithBuild recorded tags nothing consumed until App existed, and its doc
+// said so; App is what consumes them now, so the assertion has to live here.
+// The fixture has two files behind opposite `//go:build` constraints and
+// prints which one it was built with, so the binary's own output is the
+// evidence — and the run without tags is the control that stops the run with
+// them from passing for any other reason.
+func (t *Tests) AppBuildTagsReachTheCompiler(ctx context.Context) error {
+	src, err := gitFixture(ctx, taggedDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
 	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
+	opts := dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}
+
+	plain, err := dag.Z5Labs().Go(src).App("v1.0.0", opts).
+		Container(hostPlatform()).
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("run the untagged build: %w", err)
 	}
-	prov, err := newProvenanceHarness(ctx, "")
+	if strings.TrimSpace(plain) != "variant=default" {
+		return fmt.Errorf("expected the untagged build to report %q, got %q", "variant=default", strings.TrimSpace(plain))
+	}
+
+	tagged, err := dag.Z5Labs().Go(src).WithBuild([]string{"integration"}).App("v1.0.0", opts).
+		Container(hostPlatform()).
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("run the tagged build: %w", err)
 	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           ".*",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
-	if err != nil {
-		return fmt.Errorf("listTags: %v", err)
-	}
-	if len(tags) < 2 {
-		return fmt.Errorf("expected at least 2 tags (one branch, one tag), got %v", tags)
-	}
-	sawTag := false
-	sawBranch := false
-	for _, tg := range tags {
-		if tg == "v1.2.3" {
-			sawTag = true
-		} else if strings.Contains(tg, "-") {
-			sawBranch = true
-		}
-	}
-	if !sawTag || !sawBranch {
-		return fmt.Errorf("expected both v1.2.3 and a branch-style tag, got %v", tags)
+	if strings.TrimSpace(tagged) != "variant=integration" {
+		return fmt.Errorf("expected the build with -tags integration to report %q, got %q", "variant=integration", strings.TrimSpace(tagged))
 	}
 	return nil
 }
 
-// GoAppCiPublishesOnMatchingBranch asserts a matching branch ref
-// triggers a publish whose image tag is <shortSha>-<isoCommitTime>, and
-// that re-running Ci produces the same tag (commit-time idempotence).
-func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
+// AppStampsEveryPlatformVariant asserts a multi-platform build stamps
+// every variant with the caller's version and the commit read from HEAD.
+//
+// A publish collapses the per-platform images into a single manifest list,
+// so a stamp applied at the image or publish layer would land on an
+// artifact whose variants have already been merged; only a stamp applied in
+// the per-variant compile reaches them all. Each variant is therefore
+// checked individually: the one matching the engine's architecture is
+// executed, and the foreign one — which cannot be executed here — is
+// searched for the stamped bytes.
+func (t *Tests) AppStampsEveryPlatformVariant(ctx context.Context) error {
+	const version = "v9.9.9"
+	src, err := gitFixture(ctx, stampedDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	sha, err := headShortSha(ctx, src)
+	if err != nil {
+		return err
+	}
+	platforms := []dagger.Platform{"linux/amd64", "linux/arm64"}
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
+	for _, p := range platforms {
+		ctr := app.Container(p)
+		if p == hostPlatform() {
+			gotVersion, gotCommit, err := stampOf(ctx, ctr)
+			if err != nil {
+				return fmt.Errorf("%s: %v", p, err)
+			}
+			if gotVersion != version || gotCommit != sha {
+				return fmt.Errorf("%s: expected version=%q commit=%q, got version=%q commit=%q", p, version, sha, gotVersion, gotCommit)
+			}
+			continue
+		}
+		bin := ctr.File("/app/stamped")
+		for _, want := range []string{version, sha} {
+			found, err := binaryContains(ctx, bin, want)
+			if err != nil {
+				return fmt.Errorf("%s: scan binary: %v", p, err)
+			}
+			if !found {
+				return fmt.Errorf("%s: expected the binary to carry %q", p, want)
+			}
+		}
+		// Negative control: a scan that answers yes to everything would
+		// make the two assertions above vacuous.
+		found, err := binaryContains(ctx, bin, "v0.0.0-never-stamped")
+		if err != nil {
+			return fmt.Errorf("%s: scan binary: %v", p, err)
+		}
+		if found {
+			return fmt.Errorf("%s: binary scan reports a string that was never stamped", p)
+		}
+	}
+	return nil
+}
+
+// pinnedGitFixture overlays a git repo whose commit is a pure function of
+// the fixture's contents: the author and committer dates are pinned, so
+// two calls produce the same commit SHA and therefore the same stamp.
+//
+// nonce does two jobs, and the second one is what makes a reproducibility
+// assertion mean anything. It varies the git exec's cache key, so the two
+// calls are two git invocations rather than one cached result; and it names
+// an untracked file left in the working tree afterwards, so the two trees
+// are not byte-identical.
+//
+// Without that file the engine's content addressing would collapse the
+// second compile into the first — two identical inputs, one cached output —
+// and the test would be comparing an artifact against itself, which passes
+// however the build was written. The file is untracked and is not a Go
+// source file, so it changes neither the commit the stamps come from nor
+// anything the compiler reads: the two builds must genuinely re-run and
+// must genuinely agree.
+func pinnedGitFixture(ctx context.Context, base *dagger.Directory, branch, nonce string) (*dagger.Directory, error) {
+	const commitDate = "2024-01-02T03:04:05+00:00"
+	ctr := dag.Go().Container(base).
+		WithEnvVariable("NONCE", nonce).
+		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
+		WithEnvVariable("GIT_AUTHOR_EMAIL", "ci@example.com").
+		WithEnvVariable("GIT_AUTHOR_DATE", commitDate).
+		WithEnvVariable("GIT_COMMITTER_NAME", "CI").
+		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
+		WithEnvVariable("GIT_COMMITTER_DATE", commitDate).
+		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
+		WithExec([]string{"git", "add", "."}).
+		WithExec([]string{"git", "commit", "-m", "initial"}).
+		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL}).
+		WithNewFile("/src/untracked-"+nonce+".txt", nonce)
+	if _, err := ctr.Sync(ctx); err != nil {
+		return nil, err
+	}
+	return ctr.Directory("/src"), nil
+}
+
+// AppRebuildIsByteIdenticalPerPlatform asserts building one (commit,
+// version) pair twice produces byte-identical binaries for every platform.
+//
+// The two runs build from independently created working trees of the same
+// commit, differing by one untracked file so that the engine cannot serve
+// the second compile from the first — see pinnedGitFixture, where that is
+// the whole reason the file exists. What makes the outputs agree is that
+// the stamp and everything else in the link line are functions of the
+// commit and the stated version alone: a wall clock, a build host path or a
+// nondeterministic link order would show up here as two different digests.
+func (t *Tests) AppRebuildIsByteIdenticalPerPlatform(ctx context.Context) error {
+	const version = "v4.5.6"
+	platforms := []dagger.Platform{"linux/amd64", "linux/arm64"}
+	runs := make([]map[dagger.Platform]string, 0, 2)
+	for _, nonce := range []string{"run-a", "run-b"} {
+		src, err := pinnedGitFixture(ctx, stampedDir(), "main", nonce)
+		if err != nil {
+			return fmt.Errorf("pinnedGitFixture %s: %v", nonce, err)
+		}
+		app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: platforms})
+		digests := make(map[dagger.Platform]string, len(platforms))
+		for _, p := range platforms {
+			d, err := app.Container(p).File("/app/stamped").
+				Digest(ctx, dagger.FileDigestOpts{ExcludeMetadata: true})
+			if err != nil {
+				return fmt.Errorf("%s %s: digest: %v", nonce, p, err)
+			}
+			digests[p] = d
+		}
+		runs = append(runs, digests)
+	}
+	for _, p := range platforms {
+		if runs[0][p] != runs[1][p] {
+			return fmt.Errorf("%s: expected a byte-identical rebuild, got %q then %q", p, runs[0][p], runs[1][p])
+		}
+	}
+	return nil
+}
+
+// AppPublishReturnsDigestPinnedReferences asserts Publish reports what it
+// published, as references pinned to the digest the registry holds.
+//
+// A tag is a mutable name, so a caller anchoring an attestation, a
+// deployment or a release note to a publish has to be handed something
+// immutable. The digest is checked against the registry's own view of what
+// it stored rather than against a value this pipeline computed, which is
+// what makes it an independent check.
+func (t *Tests) AppPublishReturnsDigestPinnedReferences(ctx context.Context) error {
+	const (
+		version    = "v2.0.0"
+		repository = "hello"
+	)
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
 		return fmt.Errorf("gitFixture: %v", err)
@@ -659,50 +957,252 @@ func (t *Tests) GoAppCiPublishesOnMatchingBranch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/heads/main$",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("first Ci: %v", err)
-	}
-	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
 	if err != nil {
-		return fmt.Errorf("list tags after first publish: %v", err)
+		return fmt.Errorf("Publish: %v", err)
 	}
-	if len(tags) != 1 {
-		return fmt.Errorf("expected exactly 1 tag after first publish, got %v", tags)
+	if len(refs) != 1 {
+		return fmt.Errorf("expected 1 reference for 1 repository and 1 tag, got %v", refs)
 	}
-	tag := tags[0]
-	if !strings.Contains(tag, "-") {
-		return fmt.Errorf("expected branch image tag in form <sha>-<iso>, got %q", tag)
+	stored, err := curlManifestDigest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
+	if err != nil {
+		return fmt.Errorf("read stored digest: %v", err)
 	}
-	code, err := curlProbeManifest(ctx, svc, host, "ci", pwdHex, "hello", tag)
+	want := fmt.Sprintf("%s:5000/%s:%s@%s", registryAlias, repository, version, stored)
+	if refs[0] != want {
+		return fmt.Errorf("expected the reference %q, got %q", want, refs[0])
+	}
+	return nil
+}
+
+// AppPublishesEveryRepositoryNamed asserts one manifest list lands per
+// repository, under the app's version, with a reference returned for each.
+//
+// More than one repository in a call is not a curiosity: a release that
+// goes to a public registry and to an internal mirror is one build, and
+// re-running the build per destination would publish bytes that are only
+// probably the same.
+func (t *Tests) AppPublishesEveryRepositoryNamed(ctx context.Context) error {
+	const version = "v1.5.0"
+	repositories := []string{"hello", "z5labs/hello-mirror"}
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, repositories)
+	if err != nil {
+		return fmt.Errorf("Publish: %v", err)
+	}
+	if len(refs) != len(repositories) {
+		return fmt.Errorf("expected %d references, got %v", len(repositories), refs)
+	}
+	for i, repository := range repositories {
+		code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
+		if err != nil {
+			return fmt.Errorf("curl probe %s: %v", repository, err)
+		}
+		if code != 200 {
+			return fmt.Errorf("expected %s:%s to return 200, got %d", repository, version, code)
+		}
+		if !strings.Contains(refs[i], "/"+repository+":"+version+"@sha256:") {
+			return fmt.Errorf("expected reference %d to name %s:%s pinned to a digest, got %q", i, repository, version, refs[i])
+		}
+	}
+	// The tag listing is the check that the version is the only tag: a
+	// publish deriving a second tag from the branch or the commit would
+	// still leave every assertion above true.
+	tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, "hello")
+	if err != nil {
+		return fmt.Errorf("listTags: %v", err)
+	}
+	if len(tags) != 1 || tags[0] != version {
+		return fmt.Errorf("expected the version to be the only published tag, got %v", tags)
+	}
+	return nil
+}
+
+// AppPublishesTheContainersItReturned asserts the bytes a publish pushed
+// are the bytes Container handed back, and that the published image still
+// carries the standardized environment.
+//
+// This is the check seam. A caller inspecting an image and then publishing
+// it is only doing something meaningful if the two are the same artifact;
+// App and Container are session-cached precisely so that one chained call
+// builds once. The binary is compared by digest rather than by rerunning
+// it, and the published variant is pulled back out of the registry so the
+// comparison is against what a consumer would get.
+//
+// What this cannot distinguish on its own is a second build that happened
+// to be identical — which is exactly what AppRebuildIsByteIdenticalPerPlatform
+// says would happen. The structural half of the guarantee is the caching
+// directive; this is the half that can fail.
+func (t *Tests) AppPublishesTheContainersItReturned(ctx context.Context) error {
+	const (
+		version    = "v1.1.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	built, err := app.Container(hostPlatform()).File("/app/hello").
+		Digest(ctx, dagger.FileDigestOpts{ExcludeMetadata: true})
+	if err != nil {
+		return fmt.Errorf("digest the built binary: %v", err)
+	}
+	if _, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository}); err != nil {
+		return fmt.Errorf("Publish: %v", err)
+	}
+	pulled := pullVariant(svc, registryAlias, "ci", pwdHex, repository, version, hostPlatform(), "")
+	published, err := pulled.File("/app/hello").
+		Digest(ctx, dagger.FileDigestOpts{ExcludeMetadata: true})
+	if err != nil {
+		return fmt.Errorf("digest the published binary: %v", err)
+	}
+	if built != published {
+		return fmt.Errorf("Container returned %s, the registry holds %s", built, published)
+	}
+	return assertStandardEnvironment(ctx, pulled, "the published "+string(hostPlatform())+" variant")
+}
+
+// AppPublishRefusesAnUnusableTarget asserts the publish refuses a target it
+// cannot honour, rather than publishing somewhere the caller did not mean.
+//
+// Every case here is a refusal that has to happen before any byte moves.
+// A repository carrying a registry address is the one that would otherwise
+// succeed: "ghcr.io/z5labs/app" appended to "ghcr.io" publishes to
+// ghcr.io/ghcr.io/z5labs/app, which the registry accepts and which is
+// discovered by somebody failing to pull it.
+func (t *Tests) AppPublishRefusesAnUnusableTarget(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, _, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	app := dag.Z5Labs().Go(src).App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	configured := publishable(app, svc, secret, prov)
+
+	cases := []struct {
+		repositories []string
+		want         string
+		why          string
+	}{
+		{repositories: nil, want: "at least one repository", why: "nothing to publish to"},
+		{repositories: []string{""}, want: "repository is required", why: "an empty repository"},
+		{
+			repositories: []string{"ghcr.io/z5labs/hello"},
+			want:         "registry address",
+			why:          "a repository that is really a reference, which would otherwise publish under a doubled host",
+		},
+		{repositories: []string{"hello:v1"}, want: "must not carry a tag", why: "a tag, which the version already states"},
+		{repositories: []string{"hello@sha256:abc"}, want: "must not carry a digest", why: "a digest, which Publish returns rather than takes"},
+		{repositories: []string{"/hello"}, want: "must not start or end", why: "a leading separator"},
+	}
+	for _, c := range cases {
+		_, err := configured.Publish(ctx, c.repositories)
+		if err == nil {
+			return fmt.Errorf("expected Publish(%v) to be refused (%s), got nil", c.repositories, c.why)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of %v (%s) to carry %q, got: %s", c.repositories, c.why, c.want, err.Error())
+		}
+	}
+
+	// And two mistakes reached from the other side: no registry configured at
+	// all, and a registry configured with an empty username.
+	_, err = prov.apply(app).Publish(ctx, []string{"hello"})
+	if err == nil {
+		return fmt.Errorf("expected Publish with no registry configured to be refused, got nil")
+	}
+	if !strings.Contains(err.Error(), "withRegistry") {
+		return fmt.Errorf("expected the refusal to name withRegistry, got: %s", err.Error())
+	}
+
+	// An empty username used to fall back to "ci". Publishing as a principal
+	// the caller never named turns a typo into a 401 from the registry
+	// naming a user they have never heard of, so it is refused here instead.
+	_, err = prov.apply(app.
+		WithRegistry(registryAlias+":5000", "", secret).
+		WithRegistryService(svc).
+		WithInsecure()).
+		Publish(ctx, []string{"hello"})
+	if err == nil {
+		return fmt.Errorf("expected Publish with an empty registry username to be refused, got nil")
+	}
+	if !strings.Contains(err.Error(), "credential") {
+		return fmt.Errorf("expected the refusal to name the credential, got: %s", err.Error())
+	}
+	return nil
+}
+
+// AppRefusesPlaintextRegistryUnlessInsecure asserts TLS verification is not
+// inferred from WithRegistryService being set.
+//
+// The publish path used to disable verification whenever a service was
+// present, so a caller who supplied one for their own reasons — a private
+// registry that happens to be a Dagger service — silently published over an
+// unverified connection they never asked for. Verification is now the
+// caller's explicit choice, and with WithInsecure left off a plain-HTTP
+// registry is refused rather than accommodated.
+func (t *Tests) AppRefusesPlaintextRegistryUnlessInsecure(ctx context.Context) error {
+	const (
+		version    = "v3.0.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	_, err = prov.apply(app.
+		WithRegistry(registryAlias+":5000", "ci", secret).
+		WithRegistryService(svc)).
+		Publish(ctx, []string{repository})
+	if err == nil {
+		return fmt.Errorf("expected Publish to refuse a plain-HTTP registry with insecure off, got nil")
+	}
+	// The refusal has to mean nothing was pushed, not that the push
+	// succeeded and the report was wrong.
+	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
 	if err != nil {
 		return fmt.Errorf("curl probe: %v", err)
 	}
-	if code != 200 {
-		return fmt.Errorf("expected manifest GET for tag %q to return 200, got %d (all tags: %v)", tag, code, tags)
-	}
-	// Idempotence: second run produces the same tag (commit-time, not build-time).
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("second Ci: %v", err)
-	}
-	tags2, err := listTags(ctx, svc, host, "ci", pwdHex, "hello")
-	if err != nil {
-		return fmt.Errorf("list tags after second publish: %v", err)
-	}
-	if len(tags2) != 1 || tags2[0] != tag {
-		return fmt.Errorf("expected idempotent tag across runs, got %v then %v", tags, tags2)
+	if code == 200 {
+		return fmt.Errorf("Publish reported a failure but manifest %s is present in the registry", version)
 	}
 	return nil
 }
@@ -781,544 +1281,4 @@ func parseTagsList(body string) ([]string, error) {
 		}
 	}
 	return out, nil
-}
-
-// GoAppCiErrorsWhenPublishOnMatchesButCredsMissing asserts that when a
-// ref matches publishOn AND registry is set but auth is nil, GoApp.Ci
-// returns an explicit error rather than silently no-op'ing.
-func (t *Tests) GoAppCiErrorsWhenPublishOnMatchesButCredsMissing(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn: "^refs/heads/main$",
-		Registry:  "registry:5000",
-	}).Ci(ctx)
-	if err == nil {
-		return fmt.Errorf("expected GoApp.Ci to error on missing auth, got nil")
-	}
-	if !strings.Contains(err.Error(), "auth is required when registry is set") {
-		return fmt.Errorf("expected error to contain auth-required message, got: %s", err.Error())
-	}
-	return nil
-}
-
-// GoAppCiSkipsPublishWhenNoRefMatches asserts GoApp.Ci returns nil
-// (no publish, no error) when no HEAD ref matches publishOn, even with
-// registry + auth supplied. A bogus registry URL would error if a push
-// were attempted; success = no push attempt.
-func (t *Tests) GoAppCiSkipsPublishWhenNoRefMatches(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "feature/x", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	auth := dag.SetSecret("z5labs-skip-publish-auth", "dummy")
-	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:    "^refs/heads/main$",
-		Registry:     "registry:5000",
-		Auth:         auth,
-		AuthUsername: "ci",
-	}).Ci(ctx)
-	if err != nil {
-		return fmt.Errorf("GoApp.Ci should skip publish: %v", err)
-	}
-	return nil
-}
-
-// GoAppCiPassesForValidSource asserts GoApp.Ci runs end-to-end against
-// a git-backed source with no publish configured.
-func (t *Tests) GoAppCiPassesForValidSource(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	if _, err := dag.Z5Labs().GoApp(src).Ci(ctx); err != nil {
-		return fmt.Errorf("GoApp.Ci on git-backed hello: %v", err)
-	}
-	return nil
-}
-
-// gitFixture overlays a fresh single-commit git repo on base. branch is
-// the working-branch name; tags is a slice of annotated tags created on
-// the single commit.
-func gitFixture(ctx context.Context, base *dagger.Directory, branch string, tags []string) (*dagger.Directory, error) {
-	ctr := dag.Go().Container(base).
-		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
-		WithEnvVariable("GIT_AUTHOR_EMAIL", "ci@example.com").
-		WithEnvVariable("GIT_COMMITTER_NAME", "CI").
-		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
-		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
-		WithExec([]string{"git", "add", "."}).
-		WithExec([]string{"git", "commit", "-m", "initial"}).
-		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL})
-	for _, tag := range tags {
-		ctr = ctr.WithExec([]string{"git", "tag", "-a", tag, "-m", tag})
-	}
-	if _, err := ctr.Sync(ctx); err != nil {
-		return nil, err
-	}
-	return ctr.Directory("/src"), nil
-}
-
-// GoAppCiRejectsMissingGitDir asserts GoApp.Ci fails fast when source
-// has no .git directory.
-func (t *Tests) GoAppCiRejectsMissingGitDir(ctx context.Context) error {
-	_, err := dag.Z5Labs().GoApp(helloDir()).Ci(ctx)
-	if err == nil {
-		return fmt.Errorf("expected GoApp.Ci to error on missing .git, got nil")
-	}
-	if !strings.Contains(err.Error(), "git working tree") {
-		return fmt.Errorf("expected error to mention \"git working tree\", got: %s", err.Error())
-	}
-	return nil
-}
-
-// BuilderContainerProducesScratchImageWithBinary asserts that
-// Builder.Container produces a scratch image whose entrypoint runs the
-// embedded binary and prints "hello". The source is git-backed because
-// every build derives its stamp from HEAD.
-func (t *Tests) BuilderContainerProducesScratchImageWithBinary(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	ctr := dag.Z5Labs().GoApp(src).Builder().Container()
-	out, err := ctr.
-		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
-		Stdout(ctx)
-	if err != nil {
-		return fmt.Errorf("run scratch image entrypoint: %w", err)
-	}
-	if out != "hello\n" {
-		return fmt.Errorf("expected %q, got %q", "hello\n", out)
-	}
-	return nil
-}
-
-// BuilderBinaryProducesCompiledBinary asserts that Builder.Binary
-// returns a non-empty file named after the go.mod module basename. The
-// source is git-backed because every build derives its stamp from HEAD.
-func (t *Tests) BuilderBinaryProducesCompiledBinary(ctx context.Context) error {
-	src, err := gitFixture(ctx, helloDir(), "main", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	bin := dag.Z5Labs().GoApp(src).Builder().Binary()
-	size, err := bin.Size(ctx)
-	if err != nil {
-		return fmt.Errorf("Builder.Binary.Size: %w", err)
-	}
-	if size == 0 {
-		return fmt.Errorf("expected non-empty binary, got size 0")
-	}
-	name, err := bin.Name(ctx)
-	if err != nil {
-		return fmt.Errorf("Builder.Binary.Name: %w", err)
-	}
-	if name != "hello" {
-		return fmt.Errorf("expected binary name %q, got %q", "hello", name)
-	}
-	return nil
-}
-
-// GoCiFailsForFailingTest asserts that Go.Ci surfaces a test failure as an
-// error containing "FAIL" or "exit code: 1".
-//
-// The test stage is not opt-in — this calls Ci with no With* configuration
-// at all — so a library whose tests fail cannot pass the check by simply
-// not asking for tests.
-func (t *Tests) GoCiFailsForFailingTest(ctx context.Context) error {
-	err := dag.Z5Labs().Go(failingLibDir()).Ci(ctx)
-	if err == nil {
-		return fmt.Errorf("expected Go.Ci on failing-lib to error, got nil")
-	}
-	msg := err.Error()
-	if !strings.Contains(msg, "exit code: 1") && !strings.Contains(msg, "FAIL") {
-		return fmt.Errorf("expected error to contain \"exit code: 1\" or \"FAIL\", got: %s", msg)
-	}
-	return nil
-}
-
-// helloDir returns the on-disk hello (app) fixture.
-func helloDir() *dagger.Directory {
-	return dag.CurrentModule().Source().Directory("fixtures/hello")
-}
-
-// stampedDir returns the stamped (app) fixture: a main package that
-// declares the two package-level vars GoApp stamps and prints them.
-func stampedDir() *dagger.Directory {
-	return dag.CurrentModule().Source().Directory("fixtures/stamped")
-}
-
-// headShortSha returns `git rev-parse --short HEAD` for a git-backed
-// source, so a test can compare the stamp against the commit it came from.
-func headShortSha(ctx context.Context, src *dagger.Directory) (string, error) {
-	out, err := dag.Go().Container(src).
-		WithExec([]string{"git", "rev-parse", "--short", "HEAD"}).
-		Stdout(ctx)
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse: %v", err)
-	}
-	return strings.TrimSpace(out), nil
-}
-
-// stampOf runs the stamped fixture's entrypoint in ctr and returns the
-// version and commit it reports.
-func stampOf(ctx context.Context, ctr *dagger.Container) (version, commit string, err error) {
-	out, err := ctr.
-		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
-		Stdout(ctx)
-	if err != nil {
-		return "", "", fmt.Errorf("run stamped binary: %v", err)
-	}
-	return parseStampLine(out)
-}
-
-// parseStampLine parses the stamped fixture's single line of output,
-// "version=<v> commit=<c>". Neither value can contain a space: commit is a
-// short SHA and version is either a docker-tag-sanitized tag name or
-// "<shortSha>-<isoCommitTime>".
-func parseStampLine(out string) (version, commit string, err error) {
-	fields := strings.Fields(strings.TrimSpace(out))
-	if len(fields) != 2 {
-		return "", "", fmt.Errorf("unexpected stamp output %q", out)
-	}
-	version, okV := strings.CutPrefix(fields[0], "version=")
-	commit, okC := strings.CutPrefix(fields[1], "commit=")
-	if !okV || !okC {
-		return "", "", fmt.Errorf("unexpected stamp output %q", out)
-	}
-	return version, commit, nil
-}
-
-// alpineImage is the minimal container a built binary is inspected in.
-// ":latest" is a moving target, so the tag is pinned.
-const alpineImage = "alpine:3.22"
-
-// binaryContains reports whether the raw bytes of bin contain needle.
-// grep -a treats the binary as text so a match is reported rather than
-// collapsed into "binary file matches".
-func binaryContains(ctx context.Context, bin *dagger.File, needle string) (bool, error) {
-	out, err := dag.Container().From(alpineImage).
-		WithFile("/bin/app", bin).
-		WithExec([]string{"sh", "-c", `grep -a -q -- "$1" /bin/app && echo yes || echo no`, "sh", needle}).
-		Stdout(ctx)
-	if err != nil {
-		return false, err
-	}
-	return strings.TrimSpace(out) == "yes", nil
-}
-
-// GoAppCiStampsEveryPlatformVariant asserts a multi-platform build stamps
-// every variant. Ci collapses its per-platform images into a single
-// manifest list before publishing, so a stamp applied at the image or
-// publish layer would land on an artifact whose variants have already been
-// merged; only a stamp applied in the per-variant compile reaches them
-// all. Each variant is therefore pulled back individually: the one
-// matching the engine's architecture is executed, and the foreign one —
-// which cannot be executed here — is searched for the stamped bytes.
-func (t *Tests) GoAppCiStampsEveryPlatformVariant(ctx context.Context) error {
-	const tag = "v9.9.9"
-	src, err := gitFixture(ctx, stampedDir(), "main", []string{tag})
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	platforms := []string{"linux/amd64", "linux/arm64"}
-	_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/tags/v.+",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-		Platforms:           platforms,
-	}).Ci(ctx)
-	if err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	sha, err := headShortSha(ctx, src)
-	if err != nil {
-		return err
-	}
-	for _, p := range platforms {
-		variant := pullVariant(svc, host, "ci", pwdHex, "stamped", tag, p, "")
-		if p == hostPlatform() {
-			version, commit, err := stampOf(ctx, variant)
-			if err != nil {
-				return fmt.Errorf("%s: %v", p, err)
-			}
-			if version != tag || commit != sha {
-				return fmt.Errorf("%s: expected version=%q commit=%q, got version=%q commit=%q", p, tag, sha, version, commit)
-			}
-			continue
-		}
-		for _, want := range []string{tag, sha} {
-			found, err := binaryContains(ctx, variant.File("/app/stamped"), want)
-			if err != nil {
-				return fmt.Errorf("%s: scan binary: %v", p, err)
-			}
-			if !found {
-				return fmt.Errorf("%s: expected the binary to carry %q", p, want)
-			}
-		}
-		// Negative control: a scan that answers yes to everything
-		// would make the two assertions above vacuous.
-		found, err := binaryContains(ctx, variant.File("/app/stamped"), "v0.0.0-never-stamped")
-		if err != nil {
-			return fmt.Errorf("%s: scan binary: %v", p, err)
-		}
-		if found {
-			return fmt.Errorf("%s: binary scan reports a string that was never stamped", p)
-		}
-	}
-	return nil
-}
-
-// pinnedGitFixture overlays a git repo whose commit is a pure function of
-// the fixture's contents: the author and committer dates are pinned, so
-// two calls produce the same commit SHA and therefore the same stamp.
-//
-// nonce varies the exec's cache key so the two calls really are two
-// separate git invocations rather than one cached result — otherwise a
-// reproducibility assertion would be comparing an artifact against itself.
-func pinnedGitFixture(ctx context.Context, base *dagger.Directory, branch, nonce string) (*dagger.Directory, error) {
-	const commitDate = "2024-01-02T03:04:05+00:00"
-	ctr := dag.Go().Container(base).
-		WithEnvVariable("NONCE", nonce).
-		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
-		WithEnvVariable("GIT_AUTHOR_EMAIL", "ci@example.com").
-		WithEnvVariable("GIT_AUTHOR_DATE", commitDate).
-		WithEnvVariable("GIT_COMMITTER_NAME", "CI").
-		WithEnvVariable("GIT_COMMITTER_EMAIL", "ci@example.com").
-		WithEnvVariable("GIT_COMMITTER_DATE", commitDate).
-		WithExec([]string{"git", "init", "--initial-branch=" + branch, "."}).
-		WithExec([]string{"git", "add", "."}).
-		WithExec([]string{"git", "commit", "-m", "initial"}).
-		WithExec([]string{"git", "remote", "add", "origin", fixtureOriginURL})
-	if _, err := ctr.Sync(ctx); err != nil {
-		return nil, err
-	}
-	return ctr.Directory("/src"), nil
-}
-
-// GoAppCiRebuildIsByteIdenticalPerPlatform asserts building one commit
-// twice produces byte-identical binaries for every platform. The two runs
-// build from independently created working trees of the same commit, so
-// each is a real compile rather than a cache hit on the first — what makes
-// them agree is that both the stamp and everything else in the link line
-// are functions of the commit alone.
-func (t *Tests) GoAppCiRebuildIsByteIdenticalPerPlatform(ctx context.Context) error {
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	platforms := []string{"linux/amd64", "linux/arm64"}
-	runs := make([]map[string]string, 0, 2)
-	imageTag := ""
-	for _, nonce := range []string{"run-a", "run-b"} {
-		src, err := pinnedGitFixture(ctx, stampedDir(), "main", nonce)
-		if err != nil {
-			return fmt.Errorf("pinnedGitFixture %s: %v", nonce, err)
-		}
-		_, err = dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-			PublishOn:           "^refs/heads/main$",
-			Registry:            host + ":5000",
-			AuthUsername:        "ci",
-			Auth:                secret,
-			RegistryService:     svc,
-			IDTokenRequestURL:   prov.URL,
-			IDTokenRequestToken: prov.RequestToken,
-			IDTokenService:      prov.Service,
-			SigningKey:          prov.SigningKey,
-			Insecure:            true,
-			Platforms:           platforms,
-		}).Ci(ctx)
-		if err != nil {
-			return fmt.Errorf("Ci %s: %v", nonce, err)
-		}
-		tags, err := listTags(ctx, svc, host, "ci", pwdHex, "stamped")
-		if err != nil {
-			return fmt.Errorf("listTags %s: %v", nonce, err)
-		}
-		if len(tags) != 1 {
-			return fmt.Errorf("%s: expected exactly 1 published tag, got %v", nonce, tags)
-		}
-		if imageTag == "" {
-			imageTag = tags[0]
-		} else if tags[0] != imageTag {
-			return fmt.Errorf("expected both runs to publish tag %q, second run published %q", imageTag, tags[0])
-		}
-		// Digest eagerly: the next run overwrites this tag.
-		digests := make(map[string]string, len(platforms))
-		for _, p := range platforms {
-			d, err := pullVariant(svc, host, "ci", pwdHex, "stamped", imageTag, p, nonce).
-				File("/app/stamped").
-				Digest(ctx, dagger.FileDigestOpts{ExcludeMetadata: true})
-			if err != nil {
-				return fmt.Errorf("%s %s: digest: %v", nonce, p, err)
-			}
-			digests[p] = d
-		}
-		runs = append(runs, digests)
-	}
-	for _, p := range platforms {
-		if runs[0][p] != runs[1][p] {
-			return fmt.Errorf("%s: expected byte-identical rebuild, got %q then %q", p, runs[0][p], runs[1][p])
-		}
-	}
-	return nil
-}
-
-// GoAppCiStampedBinaryMatchesImageTagAndBuilder asserts three things about
-// a binary Ci built, by pulling it back out of the registry and running
-// it: it reports a version and a commit at all; its version is exactly the
-// tag of the image carrying it, which is what makes the two agree by
-// construction on the branch rule "<shortSha>-<isoCommitTime>"; and
-// Builder produces the identical stamp, so a local build is the same
-// artifact.
-func (t *Tests) GoAppCiStampedBinaryMatchesImageTagAndBuilder(ctx context.Context) error {
-	src, err := gitFixture(ctx, stampedDir(), "main", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	svc, pwdHex, secret, err := localRegistry(ctx)
-	if err != nil {
-		return err
-	}
-	prov, err := newProvenanceHarness(ctx, "")
-	if err != nil {
-		return err
-	}
-	const host = registryAlias
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn:           "^refs/heads/main$",
-		Registry:            host + ":5000",
-		AuthUsername:        "ci",
-		Auth:                secret,
-		RegistryService:     svc,
-		IDTokenRequestURL:   prov.URL,
-		IDTokenRequestToken: prov.RequestToken,
-		IDTokenService:      prov.Service,
-		SigningKey:          prov.SigningKey,
-		Insecure:            true,
-		Platforms:           []string{hostPlatform()},
-	})
-	if _, err := app.Ci(ctx); err != nil {
-		return fmt.Errorf("Ci: %v", err)
-	}
-	tags, err := listTags(ctx, svc, host, "ci", pwdHex, "stamped")
-	if err != nil {
-		return fmt.Errorf("listTags: %v", err)
-	}
-	if len(tags) != 1 {
-		return fmt.Errorf("expected exactly 1 published tag, got %v", tags)
-	}
-	imageTag := tags[0]
-
-	version, commit, err := stampOf(ctx, pullVariant(svc, host, "ci", pwdHex, "stamped", imageTag, hostPlatform(), ""))
-	if err != nil {
-		return err
-	}
-	sha, err := headShortSha(ctx, src)
-	if err != nil {
-		return err
-	}
-	if commit != sha {
-		return fmt.Errorf("expected commit stamp %q, got %q", sha, commit)
-	}
-	if version != imageTag {
-		return fmt.Errorf("expected stamped version to equal image tag %q, got %q", imageTag, version)
-	}
-
-	localVersion, localCommit, err := stampOf(ctx, app.Builder().Container())
-	if err != nil {
-		return fmt.Errorf("Builder: %v", err)
-	}
-	if localVersion != version || localCommit != commit {
-		return fmt.Errorf(
-			"expected Builder to stamp as Ci did (version=%q commit=%q), got version=%q commit=%q",
-			version, commit, localVersion, localCommit,
-		)
-	}
-	return nil
-}
-
-// GoAppStampsWhenPublishOnDoesNotMatch asserts stamping is not gated on
-// publishOn: a build from a branch the publish filter rejects still
-// carries a version and commit derived from HEAD.
-func (t *Tests) GoAppStampsWhenPublishOnDoesNotMatch(ctx context.Context) error {
-	src, err := gitFixture(ctx, stampedDir(), "feature/x", nil)
-	if err != nil {
-		return fmt.Errorf("gitFixture: %v", err)
-	}
-	app := dag.Z5Labs().GoApp(src, dagger.Z5LabsGoAppOpts{
-		PublishOn: "^refs/heads/main$",
-	})
-	version, commit, err := stampOf(ctx, app.Builder().Container())
-	if err != nil {
-		return err
-	}
-	sha, err := headShortSha(ctx, src)
-	if err != nil {
-		return err
-	}
-	if commit != sha {
-		return fmt.Errorf("expected commit stamp %q, got %q", sha, commit)
-	}
-	// The branch rule: "<shortSha>-<isoCommitTime>". "dev" is the
-	// fixture's own default, i.e. an unstamped build.
-	if !strings.HasPrefix(version, sha+"-") {
-		return fmt.Errorf("expected version stamp to start with %q, got %q", sha+"-", version)
-	}
-	return nil
-}
-
-// GoAppBuildFailsWithoutGitMetadata asserts a source with no git metadata
-// at HEAD fails with a message about the stamp rather than leaking a bare
-// git error. Builder is the path that reaches the build without Ci's
-// working-tree precondition.
-func (t *Tests) GoAppBuildFailsWithoutGitMetadata(ctx context.Context) error {
-	_, err := dag.Z5Labs().GoApp(stampedDir()).Builder().Binary().Size(ctx)
-	if err == nil {
-		return fmt.Errorf("expected Builder.Binary to error without git metadata, got nil")
-	}
-	if !strings.Contains(err.Error(), "could not derive build stamp") {
-		return fmt.Errorf("expected a stamp-derivation message, got: %s", err.Error())
-	}
-	return nil
-}
-
-// helloLibDir returns the on-disk hello-lib fixture (library variant).
-func helloLibDir() *dagger.Directory {
-	return dag.CurrentModule().Source().Directory("fixtures/hello-lib")
-}
-
-// raceLibDir returns the race-lib fixture: a library whose test passes
-// under `go test` and fails under `go test -race`.
-func raceLibDir() *dagger.Directory {
-	return dag.CurrentModule().Source().Directory("fixtures/race-lib")
-}
-
-// failingLibDir returns the failing-lib fixture (test fails).
-func failingLibDir() *dagger.Directory {
-	return dag.CurrentModule().Source().Directory("fixtures/failing-lib")
 }

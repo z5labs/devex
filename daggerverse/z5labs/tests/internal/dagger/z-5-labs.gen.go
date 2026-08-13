@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Z5Labs
-func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:26:6)
+func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	q := r.query.Select("asZ5Labs")
 
 	return &Z5Labs{
@@ -18,26 +18,17 @@ func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5l
 	}
 }
 
-// Retrieve the binding value, as type Z5LabsBuilder
-func (r *Binding) AsZ5LabsBuilder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
-	q := r.query.Select("asZ5LabsBuilder")
+// Retrieve the binding value, as type Z5LabsApp
+func (r *Binding) AsZ5LabsApp() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:41:6)
+	q := r.query.Select("asZ5LabsApp")
 
-	return &Z5LabsBuilder{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type Z5LabsGoApp
-func (r *Binding) AsZ5LabsGoApp() *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/goapp.go:14:6)
-	q := r.query.Select("asZ5LabsGoApp")
-
-	return &Z5LabsGoApp{
+	return &Z5LabsApp{
 		query: q,
 	}
 }
 
 // Retrieve the binding value, as type Z5LabsGoChain
-func (r *Binding) AsZ5LabsGoChain() *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
+func (r *Binding) AsZ5LabsGoChain() *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:37:6)
 	q := r.query.Select("asZ5LabsGoChain")
 
 	return &Z5LabsGoChain{
@@ -45,10 +36,10 @@ func (r *Binding) AsZ5LabsGoChain() *Z5LabsGoChain { // z5labs (../../../../../d
 	}
 }
 
-// Create or update a binding of type Z5LabsBuilder in the environment
-func (r *Env) WithZ5LabsBuilderInput(name string, value *Z5LabsBuilder, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
+// Create or update a binding of type Z5LabsApp in the environment
+func (r *Env) WithZ5LabsAppInput(name string, value *Z5LabsApp, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/app.go:41:6)
 	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsBuilderInput")
+	q := r.query.Select("withZ5LabsAppInput")
 	q = q.Arg("name", name)
 	q = q.Arg("value", value)
 	q = q.Arg("description", description)
@@ -58,33 +49,9 @@ func (r *Env) WithZ5LabsBuilderInput(name string, value *Z5LabsBuilder, descript
 	}
 }
 
-// Declare a desired Z5LabsBuilder output to be assigned in the environment
-func (r *Env) WithZ5LabsBuilderOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
-	q := r.query.Select("withZ5LabsBuilderOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Z5LabsGoApp in the environment
-func (r *Env) WithZ5LabsGoAppInput(name string, value *Z5LabsGoApp, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/goapp.go:14:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withZ5LabsGoAppInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Z5LabsGoApp output to be assigned in the environment
-func (r *Env) WithZ5LabsGoAppOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/goapp.go:14:6)
-	q := r.query.Select("withZ5LabsGoAppOutput")
+// Declare a desired Z5LabsApp output to be assigned in the environment
+func (r *Env) WithZ5LabsAppOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/app.go:41:6)
+	q := r.query.Select("withZ5LabsAppOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
 
@@ -94,7 +61,7 @@ func (r *Env) WithZ5LabsGoAppOutput(name string, description string) *Env { // z
 }
 
 // Create or update a binding of type Z5LabsGoChain in the environment
-func (r *Env) WithZ5LabsGoChainInput(name string, value *Z5LabsGoChain, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
+func (r *Env) WithZ5LabsGoChainInput(name string, value *Z5LabsGoChain, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/go.go:37:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsGoChainInput")
 	q = q.Arg("name", name)
@@ -107,7 +74,7 @@ func (r *Env) WithZ5LabsGoChainInput(name string, value *Z5LabsGoChain, descript
 }
 
 // Declare a desired Z5LabsGoChain output to be assigned in the environment
-func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
+func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/go.go:37:6)
 	q := r.query.Select("withZ5LabsGoChainOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -118,7 +85,7 @@ func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Z5Labs in the environment
-func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:26:6)
+func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsInput")
 	q = q.Arg("name", name)
@@ -131,7 +98,7 @@ func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *E
 }
 
 // Declare a desired Z5Labs output to be assigned in the environment
-func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:26:6)
+func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	q := r.query.Select("withZ5LabsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -141,9 +108,9 @@ func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs
 	}
 }
 
-// Z5labs is the root module type. Construct the Go language chain via Go,
-// and the release pipeline via GoApp.
-func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:26:6)
+// Z5labs is the root module type. Construct the Go language chain via Go;
+// everything this module does is reached from there.
+func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	q := r.query.Select("z5Labs")
 
 	return &Z5Labs{
@@ -151,12 +118,13 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 	}
 }
 
-// Z5labs is the root module type. Construct the Go language chain via Go,
-// and the release pipeline via GoApp.
-type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:26:6)
+// Z5labs is the root module type. Construct the Go language chain via Go;
+// everything this module does is reached from there.
+type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	query *querybuilder.Selection
 
-	id *ID
+	id                       *ID
+	imageEnvironmentSelfTest *Void
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -168,214 +136,21 @@ func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
 // Go returns the Go language chain bound to source: the standardized
 // checks — gofmt, go vet, golangci-lint and `go test -race` — over a Go
 // source tree, configured by the chain's With* methods and run by its
-// terminal Ci.
+// terminal Ci, plus the build terminal App.
 //
-// This is what a Go library needs and all it needs, which is why the
-// library archetype it replaces is gone: a library is a source tree you
-// never build an application from. An application starts here too; the
-// build and the publish sit downstream of this chain rather than beside it.
+// This is what a Go library needs and all it needs, which is why there is
+// no library archetype: a library is a source tree you never call App on.
+// An application starts here too; the build and the publish sit downstream
+// of this chain rather than beside it.
 //
 // The returned object is GoChain rather than Go because the `go` module
 // this one depends on already owns that name — see GoChain's doc comment.
-func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:42:1)
+func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:75:1)
 	assertNotNil("source", source)
 	q := r.query.Select("go")
 	q = q.Arg("source", source)
 
 	return &Z5LabsGoChain{
-		query: q,
-	}
-}
-
-// Z5LabsGoAppOpts contains options for Z5Labs.GoApp
-type Z5LabsGoAppOpts struct {
-
-	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/main.go:92:2)
-
-	BinaryName string // z5labs (../../../../../daggerverse/z5labs/main.go:94:2)
-
-	// Default: "^refs/heads/main$"
-	PublishOn string // z5labs (../../../../../daggerverse/z5labs/main.go:97:2)
-
-	Registry string // z5labs (../../../../../daggerverse/z5labs/main.go:99:2)
-
-	// Default: "ci"
-	AuthUsername string // z5labs (../../../../../daggerverse/z5labs/main.go:102:2)
-
-	Auth *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:104:2)
-	//
-	// A `.golangci.yml` replacing the bundled default policy.
-	//
-	// The lint stage runs golangci-lint v2, so this file must be written
-	// in the v2 dialect — it has to open with `version: "2"`. The majors
-	// are not interchangeable: a v2 binary refuses a v1 file outright,
-	// before running any linter. Pass lintVersion to move the whole stage,
-	// dialect included, to another release.
-	//
-	LintConfig *File // z5labs (../../../../../daggerverse/z5labs/main.go:114:2)
-	//
-	// The golangci-lint release the lint stage installs, e.g. "v2.12.2".
-	// Empty takes the version pinned by the `go` module, which is a v2
-	// release; pinning a "v1.x" release here rolls the stage — and the
-	// config dialect it requires — back to v1.
-	//
-	LintVersion string // z5labs (../../../../../daggerverse/z5labs/main.go:121:2)
-
-	Platforms []string // z5labs (../../../../../daggerverse/z5labs/main.go:123:2)
-
-	RegistryService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:125:2)
-
-	Insecure bool // z5labs (../../../../../daggerverse/z5labs/main.go:127:2)
-	//
-	// The CI provider's OIDC token request endpoint —
-	// `ACTIONS_ID_TOKEN_REQUEST_URL` on GitHub Actions, and whatever the
-	// equivalent is elsewhere. Required for any run that publishes.
-	//
-	IDTokenRequestURL string // z5labs (../../../../../daggerverse/z5labs/main.go:133:2)
-	//
-	// The bearer token for that endpoint —
-	// `ACTIONS_ID_TOKEN_REQUEST_TOKEN` on GitHub Actions. A secret,
-	// because it is a credential for minting identity tokens. Required
-	// for any run that publishes.
-	//
-	IDTokenRequestToken *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:140:2)
-	//
-	// A Dagger-hosted OIDC token endpoint, reached over the session
-	// network instead of the public one. When set, its engine-assigned
-	// endpoint replaces the host in idTokenRequestUrl; the path and query
-	// stay the caller's, because those are part of the provider's
-	// protocol.
-	//
-	// This exists for the same reason registryService does: a service's
-	// address is not known until the engine assigns one, so it cannot be
-	// written into a URL ahead of time. It is used by the test suite,
-	// which runs a real token endpoint, and by anyone whose issuer is
-	// itself a Dagger service.
-	//
-	IDTokenService *Service // z5labs (../../../../../daggerverse/z5labs/main.go:154:2)
-	//
-	// A PEM-encoded EC private key to sign the provenance with, instead
-	// of an ephemeral key certified by the public sigstore CA.
-	//
-	// This selects the signing mode and nothing else: the workload
-	// identity token is still exchanged, and the predicate still says
-	// only what that token's claims say. Use it for a build that cannot
-	// reach a public CA. Leaving it unset is keyless signing and is what
-	// a normal CI publish should do.
-	//
-	SigningKey *Secret // z5labs (../../../../../daggerverse/z5labs/main.go:165:2)
-}
-
-// GoApp wires up an opinionated CI/release pipeline for a `package main`
-// Go application. Call Ci to run checks + multi-arch buildpublish, or Builder to produce the same image single-arch locally.
-//
-// Every binary GoApp builds is stamped at link time with the version and
-// the commit it was built from, so an application can answer "which build
-// am I running" without a second build definition beside this one. Declare
-// these two package-level vars in your main package and they are filled in:
-//
-//	var (
-//		version = "dev"
-//		commit  = "none"
-//	)
-//
-// The names are fixed by the module — `main.version` and `main.commit` —
-// and the values are taken from HEAD, never from a parameter. A tag
-// pointing at HEAD gives version the stripped tag name; anything else
-// gives "<shortSha>-<isoCommitTime>", the same rule the published image
-// tag follows, so the two agree by construction. commit is the short HEAD
-// SHA. Because both are functions of the commit alone, two builds of one
-// commit are byte-identical; there is no caller-supplied value that could
-// break that. Source without git metadata at HEAD is an error.
-//
-// publishOn is a regex evaluated against source repo's HEAD refs (after
-// normalizing `refs/remotes/origin/X` → `refs/heads/X`); matches trigger
-// publish. When registry is set, auth is required.
-//
-// platforms defaults to ["linux/amd64","linux/arm64"].
-//
-// registryService, when non-nil, is a Dagger-hosted registry reached over
-// the session network instead of over the public network — used by tests
-// against a local registry service and by callers whose private registry
-// is itself a Dagger service. Its endpoint is assigned by the engine, so
-// it replaces registry as the address published to; registry is still
-// what decides that a publish happens at all.
-//
-// insecure means plain HTTP and no TLS verification, and it is off unless
-// the caller asks for it. It is deliberately not inferred from
-// registryService being set: that inference made a caller who supplied a
-// service for their own reasons silently publish over an unverified
-// connection. It is spelled insecure rather than tlsVerify because a bool
-// defaulting to true cannot be turned off from the CLI.
-func (r *Z5Labs) GoApp(source *Directory, opts ...Z5LabsGoAppOpts) *Z5LabsGoApp { // z5labs (../../../../../daggerverse/z5labs/main.go:88:1)
-	assertNotNil("source", source)
-	q := r.query.Select("goApp")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `pkg` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Pkg) {
-			q = q.Arg("pkg", opts[i].Pkg)
-		}
-		// `binaryName` optional argument
-		if !querybuilder.IsZeroValue(opts[i].BinaryName) {
-			q = q.Arg("binaryName", opts[i].BinaryName)
-		}
-		// `publishOn` optional argument
-		if !querybuilder.IsZeroValue(opts[i].PublishOn) {
-			q = q.Arg("publishOn", opts[i].PublishOn)
-		}
-		// `registry` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Registry) {
-			q = q.Arg("registry", opts[i].Registry)
-		}
-		// `authUsername` optional argument
-		if !querybuilder.IsZeroValue(opts[i].AuthUsername) {
-			q = q.Arg("authUsername", opts[i].AuthUsername)
-		}
-		// `auth` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Auth) {
-			q = q.Arg("auth", opts[i].Auth)
-		}
-		// `lintConfig` optional argument
-		if !querybuilder.IsZeroValue(opts[i].LintConfig) {
-			q = q.Arg("lintConfig", opts[i].LintConfig)
-		}
-		// `lintVersion` optional argument
-		if !querybuilder.IsZeroValue(opts[i].LintVersion) {
-			q = q.Arg("lintVersion", opts[i].LintVersion)
-		}
-		// `platforms` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Platforms) {
-			q = q.Arg("platforms", opts[i].Platforms)
-		}
-		// `registryService` optional argument
-		if !querybuilder.IsZeroValue(opts[i].RegistryService) {
-			q = q.Arg("registryService", opts[i].RegistryService)
-		}
-		// `insecure` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Insecure) {
-			q = q.Arg("insecure", opts[i].Insecure)
-		}
-		// `idTokenRequestUrl` optional argument
-		if !querybuilder.IsZeroValue(opts[i].IDTokenRequestURL) {
-			q = q.Arg("idTokenRequestUrl", opts[i].IDTokenRequestURL)
-		}
-		// `idTokenRequestToken` optional argument
-		if !querybuilder.IsZeroValue(opts[i].IDTokenRequestToken) {
-			q = q.Arg("idTokenRequestToken", opts[i].IDTokenRequestToken)
-		}
-		// `idTokenService` optional argument
-		if !querybuilder.IsZeroValue(opts[i].IDTokenService) {
-			q = q.Arg("idTokenService", opts[i].IDTokenService)
-		}
-		// `signingKey` optional argument
-		if !querybuilder.IsZeroValue(opts[i].SigningKey) {
-			q = q.Arg("signingKey", opts[i].SigningKey)
-		}
-	}
-	q = q.Arg("source", source)
-
-	return &Z5LabsGoApp{
 		query: q,
 	}
 }
@@ -429,6 +204,34 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// ImageEnvironmentSelfTest checks the rule every published image is held to:
+// its environment is exactly the standardized set, and anything else — a
+// stray variable, a changed value, a missing one — is refused.
+//
+// It sits on the module rather than in tests/ because the rule it checks is
+// unexported and, more to the point, because its most important case cannot
+// be reached from tests/ at all. Nothing caller-facing can put a variable on
+// an image, which is by design; the consequence is that the branch refusing
+// a stray variable is unexecutable through the public API, so a suite built
+// out of real images can only ever exercise the passing case. Splitting the
+// comparison out and driving it here is what makes the refusal a guarantee
+// rather than a comment — delete it and this check goes red.
+//
+// It also pins the standardized set itself: that PATH is the only variable,
+// and that the plugin directory is on it. Both are things other people write
+// Dockerfiles against.
+//
+// It runs in process and needs no container, so it is cheap enough to be a
+// check of its own.
+func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:31:1)
+	if r.imageEnvironmentSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("imageEnvironmentSelfTest")
+
+	return q.Execute(ctx)
+}
+
 // AsNode returns this Z5Labs as a Node.
 // This is a local type conversion — no GraphQL call.
 func (r *Z5Labs) AsNode() Node {
@@ -437,44 +240,116 @@ func (r *Z5Labs) AsNode() Node {
 	}
 }
 
-// Builder produces the same image GoApp.Ci would publish, single-arch
-// (host platform). Used for local development to verify the artifact
-// before pushing. Both of its functions route through the same
-// per-platform build Ci uses, so the binary carries the same version and
-// commit stamp and a local build is the same artifact.
-type Z5LabsBuilder struct { // z5labs (../../../../../daggerverse/z5labs/builder.go:15:6)
+// App is a built application: one container image per platform, the
+// documents describing each of them, and the version they all carry.
+// Construct it with GoChain.App and publish it with Publish.
+//
+// # It does not know what built it
+//
+// App holds images, documents and build facts — never a binary, never a
+// source tree, never a name. That is why there is no binary-name input and
+// no Binary accessor: an application's binary name is a detail of the
+// language chain that compiled it, and an App that carried one would make
+// every future chain — a Zig chain, a Java chain, an App assembled from
+// nothing at all — have to invent one.
+//
+// The consequence worth stating is that App cannot generate its own SBOMs.
+// `dag.Go().Spdx(binary, source)` needs both of the things App refuses to
+// hold, so the documents are generated by the chain at App time and carried
+// here as opaque attachments: a file and an artifact type. Publish attaches
+// them without ever learning that any of them is an SBOM, which is the
+// separation daggerverse/CLAUDE.md asks for and costs nothing, because
+// dag.Go().Spdx returns a lazy *dagger.File that no unpublished app ever
+// evaluates.
+//
+// # Configuration is chained, not constructed
+//
+// Where the images are published, whose identity vouches for them and
+// whether the connection is verified are all With* methods rather than
+// constructor arguments, because none of them is a property of the
+// artifact. The same App can be published to a mirror, to an internal
+// registry, or nowhere at all.
+type Z5LabsApp struct { // z5labs (../../../../../daggerverse/z5labs/app.go:41:6)
 	query *querybuilder.Selection
 
 	id *ID
 }
+type WithZ5LabsAppFunc func(r *Z5LabsApp) *Z5LabsApp
 
-func (r *Z5LabsBuilder) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsBuilder {
-	return &Z5LabsBuilder{
+// With calls the provided function with current Z5LabsApp.
+//
+// This is useful for reusability and readability by not breaking the calling chain.
+func (r *Z5LabsApp) With(f WithZ5LabsAppFunc) *Z5LabsApp {
+	return f(r)
+}
+
+func (r *Z5LabsApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsApp {
+	return &Z5LabsApp{
 		query: q,
 	}
 }
 
-// Binary returns the host-platform compiled binary as a *dagger.File.
-func (r *Z5LabsBuilder) Binary() *File { // z5labs (../../../../../daggerverse/z5labs/builder.go:44:1)
-	q := r.query.Select("binary")
-
-	return &File{
-		query: q,
-	}
-}
-
-// Container returns the host-platform scratch image containing the
-// compiled binary at /app/<binaryName> with that path as entrypoint.
-func (r *Z5LabsBuilder) Container() *Container { // z5labs (../../../../../daggerverse/z5labs/builder.go:24:1)
+// Container returns the image built for platform.
+//
+// This is the same container Publish pushes, not a second build that merely
+// agrees with it: GoChain.App and this method are both session-cached, so
+// within one chained call the app is built once and everything downstream —
+// a check on the image, the publish, an export — sees those exact bytes.
+// That is what makes a check seam meaningful, and it is why the caching is
+// part of the API rather than an optimization.
+//
+// The guarantee is bounded by the session. Two separate `dagger call`
+// invocations are two sessions and two builds, and while a build of one
+// (commit, version) pair is byte-identical to another by construction,
+// nothing here promises that the second invocation reuses the first's
+// containers. A caller that needs one build inspected and then published
+// chains both onto one call.
+func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (../../../../../daggerverse/z5labs/app.go:132:1)
 	q := r.query.Select("container")
+	q = q.Arg("platform", platform)
 
 	return &Container{
 		query: q,
 	}
 }
 
-// A unique identifier for this Z5LabsBuilder.
-func (r *Z5LabsBuilder) ID(ctx context.Context) (ID, error) {
+// Containers returns every platform's image, in the order the platforms
+// were given to App. Same guarantee, and the same session bound, as
+// Container.
+func (r *Z5LabsApp) Containers(ctx context.Context) ([]Container, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:146:1)
+	q := r.query.Select("containers")
+
+	q = q.Select("id")
+
+	type containers struct {
+		Id ID
+	}
+
+	convert := func(fields []containers) []Container {
+		out := []Container{}
+
+		for i := range fields {
+			val := Container{id: &fields[i].Id}
+			val.query = selectNode(q.Root(), fields[i].Id, "Container")
+			out = append(out, val)
+		}
+
+		return out
+	}
+	var response []containers
+
+	q = q.Bind(&response)
+
+	err := q.Execute(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return convert(response), nil
+}
+
+// A unique identifier for this Z5LabsApp.
+func (r *Z5LabsApp) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
@@ -487,17 +362,17 @@ func (r *Z5LabsBuilder) ID(ctx context.Context) (ID, error) {
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *Z5LabsBuilder) XXX_GraphQLType() string {
-	return "Z5LabsBuilder"
+func (r *Z5LabsApp) XXX_GraphQLType() string {
+	return "Z5LabsApp"
 }
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *Z5LabsBuilder) XXX_GraphQLIDType() string {
+func (r *Z5LabsApp) XXX_GraphQLIDType() string {
 	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *Z5LabsBuilder) XXX_GraphQLID(ctx context.Context) (string, error) {
+func (r *Z5LabsApp) XXX_GraphQLID(ctx context.Context) (string, error) {
 	id, err := r.ID(ctx)
 	if err != nil {
 		return "", err
@@ -505,147 +380,191 @@ func (r *Z5LabsBuilder) XXX_GraphQLID(ctx context.Context) (string, error) {
 	return string(id), nil
 }
 
-func (r *Z5LabsBuilder) MarshalJSON() ([]byte, error) {
+func (r *Z5LabsApp) MarshalJSON() ([]byte, error) {
 	id, err := r.ID(marshalCtx)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(id)
 }
-func (r *Z5LabsBuilder) UnmarshalJSON(bs []byte) error {
+func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 	var id string
 	err := json.Unmarshal(bs, &id)
 	if err != nil {
 		return err
 	}
-	*r = Z5LabsBuilder{query: selectNode(dag.query, id, "Z5LabsBuilder")}
+	*r = Z5LabsApp{query: selectNode(dag.query, id, "Z5LabsApp")}
 	return nil
 }
 
-// AsNode returns this Z5LabsBuilder as a Node.
-// This is a local type conversion — no GraphQL call.
-func (r *Z5LabsBuilder) AsNode() Node {
-	return &NodeClient{
-		query: r.query,
-	}
-}
-
-// GoApp is the application archetype. Construct via Z5labs.GoApp.
-type Z5LabsGoApp struct { // z5labs (../../../../../daggerverse/z5labs/goapp.go:14:6)
-	query *querybuilder.Selection
-
-	ci *string
-	id *ID
-}
-
-func (r *Z5LabsGoApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoApp {
-	return &Z5LabsGoApp{
-		query: q,
-	}
-}
-
-// Builder returns the local-dev sibling that produces the same image CI
-// would publish, single-arch (host platform).
-func (r *Z5LabsGoApp) Builder() *Z5LabsBuilder { // z5labs (../../../../../daggerverse/z5labs/goapp.go:380:1)
-	q := r.query.Select("builder")
-
-	return &Z5LabsBuilder{
-		query: q,
-	}
-}
-
-// Ci runs the standardized GoApp pipeline: verify .git exists, run the
-// shared check stages (fmt+vet+lint+test -race) once, build a scratch
-// image per platform, then conditionally publish per the publishOn
-// filter.
+// Publish pushes this app to every repository named and returns one
+// digest-pinned reference per published tag.
 //
-// It returns the digest of what was published — the manifest list naming
-// every platform variant, or the single image manifest when only one
-// platform was built. Every matching ref publishes the same bytes under
-// its own tag, so one digest describes them all. A run that publishes
-// nothing — no ref matched, or no registry was configured — returns the
-// empty string rather than an error.
+// Each repository is a *path* appended to the address given to
+// WithRegistry: "z5labs/hello" against "ghcr.io" publishes
+// ghcr.io/z5labs/hello. The registry stays a separate input because a
+// mirror or an internal registry serves the same release, and the
+// repository is stated here rather than derived from the binary because the
+// two are not the same thing — a binary called `hello` is routinely
+// published as `hello-service`.
 //
-// Returning the digest rather than only an error is what lets a caller
-// reference what was published: an attestation, a deployment manifest or
-// a release note has to name an immutable artifact, and a tag is not one.
+// One manifest list is pushed per repository, naming every platform
+// variant, so a consumer pulls a repository and gets their architecture.
+// The returned references are `<address>/<repository>:<version>@<digest>`:
+// pinned, because a tag is a mutable name and a caller anchoring a
+// deployment or a release note to what shipped has to be able to name
+// immutable bytes.
 //
-// Every published image carries the standard OCI source annotations —
-// revision, source, created, and version on a tag build — on each
-// platform variant, and every published digest carries three
-// attestations: an SPDX and a CycloneDX SBOM per platform, produced by
-// the `go` module from the binaries this pipeline compiled, and a signed
-// SLSA provenance statement whose build identity comes from an exchanged
-// workload identity token. A publish that cannot produce provenance
-// fails rather than publishing without it.
+// Every published digest carries an SPDX and a CycloneDX document per
+// platform and a signed SLSA provenance statement whose build identity
+// comes from an exchanged workload identity token. A publish that cannot
+// produce provenance fails rather than publishing without it — see
+// newSigner.
 //
-// Publish is a side-effecting operation against an external registry, so
-// the whole pipeline is uncached — re-runs (e.g. after a retry, or after
-// a new ref appears within the same engine session) must actually push.
-func (r *Z5LabsGoApp) Ci(ctx context.Context) (string, error) { // z5labs (../../../../../daggerverse/z5labs/goapp.go:80:1)
-	if r.ci != nil {
-		return *r.ci, nil
-	}
-	q := r.query.Select("ci")
+// Repositories are published in the order given, and the operation is not
+// atomic: a failure part way through leaves the earlier repositories
+// published, and says which ones in its error. A registry has no transaction
+// spanning repositories, so the alternative to saying so is not atomicity —
+// it is a caller who cannot tell what shipped.
+//
+// Publishing is a side effect against an external registry, so it is
+// uncached: a re-run must actually push. The build above it is session
+// cached, so the bytes pushed are the bytes Container returned.
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:295:1)
+	q := r.query.Select("publish")
+	q = q.Arg("repositories", repositories)
 
-	var response string
+	var response []string
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
 }
 
-// A unique identifier for this Z5LabsGoApp.
-func (r *Z5LabsGoApp) ID(ctx context.Context) (ID, error) {
-	if r.id != nil {
-		return *r.id, nil
+// WithInsecure publishes over plain HTTP with no TLS verification.
+//
+// It is off unless a caller asks for it, and it is deliberately not
+// inferred from WithRegistryService being set: that inference made a caller
+// who supplied a service for their own reasons silently publish over an
+// unverified connection. It is spelled insecure rather than tlsVerify
+// because a bool defaulting to true cannot be turned off from the CLI —
+// which is also why this method takes no argument at all.
+func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:225:1)
+	q := r.query.Select("withInsecure")
+
+	return &Z5LabsApp{
+		query: q,
 	}
-	q := r.query.Select("id")
-
-	var response ID
-
-	q = q.Bind(&response)
-	return response, q.Execute(ctx)
 }
 
-// XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *Z5LabsGoApp) XXX_GraphQLType() string {
-	return "Z5LabsGoApp"
-}
+// WithOidc supplies the CI provider's OIDC token request machinery, which
+// is what a publish signs its provenance with.
+//
+// requestUrl is the token request endpoint — ACTIONS_ID_TOKEN_REQUEST_URL
+// on GitHub Actions, and whatever the equivalent is elsewhere.
+// requestToken is the bearer for it, a secret because it is a credential
+// for minting identity tokens.
+//
+// There is deliberately no repository, ref or commit parameter beside them.
+// Every identifying field in the provenance comes out of the exchanged
+// token's claims, because anything a caller could have supplied attests to
+// nothing.
+func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:193:1)
+	assertNotNil("requestToken", requestToken)
+	q := r.query.Select("withOidc")
+	q = q.Arg("requestUrl", requestUrl)
+	q = q.Arg("requestToken", requestToken)
 
-// XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *Z5LabsGoApp) XXX_GraphQLIDType() string {
-	return "ID"
-}
-
-// XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *Z5LabsGoApp) XXX_GraphQLID(ctx context.Context) (string, error) {
-	id, err := r.ID(ctx)
-	if err != nil {
-		return "", err
+	return &Z5LabsApp{
+		query: q,
 	}
-	return string(id), nil
 }
 
-func (r *Z5LabsGoApp) MarshalJSON() ([]byte, error) {
-	id, err := r.ID(marshalCtx)
-	if err != nil {
-		return nil, err
+// WithOidcService points the token exchange at a Dagger-hosted OIDC
+// endpoint, reached over the session network instead of the public one.
+// Its engine-assigned endpoint replaces the host in WithOidc's requestUrl;
+// the path and query stay the caller's, because those are part of the
+// provider's protocol.
+//
+// This exists for the same reason WithRegistryService does, and is used by
+// the test suite, which runs a real token endpoint rather than relaxing the
+// provenance requirement into the shape of the tests.
+func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:255:1)
+	assertNotNil("svc", svc)
+	q := r.query.Select("withOidcService")
+	q = q.Arg("svc", svc)
+
+	return &Z5LabsApp{
+		query: q,
 	}
-	return json.Marshal(id)
-}
-func (r *Z5LabsGoApp) UnmarshalJSON(bs []byte) error {
-	var id string
-	err := json.Unmarshal(bs, &id)
-	if err != nil {
-		return err
-	}
-	*r = Z5LabsGoApp{query: selectNode(dag.query, id, "Z5LabsGoApp")}
-	return nil
 }
 
-// AsNode returns this Z5LabsGoApp as a Node.
+// WithRegistry sets the registry to publish to.
+//
+// address is the registry alone — "ghcr.io", "registry.example.internal:5000"
+// — and never a repository path. The repository is stated to Publish, so
+// that the same app can go to a mirror or to an internal registry by
+// changing this and nothing else.
+//
+// username and auth are the credential. There is no unauthenticated
+// publish: a registry that accepts anonymous writes is one this pipeline
+// has no way to tell from a misconfigured one.
+//
+// The +cache directive is repeated here rather than stated once for the
+// chain: caching is per function in Dagger, so a chained method left
+// undirected takes the default seven-day TTL and can hand a later session a
+// stale object built from arguments it only appears to share — a registry
+// service, for one, whose engine-assigned address is long gone.
+func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:172:1)
+	assertNotNil("auth", auth)
+	q := r.query.Select("withRegistry")
+	q = q.Arg("address", address)
+	q = q.Arg("username", username)
+	q = q.Arg("auth", auth)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
+// WithRegistryService points the publish at a Dagger-hosted registry
+// reached over the session network instead of over the public network.
+//
+// A service's endpoint is assigned by the engine, so it cannot be written
+// into an address ahead of time; this is how the publish learns it. Used by
+// the test suite against a local registry, and by anyone whose private
+// registry is itself a Dagger service.
+func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:239:1)
+	assertNotNil("svc", svc)
+	q := r.query.Select("withRegistryService")
+	q = q.Arg("svc", svc)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
+// WithSigningKey signs the provenance with a caller-supplied PEM-encoded EC
+// private key instead of an ephemeral key certified by the public sigstore
+// CA.
+//
+// This selects the signing mode and nothing else: the workload identity
+// token is still exchanged, and the predicate still says only what that
+// token's claims say. Use it for a build that cannot reach a public CA.
+// Leaving it unset is keyless signing and is what a normal CI publish
+// should do.
+func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:210:1)
+	assertNotNil("key", key)
+	q := r.query.Select("withSigningKey")
+	q = q.Arg("key", key)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
+// AsNode returns this Z5LabsApp as a Node.
 // This is a local type conversion — no GraphQL call.
-func (r *Z5LabsGoApp) AsNode() Node {
+func (r *Z5LabsApp) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
 	}
@@ -678,7 +597,7 @@ func (r *Z5LabsGoApp) AsNode() Node {
 //
 // A library is a Go you never build an application from, so there is no
 // separate library archetype.
-type Z5LabsGoChain struct { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
+type Z5LabsGoChain struct { // z5labs (../../../../../daggerverse/z5labs/go.go:37:6)
 	query *querybuilder.Selection
 
 	ci *Void
@@ -699,11 +618,87 @@ func (r *Z5LabsGoChain) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsGoCha
 	}
 }
 
+// Z5LabsGoChainAppOpts contains options for Z5LabsGoChain.App
+type Z5LabsGoChainAppOpts struct {
+	//
+	// The package to build, in go build package syntax, relative to the
+	// source root.
+	//
+	//
+	// Default: "."
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/go.go:190:2)
+	//
+	// The platforms to build for, e.g. linux/amd64. Empty takes the
+	// pipeline's pair, linux/amd64 and linux/arm64.
+	//
+	Platforms []Platform // z5labs (../../../../../daggerverse/z5labs/go.go:195:2)
+}
+
+// App builds the application at pkg for every platform and returns it.
+//
+// One binary is cross-compiled per platform, stamped at link time with
+// version and with the commit; each is packaged as an image carrying the
+// module's standardized environment, the absolute entrypoint and the OCI
+// source annotations; and an SPDX and a CycloneDX document are generated
+// for each binary. What comes back holds the images and those documents
+// and knows nothing about the chain that produced them — see App.
+//
+// # version is the caller's, and is validated here
+//
+// The version was a pure function of HEAD before this chain existed, which
+// suits a high-frequency install with no semantic versioning and does not
+// suit a project releasing on semver. It is now stated by whoever is
+// releasing, and the only thing this module has an opinion about is that it
+// can be an image tag: an OCI tag is `[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`,
+// and a version outside that charset is refused rather than rewritten.
+//
+// SemVer build metadata — the `+` and everything after it — is called out
+// separately when it is refused, because it is the case where rewriting
+// would silently do damage: `+` is not in the tag charset, so dropping it
+// would publish `1.0.0+build.1` and `1.0.0+build.2` under one tag, and the
+// second would quietly replace the first.
+//
+// # commit still comes from HEAD and from nothing else
+//
+// Every binary is stamped with `main.version` and `main.commit`. Declare
+// the two package-level vars in your main package and they are filled in:
+//
+//	var (
+//		version = "dev"
+//		commit  = "none"
+//	)
+//
+// The names are fixed by the module. commit is the short HEAD SHA and is
+// never a parameter — a build identity a caller could have supplied
+// identifies nothing — so two builds of one (commit, version) pair are
+// byte-identical. Source without git metadata at HEAD is an error.
+//
+// pkg is the package to build, in `go build` package syntax, relative to
+// the source root. platforms defaults to linux/amd64 and linux/arm64.
+func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/go.go:179:1)
+	q := r.query.Select("app")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `pkg` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Pkg) {
+			q = q.Arg("pkg", opts[i].Pkg)
+		}
+		// `platforms` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Platforms) {
+			q = q.Arg("platforms", opts[i].Platforms)
+		}
+	}
+	q = q.Arg("version", version)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
 // Ci runs the standardized check stages against the source: gofmt, go vet,
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
-func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:134:1)
+func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:132:1)
 	if r.ci != nil {
 		return nil
 	}
@@ -762,16 +757,13 @@ func (r *Z5LabsGoChain) UnmarshalJSON(bs []byte) error {
 }
 
 // WithBuild records build tags for the App terminal. Ci does not build, so
-// tags have no effect on it today.
+// tags have no effect on it.
 //
 // tags are passed to the Go toolchain as `-tags a,b,c`, selecting which
 // `//go:build`-constrained files compile. The build belongs to App — the
-// terminal that produces container images — which lands with the second
-// half of this API, and these are the tags it will build with. The method
-// is here now because the shape of the chain is what is being fixed; until
-// App exists a caller who sets tags gets no error and no effect, which is
-// why that is the first thing this comment says.
-func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:122:1)
+// terminal that produces container images — and these are the tags it
+// builds every platform's binary with.
+func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:120:1)
 	q := r.query.Select("withBuild")
 	q = q.Arg("tags", tags)
 
@@ -782,9 +774,9 @@ func (r *Z5LabsGoChain) WithBuild(tags []string) *Z5LabsGoChain { // z5labs (../
 
 // Z5LabsGoChainWithLintOpts contains options for Z5LabsGoChain.WithLint
 type Z5LabsGoChainWithLintOpts struct {
-	Version string // z5labs (../../../../../daggerverse/z5labs/go.go:82:2)
+	Version string // z5labs (../../../../../daggerverse/z5labs/go.go:83:2)
 
-	Config *File // z5labs (../../../../../daggerverse/z5labs/go.go:84:2)
+	Config *File // z5labs (../../../../../daggerverse/z5labs/go.go:85:2)
 }
 
 // WithLint configures the lint stage.
@@ -808,7 +800,7 @@ type Z5LabsGoChainWithLintOpts struct {
 // would have dropped the config and run the bundled policy the caller
 // thought they had replaced. Nothing can un-set either one, which is not a
 // use case — a caller who wants the defaults does not call this.
-func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:80:1)
+func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:81:1)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -834,7 +826,7 @@ func (r *Z5LabsGoChain) WithLint(opts ...Z5LabsGoChainWithLintOpts) *Z5LabsGoCha
 // `with-test` would silently drop the race detector the pipeline otherwise
 // guarantees. Turning it off is a real weakening of the check, so the
 // caller states it.
-func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:105:1)
+func (r *Z5LabsGoChain) WithTest(race bool) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/go.go:106:1)
 	q := r.query.Select("withTest")
 	q = q.Arg("race", race)
 

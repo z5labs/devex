@@ -206,167 +206,132 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Tests).All(&parent, ctx, parallel)
-		case "BuilderBinaryProducesCompiledBinary":
+		case "AppAnnotatesEveryPlatformVariant":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).BuilderBinaryProducesCompiledBinary(&parent, ctx)
-		case "BuilderContainerProducesScratchImageWithBinary":
+			return nil, (*Tests).AppAnnotatesEveryPlatformVariant(&parent, ctx)
+		case "AppAttachesSbomsAndProvenance":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).BuilderContainerProducesScratchImageWithBinary(&parent, ctx)
-		case "GoAppBuildFailsWithoutGitMetadata":
+			return nil, (*Tests).AppAttachesSbomsAndProvenance(&parent, ctx)
+		case "AppAttestsTwoSegmentRepositories":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppBuildFailsWithoutGitMetadata(&parent, ctx)
-		case "GoAppCiAnnotatesEveryPlatformVariant":
+			return nil, (*Tests).AppAttestsTwoSegmentRepositories(&parent, ctx)
+		case "AppBuildTagsReachTheCompiler":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiAnnotatesEveryPlatformVariant(&parent, ctx)
-		case "GoAppCiAttachesSbomsAndProvenance":
+			return nil, (*Tests).AppBuildTagsReachTheCompiler(&parent, ctx)
+		case "AppContainerRunsTheEntrypoint":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiAttachesSbomsAndProvenance(&parent, ctx)
-		case "GoAppCiAttestsTwoSegmentBinaryNames":
+			return nil, (*Tests).AppContainerRunsTheEntrypoint(&parent, ctx)
+		case "AppContainersCoverEveryPlatformInOrder":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiAttestsTwoSegmentBinaryNames(&parent, ctx)
-		case "GoAppCiErrorsWhenPublishOnMatchesButCredsMissing":
+			return nil, (*Tests).AppContainersCoverEveryPlatformInOrder(&parent, ctx)
+		case "AppImagesCarryTheStandardEnvironment":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiErrorsWhenPublishOnMatchesButCredsMissing(&parent, ctx)
-		case "GoAppCiNormalizesRemoteOriginRefs":
+			return nil, (*Tests).AppImagesCarryTheStandardEnvironment(&parent, ctx)
+		case "AppPublishRefusesAnUnusableTarget":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiNormalizesRemoteOriginRefs(&parent, ctx)
-		case "GoAppCiPassesForValidSource":
+			return nil, (*Tests).AppPublishRefusesAnUnusableTarget(&parent, ctx)
+		case "AppPublishReturnsDigestPinnedReferences":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiPassesForValidSource(&parent, ctx)
-		case "GoAppCiPublishesOnMatchingBranch":
+			return nil, (*Tests).AppPublishReturnsDigestPinnedReferences(&parent, ctx)
+		case "AppPublishesEveryRepositoryNamed":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiPublishesOnMatchingBranch(&parent, ctx)
-		case "GoAppCiPublishesOnMatchingTag":
+			return nil, (*Tests).AppPublishesEveryRepositoryNamed(&parent, ctx)
+		case "AppPublishesTheContainersItReturned":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiPublishesOnMatchingTag(&parent, ctx)
-		case "GoAppCiPublishesToAllMatchingTags":
+			return nil, (*Tests).AppPublishesTheContainersItReturned(&parent, ctx)
+		case "AppRebuildIsByteIdenticalPerPlatform":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiPublishesToAllMatchingTags(&parent, ctx)
-		case "GoAppCiRebuildIsByteIdenticalPerPlatform":
+			return nil, (*Tests).AppRebuildIsByteIdenticalPerPlatform(&parent, ctx)
+		case "AppRedactsCredentialsFromTheSourceAnnotation":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiRebuildIsByteIdenticalPerPlatform(&parent, ctx)
-		case "GoAppCiRedactsCredentialsFromTheSourceAnnotation":
+			return nil, (*Tests).AppRedactsCredentialsFromTheSourceAnnotation(&parent, ctx)
+		case "AppRefusesPlaintextRegistryUnlessInsecure":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiRedactsCredentialsFromTheSourceAnnotation(&parent, ctx)
-		case "GoAppCiRefusesPlaintextRegistryUnlessInsecure":
+			return nil, (*Tests).AppRefusesPlaintextRegistryUnlessInsecure(&parent, ctx)
+		case "AppRefusesToPublishWithoutProvenanceMachinery":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiRefusesPlaintextRegistryUnlessInsecure(&parent, ctx)
-		case "GoAppCiRefusesToPublishWithoutProvenanceMachinery":
+			return nil, (*Tests).AppRefusesToPublishWithoutProvenanceMachinery(&parent, ctx)
+		case "AppRejectsSourceWithoutGitMetadata":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiRefusesToPublishWithoutProvenanceMachinery(&parent, ctx)
-		case "GoAppCiRejectsMissingGitDir":
+			return nil, (*Tests).AppRejectsSourceWithoutGitMetadata(&parent, ctx)
+		case "AppStampsEveryPlatformVariant":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiRejectsMissingGitDir(&parent, ctx)
-		case "GoAppCiReturnsThePushedDigest":
+			return nil, (*Tests).AppStampsEveryPlatformVariant(&parent, ctx)
+		case "AppValidatesTheVersion":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoAppCiReturnsThePushedDigest(&parent, ctx)
-		case "GoAppCiSkipsPublishWhenNoRefMatches":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).GoAppCiSkipsPublishWhenNoRefMatches(&parent, ctx)
-		case "GoAppCiStampedBinaryMatchesImageTagAndBuilder":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).GoAppCiStampedBinaryMatchesImageTagAndBuilder(&parent, ctx)
-		case "GoAppCiStampsEveryPlatformVariant":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).GoAppCiStampsEveryPlatformVariant(&parent, ctx)
-		case "GoAppCiTagBeatsBranch":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).GoAppCiTagBeatsBranch(&parent, ctx)
-		case "GoAppStampsWhenPublishOnDoesNotMatch":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).GoAppStampsWhenPublishOnDoesNotMatch(&parent, ctx)
+			return nil, (*Tests).AppValidatesTheVersion(&parent, ctx)
 		case "GoCiChainsEveryWithMethod":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

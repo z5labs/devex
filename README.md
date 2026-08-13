@@ -35,11 +35,42 @@ dagger install github.com/z5labs/devex/daggerverse/<module>
 | [`qemu`](daggerverse/qemu) | Boot guest systems under [QEMU](https://www.qemu.org/). |
 | [`random`](daggerverse/random) | Generate random values. |
 | [`workspace-ci`](daggerverse/workspace-ci) | Plan change-aware, memoized CI for a workspace of Dagger modules. |
-| [`z5labs`](daggerverse/z5labs) | Standardized Go CI (`Go`) and release pipelines (`GoApp`). |
+| [`z5labs`](daggerverse/z5labs) | Standardized Go CI and releases: `Go` checks a source tree, `Go.App` builds and `App.Publish` ships a signed, attested multi-arch image. |
 | [`zig`](daggerverse/zig) | Wrap the [Zig](https://ziglang.org/) toolchain. |
 
 See [`daggerverse/CLAUDE.md`](daggerverse/CLAUDE.md) for module conventions
 (function caching, code generation, tests layout).
+
+### Releasing a Go application
+
+[`z5labs`](daggerverse/z5labs) is the opinionated pipeline the rest of these
+modules are wired into. Everything hangs off one entry point:
+
+```sh
+# check a source tree — gofmt, go vet, golangci-lint, go test -race
+dagger -m github.com/z5labs/devex/daggerverse/z5labs call go --source=. ci
+
+# build a multi-arch app, then ship it
+dagger -m github.com/z5labs/devex/daggerverse/z5labs call \
+  go --source=. \
+  app --version=v1.2.3 --platforms=linux/amd64,linux/arm64 \
+  with-registry --address=ghcr.io --username="$GITHUB_ACTOR" --auth=env:GITHUB_TOKEN \
+  with-oidc --request-url="$ACTIONS_ID_TOKEN_REQUEST_URL" --request-token=env:ACTIONS_ID_TOKEN_REQUEST_TOKEN \
+  publish --repositories=z5labs/hello
+```
+
+`publish` returns one digest-pinned reference per published tag, and every
+published digest carries an SPDX and a CycloneDX document per platform plus a
+signed SLSA provenance statement — a publish that cannot produce provenance
+fails rather than shipping without it. `app` also exposes `container` and
+`containers`, which return the very images `publish` pushes, so a check can run
+against the artifact that ships rather than against a rebuild of it.
+
+The version is yours and is validated as an image tag; the commit comes from
+HEAD and from nothing else, so two builds of one `(commit, version)` pair are
+byte-identical. Every image carries one standardized `PATH` with
+`/usr/local/bin` on it for an extension's executables — see the module's package
+doc, which records why both values are fixed.
 
 ## Claude Code plugin marketplace
 
