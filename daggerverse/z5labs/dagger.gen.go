@@ -109,103 +109,75 @@ func (r *GoChain) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r GoApp) MarshalJSON() ([]byte, error) {
+func (r App) MarshalJSON() ([]byte, error) {
 	var concrete struct {
-		Source              *dagger.Directory
+		Version             string
+		Commit              string
+		SourceURI           string
 		Pkg                 string
-		BinaryName          string
-		PublishOn           string
+		Variants            []*variant
 		Registry            string
-		AuthUsername        string
-		Auth                *dagger.Secret
-		LintConfig          *dagger.File
-		LintVersion         string
-		Platforms           []string
+		RegistryUsername    string
+		RegistryAuth        *dagger.Secret
 		RegistryService     *dagger.Service
 		Insecure            bool
 		IDTokenRequestURL   string
 		IDTokenRequestToken *dagger.Secret
-		SigningKey          *dagger.Secret
 		IDTokenService      *dagger.Service
+		SigningKey          *dagger.Secret
 	}
-	concrete.Source = r.Source
+	concrete.Version = r.Version
+	concrete.Commit = r.Commit
+	concrete.SourceURI = r.SourceURI
 	concrete.Pkg = r.Pkg
-	concrete.BinaryName = r.BinaryName
-	concrete.PublishOn = r.PublishOn
+	concrete.Variants = r.Variants
 	concrete.Registry = r.Registry
-	concrete.AuthUsername = r.AuthUsername
-	concrete.Auth = r.Auth
-	concrete.LintConfig = r.LintConfig
-	concrete.LintVersion = r.LintVersion
-	concrete.Platforms = r.Platforms
+	concrete.RegistryUsername = r.RegistryUsername
+	concrete.RegistryAuth = r.RegistryAuth
 	concrete.RegistryService = r.RegistryService
 	concrete.Insecure = r.Insecure
 	concrete.IDTokenRequestURL = r.IDTokenRequestURL
 	concrete.IDTokenRequestToken = r.IDTokenRequestToken
-	concrete.SigningKey = r.SigningKey
 	concrete.IDTokenService = r.IDTokenService
+	concrete.SigningKey = r.SigningKey
 	return json.Marshal(&concrete)
 }
 
-func (r *GoApp) UnmarshalJSON(bs []byte) error {
+func (r *App) UnmarshalJSON(bs []byte) error {
 	var concrete struct {
-		Source              *dagger.Directory
+		Version             string
+		Commit              string
+		SourceURI           string
 		Pkg                 string
-		BinaryName          string
-		PublishOn           string
+		Variants            []*variant
 		Registry            string
-		AuthUsername        string
-		Auth                *dagger.Secret
-		LintConfig          *dagger.File
-		LintVersion         string
-		Platforms           []string
+		RegistryUsername    string
+		RegistryAuth        *dagger.Secret
 		RegistryService     *dagger.Service
 		Insecure            bool
 		IDTokenRequestURL   string
 		IDTokenRequestToken *dagger.Secret
-		SigningKey          *dagger.Secret
 		IDTokenService      *dagger.Service
+		SigningKey          *dagger.Secret
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
 		return err
 	}
-	r.Source = concrete.Source
+	r.Version = concrete.Version
+	r.Commit = concrete.Commit
+	r.SourceURI = concrete.SourceURI
 	r.Pkg = concrete.Pkg
-	r.BinaryName = concrete.BinaryName
-	r.PublishOn = concrete.PublishOn
+	r.Variants = concrete.Variants
 	r.Registry = concrete.Registry
-	r.AuthUsername = concrete.AuthUsername
-	r.Auth = concrete.Auth
-	r.LintConfig = concrete.LintConfig
-	r.LintVersion = concrete.LintVersion
-	r.Platforms = concrete.Platforms
+	r.RegistryUsername = concrete.RegistryUsername
+	r.RegistryAuth = concrete.RegistryAuth
 	r.RegistryService = concrete.RegistryService
 	r.Insecure = concrete.Insecure
 	r.IDTokenRequestURL = concrete.IDTokenRequestURL
 	r.IDTokenRequestToken = concrete.IDTokenRequestToken
-	r.SigningKey = concrete.SigningKey
 	r.IDTokenService = concrete.IDTokenService
-	return nil
-}
-
-func (r Builder) MarshalJSON() ([]byte, error) {
-	var concrete struct {
-		App *GoApp
-	}
-	concrete.App = r.App
-	return json.Marshal(&concrete)
-}
-
-func (r *Builder) UnmarshalJSON(bs []byte) error {
-	var concrete struct {
-		App *GoApp
-	}
-	err := json.Unmarshal(bs, &concrete)
-	if err != nil {
-		return err
-	}
-	r.App = concrete.App
+	r.SigningKey = concrete.SigningKey
 	return nil
 }
 
@@ -326,46 +298,174 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
-	case "Builder":
+	case "App":
 		switch fnName {
-		case "Binary":
-			var parent Builder
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return (*Builder).Binary(&parent, ctx)
 		case "Container":
-			var parent Builder
+			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*Builder).Container(&parent, ctx)
-		default:
-			return nil, fmt.Errorf("unknown function %s", fnName)
-		}
-	case "GoApp":
-		switch fnName {
-		case "Builder":
-			var parent GoApp
+			var platform dagger.Platform
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			return (*App).Container(&parent, ctx, platform)
+		case "Containers":
+			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*GoApp).Builder(&parent), nil
-		case "Ci":
-			var parent GoApp
+			return (*App).Containers(&parent, ctx)
+		case "Publish":
+			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return (*GoApp).Ci(&parent, ctx)
+			var repositories []string
+			if inputArgs["repositories"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["repositories"]), &repositories)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repositories", err))
+				}
+			}
+			return (*App).Publish(&parent, ctx, repositories)
+		case "WithInsecure":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*App).WithInsecure(&parent), nil
+		case "WithOidc":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var requestUrl string
+			if inputArgs["requestUrl"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["requestUrl"]), &requestUrl)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg requestUrl", err))
+				}
+			}
+			var requestToken *dagger.Secret
+			if inputArgs["requestToken"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["requestToken"]), &requestToken)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg requestToken", err))
+				}
+			}
+			return (*App).WithOidc(&parent, requestUrl, requestToken), nil
+		case "WithOidcService":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var svc *dagger.Service
+			if inputArgs["svc"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["svc"]), &svc)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg svc", err))
+				}
+			}
+			return (*App).WithOidcService(&parent, svc), nil
+		case "WithRegistry":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var address string
+			if inputArgs["address"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["address"]), &address)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg address", err))
+				}
+			}
+			var username string
+			if inputArgs["username"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["username"]), &username)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg username", err))
+				}
+			}
+			var auth *dagger.Secret
+			if inputArgs["auth"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["auth"]), &auth)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg auth", err))
+				}
+			}
+			return (*App).WithRegistry(&parent, address, username, auth), nil
+		case "WithRegistryService":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var svc *dagger.Service
+			if inputArgs["svc"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["svc"]), &svc)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg svc", err))
+				}
+			}
+			return (*App).WithRegistryService(&parent, svc), nil
+		case "WithSigningKey":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var key *dagger.Secret
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			return (*App).WithSigningKey(&parent, key), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
 	case "GoChain":
 		switch fnName {
+		case "App":
+			var parent GoChain
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			var pkg string
+			if inputArgs["pkg"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["pkg"]), &pkg)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pkg", err))
+				}
+			}
+			var platforms []dagger.Platform
+			if inputArgs["platforms"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platforms"]), &platforms)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platforms", err))
+				}
+			}
+			return (*GoChain).App(&parent, ctx, version, pkg, platforms)
 		case "Ci":
 			var parent GoChain
 			err = json.Unmarshal(parentJSON, &parent)
@@ -441,125 +541,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Z5labs).Go(&parent, source), nil
-		case "GoApp":
-			var parent Z5labs
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var source *dagger.Directory
-			if inputArgs["source"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["source"]), &source)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
-				}
-			}
-			var pkg string
-			if inputArgs["pkg"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["pkg"]), &pkg)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg pkg", err))
-				}
-			}
-			var binaryName string
-			if inputArgs["binaryName"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["binaryName"]), &binaryName)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg binaryName", err))
-				}
-			}
-			var publishOn string
-			if inputArgs["publishOn"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["publishOn"]), &publishOn)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg publishOn", err))
-				}
-			}
-			var registry string
-			if inputArgs["registry"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["registry"]), &registry)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registry", err))
-				}
-			}
-			var authUsername string
-			if inputArgs["authUsername"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["authUsername"]), &authUsername)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg authUsername", err))
-				}
-			}
-			var auth *dagger.Secret
-			if inputArgs["auth"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["auth"]), &auth)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg auth", err))
-				}
-			}
-			var lintConfig *dagger.File
-			if inputArgs["lintConfig"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["lintConfig"]), &lintConfig)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintConfig", err))
-				}
-			}
-			var lintVersion string
-			if inputArgs["lintVersion"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["lintVersion"]), &lintVersion)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg lintVersion", err))
-				}
-			}
-			var platforms []string
-			if inputArgs["platforms"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["platforms"]), &platforms)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platforms", err))
-				}
-			}
-			var registryService *dagger.Service
-			if inputArgs["registryService"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["registryService"]), &registryService)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg registryService", err))
-				}
-			}
-			var insecure bool
-			if inputArgs["insecure"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["insecure"]), &insecure)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg insecure", err))
-				}
-			}
-			var idTokenRequestUrl string
-			if inputArgs["idTokenRequestUrl"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["idTokenRequestUrl"]), &idTokenRequestUrl)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestUrl", err))
-				}
-			}
-			var idTokenRequestToken *dagger.Secret
-			if inputArgs["idTokenRequestToken"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["idTokenRequestToken"]), &idTokenRequestToken)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenRequestToken", err))
-				}
-			}
-			var idTokenService *dagger.Service
-			if inputArgs["idTokenService"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["idTokenService"]), &idTokenService)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg idTokenService", err))
-				}
-			}
-			var signingKey *dagger.Secret
-			if inputArgs["signingKey"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["signingKey"]), &signingKey)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg signingKey", err))
-				}
-			}
-			return (*Z5labs).GoApp(&parent, source, pkg, binaryName, publishOn, registry, authUsername, auth, lintConfig, lintVersion, platforms, registryService, insecure, idTokenRequestUrl, idTokenRequestToken, idTokenService, signingKey), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

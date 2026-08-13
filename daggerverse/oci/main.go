@@ -2,7 +2,7 @@
 // knows how to talk to an OCI registry and nothing about why.
 //
 // It does not choose tags, decide when to publish, or know what the bytes it
-// uploads mean. Callers that need a registry — z5labs' GoApp publish path,
+// uploads mean. Callers that need a registry — z5labs' App publish path,
 // ssdd's baselines — get one here instead of each growing their own.
 //
 // The module is pure Go. Container.Publish cannot see session service

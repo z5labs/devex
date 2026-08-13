@@ -64,8 +64,8 @@ class Handler(BaseHTTPRequestHandler):
 HTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
 `
 
-// provenanceHarness is everything a publishing test needs to satisfy
-// GoApp's provenance requirement: a token endpoint that behaves like a
+// provenanceHarness is everything a publishing test needs to satisfy the
+// module's provenance requirement: a token endpoint that behaves like a
 // CI provider's, and a signing key standing in for the public sigstore
 // CA this session cannot reach.
 type provenanceHarness struct {
@@ -80,7 +80,7 @@ type provenanceHarness struct {
 	Service *dagger.Service
 	// RequestToken is the bearer for that endpoint.
 	RequestToken *dagger.Secret
-	// SigningKey is the PEM EC private key GoApp signs with.
+	// SigningKey is the PEM EC private key the publish signs with.
 	SigningKey *dagger.Secret
 	// Public is the matching public key, kept so a test can verify a
 	// signature the module produced rather than merely observing that
@@ -151,15 +151,16 @@ func newProvenanceHarness(ctx context.Context, commit string) (*provenanceHarnes
 	}, nil
 }
 
-// opts folds the harness into the GoApp options every publishing test
-// now has to pass. Publishing without provenance is refused, so this is
-// not optional decoration — it is what makes a publish possible at all.
-func (h *provenanceHarness) opts(base dagger.Z5LabsGoAppOpts) dagger.Z5LabsGoAppOpts {
-	base.IDTokenRequestURL = h.URL
-	base.IDTokenRequestToken = h.RequestToken
-	base.IDTokenService = h.Service
-	base.SigningKey = h.SigningKey
-	return base
+// apply chains the harness onto an app: the token endpoint, the service
+// its address is resolved through, and the signing key.
+//
+// Publishing without provenance is refused, so this is not optional
+// decoration — it is what makes a publish possible at all.
+func (h *provenanceHarness) apply(app *dagger.Z5LabsApp) *dagger.Z5LabsApp {
+	return app.
+		WithOidc(h.URL, h.RequestToken).
+		WithOidcService(h.Service).
+		WithSigningKey(h.SigningKey)
 }
 
 // unsignedJWT renders claims as a JWT with an empty signature segment.

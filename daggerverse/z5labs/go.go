@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
 )
@@ -108,15 +109,12 @@ func (g *GoChain) WithTest(race bool) *GoChain {
 }
 
 // WithBuild records build tags for the App terminal. Ci does not build, so
-// tags have no effect on it today.
+// tags have no effect on it.
 //
 // tags are passed to the Go toolchain as `-tags a,b,c`, selecting which
 // `//go:build`-constrained files compile. The build belongs to App — the
-// terminal that produces container images — which lands with the second
-// half of this API, and these are the tags it will build with. The method
-// is here now because the shape of the chain is what is being fixed; until
-// App exists a caller who sets tags gets no error and no effect, which is
-// why that is the first thing this comment says.
+// terminal that produces container images — and these are the tags it
+// builds every platform's binary with.
 //
 // +cache="session"
 func (g *GoChain) WithBuild(tags []string) *GoChain {
@@ -133,4 +131,121 @@ func (g *GoChain) WithBuild(tags []string) *GoChain {
 // +cache="session"
 func (g *GoChain) Ci(ctx context.Context) error {
 	return sharedCheck(ctx, g.Source, g.LintConfig, g.LintVersion, !g.NoRace)
+}
+
+// App builds the application at pkg for every platform and returns it.
+//
+// One binary is cross-compiled per platform, stamped at link time with
+// version and with the commit; each is packaged as an image carrying the
+// module's standardized environment, the absolute entrypoint and the OCI
+// source annotations; and an SPDX and a CycloneDX document are generated
+// for each binary. What comes back holds the images and those documents
+// and knows nothing about the chain that produced them — see App.
+//
+// # version is the caller's, and is validated here
+//
+// The version was a pure function of HEAD before this chain existed, which
+// suits a high-frequency install with no semantic versioning and does not
+// suit a project releasing on semver. It is now stated by whoever is
+// releasing, and the only thing this module has an opinion about is that it
+// can be an image tag: an OCI tag is `[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`,
+// and a version outside that charset is refused rather than rewritten.
+//
+// SemVer build metadata — the `+` and everything after it — is called out
+// separately when it is refused, because it is the case where rewriting
+// would silently do damage: `+` is not in the tag charset, so dropping it
+// would publish `1.0.0+build.1` and `1.0.0+build.2` under one tag, and the
+// second would quietly replace the first.
+//
+// # commit still comes from HEAD and from nothing else
+//
+// Every binary is stamped with `main.version` and `main.commit`. Declare
+// the two package-level vars in your main package and they are filled in:
+//
+//	var (
+//		version = "dev"
+//		commit  = "none"
+//	)
+//
+// The names are fixed by the module. commit is the short HEAD SHA and is
+// never a parameter — a build identity a caller could have supplied
+// identifies nothing — so two builds of one (commit, version) pair are
+// byte-identical. Source without git metadata at HEAD is an error.
+//
+// pkg is the package to build, in `go build` package syntax, relative to
+// the source root. platforms defaults to linux/amd64 and linux/arm64.
+//
+// +cache="session"
+func (g *GoChain) App(
+	ctx context.Context,
+	// The version every binary is stamped with and every image is
+	// published under. Any OCI-tag-safe string; SemVer build metadata is
+	// refused.
+	version string,
+	// +optional
+	// +default="."
+	pkg string,
+	// +optional
+	platforms []dagger.Platform,
+) (*App, error) {
+	if err := validateVersion(version); err != nil {
+		return nil, err
+	}
+	if pkg == "" {
+		pkg = "."
+	}
+	if len(platforms) == 0 {
+		platforms = defaultPlatforms()
+	}
+	for _, platform := range platforms {
+		if _, _, err := parsePlatform(string(platform)); err != nil {
+			return nil, err
+		}
+	}
+	if err := requireGitWorkingTree(ctx, g.Source); err != nil {
+		return nil, err
+	}
+	facts, err := g.gitFacts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	binaryName, err := g.resolvedBinaryName(ctx)
+	if err != nil {
+		return nil, err
+	}
+	annotations := ociAnnotations(facts, version)
+
+	variants := make([]*variant, 0, len(platforms))
+	for _, platform := range platforms {
+		binary := g.buildBinaryForPlatform(string(platform), pkg, binaryName, version, facts.ShortSHA)
+		// The SBOMs are generated here, by the chain, because this is the
+		// last place that holds both the binary and the source they need.
+		// App carries what comes back as an opaque file and an artifact
+		// type, and the publish attaches it without ever learning it is an
+		// SBOM. Nothing is evaluated yet: dag.Go().Spdx returns a lazy
+		// *dagger.File, so an app nobody publishes costs no scan.
+		stem := binaryName + "-" + strings.ReplaceAll(string(platform), "/", "-")
+		variants = append(variants, &variant{
+			Platform:  platform,
+			Container: imageForPlatform(platform, binaryName, binary, annotations),
+			Documents: []document{
+				{Name: stem + ".spdx.json", Type: spdxArtifactType, File: renamed(dag.Go().Spdx(binary, g.Source), stem+".spdx.json")},
+				{Name: stem + ".cdx.json", Type: cycloneDxArtifactType, File: renamed(dag.Go().CycloneDx(binary, g.Source), stem+".cdx.json")},
+			},
+		})
+	}
+	return &App{
+		Version:   version,
+		Commit:    facts.SHA,
+		SourceURI: annotations[annotationSource],
+		Pkg:       pkg,
+		Variants:  variants,
+	}, nil
+}
+
+// defaultPlatforms is the pair every z5labs application is built for
+// unless the caller narrows or widens it. It is a property of the pipeline
+// rather than of an application, which is why it is here and not a field.
+func defaultPlatforms() []dagger.Platform {
+	return []dagger.Platform{"linux/amd64", "linux/arm64"}
 }

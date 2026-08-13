@@ -9,8 +9,8 @@
 # version — required by v2, absent from v1 — and not the tool pin. The pin
 # is a single constant in the `go` module (defaultGolangciLintVersion), which
 # is where a bump belongs; nothing here restates it, and neither should an
-# adopter's file. Pass a version to Go.WithLint — or lintVersion to GoApp —
-# to pin or roll back without forking the pipeline.
+# adopter's file. Pass a version to Go.WithLint to pin or roll back without
+# forking the pipeline.
 version: "2"
 
 run:

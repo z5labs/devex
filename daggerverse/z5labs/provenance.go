@@ -11,10 +11,15 @@ import (
 // published spec URIs rather than anything z5labs made up, because the
 // value of an attestation is that a verifier nobody here wrote already
 // knows what it means.
+//
+// appBuildType is the exception — a build type names the builder, so it can
+// only be ours. It was ".../goapp/buildtype/v1" while the archetype it named
+// existed; the archetype is gone, and a published identifier naming a type
+// nobody can construct is worse than the one-time break of renaming it.
 const (
 	inTotoStatementType  = "https://in-toto.io/Statement/v1"
 	slsaProvenanceType   = "https://slsa.dev/provenance/v1"
-	goAppBuildType       = "https://z5labs.github.io/devex/goapp/buildtype/v1"
+	appBuildType         = "https://z5labs.github.io/devex/app/buildtype/v1"
 	provenanceArtifactID = "application/vnd.in-toto+json"
 )
 
@@ -23,7 +28,10 @@ const (
 // run. Both go into the predicate and they are kept apart on purpose: a
 // verifier trusts the second and reads the first.
 type buildFacts struct {
-	// Repository is the image repository published to.
+	// Repository is the image repository published to. It is the
+	// repository the caller named, not a name derived from the binary:
+	// those were one string before, and a project could not publish
+	// `hello` as `hello-service` without renaming its binary.
 	Repository string
 	// Tags are the tags the same bytes were published under.
 	Tags []string
@@ -33,8 +41,6 @@ type buildFacts struct {
 	Platforms []string
 	// Pkg is the Go package built.
 	Pkg string
-	// BinaryName is the artifact's name inside the image.
-	BinaryName string
 	// SourceURI is the origin remote, empty when the tree has no origin.
 	SourceURI string
 	// Commit is the full HEAD SHA the build read.
@@ -65,7 +71,7 @@ func provenanceStatement(identity *workloadIdentity, facts buildFacts, at time.T
 		"predicateType": slsaProvenanceType,
 		"predicate": map[string]any{
 			"buildDefinition": map[string]any{
-				"buildType":            goAppBuildType,
+				"buildType":            appBuildType,
 				"externalParameters":   externalParameters(identity, facts),
 				"internalParameters":   internalParameters(facts),
 				"resolvedDependencies": resolvedDependencies(identity, facts),
@@ -117,10 +123,9 @@ func externalParameters(identity *workloadIdentity, facts buildFacts) map[string
 // anything the identity provider vouched for.
 func internalParameters(facts buildFacts) map[string]any {
 	return map[string]any{
-		"pkg":        facts.Pkg,
-		"binaryName": facts.BinaryName,
-		"platforms":  facts.Platforms,
-		"version":    facts.Version,
+		"pkg":       facts.Pkg,
+		"platforms": facts.Platforms,
+		"version":   facts.Version,
 	}
 }
 
