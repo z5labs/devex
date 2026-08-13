@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Z5Labs
-func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:320:6)
+func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:329:6)
 	q := r.query.Select("asZ5Labs")
 
 	return &Z5Labs{
@@ -118,7 +118,7 @@ func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Z5Labs in the environment
-func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:320:6)
+func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:329:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsInput")
 	q = q.Arg("name", name)
@@ -131,7 +131,7 @@ func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *E
 }
 
 // Declare a desired Z5Labs output to be assigned in the environment
-func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:320:6)
+func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:329:6)
 	q := r.query.Select("withZ5LabsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -143,7 +143,7 @@ func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs
 
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:320:6)
+func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:329:6)
 	q := r.query.Select("z5Labs")
 
 	return &Z5Labs{
@@ -153,7 +153,7 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:320:6)
+type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:329:6)
 	query *querybuilder.Selection
 
 	contributionPathSelfTest *Void
@@ -366,7 +366,7 @@ func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File 
 //
 // The returned object is GoChain rather than Go because the `go` module
 // this one depends on already owns that name — see GoChain's doc comment.
-func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:336:1)
+func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:345:1)
 	assertNotNil("source", source)
 	q := r.query.Select("go")
 	q = q.Arg("source", source)
@@ -1047,7 +1047,7 @@ func (r *Z5LabsAppBuilder) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsAp
 // way to report an error. Publish validates it a third time, which is what
 // keeps the refusal of SemVer build metadata a property of publishing rather
 // than of one constructor.
-func (r *Z5LabsAppBuilder) Build() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/prebuilt.go:299:1)
+func (r *Z5LabsAppBuilder) Build() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/prebuilt.go:318:1)
 	q := r.query.Select("build")
 
 	return &Z5LabsApp{
@@ -1104,6 +1104,15 @@ func (r *Z5LabsAppBuilder) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// Z5LabsAppBuilderWithVariantOpts contains options for Z5LabsAppBuilder.WithVariant
+type Z5LabsAppBuilderWithVariantOpts struct {
+	//
+	// What the executable is called in the image. Defaults to the file's
+	// own name.
+	//
+	Name string // z5labs (../../../../../daggerverse/z5labs/prebuilt.go:253:2)
+}
+
 // WithVariant contributes one platform's executable, and the document
 // describing it.
 //
@@ -1115,9 +1124,19 @@ func (r *Z5LabsAppBuilder) UnmarshalJSON(bs []byte) error {
 // nobody here. Nothing in this module infers a platform from a file.
 //
 // entry becomes the image's entrypoint. It lands in the standardized
-// executable directory under its own file name, mode 0555, owned by the
-// image's non-root user — the same treatment a compiled binary gets, because
-// it goes through the same code.
+// executable directory, mode 0555, owned by the image's non-root user — the
+// same treatment a compiled binary gets, because it goes through the same
+// code.
+//
+// name is what it lands as, and it defaults to the file's own name. Supply one
+// when the artifact's file name is not what the application should be called,
+// which is the common case for prebuilt binaries: a release pipeline names its
+// cross-compiled artifacts app-amd64 and app-arm64, and the entry has to be
+// one path in every variant or the entrypoint differs per architecture. Given
+// no name and per-platform file names, this refuses the set rather than
+// picking one — so `--name` is how a normal `dist/` directory is contributed,
+// and the default is for the case where the file is already called the right
+// thing.
 //
 // document is an SPDX 2.3 JSON document describing the executable, and it is
 // required for the reason every contribution's is: the SBOM a publish attaches
@@ -1140,10 +1159,16 @@ func (r *Z5LabsAppBuilder) UnmarshalJSON(bs []byte) error {
 // A single-platform App is expressible and is not a degenerate case: one
 // WithVariant and a Build is a complete application, published as one variant
 // rather than as a multi-platform index pretending to be one.
-func (r *Z5LabsAppBuilder) WithVariant(platform Platform, entry *File, document *File) *Z5LabsAppBuilder { // z5labs (../../../../../daggerverse/z5labs/prebuilt.go:231:1)
+func (r *Z5LabsAppBuilder) WithVariant(platform Platform, entry *File, document *File, opts ...Z5LabsAppBuilderWithVariantOpts) *Z5LabsAppBuilder { // z5labs (../../../../../daggerverse/z5labs/prebuilt.go:241:1)
 	assertNotNil("entry", entry)
 	assertNotNil("document", document)
 	q := r.query.Select("withVariant")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `name` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Name) {
+			q = q.Arg("name", opts[i].Name)
+		}
+	}
 	q = q.Arg("platform", platform)
 	q = q.Arg("entry", entry)
 	q = q.Arg("document", document)

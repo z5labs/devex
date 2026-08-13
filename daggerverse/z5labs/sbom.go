@@ -230,6 +230,10 @@ type variantBom struct {
 // attached, and it is indistinguishable from a complete one.
 func (a *App) resolveContributions(ctx context.Context) ([]variantBom, error) {
 	out := make([]variantBom, 0, len(a.Variants))
+	// One cache for the whole publish. A file or directory contributed once is
+	// carried by every variant, so without it the same bytes are exported and
+	// hashed once per platform; see digestCache.
+	seen := digestCache{}
 	for _, v := range a.Variants {
 		if len(v.Contributions) == 0 {
 			return nil, fmt.Errorf(
@@ -265,7 +269,7 @@ func (a *App) resolveContributions(ctx context.Context) ([]variantBom, error) {
 			// digest.go records what the check does and does not establish,
 			// and why it lives at publish time rather than at the
 			// contributing call.
-			if err := verifyContributionDigest(ctx, c, bom.Subject); err != nil {
+			if err := verifyContributionDigest(ctx, seen, c, bom.Subject); err != nil {
 				return nil, fmt.Errorf("the document describing %s in the %s image %v", c.Name, v.Platform, err)
 			}
 			parsed = append(parsed, *bom)

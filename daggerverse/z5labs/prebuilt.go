@@ -201,9 +201,19 @@ func (b *AppBuilder) withBuildFacts(facts gitState, pkg string) *AppBuilder {
 // nobody here. Nothing in this module infers a platform from a file.
 //
 // entry becomes the image's entrypoint. It lands in the standardized
-// executable directory under its own file name, mode 0555, owned by the
-// image's non-root user — the same treatment a compiled binary gets, because
-// it goes through the same code.
+// executable directory, mode 0555, owned by the image's non-root user — the
+// same treatment a compiled binary gets, because it goes through the same
+// code.
+//
+// name is what it lands as, and it defaults to the file's own name. Supply one
+// when the artifact's file name is not what the application should be called,
+// which is the common case for prebuilt binaries: a release pipeline names its
+// cross-compiled artifacts app-amd64 and app-arm64, and the entry has to be
+// one path in every variant or the entrypoint differs per architecture. Given
+// no name and per-platform file names, this refuses the set rather than
+// picking one — so `--name` is how a normal `dist/` directory is contributed,
+// and the default is for the case where the file is already called the right
+// thing.
 //
 // document is an SPDX 2.3 JSON document describing the executable, and it is
 // required for the reason every contribution's is: the SBOM a publish attaches
@@ -236,19 +246,28 @@ func (b *AppBuilder) WithVariant(
 	entry *dagger.File,
 	// An SPDX 2.3 JSON document describing the executable.
 	document *dagger.File,
+	// What the executable is called in the image. Defaults to the file's
+	// own name.
+	//
+	// +optional
+	name string,
 ) (*AppBuilder, error) {
 	if entry == nil {
 		return nil, fmt.Errorf("withVariant requires an executable to package")
 	}
-	rawName, err := entry.Name(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read the name of the executable contributed for %s: %v", platform, err)
+	raw := name
+	if raw == "" {
+		fileName, err := entry.Name(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read the name of the executable contributed for %s: %v", platform, err)
+		}
+		raw = fileName
 	}
-	name, err := validateEntryName(rawName)
+	resolved, err := validateEntryName(raw)
 	if err != nil {
 		return nil, err
 	}
-	return b.withVariantNamed(platform, name, entry, document)
+	return b.withVariantNamed(platform, resolved, entry, document)
 }
 
 // withVariantNamed is WithVariant once the entry's name is known.
@@ -387,14 +406,29 @@ func variantConflict(platform dagger.Platform, name string, taken []variantKey) 
 // A name carrying a separator is the case worth naming: the entry lands at
 // appDir plus its name, so "bin/hello" would put the executable a directory
 // deeper than the layout this module promises, and "../hello" would put it
-// somewhere else entirely. The name comes from the file rather than from an
-// argument, so this is a check on what a caller's file was called rather than
-// on what they typed — which is why the message says which name it was.
+// somewhere else entirely. The name is either what the caller passed or what
+// their file was called, so the message quotes it rather than naming an
+// argument.
+//
+// Surrounding whitespace is refused rather than trimmed, and this is the one
+// place that rule differs from the contribution paths in contribute.go — those
+// take " /srv/data" literally because the caller typed a path and putting
+// content somewhere other than where they said is the failure that file exists
+// to avoid. Here the name is not a path a caller chose, it is the last segment
+// of an entrypoint they cannot override, and "/app/ hello" is invisible in
+// `docker inspect` and wrong in every COPY --from= line written against it.
+// Neither trimming nor accepting is right; refusing is.
 func validateEntryName(name string) (string, error) {
 	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf(
 			"withVariant: the executable has no file name, and the image's entrypoint is named after it; " +
-				"give the file a name before contributing it")
+				"give the file a name or pass one to withVariant")
+	}
+	if name != strings.TrimSpace(name) {
+		return "", fmt.Errorf(
+			"withVariant: %q opens or closes with whitespace, and the entrypoint would be %s/%s — a path that is legal, "+
+				"invisible in an image inspection, and wrong in every COPY --from= line written against it",
+			name, appDir, name)
 	}
 	if strings.ContainsRune(name, '/') {
 		return "", fmt.Errorf(

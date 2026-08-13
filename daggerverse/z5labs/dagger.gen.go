@@ -572,7 +572,14 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg document", err))
 				}
 			}
-			return (*AppBuilder).WithVariant(&parent, ctx, platform, entry, document)
+			var name string
+			if inputArgs["name"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["name"]), &name)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg name", err))
+				}
+			}
+			return (*AppBuilder).WithVariant(&parent, ctx, platform, entry, document, name)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

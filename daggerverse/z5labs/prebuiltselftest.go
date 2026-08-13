@@ -28,7 +28,64 @@ func (m *Z5labs) VariantSetSelfTest(ctx context.Context) error {
 	if err := checkEntryNames(); err != nil {
 		return err
 	}
-	return checkVariantConflicts()
+	if err := checkVariantConflicts(); err != nil {
+		return err
+	}
+	return checkUncheckableDocuments(ctx)
+}
+
+// checkUncheckableDocuments drives the two branches of the digest check that
+// decide a document cannot be checked at all, as distinct from one that
+// disagrees.
+//
+// Neither is reachable from the test suite, and that is the reason they are
+// here rather than there. A document naming no SHA-256 cannot be produced by
+// FileDocument or DirectoryDocument — both always fill the field — so driving
+// it end to end would mean shipping a deliberately deficient SPDX fixture; and
+// a contribution carrying no content at all is a defect in this module that no
+// public method can produce. Both would otherwise be deletable with every test
+// still green, and the first is the branch most likely to fire in the field,
+// because an SPDX 2.3 package element is perfectly valid with no checksum and
+// a hand-written or vendor-supplied document routinely has none.
+//
+// Both return before any content is read, so this costs no container and no
+// I/O — which is what lets them be checked at all.
+func checkUncheckableDocuments(ctx context.Context) error {
+	cases := []struct {
+		contribution contribution
+		subject      bomPackage
+		refusal      string
+		why          string
+	}{
+		{
+			contribution: contribution{Name: "/etc/ssl/certs/ca-certificates.crt", Content: &dagger.File{}},
+			subject:      bomPackage{Name: "ca-certificates"},
+			refusal:      "names no SHA-256",
+			why:          "a well-formed document with no checksum, which is legal SPDX and connects to nothing",
+		},
+		{
+			contribution: contribution{Name: "/srv/templates", Tree: &dagger.Directory{}},
+			subject:      bomPackage{Name: "templates"},
+			refusal:      "directoryDocument",
+			why:          "the same, for a tree: the refusal names the helper that would have produced a checkable document",
+		},
+		{
+			contribution: contribution{Name: "hello"},
+			subject:      bomPackage{Name: "hello", Sha256: "0123456789abcdef"},
+			refusal:      "defect in the module",
+			why:          "a contribution carrying no content, which no public method can produce and which must never pass silently",
+		},
+	}
+	for _, c := range cases {
+		err := verifyContributionDigest(ctx, digestCache{}, c.contribution, c.subject)
+		if err == nil {
+			return fmt.Errorf("expected %s to be refused, got nil", c.why)
+		}
+		if !strings.Contains(err.Error(), c.refusal) {
+			return fmt.Errorf("expected the refusal of %s to carry %q, got: %v", c.why, c.refusal, err)
+		}
+	}
+	return nil
 }
 
 // checkEntryNames drives validateEntryName, which decides what may become the

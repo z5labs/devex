@@ -48,15 +48,23 @@ func prebuiltEntry(dir *dagger.Directory, name string, platform dagger.Platform)
 // The document comes from FileDocument rather than from a literal because that
 // is the path an adopter takes, and because it computes the executable's
 // SHA-256 itself — which is what the publish checks the document against.
+//
+// The artifacts are named **per platform** — app-linux-amd64, app-linux-arm64 —
+// and the name the image uses is stated separately, because that is how a real
+// `dist/` directory looks and it is the case the archetype exists to package.
+// A helper that compiled every platform's artifact under one file name would
+// make the entry-name agreement rule vacuous here and would have hidden that
+// the documented CLI invocation did not work.
 func prebuiltApp(dir *dagger.Directory, name, version string, platforms []dagger.Platform) *dagger.Z5LabsAppBuilder {
 	builder := dag.Z5Labs().App(version)
 	for _, platform := range platforms {
-		entry := prebuiltEntry(dir, name, platform)
+		artifact := name + "-" + strings.ReplaceAll(string(platform), "/", "-")
+		entry := prebuiltEntry(dir, artifact, platform)
 		builder = builder.WithVariant(platform, entry, dag.Z5Labs().FileDocument(entry, dagger.Z5LabsFileDocumentOpts{
 			License: "Apache-2.0",
 			Name:    name,
 			Version: version,
-		}))
+		}), dagger.Z5LabsAppBuilderWithVariantOpts{Name: name})
 	}
 	return builder
 }
@@ -293,6 +301,19 @@ func assertNoSourceClaimed(statement map[string]any) error {
 	if got, ok := internal["pkg"]; ok {
 		return fmt.Errorf("expected no pkg in the predicate for an app that compiled nothing, got %v", got)
 	}
+	// externalParameters is checked too, and separately, because only
+	// internalParameters was made conditional. The source key there is derived
+	// from the identity token's claims rather than from the build facts, so it
+	// is absent for a token that names no commit — this asserts that rather
+	// than assuming it, which is what would catch a future change routing a
+	// build fact into it and publishing a blank one.
+	external, err := object(definition["externalParameters"], "predicate.buildDefinition.externalParameters")
+	if err != nil {
+		return err
+	}
+	if got, ok := external["source"]; ok {
+		return fmt.Errorf("expected no source in the predicate for an app assembled from prebuilt executables, got %v", got)
+	}
 	return nil
 }
 
@@ -443,6 +464,28 @@ func (t *Tests) AppBuilderRefusesAnInconsistentVariantSet(ctx context.Context) e
 			refusal: "build metadata",
 			why:     "a version that cannot be an image tag, refused by the terminal like any other",
 		},
+		{
+			builder: dag.Z5Labs().App(version).WithVariant("linux/amd64", amd64, amd64Doc,
+				dagger.Z5LabsAppBuilderWithVariantOpts{Name: " hello"}),
+			refusal: "whitespace",
+			why:     "a name that opens with whitespace, giving an entrypoint invisible in an image inspection",
+		},
+	}
+
+	// The stated name is what makes a normal per-platform `dist/` directory
+	// contributable, so the agreement it buys is asserted rather than only its
+	// refusals: two differently-named artifacts, one name, one entrypoint.
+	named := dag.Z5Labs().App(version).
+		WithVariant("linux/amd64", amd64, amd64Doc, dagger.Z5LabsAppBuilderWithVariantOpts{Name: name}).
+		WithVariant("linux/arm64", other, otherDoc, dagger.Z5LabsAppBuilderWithVariantOpts{Name: name})
+	for _, platform := range []dagger.Platform{"linux/amd64", "linux/arm64"} {
+		got, err := named.Build().Container(platform).Entrypoint(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: read the entrypoint of a set contributed under a stated name: %v", platform, err)
+		}
+		if want := "/app/" + name; len(got) != 1 || got[0] != want {
+			return fmt.Errorf("%s: entrypoint is %v, want [%s]", platform, got, want)
+		}
 	}
 	for _, c := range cases {
 		_, err := c.builder.Build().ID(ctx)
@@ -483,30 +526,57 @@ func (t *Tests) AppRefusesADocumentThatDescribesOtherBytes(ctx context.Context) 
 	}
 	platform := hostPlatform()
 
-	// The document is a real, well-formed SPDX document produced by the
-	// module's own helper — it is simply about a different file. That is the
+	// Every document below is a real, well-formed SPDX document produced by the
+	// module's own helper — each is simply about something else. That is the
 	// case worth refusing: a malformed document was already refused, and a
 	// document nobody could parse was never the risk.
+	//
+	// Both kinds of content are driven, because they are checked by different
+	// code. A file's digest is the SHA-256 of its bytes; a tree's is this
+	// module's digest over the sorted list of its paths and their digests, and
+	// the two sides of that convention — DirectoryDocument computing it and the
+	// publish recomputing it — are the pair most able to drift apart.
 	elsewhere := dag.Directory().WithNewFile("elsewhere", "not what is in the image\n").File("elsewhere")
+	otherTree := dag.Directory().WithNewFile("index.html", "a different tree entirely\n")
 	entry := prebuiltEntry(helloDir(), name, platform)
-	app := dag.Z5Labs().App(version).
-		WithVariant(platform, entry, dag.Z5Labs().FileDocument(elsewhere, dagger.Z5LabsFileDocumentOpts{Name: name})).
-		Build()
+	entryDoc := dag.Z5Labs().FileDocument(entry, dagger.Z5LabsFileDocumentOpts{Name: name})
+	tree := dag.Directory().WithNewFile("index.html", "<!doctype html>\n")
 
-	_, err = publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
-	if err == nil {
-		return fmt.Errorf("expected a publish whose document describes other bytes to be refused, got nil")
+	cases := []struct {
+		app  *dagger.Z5LabsApp
+		what string
+	}{
+		{
+			app: dag.Z5Labs().App(version).
+				WithVariant(platform, entry, dag.Z5Labs().FileDocument(elsewhere, dagger.Z5LabsFileDocumentOpts{Name: name})).
+				Build(),
+			what: "an executable whose document is about another file",
+		},
+		{
+			app: dag.Z5Labs().App(version).
+				WithVariant(platform, entry, entryDoc).
+				Build().
+				WithDirectory("/srv/templates", tree, dag.Z5Labs().DirectoryDocument(otherTree, "/srv/templates")),
+			what: "a contributed tree whose document is about another tree",
+		},
 	}
-	if !strings.Contains(err.Error(), "describes other bytes") {
-		return fmt.Errorf("expected the refusal to say the document describes other bytes, got: %v", err)
-	}
-
-	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
-	if err != nil {
-		return fmt.Errorf("probe the registry after the refusal: %v", err)
-	}
-	if code == 200 {
-		return fmt.Errorf("Publish refused the publish but manifest %s:%s is present in the registry", repository, version)
+	for i, c := range cases {
+		target := fmt.Sprintf("%s-%d", repository, i)
+		_, err := publishable(c.app, svc, secret, prov).Publish(ctx, []string{target})
+		if err == nil {
+			return fmt.Errorf("expected a publish carrying %s to be refused, got nil", c.what)
+		}
+		if !strings.Contains(err.Error(), "describes other bytes") {
+			return fmt.Errorf("expected the refusal of %s to say the document describes other bytes, got: %v", c.what, err)
+		}
+		code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, target, version)
+		if err != nil {
+			return fmt.Errorf("probe the registry after the refusal of %s: %v", c.what, err)
+		}
+		if code == 200 {
+			return fmt.Errorf("the publish carrying %s was refused but manifest %s:%s is present in the registry",
+				c.what, target, version)
+		}
 	}
 	return nil
 }

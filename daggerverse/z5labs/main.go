@@ -73,11 +73,20 @@
 // single Go binary produces.
 //
 //	dagger call app --version=v1.2.3 \
-//	  with-variant --platform=linux/amd64 --entry=./dist/app-amd64 --document=./dist/app-amd64.spdx.json \
-//	  with-variant --platform=linux/arm64 --entry=./dist/app-arm64 --document=./dist/app-arm64.spdx.json \
+//	  with-variant --platform=linux/amd64 --entry=./dist/app-amd64 \
+//	    --document=./dist/app-amd64.spdx.json --name=app \
+//	  with-variant --platform=linux/arm64 --entry=./dist/app-arm64 \
+//	    --document=./dist/app-arm64.spdx.json --name=app \
 //	  build \
 //	  with-registry --address=ghcr.io --username=... --auth=env:TOKEN \
 //	  publish --repositories=owner/app
+//
+// The `--name` is doing real work there and is the flag most likely to be left
+// out. A release pipeline names its cross-compiled artifacts per platform, and
+// the entry has to land at one path in every variant or the entrypoint differs
+// per architecture — so a set contributed with per-platform file names and no
+// `--name` is refused rather than resolved by picking one. Leave it out only
+// when the file is already called what the application should be called.
 //
 // What comes back from Build is the same App a language chain produces, so
 // everything above and below this section applies to it unchanged: the same

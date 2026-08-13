@@ -70,7 +70,7 @@ import (
 // places: a document that names no digest is a document that cannot be checked
 // at all, usually produced by hand or by a tool that does not fill the field,
 // while a digest that disagrees is a document about the wrong artifact.
-func verifyContributionDigest(ctx context.Context, c contribution, subject bomPackage) error {
+func verifyContributionDigest(ctx context.Context, seen digestCache, c contribution, subject bomPackage) error {
 	want := strings.ToLower(strings.TrimSpace(subject.Sha256))
 	if want == "" {
 		return fmt.Errorf(
@@ -78,7 +78,7 @@ func verifyContributionDigest(ctx context.Context, c contribution, subject bomPa
 				"a contribution's document has to name the digest of the content it accompanies, and %s produces one that does",
 			documentHelperFor(c))
 	}
-	got, err := contentDigest(ctx, c)
+	got, err := seen.digestOf(ctx, c)
 	if err != nil {
 		return err
 	}
@@ -98,6 +98,50 @@ func documentHelperFor(c contribution) string {
 		return "directoryDocument"
 	}
 	return "fileDocument"
+}
+
+// digestCache memoises one publish's content digests, keyed on the content
+// itself.
+//
+// It is not a micro-optimization. WithFile and WithDirectory append the *same*
+// contribution — one handle, one document — to every variant, because the bytes
+// are platform-neutral by construction. resolveContributions walks per variant,
+// so without this a contributed certificate bundle or asset tree is exported
+// into the module's own filesystem and hashed once per platform: twice for the
+// default pair, and more for every architecture added. The entry contribution
+// is genuinely per-variant and is unaffected either way, because its handles
+// differ.
+//
+// The key is the content handle rather than a digest of it, which is what makes
+// the lookup free: two variants carrying one contribution carry one pointer.
+// Two *distinct* handles over identical bytes miss the cache and are hashed
+// twice, which is correct and cheap enough — the alternative is hashing to find
+// out whether hashing was needed.
+type digestCache map[any]string
+
+// digestOf is contentDigest, answered from the cache when this publish has
+// already hashed the same content.
+func (dc digestCache) digestOf(ctx context.Context, c contribution) (string, error) {
+	var key any
+	switch {
+	case c.Content != nil:
+		key = c.Content
+	case c.Tree != nil:
+		key = c.Tree
+	}
+	if key != nil {
+		if got, ok := dc[key]; ok {
+			return got, nil
+		}
+	}
+	got, err := contentDigest(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	if key != nil {
+		dc[key] = got
+	}
+	return got, nil
 }
 
 // contentDigest is the digest a contribution's document has to name: the
