@@ -61,6 +61,21 @@ const (
 	// reason the others are: `COPY --from=<image> /app/thing` is a line
 	// written a long way from this repository.
 	wantImageAppDir = "/app"
+	// wantImageUser is the OCI configuration's User field on every image the
+	// module publishes: uid 65532, gid 65532, as numbers.
+	//
+	// Pinned here most of all, because this is the contract value with the
+	// most readers outside this repository and the least ability to ask. A
+	// `COPY --chown=65532:65532` in a derived Dockerfile and a runAsUser in a
+	// Kubernetes securityContext are both a number somebody wrote down against
+	// this image; changing it silently breaks them, so changing it has to break
+	// this line first (devex#399).
+	//
+	// Non-empty is the half that is easy to lose and impossible to see: an
+	// empty User is uid 0, so an image that dropped this field would still run,
+	// still pass every other assertion here, and be rejected by the first
+	// admission policy that asks for runAsNonRoot.
+	wantImageUser = "65532:65532"
 )
 
 // wantImageAppDirStat is what the executable's directory has to look like on
@@ -75,13 +90,13 @@ const (
 // describes, which is the same failure contributed content's read-only modes
 // exist to prevent, one level up.
 //
-// Two things this does not claim, both of which are easy to read into it.
-// Root-owned and 0755 does not stop *root*, which bypasses the permission
-// check — and root is who these images run as until devex#399 lands a non-root
-// user, exactly as the same caveat under HOME's mode says. What it does is make
-// the promise true for every other user a deployment can pick, and pin the mode
-// now so that #399 lands on a /app that has not quietly regressed in the
-// meantime. It is also the mode a real base image's directories already have,
+// One thing this does not claim, and it is easy to read into it. Root-owned
+// and 0755 does not stop *root*, which bypasses the permission check. Since
+// devex#399 that exception is not the default any more — these images run as
+// 65532 — so it is reachable only by a deployment that overrides the user back
+// to uid 0, exactly as the same caveat under HOME's mode says. What the mode
+// does is make the promise true for every user a deployment can pick that is
+// not root. It is also the mode a real base image's directories already have,
 // which is why it is 0755 rather than the 0555 HOME gets: /app is ordinary
 // image structure, and an image that later gains a base layer should not have
 // to explain a directory mode nothing else in the filesystem shares.
@@ -166,6 +181,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppValidatesTheVersion", t.AppValidatesTheVersion)
 	jobs = jobs.WithJob("AppRejectsSourceWithoutGitMetadata", t.AppRejectsSourceWithoutGitMetadata)
 	jobs = jobs.WithJob("AppContainerRunsTheEntrypoint", t.AppContainerRunsTheEntrypoint)
+	jobs = jobs.WithJob("AppImageRunsUnderAnyUser", t.AppImageRunsUnderAnyUser)
 	jobs = jobs.WithJob("AppContainersCoverEveryPlatformInOrder", t.AppContainersCoverEveryPlatformInOrder)
 	jobs = jobs.WithJob("AppImagesCarryTheStandardConfiguration", t.AppImagesCarryTheStandardConfiguration)
 	jobs = jobs.WithJob("AppBuildTagsReachTheCompiler", t.AppBuildTagsReachTheCompiler)
@@ -590,6 +606,81 @@ func (t *Tests) AppContainerRunsTheEntrypoint(ctx context.Context) error {
 	return nil
 }
 
+// AppImageRunsUnderAnyUser asserts the image's entrypoint is executable by the
+// uid the image pins and by any uid a deployment overrides that with.
+//
+// Executability is the claim, and it is a different one from the pin itself.
+// assertStandardImageConfig reads the User field and says what the image
+// *declares*; nothing about a declaration says the binary is executable by the
+// uid it names. A file owned by 65532 and mode 0500 would satisfy that check
+// and fail here, and one at 0550 would satisfy both and fail the moment a
+// cluster allocated a uid of its own.
+//
+// Be clear about what this does not do, because the reverse is easy to assume.
+// It does not observe the effective uid of the process — a scratch image has no
+// `id` to ask — so three of the four rows below override the user outright and
+// would pass just as well against an image that had never set one. The first
+// row is what ties this to the pin, and only because it asserts the declared
+// user first: a revert of imageForEntry's WithUser makes that assertion fail
+// here, rather than leaving the row silently exercising root. Beyond that one
+// line, the revert protection for the pin lives in assertStandardImageConfig.
+//
+// Each row is a deployment somebody really writes:
+//
+//   - nothing overridden, which is the image running as the 65532 it declares.
+//     Before devex#399 this row would have been green for the wrong reason:
+//     root can exec anything.
+//   - an unrelated uid:gid, which is `docker run --user $(id -u):$(id -g)` and
+//     a Kubernetes securityContext naming a uid from a namespace's allocated
+//     range. Nothing in the image knows that number, so only a world-executable
+//     entrypoint makes it work.
+//   - the pinned uid with the runtime's group, which is what a securityContext
+//     that sets runAsUser and omits runAsGroup produces. It is a near miss
+//     rather than an exotic case: the group is gid 0 there.
+//   - root, because a deployment that deliberately overrides back to uid 0 is
+//     still a supported configuration of the image even though nothing here
+//     ships it.
+//
+// It runs on the host's platform alone: executability is a property of the file
+// modes, which the module writes identically for every variant, and a foreign
+// platform's binary cannot be executed here to learn anything more.
+func (t *Tests) AppImageRunsUnderAnyUser(ctx context.Context) error {
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	image := dag.Z5Labs().Go(src).
+		App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}).
+		Container(hostPlatform())
+	// The first row runs under whatever the image declares, so what it
+	// declares has to be the pin for that row to mean anything.
+	declared, err := image.User(ctx)
+	if err != nil {
+		return fmt.Errorf("read the image's user: %v", err)
+	}
+	if declared != wantImageUser {
+		return fmt.Errorf("the image declares user %q, want %q — the un-overridden row below would otherwise exercise some other identity", declared, wantImageUser)
+	}
+	for _, user := range []string{"", "4242:4242", "65532:0", "0:0"} {
+		ctr := image
+		what := "the declared user " + declared
+		if user != "" {
+			ctr = ctr.WithUser(user)
+			what = "user " + user
+		}
+		out, err := ctr.
+			WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+			Stdout(ctx)
+		if err != nil {
+			return fmt.Errorf("run the app image's entrypoint as %s: %w", what, err)
+		}
+		if out != "hello\n" {
+			return fmt.Errorf("running the entrypoint as %s printed %q, want %q", what, out, "hello\n")
+		}
+	}
+	return nil
+}
+
 // AppContainersCoverEveryPlatformInOrder asserts Containers returns one
 // image per platform in the order the platforms were given, and that
 // Container names the same images individually.
@@ -675,17 +766,21 @@ func (t *Tests) AppImagesCarryTheStandardConfiguration(ctx context.Context) erro
 
 // assertStandardImageConfig checks ctr's whole OCI configuration is the one
 // the module promises: the standardized environment, an entrypoint in the
-// application's own directory, and nothing else at all.
+// application's own directory, uid 65532 as the user, and nothing else at all.
 //
 // "Nothing else at all" is the part that is easy to read past. The module
-// promises no user, no working directory, no default arguments, no exposed
-// ports and no labels, and each of those is a promise an adopter relies on
-// rather than a field nobody got round to setting — a CMD would be appended to
-// the entrypoint by every runtime, a WORKDIR would change what every relative
-// path in a deployment resolves against, and a label is something people read
+// promises no working directory, no default arguments, no exposed ports and no
+// labels, and each of those is a promise an adopter relies on rather than a
+// field nobody got round to setting — a CMD would be appended to the entrypoint
+// by every runtime, a WORKDIR would change what every relative path in a
+// deployment resolves against, and a label is something people read
 // `org.opencontainers.image.*` out of. They are pinned here, literally, for the
 // reason wantImagePath is: a test that asked the module what it promises would
 // agree with whatever the module changed it to.
+//
+// The user is the one field that is checked for a *value* rather than for
+// emptiness, and it is the reason the distinction matters: an empty User is
+// not "no opinion", it is uid 0.
 //
 // Reading them costs an image-config read and no build, which is why this runs
 // on every variant of every image the suite looks at, while the filesystem half
@@ -709,12 +804,12 @@ func assertStandardImageConfig(ctx context.Context, ctr *dagger.Container, what 
 	if err != nil {
 		return fmt.Errorf("%s: read the image's user: %v", what, err)
 	}
-	// Empty, which is what these images promise today and is uid 0 at
-	// runtime. devex#399 is where that becomes 65532:65532, and this line is
-	// what makes landing it a deliberate change to the pinned contract rather
-	// than a silent one.
-	if user != "" {
-		return fmt.Errorf("%s: the image sets its user to %q, want an image that sets none", what, user)
+	// Exactly 65532:65532. Not merely "non-empty and non-zero": the number is
+	// the contract, and an image that started running as some other non-root
+	// uid would break every `COPY --chown` and runAsUser written against it
+	// while satisfying a weaker check (devex#399).
+	if user != wantImageUser {
+		return fmt.Errorf("%s: the image sets its user to %q, want %q — an image that sets none runs as uid 0", what, user, wantImageUser)
 	}
 	workdir, err := ctr.Workdir(ctx)
 	if err != nil {

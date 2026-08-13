@@ -866,7 +866,8 @@ type imageConfig struct {
 	// Env is the image's environment, name to value.
 	Env map[string]string
 	// User is the OCI configuration's User field. Empty means the runtime
-	// picks, which today means root — see expectedImageConfig.
+	// picks, which means uid 0 — which is why an image this pipeline
+	// publishes never leaves it empty. See expectedImageConfig.
 	User string
 	// Entrypoint is what the image execs, argument by argument.
 	Entrypoint []string
@@ -899,19 +900,21 @@ type imageConfig struct {
 // caller-facing method sets any of these fields, so what an image promises is
 // a property of the pipeline rather than of the call that built it.
 //
-// Every field but the entrypoint is empty, and that is the promise rather than
-// an absence of one. An image with no working directory, no default arguments,
-// no exposed ports and no labels is one whose behaviour is what its entrypoint
-// does, and each of those would otherwise be inherited from a base layer the
-// moment this module builds on one — which is the direction it is going. The
-// package doc's "The image contract" is where the same set is written for
-// adopters, and "# No working directory" is why that field in particular is a
-// decision.
+// Every field but the entrypoint and the user is empty, and that is the
+// promise rather than an absence of one. An image with no working directory,
+// no default arguments, no exposed ports and no labels is one whose behaviour
+// is what its entrypoint does, and each of those would otherwise be inherited
+// from a base layer the moment this module builds on one — which is the
+// direction it is going. The package doc's "The image contract" is where the
+// same set is written for adopters, and "# No working directory" is why that
+// field in particular is a decision.
 //
-// User is empty because these images run as root today. That is devex#399,
-// which is open, and the whole of fixing it here is this field and the
-// WithUser that has to go beside it in imageForEntry: this check is what stops
-// the next refactor dropping it again once it lands.
+// User is appOwner, and it is the one field here whose expected value is a
+// non-empty constant. An image config's User is what a runtime resolves when
+// nothing overrides it, and an empty one resolves to uid 0 — so "no user" is
+// not a neutral setting, it is root (devex#399). This line is what stops a
+// later refactor dropping the WithUser in imageForEntry and shipping root
+// again: nothing else would fail, because an image that runs as root works.
 //
 // The entrypoint is a parameter because it is the one part of the
 // configuration that is a property of the application rather than of the
@@ -921,7 +924,7 @@ type imageConfig struct {
 func expectedImageConfig(entrypoint string) imageConfig {
 	return imageConfig{
 		Env:        expectedImageEnv(),
-		User:       "",
+		User:       appOwner,
 		Entrypoint: []string{entrypoint},
 	}
 }

@@ -272,6 +272,23 @@ func (g *GoChain) buildBinaryForPlatform(platform, pkg, binaryName, version, com
 // stops describing what is running. It is 0555 rather than 0444 because this
 // is the one file in the image that is exec'd.
 //
+// The image runs as that same user, appOwner, and this is the only line that
+// sets it — see the package doc's "The image runs as 65532:65532".
+//
+// What that placement buys is precise, and worth stating precisely: every image
+// *this module publishes* carries 65532:65532, and there is no method on App
+// that moves it. It is not a claim that the string is out of a caller's reach —
+// App.Container hands back a *dagger.Container, and WithUser is a method on it,
+// so a caller can take that container, change its user and publish it
+// themselves. The narrow claim is the one a Kubernetes runAsNonRoot policy can
+// be written against, and the broad one is not true of any Dagger module.
+//
+// The mode is what makes
+// the two independent, and deliberately so. 0555 is exec'able by *every* uid,
+// so a deployment that overrides the user — `--user $(id -u):$(id -g)`, or a
+// securityContext pinning something the cluster allocated — is running an
+// ordinary configuration rather than working around this line.
+//
 // This is the only place an image is built, and everything reaches it —
 // GoChain.App by way of AppBuilder, and AppBuilder by way of a caller's
 // prebuilt executable. A caller-supplied entrypoint is not an exemption from
@@ -294,7 +311,7 @@ func imageForEntry(platform dagger.Platform, name string, entry *dagger.File, an
 	for _, k := range sortedKeys(env) {
 		ctr = ctr.WithEnvVariable(k, env[k])
 	}
-	ctr = ctr.WithEntrypoint([]string{entrypoint})
+	ctr = ctr.WithEntrypoint([]string{entrypoint}).WithUser(appOwner)
 	for _, k := range sortedKeys(annotations) {
 		ctr = ctr.WithAnnotation(k, annotations[k])
 	}
