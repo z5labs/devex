@@ -1,0 +1,5 @@
+# `go build` in this directory leaves a binary named after it. The suite builds
+# the fixture inside a container (`go build -o /bin/fake-sigstore .`) and never
+# uses a host-built one, so anything landing here is a stray artifact — and an
+# opaque executable is the last thing this repository should carry.
+/sigstore

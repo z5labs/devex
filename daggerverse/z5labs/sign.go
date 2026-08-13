@@ -388,6 +388,21 @@ func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signa
 			"keyless signing produced no certificate chain, so nothing would vouch for the signing key; " +
 				"refusing to publish a signature no documented verify command can check")
 	}
+	// And a keyless signer with no log to record in is a refusal for the same
+	// reason, stated locally rather than left to be inferred from the fact
+	// that the only constructor sets both fields together. Unreachable today:
+	// newSigner sets rekorURL from sigstoreEndpoints on every keyless signer,
+	// and sigstoreEndpoints returns either the public log or a resolved one,
+	// never "". The check is here so that a reader of this call site does not
+	// have to go and establish that, and so that a future constructor cannot
+	// make it false quietly — what it would otherwise produce is a request to
+	// the relative URL "/api/v1/log/entries", failing a publish with a parse
+	// error that names no cause a caller could act on.
+	if strings.TrimSpace(s.rekorURL) == "" {
+		return nil, fmt.Errorf(
+			"keyless signing has no transparency log to record in, so nothing would establish the signing certificate " +
+				"was live when it signed; refusing to publish a signature that expires into unverifiability")
+	}
 	certificate, chain, err := splitCertificateChain(s.chain)
 	if err != nil {
 		return nil, err
@@ -396,7 +411,7 @@ func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signa
 	if chain != "" {
 		out[cosignChainAnnotation] = chain
 	}
-	bundle, err := rekorBundle(ctx, payload, signature, certificate)
+	bundle, err := rekorBundle(ctx, payload, signature, certificate, s.rekorURL)
 	if err != nil {
 		return nil, err
 	}
@@ -472,13 +487,17 @@ func splitCertificateChain(chain []byte) (string, string, error) {
 // is embedded rather than left to be looked up: a consumer verifying from
 // inside a network that cannot reach rekor.sigstore.dev still can.
 //
-// Like fulcioCertificate, this is a part of the publish path the test suite
-// cannot exercise — it needs the live public log, and the suite runs against
-// a registry with no sigstore beside it. The suite covers the layout and the
-// signature by driving the supplied-key mode, where neither this nor a
-// certificate exists; what is untested here is the HTTP shape of one
-// request.
-func rekorBundle(ctx context.Context, payload []byte, signature, certificate string) (string, error) {
+// rekorURL is the log to record in, which travels on the signer beside the
+// certificate rather than being read from a constant here — see
+// sigstoreEndpoints for why the CA and the log cannot be redirected apart.
+//
+// The test suite drives this against a log of its own, which verifies the
+// signature against the certificate it was handed before it answers. So the
+// entry this builds is checked, rather than merely sent; what a local log
+// cannot establish is anything about the public log's availability, its
+// inclusion proof, or a verifier's willingness to trust its
+// countersignature. The suite says as much where it asserts.
+func rekorBundle(ctx context.Context, payload []byte, signature, certificate, rekorURL string) (string, error) {
 	sum := sha256.Sum256(payload)
 	body, err := json.Marshal(map[string]any{
 		"apiVersion": "0.0.1",
@@ -506,7 +525,7 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		defaultRekorURL+"/api/v1/log/entries", bytes.NewReader(body))
+		rekorURL+"/api/v1/log/entries", bytes.NewReader(body))
 	if err != nil {
 		return "", fmt.Errorf("build transparency log request: %v", err)
 	}
@@ -515,7 +534,7 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("record signature in the transparency log at %s: %v", defaultRekorURL, err)
+		return "", fmt.Errorf("record signature in the transparency log at %s: %v", rekorURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -524,7 +543,7 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 		return "", fmt.Errorf("read transparency log response: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("transparency log at %s returned %s", defaultRekorURL, resp.Status)
+		return "", fmt.Errorf("transparency log at %s returned %s%s", rekorURL, resp.Status, responseDetail(raw))
 	}
 
 	// The response is keyed by the entry's UUID, which is not known until
@@ -547,11 +566,11 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 	}
 	if len(entries) != 1 {
 		return "", fmt.Errorf("transparency log at %s recorded %d entries for one signature, want exactly 1",
-			defaultRekorURL, len(entries))
+			rekorURL, len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Verification.SignedEntryTimestamp == "" {
-			return "", fmt.Errorf("transparency log entry from %s carried no signed entry timestamp", defaultRekorURL)
+			return "", fmt.Errorf("transparency log entry from %s carried no signed entry timestamp", rekorURL)
 		}
 		// The field names are capitalized because cosign's bundle type
 		// spells them that way; they are a wire format, not a style choice.
@@ -570,5 +589,5 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 		return string(bundle), nil
 	}
 	// Unreachable: the length check above already refused an empty map.
-	return "", fmt.Errorf("transparency log at %s recorded no entry", defaultRekorURL)
+	return "", fmt.Errorf("transparency log at %s recorded no entry", rekorURL)
 }

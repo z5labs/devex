@@ -34,14 +34,17 @@ const cosignImage = "ghcr.io/sigstore/cosign/cosign:v2.4.1"
 // second failing — a verification reporting success over bytes it never
 // checked, which is worse than no signature at all.
 //
-// It runs in the supplied-key mode, because a session with no sigstore
-// beside it cannot get a Fulcio certificate. What that costs is stated
-// rather than hidden: the certificate, the identity and the transparency
-// log entry are untested here, exactly as fulcioCertificate and rekorBundle
-// say. What it covers is everything else — the payload, the signature over
-// it, the annotations, the manifest shape and the tag cosign computes to
-// find them, all of it read by cosign rather than asserted against this
-// module's own idea of the layout.
+// It runs in the supplied-key mode, which is a division of labour rather
+// than a limitation: the certificate, the identity and the transparency log
+// entry are AppKeylessSignatureVerifiesAgainstALocalSigstore's subject, and
+// the recursion is this one's. What each covers is the half the other cannot
+// see cheaply — signImage walks the same digests whichever signer it holds,
+// so the recursive property is mode-independent and is asserted once, over
+// the mode that needs no CA standing behind it.
+//
+// What it covers is the payload, the signature over it, the annotations, the
+// manifest shape and the tag cosign computes to find them, all of it read by
+// cosign rather than asserted against this module's own idea of the layout.
 func (t *Tests) AppSignsEveryPublishedManifest(ctx context.Context) error {
 	const (
 		version    = "v9.0.0"
@@ -239,6 +242,33 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 	}
 	publicPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 
+	ctr, err := cosignContainer(ctx, svc, password)
+	if err != nil {
+		return nil, err
+	}
+	return &cosign{ctr: ctr.WithNewFile("/keys/cosign.pub", string(publicPEM))}, nil
+}
+
+// cosignKeylessVerifier builds a cosign container that trusts this session's
+// sigstore: its root, and the intermediate the leaves are issued from.
+//
+// The two files are the whole difference from cosignVerifier. There is no
+// key, because the point of the keyless mode is that there is no key for a
+// consumer to have been given — what a verifier is told is which authority
+// to trust, and it recovers the identity from the certificate.
+func cosignKeylessVerifier(ctx context.Context, svc *dagger.Service, password string, sig *sigstoreHarness) (*cosign, error) {
+	ctr, err := cosignContainer(ctx, svc, password)
+	if err != nil {
+		return nil, err
+	}
+	return &cosign{ctr: ctr.
+		WithNewFile("/keys/root.pem", string(sig.RootPEM)).
+		WithNewFile("/keys/intermediate.pem", string(sig.IntermediatePEM))}, nil
+}
+
+// cosignContainer is the cosign CLI with a registry credential, which is
+// everything both verifiers share.
+func cosignContainer(ctx context.Context, svc *dagger.Service, password string) (*dagger.Container, error) {
 	config, err := json.Marshal(map[string]any{
 		"auths": map[string]any{
 			registryAlias + ":5000": map[string]string{
@@ -256,9 +286,8 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 		return nil, fmt.Errorf("random sha256 (secret name): %v", err)
 	}
 
-	ctr := dag.Container().From(cosignImage).
+	return dag.Container().From(cosignImage).
 		WithServiceBinding(registryAlias, svc).
-		WithNewFile("/keys/cosign.pub", string(publicPEM)).
 		// 0444 rather than the 0400 default: the cosign image runs as a
 		// non-root user, and a secret readable only by root is one cosign
 		// reports as a missing credential.
@@ -266,19 +295,16 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 			dag.SetSecret("z5labs-cosign-docker-config-"+nameHex[:16], string(config)),
 			dagger.ContainerWithMountedSecretOpts{Mode: 0o444}).
 		WithEnvVariable("DOCKER_CONFIG", "/docker").
-		WithEnvVariable("HOME", "/tmp")
-	return &cosign{ctr: ctr}, nil
+		WithEnvVariable("HOME", "/tmp"), nil
 }
 
-// verify runs `cosign verify` against one reference and returns cosign's
-// own exit code and stderr.
+// verify runs the command a consumer of a *supplied-key* publish is told to
+// run in WithSigningKey's doc comment.
 //
-// The flags are the ones a consumer of a supplied-key publish is told to
-// run in WithSigningKey's doc comment, plus the two that exist only because
-// the registry under test speaks plain HTTP. Nothing here weakens the check
-// itself: --insecure-ignore-tlog is what the supplied-key mode genuinely
-// requires, and adding it silently to the keyless mode is the failure this
-// naming is meant to make obvious.
+// --insecure-ignore-tlog is what that mode genuinely requires: nothing
+// certified the key, so there is nothing to have logged. verifyKeyless is
+// the other mode's command, and the two are separate methods precisely so
+// that a flag one of them needs cannot arrive in the other by sharing.
 //
 // The exec is allowed to fail rather than raising, because a caller
 // asserting that a verification *fails* has to be able to say why it
@@ -287,14 +313,41 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 // signature that did not match — and then the negative test passes while
 // proving nothing about the positive one.
 func (c *cosign) verify(ctx context.Context, reference string) (int, string, error) {
-	ctr := c.ctr.WithExec([]string{
-		"verify",
+	return c.run(ctx, reference,
 		"--key", "/keys/cosign.pub",
 		"--insecure-ignore-tlog=true",
-		"--allow-http-registry",
-		"--allow-insecure-registry",
-		reference,
-	}, dagger.ContainerWithExecOpts{
+	)
+}
+
+// verifyKeyless runs the command Publish's doc comment gives a consumer of a
+// keyless publish: an identity and an issuer, and no key anywhere.
+//
+// Three flags beyond those exist only because the sigstore is this session's,
+// and AppKeylessSignatureVerifiesAgainstALocalSigstore's doc comment says
+// what each of them costs. They are passed here rather than folded into the
+// container so that a reader of a failing run sees the whole command.
+func (c *cosign) verifyKeyless(ctx context.Context, reference, identityPattern, issuer string) (int, string, error) {
+	return c.run(ctx, reference,
+		"--certificate-identity-regexp", identityPattern,
+		"--certificate-oidc-issuer", issuer,
+		"--ca-roots", "/keys/root.pem",
+		"--ca-intermediates", "/keys/intermediate.pem",
+		"--insecure-ignore-sct=true",
+		"--insecure-ignore-tlog=true",
+	)
+}
+
+// run executes `cosign verify` with mode-specific flags and returns cosign's
+// own exit code and stderr.
+//
+// --allow-http-registry and --allow-insecure-registry are added here because
+// every mode needs them and for the same reason: the registry under test
+// speaks plain HTTP. Nothing else is added, so a mode cannot acquire a
+// weakening flag by being routed through a shared helper.
+func (c *cosign) run(ctx context.Context, reference string, flags ...string) (int, string, error) {
+	args := append([]string{"verify"}, flags...)
+	args = append(args, "--allow-http-registry", "--allow-insecure-registry", reference)
+	ctr := c.ctr.WithExec(args, dagger.ContainerWithExecOpts{
 		UseEntrypoint: true,
 		Expect:        dagger.ReturnTypeAny,
 	})
@@ -317,6 +370,20 @@ func (c *cosign) mustVerify(ctx context.Context, reference string) error {
 	}
 	if code != 0 {
 		return fmt.Errorf("cosign verify %s exited %d: %s", reference, code, stderr)
+	}
+	return nil
+}
+
+// mustVerifyKeyless fails unless cosign reports the reference verified by
+// identity.
+func (c *cosign) mustVerifyKeyless(ctx context.Context, reference, identityPattern, issuer string) error {
+	code, stderr, err := c.verifyKeyless(ctx, reference, identityPattern, issuer)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("cosign verify %s by identity %s from %s exited %d: %s",
+			reference, identityPattern, issuer, code, stderr)
 	}
 	return nil
 }

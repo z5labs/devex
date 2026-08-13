@@ -14,6 +14,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strings"
 	"time"
 
 	"dagger/z-5-labs/internal/dagger"
@@ -25,6 +27,55 @@ import (
 // identity by a short-lived certificate from this CA, and thrown away.
 // Nothing is stored, so nothing can leak or expire unnoticed.
 const defaultFulcioURL = "https://fulcio.sigstore.dev"
+
+// sigstoreEndpoints is where one publish's keyless signing talks: the
+// certificate authority that certifies the ephemeral key, and the
+// transparency log whose countersignature makes that certificate still
+// mean something after it expires.
+//
+// The pair travels together and is resolved once per publish, which is the
+// point rather than a convenience. A publish certified by one authority and
+// logged in a different one's log is not a weaker keyless signature, it is
+// an incoherent one — the log entry a verifier checks the certificate's
+// lifetime against would have been made somewhere that never saw it — so
+// there is no state in which only one of these is redirected.
+type sigstoreEndpoints struct {
+	fulcio string
+	rekor  string
+}
+
+// defaultSigstore is the public sigstore, which is what every publish that
+// does not stand up its own uses.
+func defaultSigstore() sigstoreEndpoints {
+	return sigstoreEndpoints{fulcio: defaultFulcioURL, rekor: defaultRekorURL}
+}
+
+// serviceOrigin is the scheme-and-authority a session-hosted sigstore is
+// reachable at from this module's runtime.
+//
+// The service is started here for the same reason boundToService starts the
+// token endpoint: an engine-assigned address is only resolvable once the
+// service is up, and a hostname resolved in someone else's container is not
+// reachable from this one.
+//
+// The scheme is http and is not a parameter. A service exists only inside
+// the session that created it and has no name outside it, so there is no
+// certificate anyone could have issued for it — the same argument
+// withAudience already makes for a session-hosted token endpoint. What
+// would be gained by allowing https here is nothing; what would be lost is
+// that "the address is not the caller's to write" stops being true of every
+// part of the URL.
+func serviceOrigin(ctx context.Context, svc *dagger.Service, what string) (string, error) {
+	started, err := svc.Start(ctx)
+	if err != nil {
+		return "", fmt.Errorf("start the session-hosted %s: %v", what, err)
+	}
+	endpoint, err := started.Endpoint(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolve the session-hosted %s's endpoint: %v", what, err)
+	}
+	return "http://" + endpoint, nil
+}
 
 // fulcioTimeout bounds the certificate request for the same reason
 // idTokenTimeout bounds the token exchange.
@@ -59,6 +110,13 @@ type signer struct {
 	// identity is what the workload identity token said, and is what
 	// ends up in the provenance predicate.
 	identity *workloadIdentity
+	// rekorURL is the transparency log this publish's signatures are
+	// recorded in. It is carried on the signer rather than read from a
+	// constant where it is used, so the log a signature is logged in is
+	// the log of the sigstore that issued the certificate beside it —
+	// resolved once, in one place, for the reason sigstoreEndpoints
+	// states. Empty in the supplied-key mode, which logs nothing.
+	rekorURL string
 }
 
 // newSigner produces the signer for one publish.
@@ -72,17 +130,16 @@ type signer struct {
 //
 //   - Keyless (signingKey nil). An ephemeral P-256 key is bound to the
 //     workload identity by a short-lived sigstore certificate. This is
-//     what a CI publish uses.
+//     what a CI publish uses, and it is what sigstore names — the public
+//     sigstore unless the caller stood one up in the session.
 //   - Supplied key (signingKey set). The caller's PEM-encoded EC private
 //     key signs instead, and no certificate is fetched. This is for a
-//     build that cannot reach a public CA — an air-gapped release, and
-//     the test suite, which has a real OIDC issuer of its own but no
-//     sigstore.
+//     build that cannot reach a CA at all — an air-gapped release.
 //
 // The identity exchange happens in both modes. The predicate's contents
 // therefore come from a real token in both, and the only thing the
 // supplied-key mode changes is who vouches for the public key.
-func newSigner(ctx context.Context, idTokenRequestURL string, idTokenRequestToken, signingKey *dagger.Secret, idTokenService *dagger.Service) (*signer, error) {
+func newSigner(ctx context.Context, idTokenRequestURL string, idTokenRequestToken, signingKey *dagger.Secret, idTokenService *dagger.Service, sigstore sigstoreEndpoints) (*signer, error) {
 	rawToken, identity, err := exchangeIDToken(ctx, idTokenRequestURL, idTokenRequestToken, idTokenService)
 	if err != nil {
 		return nil, err
@@ -98,11 +155,11 @@ func newSigner(ctx context.Context, idTokenRequestURL string, idTokenRequestToke
 	if err != nil {
 		return nil, fmt.Errorf("generate ephemeral signing key: %v", err)
 	}
-	chain, err := fulcioCertificate(ctx, key, rawToken, identity.Subject)
+	chain, err := fulcioCertificate(ctx, key, rawToken, identity.Subject, sigstore.fulcio)
 	if err != nil {
 		return nil, err
 	}
-	return &signer{key: key, keyless: true, chain: chain, identity: identity}, nil
+	return &signer{key: key, keyless: true, chain: chain, identity: identity, rekorURL: sigstore.rekor}, nil
 }
 
 // parseSigningKey reads a PEM-encoded EC private key out of a secret.
@@ -139,13 +196,13 @@ func parseSigningKey(ctx context.Context, secret *dagger.Secret) (*ecdsa.Private
 // which is what stops a holder of someone else's token from binding
 // their own key to that identity.
 //
-// This is the one part of the publish path the test suite cannot
-// exercise: it needs a live sigstore CA, and the tests run against a
-// registry with no issuer beside it. Everything upstream of it — the
-// token exchange, the claim mapping, the statement, the envelope, the
-// attach and the retrieval — runs identically in both modes, so what is
-// untested here is the HTTP shape of one request and not the mechanism.
-func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, subject string) ([]byte, error) {
+// fulcioURL is the authority to ask, which is the public sigstore unless
+// the caller stood one up inside the session — see App.WithSessionSigstore
+// for why that seam takes services rather than a URL. The test suite drives
+// this function against a CA of its own, which verifies the proof of
+// possession before it issues, so what is exercised is the request this
+// builds and not merely the fact that it was sent.
+func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, subject, fulcioURL string) ([]byte, error) {
 	publicDER, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("encode ephemeral public key: %v", err)
@@ -176,7 +233,7 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		defaultFulcioURL+"/api/v2/signingCert", bytes.NewReader(body))
+		fulcioURL+"/api/v2/signingCert", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("build certificate request: %v", err)
 	}
@@ -184,7 +241,7 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request signing certificate from %s: %v", defaultFulcioURL, err)
+		return nil, fmt.Errorf("request signing certificate from %s: %v", fulcioURL, err)
 	}
 	defer resp.Body.Close()
 
@@ -193,7 +250,7 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 		return nil, fmt.Errorf("read signing certificate response: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("signing certificate request to %s returned %s", defaultFulcioURL, resp.Status)
+		return nil, fmt.Errorf("signing certificate request to %s returned %s%s", fulcioURL, resp.Status, responseDetail(raw))
 	}
 
 	var payload struct {
@@ -216,7 +273,7 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 		certs = payload.Detached.Chain.Certificates
 	}
 	if len(certs) == 0 {
-		return nil, fmt.Errorf("signing certificate response from %s carried no chain", defaultFulcioURL)
+		return nil, fmt.Errorf("signing certificate response from %s carried no chain", fulcioURL)
 	}
 	var chain bytes.Buffer
 	for _, cert := range certs {
@@ -227,6 +284,77 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 	}
 	return chain.Bytes(), nil
 }
+
+// responseDetail is a bounded rendering of the message a rejected sigstore
+// response carried, for appending to the error that reports the status.
+//
+// A status code alone says a request was refused and never why, and both
+// sigstore services answer a refusal with a message saying which part of the
+// request they did not accept. Discarding it turns "the proof of possession
+// did not verify" into "returned 400 Bad Request", which is a publish
+// failure nobody can act on without a packet capture.
+//
+// # It renders a parsed field, never the body
+//
+// The body is a remote server's to choose, and the request it is refusing
+// carries the raw workload identity token — a bearer credential good enough
+// to mint a certificate for this build's identity, and a plain string rather
+// than a dagger.Secret, so nothing in the engine scrubs it. A server that
+// echoes the request it rejected is not exotic; gateways and WAFs quote the
+// offending payload routinely. Splicing the body verbatim into an error
+// would therefore hand any server this module talks to — including, since
+// WithSessionSigstore exists, one the caller stood up — a channel into this
+// build's logs and traces.
+//
+// So only a known error field of a known error shape is rendered, and a body
+// that is not one of those shapes contributes nothing, which is exactly the
+// status-only behaviour that came before. What is left is still
+// attacker-chosen when the CA is, so it is scrubbed of anything JWT-shaped
+// as well: the point is that no path renders a token, not that one path
+// happens not to.
+func responseDetail(raw []byte) string {
+	// Fulcio and Rekor are both grpc-gateway services and answer a refusal
+	// with `{"code":…,"message":"…"}`. The others are here because an
+	// intermediary that speaks OAuth answers in its own vocabulary and is
+	// still describing this request.
+	var payload struct {
+		Message          string `json:"message"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	detail := payload.Message
+	if detail == "" {
+		detail = payload.Error
+	}
+	if detail == "" {
+		detail = payload.ErrorDescription
+	}
+	detail = strings.Join(strings.Fields(detail), " ")
+	if detail == "" {
+		return ""
+	}
+	detail = jwtLike.ReplaceAllString(detail, "[redacted]")
+	// Bounded on runes rather than bytes: this goes into an error a caller
+	// reads in a terminal, and cutting a multi-byte rune in half renders as
+	// a replacement character in the middle of the one useful sentence.
+	const limit = 200
+	if runes := []rune(detail); len(runes) > limit {
+		detail = string(runes[:limit]) + "…"
+	}
+	return ": " + detail
+}
+
+// jwtLike matches a JWS compact serialization — three base64url segments
+// separated by dots, the last of which may be empty for an unsigned token.
+//
+// It is deliberately loose. Its job is not to parse a token but to make
+// certain that nothing token-shaped survives into an error message, and a
+// pattern that matched only well-formed tokens would pass a truncated one
+// through — which is still most of a credential.
+var jwtLike = regexp.MustCompile(`[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`)
 
 // dsseEnvelope wraps and signs a statement.
 //

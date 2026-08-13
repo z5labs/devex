@@ -168,6 +168,8 @@ func (r App) MarshalJSON() ([]byte, error) {
 		IDTokenRequestToken *dagger.Secret
 		IDTokenService      *dagger.Service
 		SigningKey          *dagger.Secret
+		FulcioService       *dagger.Service
+		RekorService        *dagger.Service
 	}
 	concrete.Version = r.Version
 	concrete.Commit = r.Commit
@@ -186,6 +188,8 @@ func (r App) MarshalJSON() ([]byte, error) {
 	concrete.IDTokenRequestToken = r.IDTokenRequestToken
 	concrete.IDTokenService = r.IDTokenService
 	concrete.SigningKey = r.SigningKey
+	concrete.FulcioService = r.FulcioService
+	concrete.RekorService = r.RekorService
 	return json.Marshal(&concrete)
 }
 
@@ -208,6 +212,8 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 		IDTokenRequestToken *dagger.Secret
 		IDTokenService      *dagger.Service
 		SigningKey          *dagger.Secret
+		FulcioService       *dagger.Service
+		RekorService        *dagger.Service
 	}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -230,6 +236,8 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 	r.IDTokenRequestToken = concrete.IDTokenRequestToken
 	r.IDTokenService = concrete.IDTokenService
 	r.SigningKey = concrete.SigningKey
+	r.FulcioService = concrete.FulcioService
+	r.RekorService = concrete.RekorService
 	return nil
 }
 
@@ -541,6 +549,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*App).WithRegistryService(&parent, svc), nil
+		case "WithSessionSigstore":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var fulcio *dagger.Service
+			if inputArgs["fulcio"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["fulcio"]), &fulcio)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg fulcio", err))
+				}
+			}
+			var rekor *dagger.Service
+			if inputArgs["rekor"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["rekor"]), &rekor)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg rekor", err))
+				}
+			}
+			return (*App).WithSessionSigstore(&parent, fulcio, rekor), nil
 		case "WithSigningKey":
 			var parent App
 			err = json.Unmarshal(parentJSON, &parent)

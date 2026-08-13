@@ -150,6 +150,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppRedactsCredentialsFromTheSourceAnnotation", t.AppRedactsCredentialsFromTheSourceAnnotation)
 	jobs = jobs.WithJob("AppSignsEveryPublishedManifest", t.AppSignsEveryPublishedManifest)
 	jobs = jobs.WithJob("AppSignatureDoesNotVerifyForAnotherKey", t.AppSignatureDoesNotVerifyForAnotherKey)
+	jobs = jobs.WithJob("AppKeylessSignatureVerifiesAgainstALocalSigstore", t.AppKeylessSignatureVerifiesAgainstALocalSigstore)
 	jobs = jobs.WithJob("AppFromPrebuiltExecutablesIsHardenedLikeAnyOther", t.AppFromPrebuiltExecutablesIsHardenedLikeAnyOther)
 	jobs = jobs.WithJob("AppFromPrebuiltExecutablesPublishesAttested", t.AppFromPrebuiltExecutablesPublishesAttested)
 	jobs = jobs.WithJob("AppFromPrebuiltComposesATreeShapedPayload", t.AppFromPrebuiltComposesATreeShapedPayload)

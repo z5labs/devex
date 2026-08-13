@@ -631,7 +631,7 @@ func (r *Z5LabsApp) WithGraphQLQuery(q *querybuilder.Selection) *Z5LabsApp {
 // nothing here promises that the second invocation reuses the first's
 // containers. A caller that needs one build inspected and then published
 // chains both onto one call.
-func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (../../../../../daggerverse/z5labs/app.go:193:1)
+func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (../../../../../daggerverse/z5labs/app.go:202:1)
 	q := r.query.Select("container")
 	q = q.Arg("platform", platform)
 
@@ -643,7 +643,7 @@ func (r *Z5LabsApp) Container(platform Platform) *Container { // z5labs (../../.
 // Containers returns every platform's image, in the order the platforms
 // were given to App. Same guarantee, and the same session bound, as
 // Container.
-func (r *Z5LabsApp) Containers(ctx context.Context) ([]Container, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:207:1)
+func (r *Z5LabsApp) Containers(ctx context.Context) ([]Container, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:216:1)
 	q := r.query.Select("containers")
 
 	q = q.Select("id")
@@ -827,7 +827,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:437:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:507:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 
@@ -945,7 +945,7 @@ func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp
 // unverified connection. It is spelled insecure rather than tlsVerify
 // because a bool defaulting to true cannot be turned off from the CLI —
 // which is also why this method takes no argument at all.
-func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:297:1)
+func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:306:1)
 	q := r.query.Select("withInsecure")
 
 	return &Z5LabsApp{
@@ -965,7 +965,7 @@ func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../dagger
 // Every identifying field in the provenance comes out of the exchanged
 // token's claims, because anything a caller could have supplied attests to
 // nothing.
-func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:254:1)
+func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:263:1)
 	assertNotNil("requestToken", requestToken)
 	q := r.query.Select("withOidc")
 	q = q.Arg("requestUrl", requestUrl)
@@ -985,7 +985,7 @@ func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp
 // This exists for the same reason WithRegistryService does, and is used by
 // the test suite, which runs a real token endpoint rather than relaxing the
 // provenance requirement into the shape of the tests.
-func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:327:1)
+func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:336:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withOidcService")
 	q = q.Arg("svc", svc)
@@ -1011,7 +1011,7 @@ func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../
 // undirected takes the default seven-day TTL and can hand a later session a
 // stale object built from arguments it only appears to share — a registry
 // service, for one, whose engine-assigned address is long gone.
-func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:233:1)
+func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:242:1)
 	assertNotNil("auth", auth)
 	q := r.query.Select("withRegistry")
 	q = q.Arg("address", address)
@@ -1030,10 +1030,75 @@ func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) 
 // into an address ahead of time; this is how the publish learns it. Used by
 // the test suite against a local registry, and by anyone whose private
 // registry is itself a Dagger service.
-func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:311:1)
+func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:320:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withRegistryService")
 	q = q.Arg("svc", svc)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
+// WithSessionSigstore points keyless signing at a certificate authority and
+// a transparency log running inside this Dagger session, instead of at the
+// public sigstore.
+//
+// It exists so the keyless path can be *executed* rather than only
+// described: without it, the certificate request, the chain split, the log
+// upload and the three annotations that carry them are reachable only by
+// publishing a real release. The suite stands up a CA of its own and
+// verifies the result with stock `cosign verify --certificate-identity`,
+// which is the command Publish's doc comment tells consumers to run.
+//
+// # What it takes to redirect a real publish with this
+//
+// Deliberate work, which is the property being bought — not impossibility,
+// which would be a stronger claim than the type supports. A *dagger.Service
+// is a container the caller controls, and a container can proxy: a service
+// running `socat` forwards a certificate request, workload identity token
+// and all, straight out of the session. So this is not a boundary; it is a
+// seam that cannot be crossed by accident. Three decisions make that so:
+//
+//   - It takes services, never URLs. There is no string argument here for a
+//     typo, an inherited environment variable or a templated value to land
+//     in, which is the whole class of accident a `--fulcio-url` flag would
+//     have opened: one wrong character and a release is certified by
+//     somebody else's CA. Redirecting this one takes a caller writing a
+//     service and passing it, which is not a thing that happens to a release
+//     pipeline unattended.
+//   - Both are required, in one call. A publish is either wholly against a
+//     session-hosted sigstore or wholly against the public one; there is no
+//     state in which the certificate comes from one place and the log entry
+//     from another, which is incoherent rather than merely unusual. A pair
+//     that arrives half set is refused rather than quietly completed from
+//     the public sigstore — see sigstoreEndpoints.
+//   - It is never inferred. Not from WithRegistryService, not from
+//     WithOidcService, not from WithInsecure — inferring it from the shape
+//     of a test session is the relaxation daggerverse/CLAUDE.md names, and
+//     it would leave the production path as the only unexercised one, which
+//     is the situation this method exists to end.
+//
+// It also conflicts with WithSigningKey rather than being ignored beside it.
+// A supplied key is never certified by anything, so a call setting both has
+// asked for two different modes; Publish refuses instead of picking one
+// silently.
+//
+// The name says "session" for the same reason WithInsecure says "insecure":
+// this method's job is to be conspicuous in a file where it does not belong.
+// A release pipeline signing against a sigstore that exists only for the
+// length of one build is a thing a reader should stop at.
+//
+// What a session-hosted sigstore cannot establish is stated where it is
+// asserted: a local log's countersignature is trusted by nobody, so a
+// verifier still has to be told to ignore the log, and nothing here says
+// anything about the public services' availability.
+func (r *Z5LabsApp) WithSessionSigstore(fulcio *Service, rekor *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:396:1)
+	assertNotNil("fulcio", fulcio)
+	assertNotNil("rekor", rekor)
+	q := r.query.Select("withSessionSigstore")
+	q = q.Arg("fulcio", fulcio)
+	q = q.Arg("rekor", rekor)
 
 	return &Z5LabsApp{
 		query: q,
@@ -1060,7 +1125,7 @@ func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (..
 // where the keyless mode gets an identity and an issuer and no such flag.
 // A caller who does not want to hand their consumers that flag should not
 // be supplying a key.
-func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:282:1)
+func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:291:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withSigningKey")
 	q = q.Arg("key", key)

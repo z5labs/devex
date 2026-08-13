@@ -247,6 +247,53 @@ Three things that are easy to get wrong and are not obvious from the spec:
   leaving it to be looked up, so a consumer behind a network that cannot reach
   `rekor.sigstore.dev` can still verify.
 
+### The keyless path is exercised against a sigstore standing in the session
+
+The same move as the OIDC issuer, one layer up. A test session cannot use the
+public sigstore — a CA that issued for a suite's fake workload identity would
+be broken — so `daggerverse/z5labs/tests` stands up its own: a two-level CA and
+a log, one Go binary under `tests/fixtures/sigstore`, run as two services. The
+publish then goes through the real keyless branch and is verified with stock
+`cosign verify --certificate-identity-regexp --certificate-oidc-issuer`. Before
+that, the certificate request, the chain split, the log upload and the three
+`dev.sigstore.cosign/*` annotations were reachable only by cutting a release
+(devex#415).
+
+Four things to keep, each of which is a decision and not an implementation
+detail:
+
+- **The seam takes `*dagger.Service`, never a URL.** Not because a service
+  cannot reach the internet — a container running `socat` proxies straight out
+  of the session, so this is a seam and not a boundary — but because there is no
+  string argument for a typo, an inherited environment variable or a templated
+  value to land in. Redirecting the CA takes a caller deliberately writing a
+  service, which is not something that happens to a release pipeline unattended;
+  claiming containment as a property of the type is the overclaim to avoid, and
+  a future reader will cite whatever the doc comment says. `App.WithSessionSigstore`
+  takes both the CA and the log in one call, because a publish certified by one
+  sigstore and logged in another's is incoherent rather than merely unusual; a
+  half-set pair is **refused**, never completed from the public sigstore. It
+  conflicts with `WithSigningKey` rather than being ignored beside it, and it is
+  never inferred from a registry service being present — that inference is the
+  relaxation this file's provenance section names. The name says "session" for
+  the reason `WithInsecure` says "insecure": it should be conspicuous in a file
+  where it does not belong.
+- **A stand-in has to be fussy or it tests nothing.** The fake CA verifies the
+  proof of possession against the public key in the same request and requires
+  the `sigstore` audience; the fake log verifies the entry's signature against
+  the certificate the entry names, over the hash it names. A CA that issued for
+  any request would have left exactly the encoding under test unexercised.
+- **Two levels of CA, not one.** With a single self-signed root the chain
+  annotation carries one certificate and "the leaf goes to `certificate`, the
+  rest to `chain`" passes by accident.
+- **Say what a local sigstore cannot establish.** `--ca-roots` and
+  `--ca-intermediates` tell cosign where to look; `--insecure-ignore-sct` and
+  `--insecure-ignore-tlog` are real gaps — no CT log is stood up, and the
+  bundle's countersignature is made with a key nobody trusts. The round trip
+  proves the entry the module builds is well formed and that the log's answer
+  reaches the bundle annotation (assert it by minting a random log id and
+  matching it). It proves nothing about the public log.
+
 ### zot parses any tag ending in `.sig`, and a short digest panics it
 
 The `oci` test suite runs against **zot**, not `registry:2`, and zot inspects
