@@ -28,6 +28,36 @@
 // absolute path — /app/<binary> — so the app runs whatever the PATH says.
 // PATH exists for what an extension adds, not for finding the app itself.
 //
+// # Environment is a runtime concern
+//
+// No method on App sets the image's environment, and none will. There is no
+// WithEnvVariable here, and its absence is a decision rather than an omission:
+// every category of variable has an owner other than the caller of a build.
+// A language chain owns the runtime search paths it created the layout for —
+// CLASSPATH, PYTHONPATH. This archetype owns PATH, HOME and TMPDIR, because
+// they are the contract other people write FROM and COPY lines against. The
+// source owns its own baked defaults, GOMEMLIMIT among them, where a constant
+// in the program says it better than a variable outside it. A CA bundle
+// contributed where the library already looks needs no variable at all. And
+// the deployment — the Kubernetes manifest, the compose file, the systemd unit
+// — owns everything left, which is most of it: an environment is how one image
+// is run in two places, so baking one in is answering a question at build time
+// that is asked at run time.
+//
+// The half of this that is not an opinion: because nothing caller-facing can
+// set a variable, an image's environment is assertable *in full* rather than
+// merely documented, and a publish asserts it — see App.Publish. A caller seam
+// would make that check unverifiable in principle, because "exactly this set"
+// stops being a property of the pipeline the moment anyone can add to it.
+//
+// The one case that genuinely cannot move is a variable whose value is a fact
+// about the image's own filesystem layout, for a program whose source you do
+// not control. That belongs to whoever assembled the payload it points at,
+// which is devex#410, and not to a helper here.
+//
+// Contributing files and directories to an image is a different question and
+// has a different answer: App.WithFile and App.WithDirectory, in contribute.go.
+//
 // # Versions
 //
 // The version is the caller's, passed to App and validated there: it has to

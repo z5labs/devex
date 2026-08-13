@@ -541,6 +541,41 @@ Write parameter docs in plain prose. Backticks are fine in a *function* or
 comments that become usage strings. If a parameter's doc really needs to
 quote a command, name it without the backticks.
 
+### `Container.withDirectory` ignores `permissions`; `Directory.withDirectory` honours it
+
+Measured on Dagger v0.21.8, over a tree built with `dag.Directory()`
+(devex#392):
+
+```
+Container.withDirectory(path, dir, permissions: 0555)  -> 755 dirs, 644 files  (ignored)
+Directory.withDirectory(path, dir, permissions: 0555)  -> 555 everywhere       (applied)
+```
+
+Only `owner` is applied on the container side, and it is applied to the whole
+tree. The schema says as much if you read it closely — `Directory`'s argument
+is documented as "Permission given to the copied directory and contents" and
+`Container`'s carries no description at all — but nothing errors and nothing
+warns, so a module that sets the mode on the container copy ships whatever
+modes the caller's tree happened to have while its own doc comment says
+otherwise.
+
+Normalize through a `Directory` first, then copy that into the container:
+
+```go
+tree := dag.Directory().
+    WithDirectory("content", dir, dagger.DirectoryWithDirectoryOpts{Permissions: 0o555}).
+    Directory("content")
+ctr = ctr.WithDirectory(path, tree, dagger.ContainerWithDirectoryOpts{Owner: "65532:65532"})
+```
+
+Two details that are not optional. The mode is **uniform** — files inside a
+0555 tree come out 0555, not 0444 — because one permission is applied to the
+directory and its contents alike; decide whether you can live with that rather
+than discovering it. And normalize *under a name* and take the directory back
+out of it, because the root of a `Directory` is not something the copy sets a
+mode on: writing at the root leaves the contributed directory itself at 0755
+while everything inside it changes.
+
 ### Method parameters named `r` collide with the generated receiver
 
 The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,
