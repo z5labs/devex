@@ -298,17 +298,19 @@ func (r *Oci) AsNode() Node {
 type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	query *querybuilder.Selection
 
-	attach       *string
-	copy         *string
-	host         *string
-	id           *ID
-	insecure     *bool
-	manifest     *string
-	pushArtifact *string
-	pushImage    *string
-	referrers    *string
-	resolve      *string
-	username     *string
+	attach            *string
+	copy              *string
+	host              *string
+	id                *ID
+	insecure          *bool
+	manifest          *string
+	pushArtifact      *string
+	pushImage         *string
+	pushImageUntagged *string
+	referrers         *string
+	resolve           *string
+	tag               *string
+	username          *string
 }
 
 func (r *OciRegistry) WithGraphQLQuery(q *querybuilder.Selection) *OciRegistry {
@@ -348,7 +350,7 @@ func (r *OciRegistry) Attach(ctx context.Context, repository string, subject str
 // The source is read with this registry's credentials when it lives on this
 // registry, and anonymously otherwise; cross-registry copies needing source
 // credentials are a follow-up, not a silent reuse of the destination's.
-func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/image.go:121:1)
+func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/image.go:260:1)
 	if r.copy != nil {
 		return *r.copy, nil
 	}
@@ -507,13 +509,53 @@ func (r *OciRegistry) PushArtifact(ctx context.Context, repository string, tag s
 // repository and tag are separate parameters rather than one interpolated
 // reference: it keeps caller-supplied values out of any string that gets
 // re-parsed as something else, and it makes each half validatable.
-func (r *OciRegistry) PushImage(ctx context.Context, repository string, tag string, variants []*Container) (string, error) { // oci (../../../../../daggerverse/oci/image.go:36:1)
+//
+// A caller that has fallible work to do between the push and the moment the
+// image becomes resolvable — attaching referrers, say — wants
+// PushImageUntagged and Tag instead, which split this into its two halves.
+func (r *OciRegistry) PushImage(ctx context.Context, repository string, tag string, variants []*Container) (string, error) { // oci (../../../../../daggerverse/oci/image.go:40:1)
 	if r.pushImage != nil {
 		return *r.pushImage, nil
 	}
 	q := r.query.Select("pushImage")
 	q = q.Arg("repository", repository)
 	q = q.Arg("tag", tag)
+	q = q.Arg("variants", variants)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// PushImageUntagged pushes container variants to repository under their own
+// digest and no tag at all, and returns that digest.
+//
+// The bytes land exactly as PushImage lands them — same manifest list, same
+// blobs — but nothing in the repository names them, so nothing that resolves
+// a tag can reach them. That is the point: a caller with fallible work to do
+// against the pushed digest (attaching SBOMs, attaching provenance) can do it
+// while the image is unreachable, and call Tag only once that work is done. A
+// failure in between leaves an unreferenced manifest rather than a tag a
+// consumer can pull.
+//
+// Pushing a manifest by digest is the same registry operation the referrers
+// path already relies on, so it needs nothing of a registry that Attach does
+// not need already.
+//
+// The manifest is unreferenced until it is tagged or something points at it,
+// which means a registry running garbage collection is entitled to delete it.
+// Registries collect on an operator-run sweep rather than continuously — it is
+// offline and manual on distribution, and scheduled on GHCR — so the window
+// this opens is not one a publish has to design around. A caller that leaves a
+// digest untagged indefinitely is a caller relying on something no registry
+// promises.
+func (r *OciRegistry) PushImageUntagged(ctx context.Context, repository string, variants []*Container) (string, error) { // oci (../../../../../daggerverse/oci/image.go:80:1)
+	if r.pushImageUntagged != nil {
+		return *r.pushImageUntagged, nil
+	}
+	q := r.query.Select("pushImageUntagged")
+	q = q.Arg("repository", repository)
 	q = q.Arg("variants", variants)
 
 	var response string
@@ -564,6 +606,34 @@ func (r *OciRegistry) Resolve(ctx context.Context, repository string, tag string
 	}
 	q := r.query.Select("resolve")
 	q = q.Arg("repository", repository)
+	q = q.Arg("tag", tag)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
+// Tag points tag at a manifest already in repository, named by its digest,
+// and returns the digest it now resolves to.
+//
+// It moves an existing tag as readily as it creates a new one — a tag is a
+// mutable name, and a registry PUT of a manifest under a tag is the only
+// operation either case has. What it will not do is invent the bytes: the
+// digest is read from the registry first, so tagging something that is not
+// there fails naming the digest instead of leaving a tag that resolves to
+// nothing.
+//
+// Nothing is re-uploaded. The manifest is fetched and PUT back under the new
+// name, which is bytes the registry already holds; the blobs it names are
+// untouched.
+func (r *OciRegistry) Tag(ctx context.Context, repository string, digest string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/image.go:201:1)
+	if r.tag != nil {
+		return *r.tag, nil
+	}
+	q := r.query.Select("tag")
+	q = q.Arg("repository", repository)
+	q = q.Arg("digest", digest)
 	q = q.Arg("tag", tag)
 
 	var response string

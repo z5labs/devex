@@ -281,6 +281,14 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// Within one repository the tag is the last thing written: the manifest list
+// goes up under its own digest, the attestations are attached to that digest,
+// and only then does the tag come to name it. So a publish that fails leaves
+// no tag pointing at an unattested image — it leaves an unreferenced manifest,
+// or, when the version was already published, the previous release still in
+// place. attachAttestations records why that ordering was chosen and what the
+// alternatives cost.
+//
 // Repositories are published in the order given, and the operation is not
 // atomic: a failure part way through leaves the earlier repositories
 // published, and says which ones in its error. A registry has no transaction
@@ -357,10 +365,13 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	}
 	refs := make([]string, 0, len(repositories))
 	for _, repository := range repositories {
+		// Push, attach, then tag. The ordering is the whole subject of
+		// attachAttestations' doc comment; read that before changing it.
+		//
 		// Every variant goes in one call, so a multi-platform build
 		// publishes one manifest list naming them all rather than a tag per
 		// architecture.
-		digest, err := registry.PushImage(ctx, repository, a.Version, containers)
+		digest, err := registry.PushImageUntagged(ctx, repository, containers)
 		if err != nil {
 			return nil, fmt.Errorf("publish %s:%s%s: %v", repository, a.Version, alreadyPublished(refs), err)
 		}
@@ -375,7 +386,14 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 			Version:    a.Version,
 		}
 		if err := a.attachAttestations(ctx, registry, sgn, facts); err != nil {
-			return nil, fmt.Errorf("%v%s", err, alreadyPublished(refs))
+			return nil, fmt.Errorf("%v; %s was left untagged in %s, so nothing resolves to it%s",
+				err, digest, repository, alreadyPublished(refs))
+		}
+		// Only now does the release become something a consumer can name. The
+		// tag moves last because it is the only step whose effect is visible
+		// to anyone who did not push it.
+		if _, err := registry.Tag(ctx, repository, digest, a.Version); err != nil {
+			return nil, fmt.Errorf("tag %s as %s:%s%s: %v", digest, repository, a.Version, alreadyPublished(refs), err)
 		}
 		refs = append(refs, fmt.Sprintf("%s/%s:%s@%s", a.Registry, repository, a.Version, digest))
 	}

@@ -32,6 +32,10 @@ import (
 // reference: it keeps caller-supplied values out of any string that gets
 // re-parsed as something else, and it makes each half validatable.
 //
+// A caller that has fallible work to do between the push and the moment the
+// image becomes resolvable — attaching referrers, say — wants
+// PushImageUntagged and Tag instead, which split this into its two halves.
+//
 // +cache="never"
 func (reg *Registry) PushImage(
 	ctx context.Context,
@@ -43,10 +47,52 @@ func (reg *Registry) PushImage(
 	// than one pushes a manifest list naming every platform.
 	variants []*dagger.Container,
 ) (string, error) {
-	if err := validateRepository(repository); err != nil {
+	if err := validateTag(tag); err != nil {
 		return "", err
 	}
-	if err := validateTag(tag); err != nil {
+	return reg.pushImage(ctx, repository, tag, variants)
+}
+
+// PushImageUntagged pushes container variants to repository under their own
+// digest and no tag at all, and returns that digest.
+//
+// The bytes land exactly as PushImage lands them — same manifest list, same
+// blobs — but nothing in the repository names them, so nothing that resolves
+// a tag can reach them. That is the point: a caller with fallible work to do
+// against the pushed digest (attaching SBOMs, attaching provenance) can do it
+// while the image is unreachable, and call Tag only once that work is done. A
+// failure in between leaves an unreferenced manifest rather than a tag a
+// consumer can pull.
+//
+// Pushing a manifest by digest is the same registry operation the referrers
+// path already relies on, so it needs nothing of a registry that Attach does
+// not need already.
+//
+// The manifest is unreferenced until it is tagged or something points at it,
+// which means a registry running garbage collection is entitled to delete it.
+// Registries collect on an operator-run sweep rather than continuously — it is
+// offline and manual on distribution, and scheduled on GHCR — so the window
+// this opens is not one a publish has to design around. A caller that leaves a
+// digest untagged indefinitely is a caller relying on something no registry
+// promises.
+//
+// +cache="never"
+func (reg *Registry) PushImageUntagged(
+	ctx context.Context,
+	// Repository path within the registry, e.g. "z5labs/myapp".
+	repository string,
+	// Platform variants. One variant pushes a single image manifest; more
+	// than one pushes a manifest list naming every platform.
+	variants []*dagger.Container,
+) (string, error) {
+	return reg.pushImage(ctx, repository, "", variants)
+}
+
+// pushImage is the body of both pushes. An empty tag means "address the
+// manifest by its own digest", which is what makes the untagged push the same
+// code path rather than a second one that agrees with it.
+func (reg *Registry) pushImage(ctx context.Context, repository, tag string, variants []*dagger.Container) (string, error) {
+	if err := validateRepository(repository); err != nil {
 		return "", err
 	}
 	if len(variants) == 0 {
@@ -86,19 +132,22 @@ func (reg *Registry) PushImage(
 		return "", err
 	}
 
-	ref, err := name.NewTag(c.ref(repository, tag), c.nameOptions()...)
-	if err != nil {
-		return "", fmt.Errorf("parse destination reference: %v", err)
-	}
-
 	opts := c.remoteOptions(ctx)
 	switch typed := root.(type) {
 	case v1.ImageIndex:
+		ref, err := c.destination(repository, tag, typed.Digest)
+		if err != nil {
+			return "", err
+		}
 		if err := remote.WriteIndex(ref, typed, opts...); err != nil {
 			return "", c.scrub(fmt.Errorf("push manifest list to %s: %v", ref, err))
 		}
 		return digestOf(typed.Digest())
 	case v1.Image:
+		ref, err := c.destination(repository, tag, typed.Digest)
+		if err != nil {
+			return "", err
+		}
 		if err := remote.Write(ref, typed, opts...); err != nil {
 			return "", c.scrub(fmt.Errorf("push image to %s: %v", ref, err))
 		}
@@ -106,6 +155,96 @@ func (reg *Registry) PushImage(
 	default:
 		return "", fmt.Errorf("unsupported oci layout root %T", root)
 	}
+}
+
+// destination renders the reference a push writes to: repository:tag when a
+// tag was given, and repository@sha256:... when none was.
+//
+// digest is taken as the function that computes it rather than as a value, so
+// that the digest of a manifest list is only ever computed when it is needed —
+// a tagged push does not have to hash anything the registry is about to hash
+// anyway.
+func (c *conn) destination(repository, tag string, digest func() (v1.Hash, error)) (name.Reference, error) {
+	if tag != "" {
+		ref, err := name.NewTag(c.ref(repository, tag), c.nameOptions()...)
+		if err != nil {
+			return nil, fmt.Errorf("parse destination reference: %v", err)
+		}
+		return ref, nil
+	}
+	h, err := digest()
+	if err != nil {
+		return nil, fmt.Errorf("compute digest: %v", err)
+	}
+	ref, err := name.NewDigest(c.ref(repository, h.String()), c.nameOptions()...)
+	if err != nil {
+		return nil, fmt.Errorf("parse destination reference: %v", err)
+	}
+	return ref, nil
+}
+
+// Tag points tag at a manifest already in repository, named by its digest,
+// and returns the digest it now resolves to.
+//
+// It moves an existing tag as readily as it creates a new one — a tag is a
+// mutable name, and a registry PUT of a manifest under a tag is the only
+// operation either case has. What it will not do is invent the bytes: the
+// digest is read from the registry first, so tagging something that is not
+// there fails naming the digest instead of leaving a tag that resolves to
+// nothing.
+//
+// Nothing is re-uploaded. The manifest is fetched and PUT back under the new
+// name, which is bytes the registry already holds; the blobs it names are
+// untouched.
+//
+// +cache="never"
+func (reg *Registry) Tag(
+	ctx context.Context,
+	// Repository holding the manifest.
+	repository string,
+	// Digest of the manifest to name, e.g. "sha256:...".
+	digest string,
+	// Tag to point at it.
+	tag string,
+) (string, error) {
+	if err := validateRepository(repository); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(digest) == "" {
+		return "", errors.New("digest is required")
+	}
+	if err := validateTag(tag); err != nil {
+		return "", err
+	}
+
+	c, err := reg.connect(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	src, err := name.NewDigest(c.ref(repository, digest), c.nameOptions()...)
+	if err != nil {
+		return "", fmt.Errorf("parse digest reference: %v", err)
+	}
+	dst, err := name.NewTag(c.ref(repository, tag), c.nameOptions()...)
+	if err != nil {
+		return "", fmt.Errorf("parse destination reference: %v", err)
+	}
+
+	opts := c.remoteOptions(ctx)
+	// The descriptor carries the manifest bytes and its media type, and
+	// go-containerregistry's Taggable unpacking takes both straight off it, so
+	// the manifest is PUT back exactly as the registry served it. Re-parsing it
+	// into an Image or an ImageIndex first and re-serializing that is how a
+	// field this module does not model gets dropped on the way through.
+	desc, err := remote.Get(src, opts...)
+	if err != nil {
+		return "", c.scrub(fmt.Errorf("read %s in %s: %v", digest, repository, err))
+	}
+	if err := remote.Tag(dst, desc, opts...); err != nil {
+		return "", c.scrub(fmt.Errorf("tag %s as %s: %v", digest, dst, err))
+	}
+	return desc.Digest.String(), nil
 }
 
 // Copy copies srcRef into repository:tag on this registry, preserving every
