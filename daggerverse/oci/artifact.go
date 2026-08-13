@@ -141,6 +141,12 @@ func (reg *Registry) PushArtifact(
 // it — which is what a caller re-signing a digest wants, and is the
 // difference from Attach, where each call adds a referrer.
 //
+// The content is held in memory whole, exactly as Attach and PushArtifact
+// hold theirs, so this is sized for documents — signatures, payloads,
+// attestations — and not for image layers. Streaming would be a change to
+// all three rather than to this one, since a caller cannot tell them apart
+// on that axis today.
+//
 // +cache="never"
 func (reg *Registry) PushLayer(
 	ctx context.Context,
@@ -149,7 +155,9 @@ func (reg *Registry) PushLayer(
 	// Tag to push under. Callers of this function normally compute it from
 	// a digest rather than taking it from a human.
 	tag string,
-	// The bytes to push: one file, one layer.
+	// The bytes to push: one file, one layer. It is read into memory whole,
+	// as Attach and PushArtifact read theirs, so this is for documents
+	// rather than for image layers.
 	content *dagger.File,
 	// The layer's media type, which is what a consumer filters layers on.
 	mediaType string,
@@ -246,16 +254,36 @@ func (reg *Registry) PushLayer(
 // as. Empty means none, which is different from an empty object only in
 // that neither is an error.
 //
-// The value type is string rather than any: an annotation is a string by
-// the OCI spec, and silently stringifying a number here would produce a
-// manifest whose annotation a caller never wrote.
+// Everything that is not an object of strings is refused rather than
+// coerced, because an annotation a caller did not write is where this
+// layout keeps the signature. Two of those are things `json.Unmarshal` into
+// a `map[string]string` accepts silently, and both are why the decode goes
+// through `*string` rather than `string`:
+//
+//   - `null` unmarshals into a nil map, so a caller who plainly meant to set
+//     something gets a push with no annotations and no error, indistinguishable
+//     from having passed nothing at all.
+//   - `{"dev.cosignproject.cosign/signature":null}` unmarshals cleanly too —
+//     JSON null into a string is a documented no-op — leaving the key present
+//     with an empty value. That is the coercion this refuses, on the key that
+//     holds the signature.
 func decodeAnnotations(raw string) (map[string]string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return nil, nil
 	}
-	var out map[string]string
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+	var decoded map[string]*string
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
 		return nil, fmt.Errorf("annotations must be a JSON object of string values: %v", err)
+	}
+	if decoded == nil {
+		return nil, errors.New("annotations must be a JSON object of string values, and null is not one")
+	}
+	out := make(map[string]string, len(decoded))
+	for name, value := range decoded {
+		if value == nil {
+			return nil, fmt.Errorf("annotations must be a JSON object of string values, but %q is null", name)
+		}
+		out[name] = *value
 	}
 	return out, nil
 }

@@ -40,6 +40,18 @@ const dssePayloadType = "application/vnd.in-toto+json"
 // together with the certificate chain that says whose key it is.
 type signer struct {
 	key *ecdsa.PrivateKey
+	// keyless says which mode produced this signer, and is not inferred
+	// from any other field.
+	//
+	// It exists because "keyless" and "has a certificate chain" are two
+	// propositions, and the code that reads them apart is the code that
+	// decides whether a signature carries an identity at all. Inferring the
+	// mode from an empty chain means a keyless publish that somehow lost its
+	// certificate publishes a signature with no certificate and no log
+	// entry — verifiable by neither documented command — and reports
+	// success. That is the refusal in newSigner quietly becoming
+	// conditional, which is the one thing it exists not to be.
+	keyless bool
 	// chain is the PEM certificate chain binding key to an identity.
 	// Empty for a caller-supplied signing key, where the caller owns the
 	// question of how a verifier learns the public key.
@@ -90,7 +102,7 @@ func newSigner(ctx context.Context, idTokenRequestURL string, idTokenRequestToke
 	if err != nil {
 		return nil, err
 	}
-	return &signer{key: key, chain: chain, identity: identity}, nil
+	return &signer{key: key, keyless: true, chain: chain, identity: identity}, nil
 }
 
 // parseSigningKey reads a PEM-encoded EC private key out of a secret.

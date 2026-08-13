@@ -110,13 +110,28 @@ const rekorTimeout = 60 * time.Second
 // behind at all, so it gets the smallest window. The leftovers are inert —
 // nothing resolves to them without already knowing the digest, and a
 // re-publish of the same bytes overwrites them.
+//
+// # What it costs
+//
+// One signature per manifest, and in the keyless mode one transparency log
+// upload per signature, issued one after another against a shared public
+// service. A four-platform release is therefore five serial round trips to
+// rekor.sigstore.dev inside the publish, each bounded by rekorTimeout. That
+// is a publish-latency and third-party-availability characteristic rather
+// than a defect, and it is written down here so it is a known cost rather
+// than a surprise in a release that suddenly takes minutes.
+//
+// repository and digest are taken as arguments rather than read off a
+// buildFacts, so this cannot drift from the repository the caller's error
+// messages name. Publish rebuilds its facts per repository, which made the
+// two agree; agreeing by construction is better than agreeing by care.
 func (a *App) signImage(
 	ctx context.Context,
 	registry *dagger.OciRegistry,
 	sgn *signer,
-	facts buildFacts,
+	repository, digest string,
 ) error {
-	digests, err := signableDigests(ctx, registry, facts.Repository, facts.Digest)
+	digests, err := signableDigests(ctx, registry, repository, digest)
 	if err != nil {
 		return err
 	}
@@ -127,9 +142,9 @@ func (a *App) signImage(
 	// claim in the signed bytes that does not resolve. What ties a payload
 	// to a specific manifest is the digest beside it, which is the field
 	// cosign checks.
-	reference := a.Registry + "/" + facts.Repository
-	for _, digest := range digests {
-		if err := a.signManifest(ctx, registry, sgn, facts.Repository, reference, digest); err != nil {
+	reference := a.Registry + "/" + repository
+	for _, target := range digests {
+		if err := a.signManifest(ctx, registry, sgn, repository, reference, target); err != nil {
 			return err
 		}
 	}
@@ -188,6 +203,24 @@ func (a *App) signManifest(
 // are the registry's account of what it stored, and a signature over
 // anything else would be a signature over what this module believed it had
 // pushed.
+//
+// # It walks exactly one level, and refuses rather than assuming
+//
+// An index whose child is itself an index would leave the innermost
+// manifests — the ones a runtime actually pulls — unsigned, while
+// `cosign verify <tag>` kept passing. That is the failure this whole
+// function exists to close, reintroduced one level down, so a nested index
+// is an error rather than something walked past. Nothing this pipeline
+// pushes can produce one: PushImageUntagged writes a flat index of the
+// platform variants. The check is here because "cannot happen today" and
+// "is checked" are different, and only one of them survives a change to the
+// producer.
+//
+// Duplicates are collapsed. An index listing one digest twice would
+// otherwise sign it twice and push the same tag twice — harmless, since the
+// second push replaces the first, but it would make the number of signature
+// tags disagree with the number of distinct manifests, which is what the
+// suite compares against.
 func signableDigests(ctx context.Context, registry *dagger.OciRegistry, repository, digest string) ([]string, error) {
 	raw, err := registry.Manifest(ctx, repository, digest)
 	if err != nil {
@@ -195,20 +228,45 @@ func signableDigests(ctx context.Context, registry *dagger.OciRegistry, reposito
 	}
 	var doc struct {
 		Manifests []struct {
-			Digest string `json:"digest"`
+			MediaType string `json:"mediaType"`
+			Digest    string `json:"digest"`
 		} `json:"manifests"`
 	}
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return nil, fmt.Errorf("decode manifest %s from %s: %v", digest, repository, err)
 	}
 	out := []string{digest}
+	seen := map[string]bool{digest: true}
 	for _, child := range doc.Manifests {
 		if strings.TrimSpace(child.Digest) == "" {
 			return nil, fmt.Errorf("manifest %s in %s lists an entry with no digest", digest, repository)
 		}
+		if isIndexMediaType(child.MediaType) {
+			return nil, fmt.Errorf(
+				"manifest %s in %s lists %s, which is itself an index; signing it without descending would leave the manifests beneath it unsigned while a verify against the tag still passed",
+				digest, repository, child.Digest)
+		}
+		if seen[child.Digest] {
+			continue
+		}
+		seen[child.Digest] = true
 		out = append(out, child.Digest)
 	}
 	return out, nil
+}
+
+// isIndexMediaType reports whether a descriptor names a manifest list.
+// Both spellings are here because a registry serves whichever the pusher
+// wrote, and a check that knew only the OCI one would walk past a Docker
+// manifest list.
+func isIndexMediaType(mediaType string) bool {
+	switch mediaType {
+	case "application/vnd.oci.image.index.v1+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json":
+		return true
+	default:
+		return false
+	}
 }
 
 // signatureTag is the tag a signature for digest lands on: the digest with
@@ -314,8 +372,21 @@ func (s *signer) signBytes(payload []byte) (string, error) {
 // consumers that flag should not be supplying a key.
 func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signature string) (map[string]string, error) {
 	out := map[string]string{cosignSignatureAnnotation: signature}
-	if len(s.chain) == 0 {
+	if !s.keyless {
 		return out, nil
+	}
+	// The mode is read off the signer, never off the chain, and a keyless
+	// signer without one is a refusal rather than a quieter signature. What
+	// it would otherwise publish is a signature with no certificate and no
+	// log entry: the identity command in Publish's doc comment has nothing
+	// to check, and the supplied-key command has no public key to be given,
+	// so the image ships signed and verifiable by nobody. Unreachable today,
+	// because fulcioCertificate refuses an empty chain — which is exactly
+	// why it costs nothing to say so here as well.
+	if len(s.chain) == 0 {
+		return nil, fmt.Errorf(
+			"keyless signing produced no certificate chain, so nothing would vouch for the signing key; " +
+				"refusing to publish a signature no documented verify command can check")
 	}
 	certificate, chain, err := splitCertificateChain(s.chain)
 	if err != nil {
@@ -336,7 +407,23 @@ func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signa
 // splitCertificateChain separates the leaf certificate from the
 // intermediates, because cosign reads them from two different annotations:
 // the leaf is the identity, the rest is how a verifier walks to a root.
+//
+// It is strict about two things that a lenient parse would swallow, and both
+// matter because what is being assembled is the identity half of a
+// signature — the half a verifier decides whom to trust from.
+//
+//   - A block that is not a CERTIFICATE is refused rather than skipped or
+//     published. A lenient reader hands whatever came first to
+//     dev.sigstore.cosign/certificate, so a PKCS#7 body or a key
+//     concatenated into the response would be published as the signing
+//     identity.
+//   - Bytes left over after the last block are refused. pem.Decode stops at
+//     the first byte it cannot parse, so a chain whose second certificate
+//     is truncated would otherwise yield a leaf, an empty chain and no
+//     error — a signature no verifier can walk to a root, published as
+//     though it were complete.
 func splitCertificateChain(chain []byte) (string, string, error) {
+	const certificateBlock = "CERTIFICATE"
 	var leaf bytes.Buffer
 	var rest bytes.Buffer
 	remaining := chain
@@ -344,6 +431,11 @@ func splitCertificateChain(chain []byte) (string, string, error) {
 		block, tail := pem.Decode(remaining)
 		if block == nil {
 			break
+		}
+		if block.Type != certificateBlock {
+			return "", "", fmt.Errorf(
+				"signing certificate chain carries a %q PEM block where a %s was expected",
+				block.Type, certificateBlock)
 		}
 		remaining = tail
 		target := &rest
@@ -356,6 +448,11 @@ func splitCertificateChain(chain []byte) (string, string, error) {
 	}
 	if leaf.Len() == 0 {
 		return "", "", fmt.Errorf("signing certificate chain carried no PEM certificate")
+	}
+	if len(bytes.TrimSpace(remaining)) > 0 {
+		return "", "", fmt.Errorf(
+			"signing certificate chain carries %d trailing bytes that are not a PEM block, so it is incomplete",
+			len(bytes.TrimSpace(remaining)))
 	}
 	return leaf.String(), rest.String(), nil
 }
@@ -432,7 +529,10 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 
 	// The response is keyed by the entry's UUID, which is not known until
 	// the log assigns it, so the one entry is taken out of a map of one
-	// rather than read from a named field.
+	// rather than read from a named field. "Of one" is checked rather than
+	// assumed: ranging a map of two and returning from the first iteration
+	// would pick one of them by hash order, so a log that ever answered with
+	// more than one entry would embed a bundle chosen at random.
 	var entries map[string]struct {
 		Body           string `json:"body"`
 		IntegratedTime int64  `json:"integratedTime"`
@@ -444,6 +544,10 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 	}
 	if err := json.Unmarshal(raw, &entries); err != nil {
 		return "", fmt.Errorf("decode transparency log response: %v", err)
+	}
+	if len(entries) != 1 {
+		return "", fmt.Errorf("transparency log at %s recorded %d entries for one signature, want exactly 1",
+			defaultRekorURL, len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Verification.SignedEntryTimestamp == "" {
@@ -465,5 +569,6 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate str
 		}
 		return string(bundle), nil
 	}
+	// Unreachable: the length check above already refused an empty map.
 	return "", fmt.Errorf("transparency log at %s recorded no entry", defaultRekorURL)
 }

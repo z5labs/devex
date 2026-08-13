@@ -423,7 +423,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 		// reason signImage records: it is the only one that writes a tag of
 		// its own, so it gets the smallest window in which a later failure
 		// can leave one behind.
-		if err := a.signImage(ctx, registry, sgn, facts); err != nil {
+		if err := a.signImage(ctx, registry, sgn, repository, digest); err != nil {
 			return nil, fmt.Errorf("%v; %s was left untagged in %s, so no tag resolves to it%s",
 				err, digest, repository, alreadyPublished(refs))
 		}

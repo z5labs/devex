@@ -53,6 +53,44 @@ const brokenReferrersProxy = `server {
 }
 `
 
+// brokenSignaturesProxy is a registry that accepts images and attestations
+// and refuses signatures.
+//
+// It is the mirror of brokenReferrersProxy and exists to reach the one
+// failure that stand-in cannot: a publish that gets all the way past the
+// attach and then cannot sign. The refusal is aimed at the ".sig" suffix,
+// which is the only thing in the whole publish that tells a signature push
+// apart from an image push, a referrer push or a tag move by its URL alone —
+// they are otherwise all `PUT /v2/<repo>/manifests/<something>`.
+//
+// The referrers tag schema is deliberately still allowed: it is spelled
+// "sha256-<hex>" with no suffix, so the attaches land normally and the
+// publish reaches the signing step with every attestation already in the
+// registry. That is what makes the resulting assertion about signing and not
+// about attaching.
+const brokenSignaturesProxy = `server {
+    listen 5000;
+    server_name _;
+    client_max_body_size 0;
+
+    location ~ "\.sig$" {
+        return 405;
+    }
+
+    location / {
+        proxy_pass http://registry:5000;
+        proxy_set_header Host $http_host;
+        proxy_request_buffering off;
+        proxy_read_timeout 300s;
+    }
+}
+`
+
+// brokenSignaturesRegistry is localRegistry behind brokenSignaturesProxy.
+func brokenSignaturesRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret, error) {
+	return proxiedRegistry(ctx, brokenSignaturesProxy)
+}
+
 // brokenReferrersRegistry is localRegistry with that proxy in front of it: a
 // registry a publish can push an image to and cannot attach anything to.
 //
@@ -65,6 +103,12 @@ const brokenReferrersProxy = `server {
 // shared across tests and across sessions, and one test's pushes would land in
 // another's registry.
 func brokenReferrersRegistry(ctx context.Context) (*dagger.Service, string, *dagger.Secret, error) {
+	return proxiedRegistry(ctx, brokenReferrersProxy)
+}
+
+// proxiedRegistry stands up localRegistry behind one of the nginx configs
+// above, and is what both stand-ins are built out of.
+func proxiedRegistry(ctx context.Context, config string) (*dagger.Service, string, *dagger.Secret, error) {
 	upstream, pwdHex, secret, err := localRegistry(ctx)
 	if err != nil {
 		return nil, "", nil, err
@@ -76,7 +120,7 @@ func brokenReferrersRegistry(ctx context.Context) (*dagger.Service, string, *dag
 	svc := dag.Container().From(proxyImage).
 		WithEnvVariable("NONCE", nonce).
 		WithServiceBinding("registry", upstream).
-		WithNewFile("/etc/nginx/conf.d/default.conf", brokenReferrersProxy).
+		WithNewFile("/etc/nginx/conf.d/default.conf", config).
 		WithExposedPort(5000).
 		AsService(dagger.ContainerAsServiceOpts{
 			UseEntrypoint: true,
@@ -290,6 +334,112 @@ func (t *Tests) AppPublishLeavesNoTagWhenAttachFails(ctx context.Context) error 
 	if resolved != incumbent {
 		return fmt.Errorf("the failed publish moved %s:%s from %s to %s: a release that attested was replaced by one that did not",
 			published, version, incumbent, resolved)
+	}
+	return nil
+}
+
+// AppPublishLeavesNoTagWhenSigningFails asserts a publish that cannot sign
+// leaves no tag a consumer can pull.
+//
+// This is the half of the story's fifth acceptance criterion that
+// AppRefusesToPublishWithoutProvenanceMachinery does not reach. That one
+// covers the refusal that fires before the first byte moves, when the
+// machinery to sign was never supplied. This one covers the other shape
+// entirely: the machinery is present, the image is pushed, every attestation
+// lands, and *then* the signature cannot be written. Nothing before this
+// exercised that path, and it is the one where "fails rather than publishing
+// unsigned" is a claim about ordering rather than about validation.
+//
+// The stand-in refuses only ".sig" pushes, so the attaches succeed and the
+// failure is unambiguously the signature. What is asserted afterwards is the
+// same pair as the attach test: no tag resolves, and the manifest really is
+// in the registry — because a publish that had simply never pushed would
+// satisfy the first half on its own.
+func (t *Tests) AppPublishLeavesNoTagWhenSigningFails(ctx context.Context) error {
+	const (
+		version    = "v4.3.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := brokenSignaturesRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+
+	// Which failure path this ran over is a checked fact rather than a claim.
+	// A stand-in that quietly started accepting signature pushes would make
+	// every assertion below pass over a publish that succeeded.
+	hex, err := dag.Random().Sha256(ctx)
+	if err != nil {
+		return fmt.Errorf("random sha256 (signature tag): %v", err)
+	}
+	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, "sha256-"+hex+".sig")
+	if err != nil {
+		return fmt.Errorf("probe a signature tag: %v", err)
+	}
+	if code != 405 {
+		return fmt.Errorf("the stand-in answered a signature tag with %d, want 405: "+
+			"it is not refusing signatures, so this test would pass over a publish that succeeded", code)
+	}
+	// And that it refuses *only* those. If it were refusing referrers too the
+	// publish would fail at the attach, and this test would be a second copy
+	// of AppPublishLeavesNoTagWhenAttachFails wearing a different name.
+	code, err = curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, "sha256-"+hex)
+	if err != nil {
+		return fmt.Errorf("probe a referrers tag: %v", err)
+	}
+	if code == 405 {
+		return fmt.Errorf("the stand-in refuses the referrers tag as well, so a publish would fail at the attach "+
+			"and this test would say nothing about signing (got %d)", code)
+	}
+
+	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
+	_, pubErr := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
+	if pubErr == nil {
+		return fmt.Errorf("expected Publish to fail against a registry that refuses signatures, got nil")
+	}
+	// The failure has to be the signature. A publish that fell over on the
+	// push or the attach would leave no tag either, and would prove nothing
+	// about what this test is for.
+	if !strings.Contains(pubErr.Error(), "signature") {
+		return fmt.Errorf("expected the failure to name the signature, got: %s", pubErr.Error())
+	}
+	if !strings.Contains(pubErr.Error(), "untagged") {
+		return fmt.Errorf("expected the failure to say the digest was left untagged, got: %s", pubErr.Error())
+	}
+
+	tags, err := tagListing(ctx, svc, registryAlias, "ci", pwdHex, repository)
+	if err != nil {
+		return err
+	}
+	// Signature tags are excluded rather than counted: the publish signs the
+	// index before it reaches whatever it could not sign, so a partial set of
+	// them is expected and is not something a consumer can pull as a release.
+	// What must not exist is a release tag.
+	release, _ := partitionTags(tags)
+	if len(release) != 0 {
+		return fmt.Errorf("signing failed but %s carries the release tags %v, want none", repository, release)
+	}
+
+	match := untaggedDigest.FindStringSubmatch(pubErr.Error())
+	if match == nil {
+		return fmt.Errorf("the failure names no untagged digest, so nothing can check what was left behind: %s", pubErr.Error())
+	}
+	digest := match[1]
+	code, err = curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, digest)
+	if err != nil {
+		return fmt.Errorf("curl probe %s@%s: %v", repository, digest, err)
+	}
+	if code != 200 {
+		return fmt.Errorf("the failure said %s was left untagged in %s, but the registry answers %d for it",
+			digest, repository, code)
 	}
 	return nil
 }

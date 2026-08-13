@@ -134,6 +134,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppPublishRefusesAnUnusableTarget", t.AppPublishRefusesAnUnusableTarget)
 	jobs = jobs.WithJob("AppRefusesPlaintextRegistryUnlessInsecure", t.AppRefusesPlaintextRegistryUnlessInsecure)
 	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenAttachFails", t.AppPublishLeavesNoTagWhenAttachFails)
+	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenSigningFails", t.AppPublishLeavesNoTagWhenSigningFails)
 	jobs = jobs.WithJob("AppAnnotatesEveryPlatformVariant", t.AppAnnotatesEveryPlatformVariant)
 	jobs = jobs.WithJob("AppAttachesSbomsAndProvenance", t.AppAttachesSbomsAndProvenance)
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
@@ -1032,24 +1033,33 @@ func (t *Tests) AppPublishesEveryRepositoryNamed(ctx context.Context) error {
 	// signature under any other name is one `cosign verify` never finds —
 	// and the set is asserted to be exactly the manifests that were
 	// published, index and platforms alike.
-	tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, "hello")
-	if err != nil {
-		return fmt.Errorf("listTags: %v", err)
-	}
-	release, signatures := partitionTags(tags)
-	if len(release) != 1 || release[0] != version {
-		return fmt.Errorf("expected the version to be the only release tag, got %v (all tags: %v)", release, tags)
-	}
-	digest, err := digestOf(refs[0])
-	if err != nil {
-		return err
-	}
-	wantSignatures, err := signatureTagsFor(ctx, testRegistry(svc, secret), "hello", digest)
-	if err != nil {
-		return err
-	}
-	if !slices.Equal(signatures, wantSignatures) {
-		return fmt.Errorf("signature tags: want %v, got %v (all tags: %v)", wantSignatures, signatures, tags)
+	// Every repository, not just the first. Signing into the wrong
+	// repository, or signing the first one twice and the second not at all,
+	// is the most plausible way this loses its way — and a check scoped to
+	// refs[0] and a hardcoded name would be green for all of it.
+	registry := testRegistry(svc, secret)
+	for i, repository := range repositories {
+		tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, repository)
+		if err != nil {
+			return fmt.Errorf("listTags %s: %v", repository, err)
+		}
+		release, signatures := partitionTags(tags)
+		if len(release) != 1 || release[0] != version {
+			return fmt.Errorf("%s: expected the version to be the only release tag, got %v (all tags: %v)",
+				repository, release, tags)
+		}
+		digest, err := digestOf(refs[i])
+		if err != nil {
+			return err
+		}
+		wantSignatures, err := signatureTagsFor(ctx, registry, repository, digest)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(signatures, wantSignatures) {
+			return fmt.Errorf("%s: signature tags: want %v, got %v (all tags: %v)",
+				repository, wantSignatures, signatures, tags)
+		}
 	}
 	return nil
 }

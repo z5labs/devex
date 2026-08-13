@@ -773,7 +773,15 @@ func (t *Tests) PushLayerRejectsMalformedAnnotations(ctx context.Context) error 
 	}
 	content := dag.Directory().WithNewFile("payload.json", "{}").File("payload.json")
 
-	for _, annotations := range []string{`"not an object"`, `{"n":1}`, `[]`, `not json at all`} {
+	// null and a null value are in this table because they are the two the
+	// obvious implementation accepts silently: JSON null unmarshals into a
+	// nil map, and a null value into a string is a documented no-op that
+	// leaves the key present and empty. A table without them cannot tell a
+	// correct implementation from that one.
+	for _, annotations := range []string{
+		`"not an object"`, `{"n":1}`, `[]`, `not json at all`,
+		`null`, `{"dev.example/signature":null}`,
+	} {
 		_, err := reg.client().PushLayer(ctx, repo, "v1", content, "application/json",
 			dagger.OciRegistryPushLayerOpts{Annotations: annotations})
 		if err == nil {

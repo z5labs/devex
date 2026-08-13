@@ -100,7 +100,7 @@ func (t *Tests) AppSignsEveryPublishedManifest(ctx context.Context) error {
 		references = append(references, fmt.Sprintf("%s:5000/%s@%s", registryAlias, repository, child.Digest))
 	}
 	for _, reference := range references {
-		if err := verifier.verify(ctx, reference); err != nil {
+		if err := verifier.mustVerify(ctx, reference); err != nil {
 			return err
 		}
 	}
@@ -153,8 +153,23 @@ func (t *Tests) AppSignatureDoesNotVerifyForAnotherKey(ctx context.Context) erro
 		return err
 	}
 	reference := fmt.Sprintf("%s:5000/%s:%s", registryAlias, repository, version)
-	if err := verifier.verify(ctx, reference); err == nil {
+	code, stderr, err := verifier.verify(ctx, reference)
+	if err != nil {
+		return err
+	}
+	if code == 0 {
 		return fmt.Errorf("cosign verified %s against a key that did not sign it", reference)
+	}
+	// The message, not merely the exit code. Cosign exits non-zero for a
+	// pull failure, an unknown flag and an unreachable registry too, and
+	// every one of those would also break the positive test — but silently,
+	// leaving this test green over a command that verified nothing. The
+	// signature-mismatch wording is the only outcome that says the
+	// verification actually ran and actually rejected.
+	const want = "no matching signatures"
+	if !strings.Contains(stderr, want) {
+		return fmt.Errorf("cosign rejected %s but not for a signature mismatch: wanted %q in its output, got exit %d and: %s",
+			reference, want, code, stderr)
 	}
 	return nil
 }
@@ -255,7 +270,8 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 	return &cosign{ctr: ctr}, nil
 }
 
-// verify runs `cosign verify` against one reference.
+// verify runs `cosign verify` against one reference and returns cosign's
+// own exit code and stderr.
 //
 // The flags are the ones a consumer of a supplied-key publish is told to
 // run in WithSigningKey's doc comment, plus the two that exist only because
@@ -263,19 +279,44 @@ func cosignVerifier(ctx context.Context, svc *dagger.Service, password string, k
 // itself: --insecure-ignore-tlog is what the supplied-key mode genuinely
 // requires, and adding it silently to the keyless mode is the failure this
 // naming is meant to make obvious.
-func (c *cosign) verify(ctx context.Context, reference string) error {
-	_, err := c.ctr.
-		WithExec([]string{
-			"verify",
-			"--key", "/keys/cosign.pub",
-			"--insecure-ignore-tlog=true",
-			"--allow-http-registry",
-			"--allow-insecure-registry",
-			reference,
-		}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
-		Sync(ctx)
+//
+// The exec is allowed to fail rather than raising, because a caller
+// asserting that a verification *fails* has to be able to say why it
+// failed. Treating any error as the expected one would let an image that
+// could not be pulled, or a flag this cosign does not know, stand in for a
+// signature that did not match — and then the negative test passes while
+// proving nothing about the positive one.
+func (c *cosign) verify(ctx context.Context, reference string) (int, string, error) {
+	ctr := c.ctr.WithExec([]string{
+		"verify",
+		"--key", "/keys/cosign.pub",
+		"--insecure-ignore-tlog=true",
+		"--allow-http-registry",
+		"--allow-insecure-registry",
+		reference,
+	}, dagger.ContainerWithExecOpts{
+		UseEntrypoint: true,
+		Expect:        dagger.ReturnTypeAny,
+	})
+	code, err := ctr.ExitCode(ctx)
 	if err != nil {
-		return fmt.Errorf("cosign verify %s: %v", reference, err)
+		return 0, "", fmt.Errorf("run cosign verify %s: %v", reference, err)
+	}
+	stderr, err := ctr.Stderr(ctx)
+	if err != nil {
+		return 0, "", fmt.Errorf("read cosign stderr for %s: %v", reference, err)
+	}
+	return code, stderr, nil
+}
+
+// mustVerify fails unless cosign reports the reference verified.
+func (c *cosign) mustVerify(ctx context.Context, reference string) error {
+	code, stderr, err := c.verify(ctx, reference)
+	if err != nil {
+		return err
+	}
+	if code != 0 {
+		return fmt.Errorf("cosign verify %s exited %d: %s", reference, code, stderr)
 	}
 	return nil
 }
