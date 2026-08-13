@@ -95,12 +95,19 @@ jobs:
       #                            killed at 6m11s of step time with no test having
       #                            failed. 12 is the budget it should have had before
       #                            a leg with no override started deciding merges by
-      #                            how warm the engine was.
+      #                            how warm the engine was. Keyed by the module
+      #                            directory, not by `:all`: the module declares one
+      #                            check, so the change-aware path emits
+      #                            `daggerverse/z5labs/tests:all` and the
+      #                            run-everything path emits the coarse
+      #                            `daggerverse/z5labs/tests`, and a leg name key
+      #                            would budget one of those two and leave the other
+      #                            on the default.
       timeouts: >-
         {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
         "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
         "daggerverse/workspace-ci:generated-self-test": 8,
-        "daggerverse/z5labs/tests:all": 12}
+        "daggerverse/z5labs/tests": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the
