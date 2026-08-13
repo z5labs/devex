@@ -241,6 +241,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppBuilderRefusesAnInconsistentVariantSet(&parent, ctx)
+		case "AppComposedImageStaysAttested":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppComposedImageStaysAttested(&parent, ctx)
+		case "AppComposesACompleteApplication":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppComposesACompleteApplication(&parent, ctx)
+		case "AppComposesADerivedImage":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppComposesADerivedImage(&parent, ctx)
+		case "AppComposesAnotherAppsPayload":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppComposesAnotherAppsPayload(&parent, ctx)
 		case "AppContainerRunsTheEntrypoint":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -395,6 +423,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppRefusesPlaintextRegistryUnlessInsecure(&parent, ctx)
+		case "AppRefusesToComposeAcrossPlatforms":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppRefusesToComposeAcrossPlatforms(&parent, ctx)
+		case "AppRefusesToComposeOntoOccupiedPaths":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppRefusesToComposeOntoOccupiedPaths(&parent, ctx)
+		case "AppRefusesToPublishAPayloadThatCannotRun":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppRefusesToPublishAPayloadThatCannotRun(&parent, ctx)
 		case "AppRefusesToPublishWithoutProvenanceMachinery":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

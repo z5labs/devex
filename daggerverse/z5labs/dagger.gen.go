@@ -156,7 +156,9 @@ func (r App) MarshalJSON() ([]byte, error) {
 		SourceURI           string
 		Pkg                 string
 		Variants            []*variant
-		ContributedPaths    []string
+		ContributedPaths    []occupied
+		Payload             appPayload
+		Composed            []composedApp
 		Registry            string
 		RegistryUsername    string
 		RegistryAuth        *dagger.Secret
@@ -173,6 +175,8 @@ func (r App) MarshalJSON() ([]byte, error) {
 	concrete.Pkg = r.Pkg
 	concrete.Variants = r.Variants
 	concrete.ContributedPaths = r.ContributedPaths
+	concrete.Payload = r.Payload
+	concrete.Composed = r.Composed
 	concrete.Registry = r.Registry
 	concrete.RegistryUsername = r.RegistryUsername
 	concrete.RegistryAuth = r.RegistryAuth
@@ -192,7 +196,9 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 		SourceURI           string
 		Pkg                 string
 		Variants            []*variant
-		ContributedPaths    []string
+		ContributedPaths    []occupied
+		Payload             appPayload
+		Composed            []composedApp
 		Registry            string
 		RegistryUsername    string
 		RegistryAuth        *dagger.Secret
@@ -213,6 +219,8 @@ func (r *App) UnmarshalJSON(bs []byte) error {
 	r.Pkg = concrete.Pkg
 	r.Variants = concrete.Variants
 	r.ContributedPaths = concrete.ContributedPaths
+	r.Payload = concrete.Payload
+	r.Composed = concrete.Composed
 	r.Registry = concrete.Registry
 	r.RegistryUsername = concrete.RegistryUsername
 	r.RegistryAuth = concrete.RegistryAuth
@@ -379,6 +387,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*App).Publish(&parent, ctx, repositories)
+		case "WithApp":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var from *App
+			if inputArgs["from"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["from"]), &from)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg from", err))
+				}
+			}
+			return (*App).WithApp(&parent, ctx, from)
 		case "WithDirectory":
 			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
@@ -688,6 +710,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Z5labs).App(&parent, version), nil
+		case "ComposeSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).ComposeSelfTest(&parent, ctx)
 		case "ContributionPathSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

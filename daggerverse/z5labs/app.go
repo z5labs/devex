@@ -75,15 +75,40 @@ type App struct {
 	//
 	// +private
 	Variants []*variant
-	// ContributedPaths are the image paths a caller has contributed content
-	// at, in the order they were contributed. It is what makes a second
-	// contribution overlapping the first refusable — see contribute.go —
-	// and it is a field rather than something derived from the variants
-	// because a variant's contributions are named for error messages and
-	// a language chain's are named after a binary rather than a path.
+	// ContributedPaths are the image paths something has been placed at
+	// since the images were built, in the order they were placed, each
+	// beside what holds it. It is what makes a second contribution
+	// overlapping the first refusable — see contribute.go — and it is a
+	// field rather than something derived from the variants because a
+	// variant's contributions are named for error messages and a language
+	// chain's are named after a binary rather than a path.
+	//
+	// The holder travels with the path because it is the whole content of
+	// the refusal: "something is already contributed at /usr/local/bin/gen"
+	// tells a caller nothing they can act on, while "the entry of the
+	// application composed at /usr/local/bin/gen" tells them which call to
+	// go and look at.
 	//
 	// +private
-	ContributedPaths []string
+	ContributedPaths []occupied
+	// Payload is what this application's constructor declared makes it
+	// runnable: the paths it put in every image and which of them is the
+	// entry. It is what crosses when this App is composed into another's
+	// image, and it is a declaration rather than anything read back off a
+	// container — compose.go records why reading the entrypoint instead
+	// fails silently in four different ways.
+	//
+	// +private
+	Payload appPayload
+	// Composed are the applications composed into this one, each with the
+	// path its entry landed at in these images and the version it was built
+	// under. Publish executes every one of them before it pushes anything,
+	// and records them in the provenance predicate's internal parameters —
+	// which is the only place that says which release of a plugin shipped,
+	// since the derived image is published under the base's version.
+	//
+	// +private
+	Composed []composedApp
 
 	// +private
 	Registry string
@@ -133,6 +158,13 @@ type variant struct {
 // why it runs where it runs.
 type contribution struct {
 	Name string
+	// Path is where in the image the bytes live. It is what composition
+	// reads to move a contribution into a derived image, and it is carried
+	// beside Name rather than replacing it because the two differ for an
+	// application's own executable: Name is what it is called, which is what
+	// an error message about its document should say, and Path is where it
+	// is, which is what a copy needs.
+	Path string
 	File *dagger.File
 	// Content is the file that entered the image: an application's own
 	// executable, or a contributed file. Nil for a directory contribution.
@@ -462,6 +494,15 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	if err := a.assertImageEnvironment(ctx); err != nil {
 		return nil, err
 	}
+	// A composed payload is proven complete by running it, and nothing about
+	// its API shape can establish the same thing. It happens here, with
+	// everything else that has to be true before the first byte moves, so a
+	// payload that cannot start fails the publish instead of failing in front
+	// of a consumer. compose.go carries what the check can and cannot tell
+	// apart.
+	if err := a.assertComposedPayloadsRun(ctx); err != nil {
+		return nil, err
+	}
 	// Force the builds before the first byte moves. Everything above this
 	// reads image *config*, which resolves without compiling anything, so
 	// without this the first thing to solve the build graph is the push —
@@ -523,6 +564,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 			SourceURI:  a.SourceURI,
 			Commit:     a.Commit,
 			Version:    a.Version,
+			Composed:   a.Composed,
 		}
 		if err := a.attachAttestations(ctx, registry, sgn, facts, boms); err != nil {
 			// "no tag" rather than "nothing": the digest in this very message

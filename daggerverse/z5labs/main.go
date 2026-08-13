@@ -63,6 +63,8 @@
 //
 // Contributing files and directories to an image is a different question and
 // has a different answer: App.WithFile and App.WithDirectory, in contribute.go.
+// Putting another *application's* executable in one is a third: App.WithApp,
+// in compose.go, which is what fills the plugin directory named above.
 //
 // # Prebuilt executables, and languages with no chain
 //
@@ -121,6 +123,62 @@
 // annotation and no revision, source or created annotation, and its provenance
 // records the publish and the image and no source tree. A language chain
 // records those because it observed them.
+//
+// # Composing one application into another
+//
+// App.WithApp puts another application's payload into this one's image. It is
+// what fills the plugin directory the image contract has been promising, and
+// it is the shape a CLI with a generator per language actually ships as:
+//
+//	ghcr.io/z5labs/avroc              the base: the CLI, and nothing else
+//	ghcr.io/z5labs/avroc-gen-go       the base plus /usr/local/bin/avroc-gen-go
+//	ghcr.io/z5labs/avroc-gen-java     the base plus /usr/local/bin/avroc-gen-java
+//
+// Each derived image is published to a repository of its own — a repository is
+// stated to Publish and is nothing to do with any binary's name — and every
+// one of them is annotated, signed and attested exactly like the base.
+//
+//	base := dag.Z5Labs().Go(src).App("v1.2.3")
+//	derived := base.WithApp(generator)
+//
+// The derived image is the same program as the base wearing one more
+// executable, and everything about that sentence is enforced. It inherits the
+// base's entrypoint, user, environment and executable directory rather than
+// restating any of them, and it is published under the base's version, because
+// the release it belongs to is the base's release — which is why the composed
+// application's own version is recorded in the provenance predicate, as the
+// only thing anywhere that says which release of the plugin shipped.
+//
+// What crosses is a *payload*: the paths that make an application runnable,
+// plus which one is the entry, declared by whatever constructed it. The entry
+// lands in the plugin directory under its own file name, so a base whose CLI
+// discovers extensions on the PATH finds it. Everything else the composed
+// application carries — its own contributed files and directories — lands at
+// its own path, because a complete application is what may be composed rather
+// than a slim carrier that only makes sense once merged.
+//
+// Composition never reads the entrypoint to decide what crosses, and that is
+// the single most important thing about it: `ep[0]` is a PATH lookup rather
+// than a path for an interpreted application, later elements can be paths that
+// would be dropped, an application driven by Cmd has no `ep[0]` at all, and a
+// CGO_ENABLED=1 binary needs a loader that lives in the image it came out of.
+// Every one of those publishes cleanly, attests cleanly and dies on first
+// exec. compose.go carries the whole rule.
+//
+// Four things are refused rather than resolved, each because the alternative
+// is silent: a platform set that does not match exactly in both directions, a
+// path collision with the base or with an application composed earlier, an
+// environment variable the two sides disagree about, and — for now — a
+// declared payload of more than one file. And because no API shape can
+// establish that a payload is complete, Publish executes the entry of every
+// composed payload in the derived image before the first byte is pushed: a
+// payload that cannot run under the base's environment with nothing added
+// fails the build rather than the consumer.
+//
+// An image built out of pipeline with a `FROM <published-ref>` line gets none
+// of this, and the reason is precise rather than vague: a stranger's
+// Dockerfile adds bytes with no document and has no mechanism to produce one,
+// so that image's attestations describe the base and nothing else.
 //
 // # Versions
 //
