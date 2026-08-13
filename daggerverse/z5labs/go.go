@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
 )
@@ -138,9 +137,16 @@ func (g *GoChain) Ci(ctx context.Context) error {
 // One binary is cross-compiled per platform, stamped at link time with
 // version and with the commit; each is packaged as an image carrying the
 // module's standardized environment, the absolute entrypoint and the OCI
-// source annotations; and an SPDX and a CycloneDX document are generated
-// for each binary. What comes back holds the images and those documents
+// source annotations; and an SPDX document describing each binary is
+// generated for it. What comes back holds the images and those documents
 // and knows nothing about the chain that produced them — see App.
+//
+// The document per binary is a *contribution* document rather than the
+// image's. Publish assembles every contribution to an image into the SPDX
+// and CycloneDX pair it attaches, so what a consumer reads describes the
+// whole image; see sbom.go. For an app built only from a language chain the
+// image is the binary, so the two are the same set of components — which is
+// what makes this a change of subject rather than of content.
 //
 // # version is the caller's, and is validated here
 //
@@ -224,19 +230,27 @@ func (g *GoChain) App(
 	variants := make([]*variant, 0, len(platforms))
 	for _, platform := range platforms {
 		binary := g.buildBinaryForPlatform(string(platform), pkg, binaryName, version, facts.ShortSHA)
-		// The SBOMs are generated here, by the chain, because this is the
-		// last place that holds both the binary and the source they need.
-		// App carries what comes back as an opaque file and an artifact
-		// type, and the publish attaches it without ever learning it is an
-		// SBOM. Nothing is evaluated yet: dag.Go().Spdx returns a lazy
+		// The document describing the binary is generated here, by the
+		// chain, because this is the last place that holds both the binary
+		// and the source it needs. It is a *contribution* document and not
+		// the image's: the binary is one of the things in the image, and
+		// Publish assembles every contribution into the SPDX and CycloneDX
+		// pair that is actually attached. See sbom.go.
+		//
+		// One document rather than two, and SPDX rather than CycloneDX,
+		// because both published formats render from one resolution of the
+		// assembled image — the same rule the `go` module applies to a
+		// module graph, one level up. dag.Go().CycloneDx is untouched and
+		// still the way to get a CycloneDX document about a binary; it is
+		// simply not what an image is assembled from.
+		//
+		// Nothing is evaluated yet: dag.Go().Spdx returns a lazy
 		// *dagger.File, so an app nobody publishes costs no scan.
-		stem := binaryName + "-" + strings.ReplaceAll(string(platform), "/", "-")
 		variants = append(variants, &variant{
 			Platform:  platform,
 			Container: imageForPlatform(platform, binaryName, binary, annotations),
-			Documents: []document{
-				{Name: stem + ".spdx.json", Type: spdxArtifactType, File: renamed(dag.Go().Spdx(binary, g.Source), stem+".spdx.json")},
-				{Name: stem + ".cdx.json", Type: cycloneDxArtifactType, File: renamed(dag.Go().CycloneDx(binary, g.Source), stem+".cdx.json")},
+			Contributions: []contribution{
+				{Name: binaryName, File: dag.Go().Spdx(binary, g.Source)},
 			},
 		})
 	}

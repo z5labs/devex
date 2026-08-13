@@ -87,6 +87,47 @@ returned.
 Generation and attachment stay separate concerns. Whatever pushes bytes to a
 registry does not know that those bytes are an SBOM.
 
+### An image's SBOM is assembled, never scanned
+
+The rule above says who *produces* a document. Once an image can hold more than
+one thing, there is a second question — who produces the document about the
+whole image — and the answer is not "a scanner". A scratch image carries no
+package manager metadata, so a scanner would find almost nothing, and the party
+that contributed each byte is the only one that knows what it contributed.
+
+So the split is three concerns rather than two, and `daggerverse/z5labs` is the
+worked example (devex#409):
+
+1. **Produce** — an ecosystem module writes a document about what it built.
+2. **Assemble** — the archetype merges every contribution's document into one
+   document per format, at publish time, anchored to the published digest.
+3. **Attach** — the `oci` module pushes bytes under an artifact type and still
+   never learns that any of them is an SBOM.
+
+Three things that follow, each of which is a decision rather than an accident:
+
+- **The contribution document is a single SPDX 2.3 JSON file.** One format in,
+  both formats out, so the published pair renders from one resolution and cannot
+  disagree — the "resolve once, render every format" rule, one level up. SPDX
+  because it has NOASSERTION, and content with no ecosystem is mostly a statement
+  about what is not known; CycloneDX cannot spell it.
+- **The assembled document replaces the contributions.** A digest carries one
+  document per format per platform and nothing else. Several documents of one
+  artifact type leave a consumer picking, silently, between a complete one and a
+  partial one. Attribution moves inside the document: the image CONTAINS each
+  contribution's subject, which DEPENDS_ON what it was made of.
+- **A publish that cannot assemble a complete document fails.** Same rule, and
+  the same reasoning, as the provenance refusal: an SBOM that accounts for part
+  of an image is well formed, attaches cleanly and is indistinguishable from a
+  complete one.
+
+One trap worth carrying, because it fails silently. **SPDX file elements belong
+at the document level, referenced by a CONTAINS relationship** — not nested in
+the package's own `files` array. `tools-golang` marshals a nested list happily
+and reads a document back through the top-level `files` array and `hasFiles`, so
+a document written the nested way round-trips as a package containing nothing at
+all. That is a contribution losing every file inside it, with no error anywhere.
+
 ## Attaching attestations: GHCR has no referrers API
 
 Measured against `ghcr.io` on 2026-08-05, anonymously, against three public
