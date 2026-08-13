@@ -377,6 +377,34 @@ func (t *Tests) AppDocumentHelpersDescribeContentWithNoEcosystem(ctx context.Con
 			doc.LicenseDeclared, doc.LicenseComment)
 	}
 
+	// A tree with nothing in it is refused rather than described as an
+	// empty package. "This contribution has no files" and "this contribution
+	// was not looked at" are the same document, and the second one is the
+	// artifact the whole mechanism exists to prevent.
+	if _, err := dag.Z5Labs().DirectoryDocument(dag.Directory(), "empty").Contents(ctx); err == nil {
+		return fmt.Errorf("expected an empty directory to be refused, got nil")
+	}
+
+	// A symlink is skipped rather than followed or hashed. Following it
+	// would put a digest in the document for bytes that are not in the
+	// image; hashing the link itself would put one nothing can verify
+	// against a pulled layer. The real file beside it still lands.
+	linked := dag.Container().From("alpine:3.22").
+		WithNewFile("/tree/real.txt", "real").
+		WithExec([]string{"ln", "-s", "real.txt", "/tree/link.txt"}).
+		Directory("/tree")
+	raw, err = dag.Z5Labs().DirectoryDocument(linked, "tree").Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("DirectoryDocument over a tree with a symlink: %v", err)
+	}
+	doc, err = readContributionDocument([]byte(raw))
+	if err != nil {
+		return err
+	}
+	if strings.Join(doc.Files, ",") != "real.txt" {
+		return fmt.Errorf("the directory document lists %v, want the regular file alone", doc.Files)
+	}
+
 	// Prose is refused rather than published into a field a policy engine
 	// reads as an identifier.
 	if _, err := dag.Z5Labs().FileDocument(file, dagger.Z5LabsFileDocumentOpts{

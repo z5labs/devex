@@ -38,6 +38,15 @@ func (m *Z5labs) ImageSbomSelfTest(ctx context.Context) error {
 	if err := checkContributionRefusals(); err != nil {
 		return err
 	}
+	if err := checkPublishRefusesAnUnassemblableImage(ctx); err != nil {
+		return err
+	}
+	if err := checkSubjectOfAnotherContribution(); err != nil {
+		return err
+	}
+	if err := checkAssemblyRefusesANonSha256Digest(); err != nil {
+		return err
+	}
 	return checkLicenseExpressions()
 }
 
@@ -66,9 +75,13 @@ func checkAssembledImageDocuments() error {
 	if err != nil {
 		return err
 	}
-	binaryTwo, err := ecosystemContribution("sidecar", "pkg:golang/example.com/sidecar@v0.1.0", []string{
+	// sidecar's components declare nothing and conclude a licence, which is
+	// the asymmetry that used to reach SPDX and not CycloneDX: one format
+	// gates on the declared licence, the other carries both fields.
+	binaryTwo, err := ecosystemContributionWithLicenses("sidecar", "pkg:golang/example.com/sidecar@v0.1.0", []string{
 		"pkg:golang/golang.org/x/text@v0.35.0",
-	})
+		"pkg:golang/github.com/pkg/errors@v0.9.1",
+	}, noAssertion, "BSD-3-Clause")
 	if err != nil {
 		return err
 	}
@@ -81,7 +94,11 @@ func checkAssembledImageDocuments() error {
 		Files: []bomFile{
 			{Path: "ca-certificates.crt", Sha1: strings.Repeat("11", 20), Sha256: "aa" + strings.Repeat("00", 31)},
 		},
-	}, "MPL-2.0")
+		// A LicenseRef- identifier rather than a listed one, because that is
+		// the case CycloneDX cannot express as a licence *id* — its id field
+		// is an enum over the SPDX list — and it is exactly what a caller
+		// with no ecosystem reaches for.
+	}, "LicenseRef-Corporate-EULA")
 	if err != nil {
 		return fmt.Errorf("render the ecosystem-less contribution: %v", err)
 	}
@@ -112,11 +129,11 @@ func checkAssembledImageDocuments() error {
 		return fmt.Errorf("render the assembled CycloneDX document: %v", err)
 	}
 
-	spdxSet, spdxSubject, contains, err := readAssembledSpdx(spdxRaw)
+	spdxSet, spdxSubject, contains, spdxGraph, err := readAssembledSpdx(spdxRaw)
 	if err != nil {
 		return err
 	}
-	cdxSet, cdxSubject, cdxTopLevel, err := readAssembledCycloneDx(cdxRaw)
+	cdxSet, cdxSubject, cdxTopLevel, cdxGraph, err := readAssembledCycloneDx(cdxRaw)
 	if err != nil {
 		return err
 	}
@@ -140,6 +157,9 @@ func checkAssembledImageDocuments() error {
 	if err := sameComponents(spdxSet, cdxSet); err != nil {
 		return err
 	}
+	if err := sameGraph(spdxGraph, cdxGraph); err != nil {
+		return err
+	}
 
 	// Every contribution is in the image, and the shared dependency is in it
 	// once. Nine packages would mean golang.org/x/text was listed twice.
@@ -148,6 +168,7 @@ func checkAssembledImageDocuments() error {
 		"pkg:golang/example.com/app@v1.2.3",
 		"pkg:golang/example.com/sidecar@v0.1.0",
 		"pkg:golang/github.com/google/uuid@v1.6.0",
+		"pkg:golang/github.com/pkg/errors@v0.9.1",
 		"pkg:golang/golang.org/x/text@v0.35.0",
 	}
 	got := make([]string, 0, len(spdxSet))
@@ -172,6 +193,17 @@ func checkAssembledImageDocuments() error {
 	}
 	if strings.Join(cdxTopLevel, "\n") != strings.Join(wantContained, "\n") {
 		return fmt.Errorf("the CycloneDX image depends on\n%s\nwant\n%s", strings.Join(cdxTopLevel, "\n"), strings.Join(wantContained, "\n"))
+	}
+
+	// The two licence shapes that are not "declared == concluded == a listed
+	// identifier" survive into both documents. sameComponents above compares
+	// them, but two empty values compare equal, so what they are is asserted
+	// here as well.
+	if got := spdxSet["pkg:golang/github.com/pkg/errors@v0.9.1"].License; got != "BSD-3-Clause" {
+		return fmt.Errorf("a component that declares nothing and concludes BSD-3-Clause publishes %q", got)
+	}
+	if got := spdxSet["/etc/ssl/certs/ca-certificates.crt@2026.01.01"].License; got != "LicenseRef-Corporate-EULA" {
+		return fmt.Errorf("a LicenseRef- licence publishes %q", got)
 	}
 
 	// The ecosystem-less contribution's file survives into the image
@@ -208,6 +240,20 @@ func checkContributionRefusals() error {
 	if err != nil {
 		return fmt.Errorf("encode the describes-nothing fixture: %v", err)
 	}
+	// A file element with no SHA-1. SPDX 2.3 requires one on an analyzed
+	// file and defines the package verification code over exactly those, so
+	// carrying it would mean publishing a code computed over a subset —
+	// wrong rather than absent, and a validator recomputing it disagrees
+	// with nothing anywhere saying why.
+	noSha1, err := contributionDocument(bomPackage{
+		Name:     "templates",
+		Supplier: noAssertion,
+		Purpose:  "FILE",
+		Files:    []bomFile{{Path: "index.html", Sha256: strings.Repeat("cd", 32)}},
+	}, "")
+	if err != nil {
+		return fmt.Errorf("render the no-SHA-1 fixture: %v", err)
+	}
 	cases := []struct {
 		name string
 		raw  []byte
@@ -216,6 +262,11 @@ func checkContributionRefusals() error {
 		{
 			name: "not a document at all",
 			raw:  []byte("{}"),
+		},
+		{
+			name: "a file element with no SHA-1",
+			raw:  noSha1,
+			want: "carries no SHA-1 checksum",
 		},
 		{
 			name: "a CycloneDX document where SPDX was required",
@@ -297,6 +348,13 @@ func checkLicenseExpressions() error {
 // ecosystem module is one — and a fixture built from the assembler's own
 // renderer would agree with it by construction.
 func ecosystemContribution(name, purl string, componentPurls []string) ([]byte, error) {
+	return ecosystemContributionWithLicenses(name, purl, componentPurls, "BSD-3-Clause", "BSD-3-Clause")
+}
+
+// ecosystemContributionWithLicenses is ecosystemContribution with the
+// components' declared and concluded licences stated, so the cases where
+// those differ can be constructed.
+func ecosystemContributionWithLicenses(name, purl string, componentPurls []string, declared, concluded string) ([]byte, error) {
 	subject := bomPackage{
 		Name:             name,
 		Version:          strings.TrimPrefix(purl[strings.LastIndex(purl, "@"):], "@"),
@@ -320,8 +378,8 @@ func ecosystemContribution(name, purl string, componentPurls []string) ([]byte, 
 			Purl:             cp,
 			Supplier:         noAssertion,
 			Purpose:          "LIBRARY",
-			LicenseDeclared:  "BSD-3-Clause",
-			LicenseConcluded: "BSD-3-Clause",
+			LicenseDeclared:  declared,
+			LicenseConcluded: concluded,
 		}
 		packages = append(packages, spdxPackage(comp, comp.elementID()))
 		relationships = append(relationships, &v2_3.Relationship{
@@ -364,13 +422,14 @@ type assembledSubject struct {
 }
 
 // readAssembledSpdx decodes the published SPDX document.
-func readAssembledSpdx(raw []byte) (map[string]assembledComponent, assembledSubject, []string, error) {
+func readAssembledSpdx(raw []byte) (map[string]assembledComponent, assembledSubject, []string, map[string][]string, error) {
 	var doc struct {
 		Packages []struct {
 			SPDXID          string `json:"SPDXID"`
-			Name            string `json:"name"`
-			VersionInfo     string `json:"versionInfo"`
-			LicenseDeclared string `json:"licenseDeclared"`
+			Name             string `json:"name"`
+			VersionInfo      string `json:"versionInfo"`
+			LicenseDeclared  string `json:"licenseDeclared"`
+			LicenseConcluded string `json:"licenseConcluded"`
 			Checksums       []struct {
 				Algorithm string `json:"algorithm"`
 				Value     string `json:"checksumValue"`
@@ -392,7 +451,7 @@ func readAssembledSpdx(raw []byte) (map[string]assembledComponent, assembledSubj
 	}
 	var subject assembledSubject
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, subject, nil, fmt.Errorf("decode the assembled SPDX document: %v", err)
+		return nil, subject, nil, nil, fmt.Errorf("decode the assembled SPDX document: %v", err)
 	}
 	fileNames := make(map[string]string, len(doc.Files))
 	for _, f := range doc.Files {
@@ -426,7 +485,7 @@ func readAssembledSpdx(raw []byte) (map[string]assembledComponent, assembledSubj
 			}
 			continue
 		}
-		comp := assembledComponent{License: pkg.LicenseDeclared, Files: filesOf[pkg.SPDXID]}
+		comp := assembledComponent{License: effectiveLicense(pkg.LicenseDeclared, pkg.LicenseConcluded), Files: filesOf[pkg.SPDXID]}
 		sort.Strings(comp.Files)
 		set[key] = comp
 	}
@@ -441,11 +500,45 @@ func readAssembledSpdx(raw []byte) (map[string]assembledComponent, assembledSubj
 		contains = append(contains, keyByID[rel.RelatedSpdxElement])
 	}
 	sort.Strings(contains)
-	return set, subject, contains, nil
+	graph := make(map[string][]string)
+	for _, rel := range doc.Relationships {
+		if rel.RelationshipType != "DEPENDS_ON" {
+			continue
+		}
+		from := keyByID[rel.SpdxElementID]
+		graph[from] = append(graph[from], keyByID[rel.RelatedSpdxElement])
+	}
+	// Every package the document lists states its dependencies, even when it
+	// has none: "depends on nothing" and "nobody said" are different claims.
+	for _, key := range keyByID {
+		if key != subject.Purl {
+			if _, ok := graph[key]; !ok {
+				graph[key] = []string{}
+			}
+		}
+	}
+	for k := range graph {
+		sort.Strings(graph[k])
+	}
+	return set, subject, contains, graph, nil
+}
+
+// effectiveLicense is what either format ends up publishing for a package:
+// the declared licence, or the concluded one when nothing was declared. It
+// is the only comparison that means anything across the two, because SPDX
+// carries both fields and CycloneDX carries one plus an acknowledgement.
+func effectiveLicense(declared, concluded string) string {
+	if declared != noAssertion && declared != "" {
+		return declared
+	}
+	if concluded == "" {
+		return noAssertion
+	}
+	return concluded
 }
 
 // readAssembledCycloneDx decodes the published CycloneDX document.
-func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assembledSubject, []string, error) {
+func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assembledSubject, []string, map[string][]string, error) {
 	type cdxComponent struct {
 		BOMRef     string `json:"bom-ref"`
 		Name       string `json:"name"`
@@ -457,7 +550,8 @@ func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assemble
 		} `json:"hashes"`
 		Licenses []struct {
 			License struct {
-				ID string `json:"id"`
+				ID   string `json:"id"`
+				Name string `json:"name"`
 			} `json:"license"`
 			Expression string `json:"expression"`
 		} `json:"licenses"`
@@ -477,7 +571,7 @@ func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assemble
 	}
 	var subject assembledSubject
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return nil, subject, nil, fmt.Errorf("decode the assembled CycloneDX document: %v", err)
+		return nil, subject, nil, nil, fmt.Errorf("decode the assembled CycloneDX document: %v", err)
 	}
 	keyOf := func(c cdxComponent) string {
 		if c.PackageURL != "" {
@@ -496,9 +590,11 @@ func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assemble
 	for _, c := range doc.Components {
 		comp := assembledComponent{License: noAssertion}
 		if len(c.Licenses) > 0 {
-			comp.License = c.Licenses[0].License.ID
-			if comp.License == "" {
-				comp.License = c.Licenses[0].Expression
+			for _, candidate := range []string{c.Licenses[0].License.ID, c.Licenses[0].License.Name, c.Licenses[0].Expression} {
+				if candidate != "" {
+					comp.License = candidate
+					break
+				}
 			}
 		}
 		for _, f := range c.Components {
@@ -517,7 +613,19 @@ func readAssembledCycloneDx(raw []byte) (map[string]assembledComponent, assemble
 		}
 	}
 	sort.Strings(topLevel)
-	return set, subject, topLevel, nil
+	graph := make(map[string][]string)
+	for _, dep := range doc.Dependencies {
+		if dep.Ref == doc.Metadata.Component.BOMRef {
+			continue
+		}
+		refs := make([]string, 0, len(dep.DependsOn))
+		for _, ref := range dep.DependsOn {
+			refs = append(refs, keyByRef[ref])
+		}
+		sort.Strings(refs)
+		graph[keyByRef[dep.Ref]] = refs
+	}
+	return set, subject, topLevel, graph, nil
 }
 
 // sameComponents is the assertion that the two formats cannot disagree.
@@ -555,4 +663,202 @@ func sortedComponentKeys(m map[string]assembledComponent) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// checkPublishRefusesAnUnassemblableImage drives resolveContributions, which
+// is the step Publish runs before the first byte moves.
+//
+// Its placement is the whole mechanism behind "a publish that cannot produce
+// a complete document fails rather than warning", and the branches are
+// unreachable from the public API — nothing caller-facing can build a
+// variant with no contributions, or with a document that will not parse,
+// until devex#392 lands. So they are driven here, against a real
+// *dagger.File, rather than left as code nothing executes. If someone later
+// moves the call below the push for latency, the happy-path tests stay green
+// and this is what goes red.
+func checkPublishRefusesAnUnassemblableImage(ctx context.Context) error {
+	unparseable := dag.Directory().
+		WithNewFile("contribution.json", `{"this":"is not an spdx document"}`).
+		File("contribution.json")
+	cases := []struct {
+		name string
+		app  *App
+		want string
+	}{
+		{
+			name: "a variant with no contributions at all",
+			app:  &App{Variants: []*variant{{Platform: selfTestPlatform}}},
+			want: "carries no contribution documents",
+		},
+		{
+			name: "a contribution with no document",
+			app: &App{Variants: []*variant{{
+				Platform:      selfTestPlatform,
+				Contributions: []contribution{{Name: "ca-bundle"}},
+			}}},
+			want: "entered the linux/amd64 image with no document describing it",
+		},
+		{
+			name: "a contribution whose document will not parse",
+			app: &App{Variants: []*variant{{
+				Platform:      selfTestPlatform,
+				Contributions: []contribution{{Name: "ca-bundle", File: unparseable}},
+			}}},
+			want: "the document describing ca-bundle in the linux/amd64 image",
+		},
+	}
+	for _, c := range cases {
+		_, err := c.app.resolveContributions(ctx)
+		if err == nil {
+			return fmt.Errorf("expected %s to be refused before anything is pushed, got nil", c.name)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of %s to carry %q, got: %v", c.name, c.want, err)
+		}
+	}
+	return nil
+}
+
+// checkSubjectOfAnotherContribution covers the case where one contribution
+// links a module that another contribution *is* — one app shipping another
+// app's library, which is what devex#401's composition produces.
+//
+// It is the case that makes de-duplication order dependent if subjects and
+// components share one seen set: the thing that entered the image gets
+// claimed as a transitive component of its neighbour, the image stops
+// CONTAINing it, and everything it was built from disappears from the graph.
+// The document stays well formed throughout, which is why this is a check
+// and not a comment. It also pins the two formats' dependency *graphs*
+// against each other, and not merely their component sets — the graph is
+// where a lookup table built from the wrong half shows up.
+func checkSubjectOfAnotherContribution() error {
+	// app depends on sidecar, and sidecar is a contribution in its own right.
+	app, err := ecosystemContribution("app", "pkg:golang/example.com/app@v1.2.3", []string{
+		"pkg:golang/example.com/sidecar@v0.1.0",
+		"pkg:golang/golang.org/x/text@v0.35.0",
+	})
+	if err != nil {
+		return err
+	}
+	sidecar, err := ecosystemContribution("sidecar", "pkg:golang/example.com/sidecar@v0.1.0", []string{
+		"pkg:golang/github.com/google/uuid@v1.6.0",
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, order := range [][]struct {
+		name string
+		raw  []byte
+	}{
+		{{"app", app}, {"sidecar", sidecar}},
+		{{"sidecar", sidecar}, {"app", app}},
+	} {
+		vb := variantBom{Platform: selfTestPlatform}
+		for _, c := range order {
+			parsed, err := parseContribution(c.name, c.raw)
+			if err != nil {
+				return err
+			}
+			vb.Contributions = append(vb.Contributions, *parsed)
+		}
+		ib := vb.assemble(selfTestRepository, selfTestDigest, "v1.2.3", time.Unix(0, 0))
+		spdxRaw, err := ib.spdxDocument()
+		if err != nil {
+			return err
+		}
+		cdxRaw, err := ib.cycloneDxDocument()
+		if err != nil {
+			return err
+		}
+		spdxSet, _, contains, spdxGraph, err := readAssembledSpdx(spdxRaw)
+		if err != nil {
+			return err
+		}
+		cdxSet, _, cdxTopLevel, cdxGraph, err := readAssembledCycloneDx(cdxRaw)
+		if err != nil {
+			return err
+		}
+
+		// sidecar entered the image, so it is contained by the image and not
+		// only depended on by app — in both orderings.
+		want := []string{"pkg:golang/example.com/app@v1.2.3", "pkg:golang/example.com/sidecar@v0.1.0"}
+		if strings.Join(contains, "\n") != strings.Join(want, "\n") {
+			return fmt.Errorf("with contributions in the order %s/%s the image CONTAINS %v, want %v",
+				order[0].name, order[1].name, contains, want)
+		}
+		if strings.Join(cdxTopLevel, "\n") != strings.Join(want, "\n") {
+			return fmt.Errorf("with contributions in the order %s/%s the CycloneDX image depends on %v, want %v",
+				order[0].name, order[1].name, cdxTopLevel, want)
+		}
+		// And its own dependency survives being a subject.
+		if got := spdxGraph["pkg:golang/example.com/sidecar@v0.1.0"]; strings.Join(got, ",") != "pkg:golang/github.com/google/uuid@v1.6.0" {
+			return fmt.Errorf("with contributions in the order %s/%s sidecar depends on %v, want its one module",
+				order[0].name, order[1].name, got)
+		}
+		if err := sameComponents(spdxSet, cdxSet); err != nil {
+			return err
+		}
+		if err := sameGraph(spdxGraph, cdxGraph); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkAssemblyRefusesANonSha256Digest pins the fail-rather-than-degrade
+// rule at the one place the subject could have been published without a
+// checksum.
+//
+// A document whose subject carries no checksum still names the image, still
+// attaches and still parses; what it does not do is tie itself to the bytes
+// a consumer pulled, and nothing in it says so. Registries can serve digests
+// in other algorithms, so this cannot rest on assuming they will not.
+func checkAssemblyRefusesANonSha256Digest() error {
+	contribution, err := ecosystemContribution("app", "pkg:golang/example.com/app@v1.2.3", nil)
+	if err != nil {
+		return err
+	}
+	parsed, err := parseContribution("app", contribution)
+	if err != nil {
+		return err
+	}
+	vb := variantBom{Platform: selfTestPlatform, Contributions: []contributionBom{*parsed}}
+	ib := vb.assemble(selfTestRepository, "sha512:"+strings.Repeat("ab", 64), "v1.2.3", time.Unix(0, 0))
+	for what, render := range map[string]func() ([]byte, error){
+		"SPDX":      ib.spdxDocument,
+		"CycloneDX": ib.cycloneDxDocument,
+	} {
+		if _, err := render(); err == nil {
+			return fmt.Errorf("expected the %s renderer to refuse a non-sha256 digest, got nil", what)
+		} else if !strings.Contains(err.Error(), "is not a sha256 digest") {
+			return fmt.Errorf("expected the %s refusal to name the digest, got: %v", what, err)
+		}
+	}
+	return nil
+}
+
+// sameGraph is the assertion that the two formats describe one dependency
+// graph and not merely one component set.
+//
+// The component sets can agree while the edges do not — a renderer that
+// resolved a reference through the wrong lookup table emits a ref naming
+// nothing, and every component is still present and correct. That is the two
+// formats disagreeing about what depends on what, which is the part a
+// consumer walks.
+func sameGraph(spdxGraph, cdxGraph map[string][]string) error {
+	if len(spdxGraph) != len(cdxGraph) {
+		return fmt.Errorf("the SPDX document states %d dependency lists and the CycloneDX document states %d",
+			len(spdxGraph), len(cdxGraph))
+	}
+	for key, want := range spdxGraph {
+		got, ok := cdxGraph[key]
+		if !ok {
+			return fmt.Errorf("the SPDX document states what %s depends on and the CycloneDX document does not", key)
+		}
+		if strings.Join(want, ",") != strings.Join(got, ",") {
+			return fmt.Errorf("the two documents disagree about what %s depends on: SPDX has %v, CycloneDX has %v", key, want, got)
+		}
+	}
+	return nil
 }

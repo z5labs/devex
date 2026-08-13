@@ -238,6 +238,17 @@ func (a *App) resolveContributions(ctx context.Context) ([]variantBom, error) {
 		}
 		parsed := make([]contributionBom, 0, len(v.Contributions))
 		for _, c := range v.Contributions {
+			// The whole seam devex#392 builds on is "bytes arrive described
+			// or they do not arrive", and an absent document is the shape a
+			// caller who left the argument out produces. It is refused here
+			// rather than dereferenced, so the failure names the
+			// contribution instead of arriving as a nil dereference from
+			// inside the client.
+			if c.File == nil {
+				return nil, fmt.Errorf(
+					"%s entered the %s image with no document describing it; every byte that enters an image arrives with one",
+					c.Name, v.Platform)
+			}
 			raw, err := c.File.Contents(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("read the document describing %s in the %s image: %v", c.Name, v.Platform, err)
@@ -272,7 +283,10 @@ func parseContribution(name string, raw []byte) (*contributionBom, error) {
 	for _, pkg := range doc.Packages {
 		byID[pkg.PackageSPDXIdentifier] = pkg
 	}
-	files := filesByOwner(doc)
+	files, err := filesByOwner(doc)
+	if err != nil {
+		return nil, err
+	}
 	subject, ok := byID[subjectID]
 	if !ok {
 		return nil, fmt.Errorf("describes %s, which is not a package in it", subjectID)
@@ -302,7 +316,7 @@ func parseContribution(name string, raw []byte) (*contributionBom, error) {
 // alone: that is how an assembled image document says what entered the
 // image, and an assembled document is itself a legal contribution — which
 // is how devex#401 composes one app's payload into another's image.
-func filesByOwner(doc *v2_3.Document) map[common.ElementID][]bomFile {
+func filesByOwner(doc *v2_3.Document) (map[common.ElementID][]bomFile, error) {
 	elements := make(map[common.ElementID]*v2_3.File, len(doc.Files))
 	for _, f := range doc.Files {
 		elements[f.FileSPDXIdentifier] = f
@@ -325,9 +339,19 @@ func filesByOwner(doc *v2_3.Document) map[common.ElementID][]bomFile {
 				file.Sha256 = sum.Value
 			}
 		}
+		// SPDX 2.3 requires a SHA-1 on every analyzed file, and the package
+		// verification code is defined over exactly those. A file without
+		// one is refused rather than carried: a code computed over the
+		// subset that had one is a *wrong* value rather than an absent one,
+		// and a validator recomputing it disagrees with no way to tell why.
+		if file.Sha1 == "" {
+			return nil, fmt.Errorf(
+				"the file %q carries no SHA-1 checksum, which SPDX %s requires of an analyzed file and computes the package verification code from",
+				file.Path, spdxVersion)
+		}
 		out[rel.RefA.ElementRefID] = append(out[rel.RefA.ElementRefID], file)
 	}
-	return out
+	return out, nil
 }
 
 // describedElement finds the one element the document is about.
@@ -448,8 +472,10 @@ func (ib *imageBom) imagePurl() string {
 }
 
 // digestHex is the hex half of a "sha256:<hex>" digest, which is what a
-// checksum field wants. A digest in any other algorithm is not a SHA-256
-// and is dropped rather than mangled into one.
+// checksum field wants. A digest in any other algorithm is not a SHA-256,
+// and comes back empty rather than mangled into one — validate refuses the
+// whole assembly on that, rather than letting it degrade into a document
+// with no checksum.
 func digestHex(digest string) string {
 	hexPart, ok := strings.CutPrefix(digest, "sha256:")
 	if !ok {
@@ -458,36 +484,96 @@ func digestHex(digest string) string {
 	return hexPart
 }
 
-// packages returns every package the document lists, de-duplicated and in a
-// stable order, together with the relationships between them.
+// validate refuses an assembly that cannot produce a checkable document.
 //
-// Both renderers call this, which is the mechanism behind "the two formats
-// cannot disagree": there is one component set and one dependency graph,
-// and the formats differ only in how they spell them.
-func (ib *imageBom) packages() (subjects []bomPackage, components []bomPackage, dependsOn map[string][]string) {
-	seen := make(map[string]bool)
-	dependsOn = make(map[string][]string)
+// A subject with no checksum is the failure this whole file is written to
+// prevent, one level up: the document still names the image, still attaches
+// and still parses, and has no verifiable link back to the bytes a consumer
+// pulled. Registries can serve digests in other algorithms, so the answer is
+// to fail rather than to assume they will not.
+func (ib *imageBom) validate() error {
+	if digestHex(ib.Digest) == "" {
+		return fmt.Errorf(
+			"the published digest %q is not a sha256 digest, so nothing in the document could name the bytes it describes",
+			ib.Digest)
+	}
+	return nil
+}
+
+// resolution is one image's packages, de-duplicated and in a stable order,
+// with the dependency graph between them.
+//
+// Both renderers take a value of this type and neither derives anything of
+// its own from the contributions, which is the mechanism behind "the two
+// formats cannot disagree" — there is one component set, one lookup table
+// and one graph, and the formats differ only in how they spell them.
+type resolution struct {
+	// Subjects are the things that entered the image, in contribution
+	// order.
+	Subjects []bomPackage
+	// Components are what those were made of, ordered by key.
+	Components []bomPackage
+	// ByKey resolves any key in DependsOn, subject or component alike.
+	ByKey map[string]bomPackage
+	// DependsOn maps a subject's key to the keys it was built from.
+	DependsOn map[string][]string
+}
+
+// packages resolves the image once.
+//
+// The subject keys are collected in a first pass, before anything is
+// classified. Doing it in one pass makes de-duplication order dependent in a
+// way that silently loses a contribution: where one contribution links a
+// module that a *later* contribution is the subject of — one app shipping
+// another app's library, which is exactly what devex#401's composition
+// produces — a single seen set claims that key as a component, and the later
+// subject is then never emitted as one. The image would not CONTAIN it and
+// its own DEPENDS_ON edges would be dropped with it, and swapping the two
+// contributions would change the document. A thing that entered the image is
+// a subject wherever else it also appears.
+func (ib *imageBom) packages() *resolution {
+	isSubject := make(map[string]bool, len(ib.Contributions))
 	for _, c := range ib.Contributions {
-		if !seen[c.Subject.key()] {
-			seen[c.Subject.key()] = true
-			subjects = append(subjects, c.Subject)
+		isSubject[c.Subject.key()] = true
+	}
+
+	out := &resolution{
+		ByKey:     make(map[string]bomPackage),
+		DependsOn: make(map[string][]string),
+	}
+	seen := make(map[string]bool)
+	for _, c := range ib.Contributions {
+		subjectKey := c.Subject.key()
+		if !seen[subjectKey] {
+			seen[subjectKey] = true
+			out.ByKey[subjectKey] = c.Subject
+			out.Subjects = append(out.Subjects, c.Subject)
 		}
 		refs := make([]string, 0, len(c.Components))
 		for _, comp := range c.Components {
-			if !seen[comp.key()] {
-				seen[comp.key()] = true
-				components = append(components, comp)
+			key := comp.key()
+			// A contribution that lists itself among its own components —
+			// a document whose subject package is also a dependency of
+			// itself — would otherwise produce a self-edge, which is not a
+			// relationship any consumer can do anything with.
+			if key != subjectKey {
+				refs = append(refs, key)
 			}
-			refs = append(refs, comp.key())
+			if seen[key] || isSubject[key] {
+				continue
+			}
+			seen[key] = true
+			out.ByKey[key] = comp
+			out.Components = append(out.Components, comp)
 		}
-		dependsOn[c.Subject.key()] = append(dependsOn[c.Subject.key()], refs...)
+		out.DependsOn[subjectKey] = append(out.DependsOn[subjectKey], refs...)
 	}
-	sort.Slice(components, func(i, j int) bool { return components[i].key() < components[j].key() })
-	for k, refs := range dependsOn {
+	sort.Slice(out.Components, func(i, j int) bool { return out.Components[i].key() < out.Components[j].key() })
+	for k, refs := range out.DependsOn {
 		sort.Strings(refs)
-		dependsOn[k] = dedupeStrings(refs)
+		out.DependsOn[k] = dedupeStrings(refs)
 	}
-	return subjects, components, dependsOn
+	return out
 }
 
 func dedupeStrings(in []string) []string {
@@ -505,36 +591,36 @@ func dedupeStrings(in []string) []string {
 
 // spdxDocument renders the assembled image as SPDX 2.3 JSON.
 func (ib *imageBom) spdxDocument() ([]byte, error) {
-	image := ib.imagePackage()
-	subjects, components, dependsOn := ib.packages()
+	if err := ib.validate(); err != nil {
+		return nil, err
+	}
+	res := ib.packages()
 
-	byKey := make(map[string]bomPackage, len(subjects)+len(components))
-	packages := []*v2_3.Package{spdxPackage(image, spdxImageID)}
+	packages := []*v2_3.Package{spdxPackage(ib.imagePackage(), spdxImageID)}
 	var files []*v2_3.File
 	relationships := []*v2_3.Relationship{{
 		RefA:         common.MakeDocElementID("", spdxDescribesFromDocDoc),
 		RefB:         common.MakeDocElementID("", spdxImageID),
 		Relationship: "DESCRIBES",
 	}}
-	for _, p := range append(append([]bomPackage{}, subjects...), components...) {
-		byKey[p.key()] = p
+	for _, p := range append(append([]bomPackage{}, res.Subjects...), res.Components...) {
 		packages = append(packages, spdxPackage(p, p.elementID()))
 		owned, contains := spdxFileElements(p, p.elementID())
 		files = append(files, owned...)
 		relationships = append(relationships, contains...)
 	}
-	for _, subject := range subjects {
+	for _, subject := range res.Subjects {
 		relationships = append(relationships, &v2_3.Relationship{
 			RefA:         common.MakeDocElementID("", spdxImageID),
 			RefB:         common.MakeDocElementID("", subject.elementID()),
 			Relationship: "CONTAINS",
 		})
 	}
-	for _, subject := range subjects {
-		for _, ref := range dependsOn[subject.key()] {
+	for _, subject := range res.Subjects {
+		for _, ref := range res.DependsOn[subject.key()] {
 			relationships = append(relationships, &v2_3.Relationship{
 				RefA:         common.MakeDocElementID("", subject.elementID()),
-				RefB:         common.MakeDocElementID("", byKey[ref].elementID()),
+				RefB:         common.MakeDocElementID("", res.ByKey[ref].elementID()),
 				Relationship: "DEPENDS_ON",
 			})
 		}
@@ -662,12 +748,16 @@ func spdxFileID(owner string, f bomFile) string {
 // every analyzed file's SHA-1, sorted and concatenated. The algorithm is
 // the spec's and is not a choice; SHA-1 is not being relied on for anything
 // here beyond matching what a consumer's validator recomputes.
+//
+// Every file reaching here has a SHA-1 — walkTree computes one and
+// filesByOwner refuses a contribution whose files lack one — so this never
+// silently sums a subset. That is load bearing rather than incidental: a
+// code computed over some of the files is wrong rather than missing, and a
+// validator recomputing it has no way to say why it disagrees.
 func verificationCode(files []bomFile) string {
 	sums := make([]string, 0, len(files))
 	for _, f := range files {
-		if f.Sha1 != "" {
-			sums = append(sums, f.Sha1)
-		}
+		sums = append(sums, f.Sha1)
 	}
 	sort.Strings(sums)
 	return sha1Hex(strings.Join(sums, ""))
@@ -681,29 +771,38 @@ func verificationCode(files []bomFile) string {
 // package that declares nothing carries no licence entry at all rather than
 // a string asserting the absence of one.
 func (ib *imageBom) cycloneDxDocument() ([]byte, error) {
-	image := ib.imagePackage()
-	subjects, components, dependsOn := ib.packages()
+	if err := ib.validate(); err != nil {
+		return nil, err
+	}
+	res := ib.packages()
 
-	all := make([]cdx.Component, 0, len(subjects)+len(components))
-	imageRefs := make([]string, 0, len(subjects))
+	all := make([]cdx.Component, 0, len(res.Subjects)+len(res.Components))
+	imageRefs := make([]string, 0, len(res.Subjects))
 	dependencies := []cdx.Dependency{}
-	for _, subject := range subjects {
+	for _, subject := range res.Subjects {
 		all = append(all, cycloneDxComponent(subject))
 		imageRefs = append(imageRefs, subject.bomRef())
-		refs := make([]string, 0, len(dependsOn[subject.key()]))
-		byKey := make(map[string]bomPackage, len(components))
-		for _, comp := range components {
-			byKey[comp.key()] = comp
-		}
-		for _, ref := range dependsOn[subject.key()] {
-			refs = append(refs, byKey[ref].bomRef())
+		// res.ByKey and not res.Components: a subject that another
+		// contribution also depends on is not in the component list, and
+		// looking it up there would resolve to a zero package and emit a
+		// bom-ref naming nothing in this document. The SPDX renderer reads
+		// the same table, which is what keeps the two graphs identical.
+		refs := make([]string, 0, len(res.DependsOn[subject.key()]))
+		for _, ref := range res.DependsOn[subject.key()] {
+			refs = append(refs, res.ByKey[ref].bomRef())
 		}
 		dependencies = append(dependencies, cdx.Dependency{Ref: subject.bomRef(), Dependencies: &refs})
 	}
-	for _, comp := range components {
+	for _, comp := range res.Components {
 		all = append(all, cycloneDxComponent(comp))
+		// An explicit empty entry rather than no entry: CycloneDX gives a
+		// consumer no way to tell "this component depends on nothing" from
+		// "nobody said", and the SPDX side states the former by having no
+		// DEPENDS_ON out of a package that is listed in full.
+		none := []string{}
+		dependencies = append(dependencies, cdx.Dependency{Ref: comp.bomRef(), Dependencies: &none})
 	}
-	subjectComponent := cycloneDxComponent(image)
+	subjectComponent := cycloneDxComponent(ib.imagePackage())
 	subjectComponent.Type = cdx.ComponentTypeContainer
 	dependencies = append([]cdx.Dependency{{Ref: subjectComponent.BOMRef, Dependencies: &imageRefs}}, dependencies...)
 
@@ -780,19 +879,7 @@ func cycloneDxComponent(p bomPackage) cdx.Component {
 	if p.Sha256 != "" {
 		out.Hashes = &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: p.Sha256}}
 	}
-	if p.LicenseDeclared != noAssertion {
-		acknowledgement := cdx.LicenseAcknowledgementDeclared
-		if p.LicenseConcluded != noAssertion {
-			acknowledgement = cdx.LicenseAcknowledgementConcluded
-		}
-		// A LicenseChoice carries either a single licence or an expression,
-		// never both, and anything with a space in it is an expression.
-		if strings.Contains(p.LicenseDeclared, " ") {
-			out.Licenses = &cdx.Licenses{{Expression: p.LicenseDeclared, Acknowledgement: &acknowledgement}}
-		} else {
-			out.Licenses = &cdx.Licenses{{License: &cdx.License{ID: p.LicenseDeclared, Acknowledgement: acknowledgement}}}
-		}
-	}
+	out.Licenses = cycloneDxLicenses(p)
 	if len(p.Files) > 0 {
 		files := make([]cdx.Component, 0, len(p.Files))
 		for _, f := range p.Files {
@@ -801,14 +888,80 @@ func cycloneDxComponent(p bomPackage) cdx.Component {
 				Type:   cdx.ComponentTypeFile,
 				Name:   f.Path,
 			}
+			hashes := []cdx.Hash{}
+			if f.Sha1 != "" {
+				hashes = append(hashes, cdx.Hash{Algorithm: cdx.HashAlgoSHA1, Value: f.Sha1})
+			}
 			if f.Sha256 != "" {
-				file.Hashes = &[]cdx.Hash{{Algorithm: cdx.HashAlgoSHA256, Value: f.Sha256}}
+				hashes = append(hashes, cdx.Hash{Algorithm: cdx.HashAlgoSHA256, Value: f.Sha256})
+			}
+			if len(hashes) > 0 {
+				file.Hashes = &hashes
 			}
 			files = append(files, file)
 		}
 		out.Components = &files
 	}
 	return out
+}
+
+// cycloneDxLicenses renders a package's licence, or nothing when there is
+// nothing to say.
+//
+// Two things here are not obvious and both were wrong before.
+//
+// **The declared licence is not the only one that counts.** SPDX carries a
+// declared and a concluded licence and they are independent: an ecosystem
+// module that runs a classifier publishes its best match as declared and
+// promotes it to concluded only above a confidence threshold, but a producer
+// is equally free to conclude something it cannot say the artifact declared.
+// Gating on the declared licence alone dropped that second case from
+// CycloneDX while SPDX kept it, which is the two formats disagreeing —
+// exactly what one resolution is supposed to make impossible.
+//
+// **A CycloneDX licence id is an enum, not a string.** `license.id` is
+// validated against the SPDX licence list, so a `LicenseRef-` identifier —
+// which validateLicenseExpression accepts on purpose, and which is the only
+// way to name a licence the list does not have — makes the document
+// schema-invalid. Those go in `license.name`, which is the free-text field
+// for exactly this. Anything carrying an operator is an expression, and an
+// operator is `AND`, `OR`, `WITH` or a parenthesis rather than "any space":
+// a licence name with a space in it is not an expression.
+func cycloneDxLicenses(p bomPackage) *cdx.Licenses {
+	value, acknowledgement := p.LicenseDeclared, cdx.LicenseAcknowledgementDeclared
+	if value == noAssertion {
+		value, acknowledgement = p.LicenseConcluded, cdx.LicenseAcknowledgementConcluded
+	} else if p.LicenseConcluded != noAssertion {
+		acknowledgement = cdx.LicenseAcknowledgementConcluded
+	}
+	if value == noAssertion || value == "" {
+		return nil
+	}
+	// A LicenseChoice carries either a single licence or an expression,
+	// never both.
+	if isLicenseExpression(value) {
+		return &cdx.Licenses{{Expression: value, Acknowledgement: &acknowledgement}}
+	}
+	if strings.HasPrefix(value, "LicenseRef-") || strings.HasPrefix(value, "DocumentRef-") {
+		return &cdx.Licenses{{License: &cdx.License{Name: value, Acknowledgement: acknowledgement}}}
+	}
+	return &cdx.Licenses{{License: &cdx.License{ID: value, Acknowledgement: acknowledgement}}}
+}
+
+// isLicenseExpression reports whether value composes licences rather than
+// naming one. The operators are uppercase by the SPDX expression grammar, so
+// this does not fold case: a licence identifier containing the letters "or"
+// is not an expression.
+func isLicenseExpression(value string) bool {
+	if strings.ContainsAny(value, "()") {
+		return true
+	}
+	for _, op := range []string{" AND ", " OR ", " WITH "} {
+		if strings.Contains(value, op) {
+			return true
+		}
+	}
+	return false
 }
 
 // cycloneDxType maps SPDX's primary package purpose onto CycloneDX's
