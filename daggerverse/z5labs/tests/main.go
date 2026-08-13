@@ -616,6 +616,11 @@ func (t *Tests) AppContainersCoverEveryPlatformInOrder(ctx context.Context) erro
 // because that is the promise a `COPY` line is written against, and the
 // entrypoint is asserted absolute because the app must run whatever the
 // PATH says: PATH is for what an extension adds, not for finding the app.
+//
+// Two of the three variables also say something about the image's filesystem —
+// HOME names a directory that is there and TMPDIR one that is not — and this
+// is the test that checks it, once, on the host's platform. See
+// assertHomeAndScratch.
 func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
@@ -641,7 +646,11 @@ func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error 
 			return fmt.Errorf("%s: the app's own binary is in the plugin directory %s, which is an extension's to fill", platform, wantPluginDir)
 		}
 	}
-	return nil
+	// Two of the three variables are also claims about the image's filesystem,
+	// and this is where they are checked — on the host's platform, because
+	// materializing a foreign one costs a cross-compile to learn the same
+	// thing.
+	return assertHomeAndScratch(ctx, app.Container(hostPlatform()), string(hostPlatform()))
 }
 
 // assertStandardEnvironment checks ctr's environment is exactly the
@@ -685,7 +694,7 @@ func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what 
 	if !onPath {
 		return fmt.Errorf("%s: the plugin directory %s is not on the image's PATH %q", what, wantPluginDir, got["PATH"])
 	}
-	return assertHomeAndScratch(ctx, ctr, what)
+	return nil
 }
 
 // assertHomeAndScratch checks the half of the environment contract that is a
@@ -705,6 +714,15 @@ func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what 
 // neither, and the scratch directory's absence goes through the rootfs listing
 // because statInImage would report a missing path as a failed exec rather than
 // as an answer.
+//
+// It is called once, on one platform, rather than from assertStandardEnvironment
+// beside the config half. Reading an image's environment costs nothing — no
+// build is solved to answer it — while reading its filesystem forces the whole
+// image to materialize, which on a platform that is not the host is a
+// cross-compile. Both halves are written by imageForEntry, the one place an
+// image is built, and neither varies by platform or by entry point, so paying
+// that on every variant of every app this suite builds buys nothing — and this
+// suite is already the workspace's longest leg.
 func assertHomeAndScratch(ctx context.Context, ctr *dagger.Container, what string) error {
 	top, err := ctr.Rootfs().Entries(ctx)
 	if err != nil {

@@ -85,10 +85,21 @@ jobs:
       #                            `:selection-self-test` and `:memo-store-self-test`
       #                            — both in-process, no engine work — fall back to
       #                            the default instead of carrying 15.
+      #   daggerverse/z5labs/tests one check, `all`, which runs a publish suite: two
+      #                            registries, an OIDC issuer, a local sigstore, and
+      #                            cross-compiles per platform. It had outgrown the
+      #                            default without anyone noticing, because a leg that
+      #                            fits by a second still passes — measured at exactly
+      #                            6m00s against the 6m budget on main (run
+      #                            31716230729), and the first commit to add anything
+      #                            to the suite (#424) came back a timeout rather than
+      #                            a failure. A bare module key, because the module
+      #                            has the one check and the coarse leg runs it too.
       timeouts: >-
         {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
         "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
-        "daggerverse/workspace-ci:generated-self-test": 8}
+        "daggerverse/workspace-ci:generated-self-test": 8,
+        "daggerverse/z5labs/tests": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the
