@@ -421,6 +421,14 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// Within one repository the tag is the last thing written: the manifest list
+// goes up under its own digest, the attestations are attached to that digest,
+// and only then does the tag come to name it. So a publish that fails leaves
+// no tag pointing at an unattested image — it leaves an unreferenced manifest,
+// or, when the version was already published, the previous release still in
+// place. attachAttestations records why that ordering was chosen and what the
+// alternatives cost.
+//
 // Repositories are published in the order given, and the operation is not
 // atomic: a failure part way through leaves the earlier repositories
 // published, and says which ones in its error. A registry has no transaction
@@ -430,7 +438,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:295:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:303:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 

@@ -505,6 +505,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Registry).PushImage(&parent, ctx, repository, tag, variants)
+		case "PushImageUntagged":
+			var parent Registry
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var repository string
+			if inputArgs["repository"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["repository"]), &repository)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
+				}
+			}
+			var variants []*dagger.Container
+			if inputArgs["variants"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["variants"]), &variants)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg variants", err))
+				}
+			}
+			return (*Registry).PushImageUntagged(&parent, ctx, repository, variants)
 		case "Referrers":
 			var parent Registry
 			err = json.Unmarshal(parentJSON, &parent)
@@ -554,6 +575,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Registry).Resolve(&parent, ctx, repository, tag)
+		case "Tag":
+			var parent Registry
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var repository string
+			if inputArgs["repository"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["repository"]), &repository)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
+				}
+			}
+			var digest string
+			if inputArgs["digest"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["digest"]), &digest)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg digest", err))
+				}
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			return (*Registry).Tag(&parent, ctx, repository, digest, tag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

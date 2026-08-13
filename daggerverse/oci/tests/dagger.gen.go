@@ -339,6 +339,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PushImagePushesAllVariants(&parent, ctx)
+		case "PushImageUntaggedPublishesNoTag":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PushImageUntaggedPublishesNoTag(&parent, ctx)
 		case "PushSucceedsAgainstPlaintextRegistryWhenInsecure":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -374,6 +381,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).ResolveIsNotCached(&parent, ctx)
+		case "TagFailsForAnAbsentDigest":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TagFailsForAnAbsentDigest(&parent, ctx)
+		case "TagNamesAnUntaggedDigestAndMovesAnExistingTag":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TagNamesAnUntaggedDigestAndMovesAnExistingTag(&parent, ctx)
+		case "TagRefusesIncompleteArguments":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TagRefusesIncompleteArguments(&parent, ctx)
 		case "TokenBeatsDockerConfig":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

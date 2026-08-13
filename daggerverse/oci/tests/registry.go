@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -463,6 +464,49 @@ func (tr *testRegistry) deleteManifest(ctx context.Context, repo, digest string)
 		return fmt.Errorf("DELETE %s returned %d, want 200 or 202 (body %s)", url, resp.StatusCode, string(body))
 	}
 	return nil
+}
+
+// tags lists the tags the registry currently holds for repo.
+//
+// It goes straight at /v2/<repo>/tags/list rather than through the module,
+// because the question it answers is "what can a consumer resolve here", and
+// asking the module under test that would be asking it to grade its own work.
+//
+// A repository the registry has never heard of answers 404, and so does one
+// whose only manifests are untagged on some registries; both mean the same
+// thing to a consumer looking for a tag, so both come back as an empty list.
+func (tr *testRegistry) tags(ctx context.Context, repo string) ([]string, error) {
+	endpoint, err := tr.endpoint(ctx)
+	if err != nil {
+		return nil, err
+	}
+	url := fmt.Sprintf("http://%s/v2/%s/tags/list", endpoint, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build tags request: %v", err)
+	}
+	req.SetBasicAuth(registryUser, tr.Password)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("GET %s: %v", url, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GET %s returned %d, want 200 or 404 (body %s)", url, resp.StatusCode, string(body))
+	}
+	var listing struct {
+		Tags []string `json:"tags"`
+	}
+	if err := json.Unmarshal(body, &listing); err != nil {
+		return nil, fmt.Errorf("decode tag listing %s: %v", string(body), err)
+	}
+	return listing.Tags, nil
 }
 
 // pushDistinctImage pushes an image whose content nothing else shares, and

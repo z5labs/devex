@@ -132,6 +132,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppPublishesTheContainersItReturned", t.AppPublishesTheContainersItReturned)
 	jobs = jobs.WithJob("AppPublishRefusesAnUnusableTarget", t.AppPublishRefusesAnUnusableTarget)
 	jobs = jobs.WithJob("AppRefusesPlaintextRegistryUnlessInsecure", t.AppRefusesPlaintextRegistryUnlessInsecure)
+	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenAttachFails", t.AppPublishLeavesNoTagWhenAttachFails)
 	jobs = jobs.WithJob("AppAnnotatesEveryPlatformVariant", t.AppAnnotatesEveryPlatformVariant)
 	jobs = jobs.WithJob("AppAttachesSbomsAndProvenance", t.AppAttachesSbomsAndProvenance)
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
