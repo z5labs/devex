@@ -48,20 +48,81 @@
 // application could write is one whose published digest stops describing what
 // is running.
 //
-// The rest of the OCI configuration is part of the contract too, and every bit
-// of it is empty:
+// The rest of the OCI configuration is part of the contract too. One field
+// carries a value and the rest are empty:
 //
-//	User          nothing — devex#399, which is open, is the image's own user
+//	User          65532:65532 — see "# The image runs as 65532:65532" below
 //	WorkingDir    nothing — see "# No working directory" below
 //	Cmd           no default arguments
 //	ExposedPorts  none
 //	Labels        none — the per-platform OCI *annotations* are a separate field
 //
-// Empty is a promise rather than an omission, and it is asserted as such: a
-// publish reads back the whole configuration of every variant and refuses one
-// that carries a field this pipeline did not write. Each of those would
-// otherwise be inherited, silently, from the first base layer this module
-// builds on (devex#426).
+// Empty is a promise rather than an omission, and so is the one value: it is
+// all asserted the same way, by a publish that reads back the whole
+// configuration of every variant and refuses one that does not match, in both
+// directions. Each of the empty fields would otherwise be inherited, silently,
+// from the first base layer this module builds on, and the User is the field
+// where "not set" is not neutral (devex#426, devex#399).
+//
+// # The image runs as 65532:65532
+//
+// Every image this module publishes sets its User to 65532:65532 — a uid and a
+// gid, written as numbers. It is the same identity every byte in the image is
+// owned by, which is one decision rather than two: a uid that owns nothing it
+// runs, or files owned by a uid nothing runs as, is a pair somebody has to keep
+// in agreement by hand.
+//
+// Numbers rather than a name, because a scratch image has no /etc/passwd for a
+// name to resolve against — a User of "nonroot" is a string nothing in the
+// image can turn into a uid — and because the two places the number is read
+// again are a long way from here: a `COPY --chown=65532:65532` in a derived
+// Dockerfile, and runAsUser in a Kubernetes securityContext. Neither of those
+// can ask the image what its user is; both are written against a number
+// somebody wrote down. 65532 specifically because that is distroless's
+// `nonroot`, and because z5labs/avroc and Zaba505/cpybkc already pin it in
+// their hand-rolled image builds — moving onto this archetype should not also
+// be a change to a contract they have published.
+//
+// It is not overridable at build time, and no application gets root by asking.
+// There is no WithUser on App and there will not be one, for the reason there
+// is no way to turn provenance off: a hardening default that can be switched
+// off is hardening nobody downstream can rely on, and "runs as non-root" is
+// precisely the kind of claim an admission policy is written against. An
+// application that genuinely needs uid 0 is out of scope for this archetype
+// rather than a case it configures for.
+//
+// A *deployment* may still pick a different uid, and that is an ordinary
+// configuration rather than a workaround. Every mode this module writes is
+// world-readable and the entrypoint is 0555, so `docker run --user $(id
+// -u):$(id -g)`, or a securityContext naming a uid a cluster allocated, runs
+// the same image the same way. What an override does not buy is a writable
+// image: /app is root-owned 0755, HOME is root-owned 0555, and contributed
+// content is read-only whoever runs it.
+//
+// # Running as 65532 is behaviour-affecting
+//
+// This changed images that already existed. Before it, an application ran as
+// uid 0 and could write anywhere its filesystem allowed; under 65532 the same
+// write fails with EACCES, reported by the application as "permission denied"
+// or whatever its own error handling makes of one.
+//
+// That message cannot be improved from here. The write is the application's own
+// syscall and nothing in this module is in the process to intercept it, so the
+// explanation has to live where somebody can find it afterwards — which is this
+// section, and it is what to search for when a container that used to work
+// starts failing to write. Three things it is worth knowing at that point:
+//
+//   - The image's own paths were never writable, under any user. /app and HOME
+//     are root-owned and read-only by design (see below), so a write to one of
+//     those was already failing before this change.
+//   - Everything else an application wrote landed in the container's writable
+//     layer, and uid 65532 cannot create an entry at its root. Mount storage at
+//     the path the application writes — a tmpfs, an emptyDir, a volume — and
+//     give it to 65532:65532. That is the same thing TMPDIR's paragraph below
+//     already asks a deployment to do for scratch space, applied to whatever
+//     other path the application chose.
+//   - If the application picked its path from the environment, HOME and TMPDIR
+//     are the two this image pins, and both are covered below.
 //
 // # HOME is a directory; TMPDIR is a mount point
 //
@@ -83,18 +144,19 @@
 // mode 0555, and shipped empty. A read under it fails ENOENT and a write fails
 // EACCES, the same way on every runtime, instead of succeeding into a writable
 // layer under one and failing under another. /home/nonroot is the conventional
-// home of uid 65532, which is who these images' files belong to, so it is also
-// the path a deployment mounts a volume at in the case where an application
-// genuinely needs a writable home. Nothing in the image needs one: an
-// application that writes to its home directory is making its own state part
-// of a digest that is supposed to describe what is running.
+// home of uid 65532, which is who these images run as and who their files
+// belong to, so it is also the path a deployment mounts a volume at in the case
+// where an application genuinely needs a writable home. Nothing in the image
+// needs one: an application that writes to its home directory is making its own
+// state part of a digest that is supposed to describe what is running.
 //
 // The one user that mode does not stop is root, which bypasses the permission
-// check — so "a write fails" is a promise under every user except uid 0, and
-// uid 0 is what a container runtime picks when nothing overrides it (devex#399
-// is the image's own user, and is open). Owning the directory as root rather
-// than as the application's user is what makes the promise hold for every
-// other choice a deployment can make, rather than only for the default one.
+// check — so "a write fails" is a promise under every user except uid 0. No
+// image published here runs as uid 0 (see "# The image runs as 65532:65532"),
+// so that exception is now reachable only by a deployment that deliberately
+// overrides the user back to root. Owning the directory as root rather than as
+// the application's user is what makes the promise hold for every other choice
+// a deployment can make, rather than only for the default one.
 //
 // A caller may contribute read-only content under it — a default
 // configuration an operator can override by mounting one — and that is

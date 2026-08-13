@@ -332,6 +332,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppFromPrebuiltExecutablesPublishesAttested(&parent, ctx)
+		case "AppImageRunsUnderAnyUser":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppImageRunsUnderAnyUser(&parent, ctx)
 		case "AppImagesCarryTheStandardConfiguration":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

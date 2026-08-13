@@ -292,15 +292,17 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 	// demanding is an expectation that asks for something this pipeline does
 	// not promise today.
 	//
-	// Every field but the entrypoint is expected empty right now, so a table
-	// built only from the real expectation would drive one side of each
-	// comparison and leave the other unexecutable — the exact shape of check
-	// this whole split exists to avoid. Concretely: with only empty
+	// Every field but the entrypoint and the user is expected empty, so a
+	// table built only from the real expectation would drive one side of each
+	// of those comparisons and leave the other unexecutable — the exact shape
+	// of check this whole split exists to avoid. Concretely: with only empty
 	// expectations, replacing each comparison with a hard-coded `!= ""` or
-	// `len(...) != 0` leaves every row green, and the day expectedImageConfig
-	// grows a non-empty User for devex#399 the check would silently be
-	// asserting nothing. So each field is also driven against an expectation
-	// that demands a value, in both directions.
+	// `len(...) != 0` leaves every row green, and a field that later grows a
+	// non-empty expectation would find the check asserting nothing. That is
+	// not hypothetical — it is what happened to User when devex#399 landed,
+	// and the rows this helper carried are what caught the comparison rather
+	// than the emptiness. So each still-empty field is also driven against an
+	// expectation that demands a value, in both directions.
 	demanding := func(mutate func(*imageConfig)) *imageConfig {
 		cfg := expectedImageConfig(entry)
 		mutate(&cfg)
@@ -369,24 +371,49 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 
 		{
 			// An image config's User is a string the runtime resolves, so
-			// "root" and an unset field are the same identity said two ways.
-			// The refusal is still right: this pipeline sets no user at all,
-			// and something that wrote one wrote it from somewhere nothing
-			// here controls.
+			// "root" and an unset field are the same identity said two ways —
+			// and both are refused, because the identity this pipeline
+			// publishes is uid 65532 and nothing here writes anything else
+			// (devex#399).
 			name: "an image that names root as its user",
 			cfg:  standard(func(c *imageConfig) { c.User = "root" }),
 			want: `sets its user to "root"`,
 		},
 		{
-			// Refused *today*, and this row is the one that inverts when
-			// devex#399 lands: the expectation gains 65532:65532, imageForEntry
-			// gains the WithUser that puts it there, and this becomes the
-			// accepted row while an empty User becomes the refused one. Written
-			// out rather than left implicit so that landing #399 is a change to
-			// this file rather than a discovery.
+			// The other spelling of the same identity: uid 0 written as a
+			// number is refused for the reason "root" is, and a comparison
+			// that had started special-casing the *name* would leave this
+			// green.
+			name: "an image that names uid 0 as its user",
+			cfg:  standard(func(c *imageConfig) { c.User = "0:0" }),
+			want: `sets its user to "0:0"`,
+		},
+		{
+			// An empty User is uid 0 said a third way, and it is the one an
+			// image gets by *omission* — which is what devex#399 was. It is
+			// refused here rather than merely not written, so a refactor that
+			// dropped the WithUser in imageForEntry cannot publish.
+			name: "an image that sets no user at all",
+			cfg:  standard(func(c *imageConfig) { c.User = "" }),
+			want: `sets its user to nothing, but every image this pipeline publishes sets its user to "65532:65532"`,
+		},
+		{
+			// The uid without the gid is not the same identity: a User of
+			// "65532" leaves the primary group to the runtime, which is gid 0
+			// on every runtime this module has been run under. It is a
+			// plausible near-miss rather than a typo, which is why it has a
+			// row.
+			name: "an image that names the uid but no group",
+			cfg:  standard(func(c *imageConfig) { c.User = "65532" }),
+			want: `sets its user to "65532"`,
+		},
+		{
+			// The accepting side. It is standard(nil) that carries it — see
+			// the row at the top of this table — but written out once beside
+			// the refusals so the identity being accepted is legible here
+			// rather than only in expectedImageConfig.
 			name: "an image that runs as the application's user",
 			cfg:  standard(func(c *imageConfig) { c.User = appOwner }),
-			want: `sets its user to "65532:65532"`,
 		},
 		{
 			name: "an entrypoint in the plugin directory",
@@ -466,18 +493,11 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 		// The other side of every field this pipeline expects empty today.
 		// See demanding: without these, each comparison could be a hard-coded
 		// test for emptiness and this table would not know.
-		{
-			// This is the row devex#399 turns into the ordinary case.
-			name:   "no user, where the pipeline demands one",
-			cfg:    standard(nil),
-			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
-			want:   `sets its user to nothing, but every image this pipeline publishes sets its user to "65532:65532"`,
-		},
-		{
-			name:   "exactly the user demanded",
-			cfg:    standard(func(c *imageConfig) { c.User = appOwner }),
-			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
-		},
+		//
+		// User is not among them any more, and that is what devex#399 changed:
+		// its expectation is a non-empty constant now, so the rows above drive
+		// both directions of the real comparison rather than a stand-in for
+		// one.
 		{
 			name:   "no working directory, where the pipeline demands one",
 			cfg:    standard(nil),

@@ -272,6 +272,16 @@ func (g *GoChain) buildBinaryForPlatform(platform, pkg, binaryName, version, com
 // stops describing what is running. It is 0555 rather than 0444 because this
 // is the one file in the image that is exec'd.
 //
+// The image runs as that same user, appOwner, and this is the only line that
+// sets it — see the package doc's "The image runs as 65532:65532". Setting it
+// here rather than anywhere a caller can reach is the same argument the
+// environment's paragraph makes one above: an identity a caller could move is
+// one a Kubernetes runAsNonRoot policy cannot rely on. The mode is what makes
+// the two independent, and deliberately so. 0555 is exec'able by *every* uid,
+// so a deployment that overrides the user — `--user $(id -u):$(id -g)`, or a
+// securityContext pinning something the cluster allocated — is running an
+// ordinary configuration rather than working around this line.
+//
 // This is the only place an image is built, and everything reaches it —
 // GoChain.App by way of AppBuilder, and AppBuilder by way of a caller's
 // prebuilt executable. A caller-supplied entrypoint is not an exemption from
@@ -294,7 +304,7 @@ func imageForEntry(platform dagger.Platform, name string, entry *dagger.File, an
 	for _, k := range sortedKeys(env) {
 		ctr = ctr.WithEnvVariable(k, env[k])
 	}
-	ctr = ctr.WithEntrypoint([]string{entrypoint})
+	ctr = ctr.WithEntrypoint([]string{entrypoint}).WithUser(appOwner)
 	for _, k := range sortedKeys(annotations) {
 		ctr = ctr.WithAnnotation(k, annotations[k])
 	}

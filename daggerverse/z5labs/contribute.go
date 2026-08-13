@@ -173,13 +173,21 @@ import (
 // runtime concern" section, which records why every category of variable has
 // an owner other than the caller.
 
-// appOwner owns every byte a caller contributes to an image.
+// appOwner owns every byte a caller contributes to an image, and is the user
+// the image runs as.
 //
 // It is numeric rather than a name because a scratch image has no
 // /etc/passwd for a name to resolve against, and 65532 specifically because
 // that is the uid distroless nonroot images use — the number a base layer
-// would agree with if one of these images ever gains one. The runtime user
-// itself is devex#399's; this is only who the files belong to.
+// would agree with if one of these images ever gains one.
+//
+// One constant for both because they are one decision: files owned by a uid
+// nothing runs as, or a uid that owns nothing it runs, is a pair that has to
+// be kept in agreement by hand. imageForEntry is where it becomes the runtime
+// user; the package doc's "The image runs as 65532:65532" is why that identity
+// is not something a caller can move. Note that owning a file is not what makes
+// it usable here — every mode this module writes is world-readable, so a
+// deployment overriding the user gets the same image behaviour.
 const appOwner = "65532:65532"
 
 // The modes a contribution lands with. Read-only, because content
