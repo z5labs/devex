@@ -92,37 +92,57 @@
 // rather than a case it configures for.
 //
 // A *deployment* may still pick a different uid, and that is an ordinary
-// configuration rather than a workaround. Every mode this module writes is
-// world-readable and the entrypoint is 0555, so `docker run --user $(id
-// -u):$(id -g)`, or a securityContext naming a uid a cluster allocated, runs
-// the same image the same way. What an override does not buy is a writable
+// configuration rather than a workaround. Every file this module writes is
+// world-readable, every directory world-traversable, and the entrypoint is
+// 0555, so `docker run --user $(id -u):$(id -g)`, or a securityContext naming a
+// uid a cluster allocated, runs the same image the same way.
+//
+// What an override to any other *non-root* uid does not buy is a writable
 // image: /app is root-owned 0755, HOME is root-owned 0555, and contributed
-// content is read-only whoever runs it.
+// content is read-only. An override back to uid 0 does buy one, because root
+// bypasses the permission check — that is the same exception HOME's paragraph
+// below names, and it is now something a deployment has to ask for rather than
+// something it gets by default.
 //
 // # Running as 65532 is behaviour-affecting
 //
-// This changed images that already existed. Before it, an application ran as
-// uid 0 and could write anywhere its filesystem allowed; under 65532 the same
-// write fails with EACCES, reported by the application as "permission denied"
-// or whatever its own error handling makes of one.
+// This changed images that already existed, and it changed them in the
+// direction that fails rather than the direction that warns. Before it, an
+// application ran as uid 0, which bypasses the permission check on every mode
+// in the image — so it could write anywhere at all, the read-only paths this
+// module deliberately builds included. Under 65532 those same writes fail with
+// EACCES, reported by the application as "permission denied" or whatever its
+// own error handling makes of one.
 //
 // That message cannot be improved from here. The write is the application's own
-// syscall and nothing in this module is in the process to intercept it, so the
-// explanation has to live where somebody can find it afterwards — which is this
-// section, and it is what to search for when a container that used to work
-// starts failing to write. Three things it is worth knowing at that point:
+// syscall, and nothing in this module is in the process to intercept it or to
+// wrap what it returns. So the explanation lives where somebody debugging one
+// can reach it: this section, arrived at from the running image itself, whose
+// org.opencontainers.image.source annotation names this repository — that is
+// the path from a container that stopped working back to the decision, and it
+// is why that annotation is on every variant rather than only on the index.
 //
-//   - The image's own paths were never writable, under any user. /app and HOME
-//     are root-owned and read-only by design (see below), so a write to one of
-//     those was already failing before this change.
-//   - Everything else an application wrote landed in the container's writable
-//     layer, and uid 65532 cannot create an entry at its root. Mount storage at
-//     the path the application writes — a tmpfs, an emptyDir, a volume — and
-//     give it to 65532:65532. That is the same thing TMPDIR's paragraph below
-//     already asks a deployment to do for scratch space, applied to whatever
-//     other path the application chose.
+// Three things worth knowing on arrival, in the order they are likely to be
+// what happened:
+//
+//   - A write to the image's own paths now fails, and this is the most likely
+//     breakage. /app and HOME are root-owned and read-only by design (see
+//     below), which stopped nothing while the application was root and stops it
+//     now. An application writing beside its own binary or into its home
+//     directory was relying on being uid 0, whether or not anyone knew it.
+//   - A write anywhere else lands in the container's writable layer, and uid
+//     65532 cannot create an entry at its root. Mount storage at the path the
+//     application writes — a tmpfs, an emptyDir, a volume — and give it to
+//     65532:65532. That is the same thing TMPDIR's paragraph below already asks
+//     a deployment to do for scratch space, applied to whatever other path the
+//     application chose.
 //   - If the application picked its path from the environment, HOME and TMPDIR
 //     are the two this image pins, and both are covered below.
+//
+// What is deliberately *not* offered is a way to turn this off; see the section
+// above. A deployment that must have the old behaviour can override the user
+// back to uid 0, which is a thing it has to write down in a manifest somebody
+// reviews, rather than a default nobody sees.
 //
 // # HOME is a directory; TMPDIR is a mount point
 //

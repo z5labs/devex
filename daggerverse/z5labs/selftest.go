@@ -408,12 +408,16 @@ func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 			want: `sets its user to "65532"`,
 		},
 		{
-			// The accepting side. It is standard(nil) that carries it — see
-			// the row at the top of this table — but written out once beside
-			// the refusals so the identity being accepted is legible here
-			// rather than only in expectedImageConfig.
+			// The accepting side, and the literal is deliberate. Writing
+			// appOwner here would make the row a no-op — standard() is built
+			// from expectedImageConfig, whose User is already appOwner — and
+			// would move with the constant, so renumbering the identity would
+			// leave every row in this block green. Spelled out, this row is
+			// the one place the table asserts *which* identity is accepted,
+			// and it fails if that number ever changes without the refusals
+			// beside it changing too.
 			name: "an image that runs as the application's user",
-			cfg:  standard(func(c *imageConfig) { c.User = appOwner }),
+			cfg:  standard(func(c *imageConfig) { c.User = "65532:65532" }),
 		},
 		{
 			name: "an entrypoint in the plugin directory",

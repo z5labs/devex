@@ -185,9 +185,17 @@ import (
 // nothing runs as, or a uid that owns nothing it runs, is a pair that has to
 // be kept in agreement by hand. imageForEntry is where it becomes the runtime
 // user; the package doc's "The image runs as 65532:65532" is why that identity
-// is not something a caller can move. Note that owning a file is not what makes
-// it usable here — every mode this module writes is world-readable, so a
-// deployment overriding the user gets the same image behaviour.
+// is not something App exposes a knob for.
+//
+// Owning the content is not what makes it usable, and that matters now that
+// the runtime user is a real uid rather than root. The modes below are what
+// make it usable: contributed files land 0444, which every uid can read, and
+// contributed directories land 0555, which every uid can traverse — a
+// directory needs the execute bit for that, not the read bit, which is why the
+// two modes differ. So a deployment overriding the user to something neither
+// this module nor the image has heard of gets the same behaviour. Both modes
+// are asserted literally, per file and per directory, in the tests' contributed
+// -content checks.
 const appOwner = "65532:65532"
 
 // The modes a contribution lands with. Read-only, because content

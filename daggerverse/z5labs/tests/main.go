@@ -606,21 +606,30 @@ func (t *Tests) AppContainerRunsTheEntrypoint(ctx context.Context) error {
 	return nil
 }
 
-// AppImageRunsUnderAnyUser asserts the image's executable runs as the user the
-// image pins, and as any uid a deployment overrides that with.
+// AppImageRunsUnderAnyUser asserts the image's entrypoint is executable by the
+// uid the image pins and by any uid a deployment overrides that with.
 //
-// This is the runtime half of devex#399, and it is a different claim from the
-// configuration half. assertStandardImageConfig reads the User field and says
-// what the image *declares*; nothing about a declaration says the binary is
-// executable by the uid it names. A file owned by 65532 and mode 0500 would
-// satisfy that check and fail here, and a file owned by 65532 and mode 0550
-// would satisfy both and fail the moment a cluster allocated a uid of its own.
+// Executability is the claim, and it is a different one from the pin itself.
+// assertStandardImageConfig reads the User field and says what the image
+// *declares*; nothing about a declaration says the binary is executable by the
+// uid it names. A file owned by 65532 and mode 0500 would satisfy that check
+// and fail here, and one at 0550 would satisfy both and fail the moment a
+// cluster allocated a uid of its own.
 //
-// So each row is a deployment somebody really writes:
+// Be clear about what this does not do, because the reverse is easy to assume.
+// It does not observe the effective uid of the process — a scratch image has no
+// `id` to ask — so three of the four rows below override the user outright and
+// would pass just as well against an image that had never set one. The first
+// row is what ties this to the pin, and only because it asserts the declared
+// user first: a revert of imageForEntry's WithUser makes that assertion fail
+// here, rather than leaving the row silently exercising root. Beyond that one
+// line, the revert protection for the pin lives in assertStandardImageConfig.
+//
+// Each row is a deployment somebody really writes:
 //
 //   - nothing overridden, which is the image running as the 65532 it declares.
-//     This is the row that would have been green before #399 for the wrong
-//     reason — root can exec anything — and is the point of the change.
+//     Before devex#399 this row would have been green for the wrong reason:
+//     root can exec anything.
 //   - an unrelated uid:gid, which is `docker run --user $(id -u):$(id -g)` and
 //     a Kubernetes securityContext naming a uid from a namespace's allocated
 //     range. Nothing in the image knows that number, so only a world-executable
@@ -633,7 +642,7 @@ func (t *Tests) AppContainerRunsTheEntrypoint(ctx context.Context) error {
 //     ships it.
 //
 // It runs on the host's platform alone: executability is a property of the file
-// modes, which imageForEntry writes identically for every variant, and a foreign
+// modes, which the module writes identically for every variant, and a foreign
 // platform's binary cannot be executed here to learn anything more.
 func (t *Tests) AppImageRunsUnderAnyUser(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
@@ -643,9 +652,18 @@ func (t *Tests) AppImageRunsUnderAnyUser(ctx context.Context) error {
 	image := dag.Z5Labs().Go(src).
 		App("v1.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}).
 		Container(hostPlatform())
+	// The first row runs under whatever the image declares, so what it
+	// declares has to be the pin for that row to mean anything.
+	declared, err := image.User(ctx)
+	if err != nil {
+		return fmt.Errorf("read the image's user: %v", err)
+	}
+	if declared != wantImageUser {
+		return fmt.Errorf("the image declares user %q, want %q — the un-overridden row below would otherwise exercise some other identity", declared, wantImageUser)
+	}
 	for _, user := range []string{"", "4242:4242", "65532:0", "0:0"} {
 		ctr := image
-		what := "the user the image declares"
+		what := "the declared user " + declared
 		if user != "" {
 			ctr = ctr.WithUser(user)
 			what = "user " + user
