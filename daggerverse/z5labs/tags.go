@@ -55,8 +55,21 @@ const latestTag = "latest"
 // prevents that, deliberately: the alternative is a publish that resolves
 // each moving tag first and silently declines to move some of them, which
 // makes "the release published" mean something different depending on what
-// was already there. Release in order, or publish the out-of-order release
-// as a prerelease, which moves nothing.
+// was already there.
+//
+// For a release published out of *sequence* — a re-run, a version tagged
+// late — the answer is to release in order, or to publish it as a
+// prerelease, which moves nothing. **A maintenance release is neither**, and
+// it is the case this rule genuinely does not serve: v1.9.1 published after
+// v2.0.0 is a backport, `v1.9` and `v1` moving forward is exactly right, and
+// `latest` regressing to a 1.x is exactly wrong. Publishing it as a
+// prerelease is not a workaround either, because that changes the immutable
+// tag consumers were told to pin. This module publishes `latest` anyway
+// today, because the family is the one the archetype states and a `latest`
+// that sometimes exists is worse than one that always does; devex#417 is
+// where the maintenance case gets decided, and until it does, a project
+// backporting across majors should know that its `latest` follows the last
+// publish rather than the highest version.
 //
 // The error is validateVersion's, unchanged. It is re-run here because
 // refusing SemVer build metadata is a property of publishing rather than of
@@ -89,7 +102,11 @@ type semver struct {
 	Prefix string
 	Major  string
 	Minor  string
-	Patch  string
+	// Patch is read by nothing: no tag in the family is derived from it,
+	// because the tag that would be is the version itself. It is kept so this
+	// type is the version rather than the part of it the family happens to
+	// use — a rule that compares two releases needs all three.
+	Patch string
 	// Prerelease is what followed the first "-", empty for a release.
 	Prerelease string
 }
@@ -119,7 +136,13 @@ func parseSemver(version string) (semver, bool) {
 	}
 	core, pre, hasPre := strings.Cut(rest, "-")
 	if hasPre {
-		if !isPrereleaseIdentifiers(pre) {
+		// The empty prerelease is checked here, beside the Cut, because it is
+		// the one malformed prerelease that can change what gets published:
+		// read as a release, "1.0.0-" would derive 1.0, 1 and latest. Every
+		// other shape isPrereleaseIdentifiers rejects publishes one tag
+		// whether it is rejected or accepted, so this is the check that has
+		// to sit next to the field it protects.
+		if pre == "" || !isPrereleaseIdentifiers(pre) {
 			return semver{}, false
 		}
 		sv.Prerelease = pre
@@ -155,10 +178,20 @@ func isNumericIdentifier(s string) bool {
 // more dot-separated identifiers, each non-empty, each alphanumeric or
 // hyphen, and each numeric one without a leading zero.
 //
-// Everything it can see is already inside the OCI tag charset — validateVersion
-// ran first — so what this rules out is a shape that is not SemVer at all,
-// like the trailing hyphen in "1.0.0-" or the empty identifier in
-// "1.0.0-rc..1".
+// **Nothing it rejects changes what gets published today**, and that is worth
+// stating plainly rather than leaving for someone to work out. A version
+// reaching here carries a "-", so it publishes one tag and moves nothing
+// whether this says "malformed prerelease, not SemVer" or "prerelease, so no
+// moving tags". The one case that did decide something — the empty
+// prerelease — is checked in parseSemver instead, next to the Cut that
+// produces it.
+//
+// So this is here as the definition rather than as a guard: a rule that ever
+// starts reading the prerelease — ordering two of them, deciding that
+// `-rc.1` and `-rc.2` share a moving tag — needs to know it is a prerelease
+// in the SemVer sense and not merely a string with a hyphen in it. Everything
+// it can see is already inside the OCI tag charset, because validateVersion
+// ran first.
 func isPrereleaseIdentifiers(s string) bool {
 	if s == "" {
 		return false

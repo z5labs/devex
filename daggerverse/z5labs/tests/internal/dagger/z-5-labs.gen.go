@@ -224,7 +224,7 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:212:1)
+func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:227:1)
 	if r.imageEnvironmentSelfTest != nil {
 		return nil
 	}
@@ -455,6 +455,24 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // it is a pure function of the version, so what it cannot see — a release
 // published out of order walking `v1` backwards — is recorded there too.
 //
+// # How to read what comes back
+//
+// The references are grouped **repository-major**: every tag of the first
+// repository, in family order, then every tag of the second. The first
+// reference of each group is the immutable one — the full version — so the
+// reference a caller pins a deployment or a release note to is
+// `refs[i*len(family)]`, and a caller who does not want to know the family's
+// size can take the references whose tag is the version they passed.
+//
+// This was one reference per repository before the family existed, so a
+// caller indexing `refs[i]` per repository reads a tag of the first
+// repository now rather than the reference for `repositories[i]`. The
+// grouping is stated here because there is nowhere better: a structured
+// return — a repository, a digest and its tags — is the shape this wants,
+// and it is a schema object that every consumer of this module would have to
+// take a binding for, so it is worth doing deliberately rather than as part
+// of this change.
+//
 // Every published digest carries an SPDX and a CycloneDX document per
 // platform and a signed SLSA provenance statement whose build identity
 // comes from an exchanged workload identity token. A publish that cannot
@@ -493,7 +511,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:343:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:361:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 

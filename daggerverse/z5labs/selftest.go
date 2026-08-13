@@ -32,7 +32,15 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 		// want is the exact family, or nil when the version has to be
 		// refused.
 		want []string
-		why  string
+		// wantErr is a substring the refusal has to carry, set on exactly the
+		// rows where want is nil. Checking the message rather than merely that
+		// an error came back is what keeps a refusal specific: three rows
+		// refused for three different reasons would all stay green under a
+		// validator that had started refusing everything, and the one that
+		// matters most — build metadata, refused rather than mangled — would
+		// read as covered while nothing checked which rule fired.
+		wantErr string
+		why     string
 	}{
 		{
 			version: "v1.2.3",
@@ -124,43 +132,50 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 
 		{
 			version: "",
+			wantErr: "version is required",
 			why:     "an omitted version has no family and no single tag",
 		},
 		{
 			version: "1.0.0+build.7",
+			wantErr: "build metadata",
 			why:     "SemVer build metadata must not be re-admitted at publish time",
 		},
 		{
+			version: "1.0.0+build.7",
+			// Deliberately not the bare "1.0.0", which is a prefix of the
+			// rejected version the message already quotes: `release "1.0.0"`
+			// can only come from the stripped form, which is the tag two
+			// builds would silently share.
+			wantErr: `release "1.0.0"`,
+			why:     "the refusal has to name what the two builds would collapse to",
+		},
+		{
 			version: "release/v1.2.3",
+			wantErr: "not in the OCI tag charset",
 			why:     "a version outside the OCI tag charset",
 		},
 	}
 	for _, c := range cases {
-		got, err := versionTags(c.version)
+		tags, err := versionTags(c.version)
 		if c.want == nil {
 			if err == nil {
-				return fmt.Errorf("expected version %q to be refused (%s), got the tags %v", c.version, c.why, got)
+				return fmt.Errorf("expected version %q to be refused (%s), got the tags %v", c.version, c.why, tags)
+			}
+			if !strings.Contains(err.Error(), c.wantErr) {
+				return fmt.Errorf("expected the refusal of %q (%s) to carry %q, got: %v", c.version, c.why, c.wantErr, err)
 			}
 			continue
 		}
 		if err != nil {
 			return fmt.Errorf("expected version %q to derive %v (%s), got: %v", c.version, c.want, c.why, err)
 		}
-		if !slices.Equal(got, c.want) {
-			return fmt.Errorf("version %q (%s): want the tags %v, got %v", c.version, c.why, c.want, got)
+		if !slices.Equal(tags, c.want) {
+			return fmt.Errorf("version %q (%s): want the tags %v, got %v", c.version, c.why, c.want, tags)
 		}
-	}
 
-	// Three invariants that hold whatever the table says, checked over every
-	// accepted row rather than restated per case.
-	for _, c := range cases {
-		if c.want == nil {
-			continue
-		}
-		tags, err := versionTags(c.version)
-		if err != nil {
-			return fmt.Errorf("versionTags(%q): %v", c.version, err)
-		}
+		// Three invariants that hold whatever the table says, checked on every
+		// accepted row rather than restated per case.
+		//
 		// The version itself is always the first tag written. Publish relies
 		// on it: the immutable tag goes up before the moving ones, so a
 		// half-written family never leaves a moving tag ahead of the release

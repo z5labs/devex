@@ -131,6 +131,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppPublishReturnsDigestPinnedReferences", t.AppPublishReturnsDigestPinnedReferences)
 	jobs = jobs.WithJob("AppPublishesEveryRepositoryNamed", t.AppPublishesEveryRepositoryNamed)
 	jobs = jobs.WithJob("AppPrereleaseMovesNoMovingTags", t.AppPrereleaseMovesNoMovingTags)
+	jobs = jobs.WithJob("AppReleaseMovesTheMovingTags", t.AppReleaseMovesTheMovingTags)
 	jobs = jobs.WithJob("AppPublishesTheContainersItReturned", t.AppPublishesTheContainersItReturned)
 	jobs = jobs.WithJob("AppPublishRefusesAnUnusableTarget", t.AppPublishRefusesAnUnusableTarget)
 	jobs = jobs.WithJob("AppRefusesPlaintextRegistryUnlessInsecure", t.AppRefusesPlaintextRegistryUnlessInsecure)
@@ -958,14 +959,21 @@ func (t *Tests) AppRebuildIsByteIdenticalPerPlatform(ctx context.Context) error 
 // rather than a value this pipeline computed, which is what makes it an
 // independent check.
 //
-// The tag listing is checked last, and exactly: a family with a fifth tag
-// in it — one derived from the branch, or a `v2.0.0` also published as
-// `stable` — would leave every assertion above true.
+// The tag listing is checked last, and exactly, per repository: a family with
+// a fifth tag in it — one derived from the branch, or a `v2.0.0` also
+// published as `stable` — would leave every assertion above true.
+//
+// What this does not cover is a moving tag actually moving; every tag here is
+// created rather than moved, because both repositories are fresh. That is
+// AppReleaseMovesTheMovingTags.
 func (t *Tests) AppPublishReturnsDigestPinnedReferences(ctx context.Context) error {
-	const (
-		version    = "v2.0.0"
-		repository = "hello"
-	)
+	const version = "v2.0.0"
+	// Two repositories, because the references are grouped repository-major
+	// over a nested loop and one repository cannot tell that grouping from the
+	// other one: a publish that derived the family once and applied it to the
+	// first repository only, or that interleaved the loops, would pass every
+	// assertion below against a single repository.
+	repositories := []string{"hello", "z5labs/hello-mirror"}
 	// Written out rather than derived, for the reason wantImagePath is: this
 	// is the contract with everyone who pins one of these names, so a test
 	// that asked the module what it derives would agree with whatever the
@@ -984,40 +992,125 @@ func (t *Tests) AppPublishReturnsDigestPinnedReferences(ctx context.Context) err
 		return err
 	}
 	app := dag.Z5Labs().Go(src).App(version, dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}})
-	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository})
+	refs, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repositories[0], repositories[1]})
 	if err != nil {
 		return fmt.Errorf("Publish: %v", err)
 	}
-	if len(refs) != len(family) {
-		return fmt.Errorf("expected one reference per tag of the family %v, got %v", family, refs)
+	if len(refs) != len(repositories)*len(family) {
+		return fmt.Errorf("expected one reference per tag of the family %v in each of %v, got %v", family, repositories, refs)
 	}
-	stored, err := curlManifestDigest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
-	if err != nil {
-		return fmt.Errorf("read stored digest: %v", err)
-	}
-	for i, tag := range family {
-		want := fmt.Sprintf("%s:5000/%s:%s@%s", registryAlias, repository, tag, stored)
-		if refs[i] != want {
-			return fmt.Errorf("expected reference %d to be %q, got %q", i, want, refs[i])
+	for r, repository := range repositories {
+		stored, err := curlManifestDigest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
+		if err != nil {
+			return fmt.Errorf("read stored digest for %s: %v", repository, err)
 		}
+		for i, tag := range family {
+			// The index is where the repository-major grouping is asserted:
+			// tag-major references would put the mirror's v2.0.0 here.
+			ref := refs[r*len(family)+i]
+			want := fmt.Sprintf("%s:5000/%s:%s@%s", registryAlias, repository, tag, stored)
+			if ref != want {
+				return fmt.Errorf("expected reference %d to be %q, got %q (all: %v)", r*len(family)+i, want, ref, refs)
+			}
+			got, err := curlManifestDigest(ctx, svc, registryAlias, "ci", pwdHex, repository, tag)
+			if err != nil {
+				return fmt.Errorf("read stored digest for %s:%s: %v", repository, tag, err)
+			}
+			if got != stored {
+				return fmt.Errorf("%s:%s resolves to %s but %s:%s resolves to %s: one release has to be one digest under every tag of its family",
+					repository, version, stored, repository, tag, got)
+			}
+		}
+		tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, repository)
+		if err != nil {
+			return fmt.Errorf("listTags %s: %v", repository, err)
+		}
+		release, _ := partitionTags(tags)
+		wantRelease := slices.Clone(family)
+		slices.Sort(wantRelease)
+		if !slices.Equal(release, wantRelease) {
+			return fmt.Errorf("%s: expected the release tags to be exactly %v, got %v (all tags: %v)",
+				repository, wantRelease, release, tags)
+		}
+	}
+	return nil
+}
+
+// AppReleaseMovesTheMovingTags asserts the other half of the family: a later
+// release takes the moving tags over, and leaves every earlier release's
+// immutable tags exactly where they were.
+//
+// Nothing else in this suite ever watches a moving tag *move*. A fresh
+// repository has `v1`, `latest` created rather than moved, and the prerelease
+// test asserts only that they stay put — so a re-tag that silently no-opped
+// over an existing name, or a registry that refused to overwrite one, would
+// leave every other assertion about the family true while consumers pinning
+// `v1` sat on the first release forever. That is the whole value proposition
+// of the family, and this is the test that can fail when it stops holding.
+//
+// The two releases differ in their minor version, so `v1.4` and `v1.5` are
+// each frozen to their own release while `v1` and `latest` follow the newer
+// one. That is the only interesting ordering property the family has: a wider
+// tag catching up while a narrower one does not.
+func (t *Tests) AppReleaseMovesTheMovingTags(ctx context.Context) error {
+	const (
+		first      = "v1.4.0"
+		second     = "v1.5.0"
+		repository = "hello"
+	)
+	src, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	opts := dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}
+
+	firstRefs, err := publishable(dag.Z5Labs().Go(src).App(first, opts), svc, secret, prov).
+		Publish(ctx, []string{repository})
+	if err != nil {
+		return fmt.Errorf("Publish %s: %v", first, err)
+	}
+	firstDigest, err := digestOf(firstRefs[0])
+	if err != nil {
+		return err
+	}
+	secondRefs, err := publishable(dag.Z5Labs().Go(src).App(second, opts), svc, secret, prov).
+		Publish(ctx, []string{repository})
+	if err != nil {
+		return fmt.Errorf("Publish %s: %v", second, err)
+	}
+	secondDigest, err := digestOf(secondRefs[0])
+	if err != nil {
+		return err
+	}
+	if secondDigest == firstDigest {
+		return fmt.Errorf("both releases published the digest %s, so nothing below distinguishes a tag that moved from one that did not", firstDigest)
+	}
+
+	moved := map[string]string{
+		second:   secondDigest,
+		"v1.5":   secondDigest,
+		"v1":     secondDigest,
+		"latest": secondDigest,
+		first:    firstDigest,
+		"v1.4":   firstDigest,
+	}
+	for _, tag := range []string{second, "v1.5", "v1", "latest", first, "v1.4"} {
 		got, err := curlManifestDigest(ctx, svc, registryAlias, "ci", pwdHex, repository, tag)
 		if err != nil {
 			return fmt.Errorf("read stored digest for %s:%s: %v", repository, tag, err)
 		}
-		if got != stored {
-			return fmt.Errorf("%s:%s resolves to %s but %s:%s resolves to %s: one release has to be one digest under every tag of its family",
-				repository, version, stored, repository, tag, got)
+		if got != moved[tag] {
+			return fmt.Errorf("after publishing %s, expected %s:%s to resolve to %s, got %s",
+				second, repository, tag, moved[tag], got)
 		}
-	}
-	tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, repository)
-	if err != nil {
-		return fmt.Errorf("listTags %s: %v", repository, err)
-	}
-	release, _ := partitionTags(tags)
-	wantRelease := slices.Clone(family)
-	slices.Sort(wantRelease)
-	if !slices.Equal(release, wantRelease) {
-		return fmt.Errorf("expected the release tags to be exactly %v, got %v (all tags: %v)", wantRelease, release, tags)
 	}
 	return nil
 }

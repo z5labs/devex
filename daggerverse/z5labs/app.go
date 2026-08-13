@@ -300,6 +300,24 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // it is a pure function of the version, so what it cannot see — a release
 // published out of order walking `v1` backwards — is recorded there too.
 //
+// # How to read what comes back
+//
+// The references are grouped **repository-major**: every tag of the first
+// repository, in family order, then every tag of the second. The first
+// reference of each group is the immutable one — the full version — so the
+// reference a caller pins a deployment or a release note to is
+// `refs[i*len(family)]`, and a caller who does not want to know the family's
+// size can take the references whose tag is the version they passed.
+//
+// This was one reference per repository before the family existed, so a
+// caller indexing `refs[i]` per repository reads a tag of the first
+// repository now rather than the reference for `repositories[i]`. The
+// grouping is stated here because there is nowhere better: a structured
+// return — a repository, a digest and its tags — is the shape this wants,
+// and it is a schema object that every consumer of this module would have to
+// take a binding for, so it is worth doing deliberately rather than as part
+// of this change.
+//
 // Every published digest carries an SPDX and a CycloneDX document per
 // platform and a signed SLSA provenance statement whose build identity
 // comes from an exchanged workload identity token. A publish that cannot
@@ -425,6 +443,21 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 		if err != nil {
 			return nil, fmt.Errorf("publish %s:%s%s: %v", repository, a.Version, alreadyPublished(refs), err)
 		}
+		// The predicate names the whole family, and the attach happens before
+		// any of it is written — so on a publish that fails part way through
+		// the tag loop below, the statement claims moving tags that never came
+		// to name this digest. That overclaim is not new: the attach has
+		// always preceded the tag, for the reason attachAttestations records,
+		// so the single-tag version made the same claim and merely made it
+		// all-or-nothing.
+		//
+		// It stays the family rather than shrinking to the immutable tag,
+		// because the field is what the release published under and a
+		// statement naming only v1.2.3 would be *wrong* about every successful
+		// publish rather than merely optimistic about a failed one. The
+		// failure is not silent either: Publish returns an error naming the
+		// tag it could not write, and the digest keeps every tag written
+		// before it.
 		facts := buildFacts{
 			Repository: repository,
 			Tags:       tags,
