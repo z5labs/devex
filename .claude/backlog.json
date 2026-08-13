@@ -22,7 +22,11 @@
     "workflow": "auto-merge.yaml"
   },
   "review": {
-    "reviewers": ["copilot", "local"]
+    "reviewers": ["copilot", "local"],
+    "app": {
+      "idEnv": "Z5LABS_REVIEW_APP_ID",
+      "keyEnv": "Z5LABS_REVIEW_APP_KEY"
+    }
   },
   "worktreeDir": ".claude/worktrees"
 }
