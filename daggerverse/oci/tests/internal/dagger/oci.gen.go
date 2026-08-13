@@ -307,6 +307,7 @@ type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	pushArtifact      *string
 	pushImage         *string
 	pushImageUntagged *string
+	pushLayer         *string
 	referrers         *string
 	resolve           *string
 	tag               *string
@@ -325,7 +326,7 @@ func (r *OciRegistry) WithGraphQLQuery(q *querybuilder.Selection) *OciRegistry {
 // subject is a manifest digest in this repository; it is resolved first, so
 // attaching to something that is not there fails naming the digest rather
 // than leaving a dangling referrer behind.
-func (r *OciRegistry) Attach(ctx context.Context, repository string, subject string, content *File, artifactType string) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:117:1)
+func (r *OciRegistry) Attach(ctx context.Context, repository string, subject string, content *File, artifactType string) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:299:1)
 	assertNotNil("content", content)
 	if r.attach != nil {
 		return *r.attach, nil
@@ -480,7 +481,7 @@ func (r *OciRegistry) Manifest(ctx context.Context, repository string, reference
 // org.opencontainers.image.title annotation is its path relative to the
 // directory root. Layers are ordered by that path so the same directory
 // always produces the same manifest.
-func (r *OciRegistry) PushArtifact(ctx context.Context, repository string, tag string, contents *Directory, artifactType string) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:44:1)
+func (r *OciRegistry) PushArtifact(ctx context.Context, repository string, tag string, contents *Directory, artifactType string) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:45:1)
 	assertNotNil("contents", contents)
 	if r.pushArtifact != nil {
 		return *r.pushArtifact, nil
@@ -564,12 +565,84 @@ func (r *OciRegistry) PushImageUntagged(ctx context.Context, repository string, 
 	return response, q.Execute(ctx)
 }
 
+// OciRegistryPushLayerOpts contains options for OciRegistry.PushLayer
+type OciRegistryPushLayerOpts struct {
+	//
+	// Annotations to set on the layer, as a JSON object whose values are
+	// strings. Empty sets none. It is JSON rather than a map because codegen
+	// has no map type.
+	//
+	Annotations string // oci (../../../../../daggerverse/oci/artifact.go:169:2)
+}
+
+// PushLayer pushes one file to repository:tag as a single-layer OCI image
+// manifest and returns the manifest digest.
+//
+// It exists because two families of consumer read a document's meaning off
+// the *layer* rather than off the manifest: they resolve a tag whose name
+// they compute themselves, take the one layer whose media type they
+// recognise, and read the rest out of that layer's annotations. Cosign's
+// signature layout is the one this repository needs — `sha256-<hex>.sig`,
+// one `application/vnd.dev.cosign.simplesigning.v1+json` layer, the
+// signature in an annotation beside it — but nothing here knows that. This
+// function is handed a tag, some bytes, a media type and a set of
+// annotations, exactly as Attach is handed a file and an artifact type, and
+// that is all it ever learns.
+//
+// The three ways it differs from PushArtifact and Attach, each of which is
+// why neither of those could be stretched to cover it:
+//
+//   - The layer's media type is the caller's. PushArtifact gives every layer
+//     application/octet-stream, which is right for a document a consumer
+//     fetches by digest and wrong for one a consumer finds by filtering
+//     layers on their type.
+//   - The layer's annotations are the caller's. Both of the others set the
+//     standard title annotation and nothing else, so there is nowhere to put
+//     a signature.
+//   - The config is a real empty image config rather than the OCI empty
+//     descriptor oras.PackManifest would choose. Readers of this layout go
+//     through go-containerregistry's image type, which expects an image
+//     manifest carrying an image config; the artifact-manifest shape is
+//     legal OCI and is not what they parse.
+//
+// The manifest is addressed by tag, so pushing the same tag twice replaces
+// it — which is what a caller re-signing a digest wants, and is the
+// difference from Attach, where each call adds a referrer.
+//
+// The content is held in memory whole, exactly as Attach and PushArtifact
+// hold theirs, so this is sized for documents — signatures, payloads,
+// attestations — and not for image layers. Streaming would be a change to
+// all three rather than to this one, since a caller cannot tell them apart
+// on that axis today.
+func (r *OciRegistry) PushLayer(ctx context.Context, repository string, tag string, content *File, mediaType string, opts ...OciRegistryPushLayerOpts) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:151:1)
+	assertNotNil("content", content)
+	if r.pushLayer != nil {
+		return *r.pushLayer, nil
+	}
+	q := r.query.Select("pushLayer")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `annotations` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Annotations) {
+			q = q.Arg("annotations", opts[i].Annotations)
+		}
+	}
+	q = q.Arg("repository", repository)
+	q = q.Arg("tag", tag)
+	q = q.Arg("content", content)
+	q = q.Arg("mediaType", mediaType)
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // OciRegistryReferrersOpts contains options for OciRegistry.Referrers
 type OciRegistryReferrersOpts struct {
 	//
 	// Restrict the listing to one artifact type. Empty lists them all.
 	//
-	ArtifactType string // oci (../../../../../daggerverse/oci/artifact.go:222:2)
+	ArtifactType string // oci (../../../../../daggerverse/oci/artifact.go:404:2)
 }
 
 // Referrers lists the artifacts attached to subject as a JSON array of OCI
@@ -579,7 +652,7 @@ type OciRegistryReferrersOpts struct {
 // map type, so annotations could not be modelled; and a module object
 // returned from a never-cached call detaches in Dagger v0.21, so lazily
 // reading its fields fails.
-func (r *OciRegistry) Referrers(ctx context.Context, repository string, subject string, opts ...OciRegistryReferrersOpts) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:213:1)
+func (r *OciRegistry) Referrers(ctx context.Context, repository string, subject string, opts ...OciRegistryReferrersOpts) (string, error) { // oci (../../../../../daggerverse/oci/artifact.go:395:1)
 	if r.referrers != nil {
 		return *r.referrers, nil
 	}

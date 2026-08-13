@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -133,11 +134,14 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppPublishRefusesAnUnusableTarget", t.AppPublishRefusesAnUnusableTarget)
 	jobs = jobs.WithJob("AppRefusesPlaintextRegistryUnlessInsecure", t.AppRefusesPlaintextRegistryUnlessInsecure)
 	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenAttachFails", t.AppPublishLeavesNoTagWhenAttachFails)
+	jobs = jobs.WithJob("AppPublishLeavesNoTagWhenSigningFails", t.AppPublishLeavesNoTagWhenSigningFails)
 	jobs = jobs.WithJob("AppAnnotatesEveryPlatformVariant", t.AppAnnotatesEveryPlatformVariant)
 	jobs = jobs.WithJob("AppAttachesSbomsAndProvenance", t.AppAttachesSbomsAndProvenance)
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)
 	jobs = jobs.WithJob("AppRefusesToPublishWithoutProvenanceMachinery", t.AppRefusesToPublishWithoutProvenanceMachinery)
 	jobs = jobs.WithJob("AppRedactsCredentialsFromTheSourceAnnotation", t.AppRedactsCredentialsFromTheSourceAnnotation)
+	jobs = jobs.WithJob("AppSignsEveryPublishedManifest", t.AppSignsEveryPublishedManifest)
+	jobs = jobs.WithJob("AppSignatureDoesNotVerifyForAnotherKey", t.AppSignatureDoesNotVerifyForAnotherKey)
 
 	return jobs.Run(ctx)
 }
@@ -1019,15 +1023,43 @@ func (t *Tests) AppPublishesEveryRepositoryNamed(ctx context.Context) error {
 			return fmt.Errorf("expected reference %d to name %s:%s pinned to a digest, got %q", i, repository, version, refs[i])
 		}
 	}
-	// The tag listing is the check that the version is the only tag: a
-	// publish deriving a second tag from the branch or the commit would
-	// still leave every assertion above true.
-	tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, "hello")
-	if err != nil {
-		return fmt.Errorf("listTags: %v", err)
-	}
-	if len(tags) != 1 || tags[0] != version {
-		return fmt.Errorf("expected the version to be the only published tag, got %v", tags)
+	// The tag listing is the check that the version is the only tag a
+	// consumer can pull as a release: a publish deriving a second tag from
+	// the branch or the commit would still leave every assertion above true.
+	//
+	// The signature tags are the one exception, and they are checked rather
+	// than excused. Cosign's layout stores a signature under a tag it
+	// computes from the digest, so those names are load bearing — a
+	// signature under any other name is one `cosign verify` never finds —
+	// and the set is asserted to be exactly the manifests that were
+	// published, index and platforms alike.
+	// Every repository, not just the first. Signing into the wrong
+	// repository, or signing the first one twice and the second not at all,
+	// is the most plausible way this loses its way — and a check scoped to
+	// refs[0] and a hardcoded name would be green for all of it.
+	registry := testRegistry(svc, secret)
+	for i, repository := range repositories {
+		tags, err := listTags(ctx, svc, registryAlias, "ci", pwdHex, repository)
+		if err != nil {
+			return fmt.Errorf("listTags %s: %v", repository, err)
+		}
+		release, signatures := partitionTags(tags)
+		if len(release) != 1 || release[0] != version {
+			return fmt.Errorf("%s: expected the version to be the only release tag, got %v (all tags: %v)",
+				repository, release, tags)
+		}
+		digest, err := digestOf(refs[i])
+		if err != nil {
+			return err
+		}
+		wantSignatures, err := signatureTagsFor(ctx, registry, repository, digest)
+		if err != nil {
+			return err
+		}
+		if !slices.Equal(signatures, wantSignatures) {
+			return fmt.Errorf("%s: signature tags: want %v, got %v (all tags: %v)",
+				repository, wantSignatures, signatures, tags)
+		}
 	}
 	return nil
 }

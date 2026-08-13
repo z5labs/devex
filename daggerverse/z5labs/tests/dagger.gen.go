@@ -262,6 +262,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppPublishLeavesNoTagWhenAttachFails(&parent, ctx)
+		case "AppPublishLeavesNoTagWhenSigningFails":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppPublishLeavesNoTagWhenSigningFails(&parent, ctx)
 		case "AppPublishRefusesAnUnusableTarget":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -325,6 +332,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppRejectsSourceWithoutGitMetadata(&parent, ctx)
+		case "AppSignatureDoesNotVerifyForAnotherKey":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppSignatureDoesNotVerifyForAnotherKey(&parent, ctx)
+		case "AppSignsEveryPublishedManifest":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppSignsEveryPublishedManifest(&parent, ctx)
 		case "AppStampsEveryPlatformVariant":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)

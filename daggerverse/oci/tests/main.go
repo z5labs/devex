@@ -71,6 +71,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CopyPreservesAllManifests", t.CopyPreservesAllManifests)
 	jobs = jobs.WithJob("PushArtifactThenFetchRoundTripsContent", t.PushArtifactThenFetchRoundTripsContent)
 	jobs = jobs.WithJob("AttachThenFetchRoundTripsContent", t.AttachThenFetchRoundTripsContent)
+	jobs = jobs.WithJob("PushLayerCarriesMediaTypeAndAnnotations", t.PushLayerCarriesMediaTypeAndAnnotations)
+	jobs = jobs.WithJob("PushLayerRejectsMalformedAnnotations", t.PushLayerRejectsMalformedAnnotations)
 	jobs = jobs.WithJob("ReferrersListsAttachedArtifacts", t.ReferrersListsAttachedArtifacts)
 	jobs = jobs.WithJob("ReferrersFiltersByArtifactType", t.ReferrersFiltersByArtifactType)
 	jobs = jobs.WithJob("AttachFailsForUnknownSubject", t.AttachFailsForUnknownSubject)
@@ -646,11 +648,160 @@ func (t *Tests) AttachThenFetchRoundTripsContent(ctx context.Context) error {
 	return nil
 }
 
+// PushLayerCarriesMediaTypeAndAnnotations asserts that a layer pushed under
+// a tag arrives with the media type and the annotations the caller asked
+// for, inside an image manifest carrying an image config.
+//
+// Every one of those is load bearing rather than decorative. The consumers
+// this function exists for — cosign's signature layout is the one this
+// repository publishes — find a document by resolving a tag they computed,
+// filtering layers on a media type they recognise and reading the rest out
+// of that layer's annotations, so a push that dropped any of the three
+// would produce something a verifier reports as unsigned rather than as
+// malformed. The config media type is asserted for the same reason: those
+// readers parse an image, and the artifact-manifest shape oras would
+// otherwise choose is legal OCI that they do not accept.
+func (t *Tests) PushLayerCarriesMediaTypeAndAnnotations(ctx context.Context) error {
+	reg, err := newRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	repo, err := uniqueName(ctx, "pushlayer")
+	if err != nil {
+		return err
+	}
+	payload, err := uniqueName(ctx, "payload")
+	if err != nil {
+		return err
+	}
+	annotation, err := uniqueName(ctx, "annotation")
+	if err != nil {
+		return err
+	}
+
+	const (
+		mediaType = "application/vnd.example.signature.v1+json"
+		key       = "dev.example/signature"
+	)
+	annotations, err := json.Marshal(map[string]string{key: annotation})
+	if err != nil {
+		return fmt.Errorf("encode annotations: %v", err)
+	}
+
+	// The tag is computed from a real published digest rather than made up,
+	// because a registry may read it. zot parses any tag ending in ".sig"
+	// as cosign's, and a short stand-in digest panics it into a 500 with no
+	// message — which reads as a broken push and is a broken tag. Every
+	// caller of PushLayer computes the tag from a digest it just got back,
+	// so the test does too.
+	subject, err := reg.client().PushImage(ctx, repo, "v1", []*dagger.Container{baseImage("linux/amd64")})
+	if err != nil {
+		return fmt.Errorf("PushImage: %v", err)
+	}
+	tag := strings.ReplaceAll(subject, ":", "-") + ".sig"
+
+	content := dag.Directory().WithNewFile("payload.json", payload).File("payload.json")
+	digest, err := reg.client().PushLayer(ctx, repo, tag, content, mediaType,
+		dagger.OciRegistryPushLayerOpts{Annotations: string(annotations)})
+	if err != nil {
+		return fmt.Errorf("PushLayer: %v", err)
+	}
+
+	// Read back by tag rather than by the digest that was returned: the tag
+	// is how every consumer of this layout arrives, so resolving it is part
+	// of what is being asserted, and comparing the two says the returned
+	// digest is the thing the tag names.
+	raw, err := reg.client().Manifest(ctx, repo, tag)
+	if err != nil {
+		return fmt.Errorf("Manifest of %s: %v", tag, err)
+	}
+	resolved, err := reg.client().Resolve(ctx, repo, tag)
+	if err != nil {
+		return fmt.Errorf("Resolve %s: %v", tag, err)
+	}
+	if resolved != digest {
+		return fmt.Errorf("tag %s resolves to %s, but PushLayer returned %s", tag, resolved, digest)
+	}
+
+	manifest, err := decodeManifest(raw)
+	if err != nil {
+		return err
+	}
+	if manifest.MediaType != "application/vnd.oci.image.manifest.v1+json" {
+		return fmt.Errorf("manifest media type: want an image manifest, got %q (manifest %s)", manifest.MediaType, raw)
+	}
+	if manifest.Config.MediaType != "application/vnd.oci.image.config.v1+json" {
+		return fmt.Errorf("config media type: want an image config, got %q (manifest %s)", manifest.Config.MediaType, raw)
+	}
+	if len(manifest.Layers) != 1 {
+		return fmt.Errorf("want exactly one layer, got %d (manifest %s)", len(manifest.Layers), raw)
+	}
+	layer := manifest.Layers[0]
+	if layer.MediaType != mediaType {
+		return fmt.Errorf("layer media type: want %q, got %q (manifest %s)", mediaType, layer.MediaType, raw)
+	}
+	if layer.Annotations[key] != annotation {
+		return fmt.Errorf("layer annotation %s: want %q, got %q (manifest %s)", key, annotation, layer.Annotations[key], raw)
+	}
+
+	got, err := reg.client().Fetch(repo, layer.Digest).Contents(ctx)
+	if err != nil {
+		return fmt.Errorf("Fetch %s: %v", layer.Digest, err)
+	}
+	if got != payload {
+		return fmt.Errorf("layer contents: want %q, got %q", payload, got)
+	}
+	return nil
+}
+
+// PushLayerRejectsMalformedAnnotations asserts the annotations
+// argument fails loudly on anything that is not a JSON object of strings.
+//
+// It is a string because codegen has no map type, which makes it the one
+// argument of this function a caller can get subtly wrong. Accepting a JSON
+// number by stringifying it, or accepting a bare string by ignoring it,
+// would put an annotation on a published manifest that the caller never
+// wrote — and annotations are where this layout keeps the signature.
+func (t *Tests) PushLayerRejectsMalformedAnnotations(ctx context.Context) error {
+	reg, err := newRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	repo, err := uniqueName(ctx, "pushlayer-bad")
+	if err != nil {
+		return err
+	}
+	content := dag.Directory().WithNewFile("payload.json", "{}").File("payload.json")
+
+	// null and a null value are in this table because they are the two the
+	// obvious implementation accepts silently: JSON null unmarshals into a
+	// nil map, and a null value into a string is a documented no-op that
+	// leaves the key present and empty. A table without them cannot tell a
+	// correct implementation from that one.
+	for _, annotations := range []string{
+		`"not an object"`, `{"n":1}`, `[]`, `not json at all`,
+		`null`, `{"dev.example/signature":null}`,
+	} {
+		_, err := reg.client().PushLayer(ctx, repo, "v1", content, "application/json",
+			dagger.OciRegistryPushLayerOpts{Annotations: annotations})
+		if err == nil {
+			return fmt.Errorf("PushLayer accepted annotations %s", annotations)
+		}
+		if !strings.Contains(err.Error(), "JSON object of string values") {
+			return fmt.Errorf("PushLayer with annotations %s failed with %v, which does not say what the argument should have been", annotations, err)
+		}
+	}
+	return nil
+}
+
 // ociManifest is the slice of an OCI manifest these tests read back.
 type ociManifest struct {
 	MediaType    string `json:"mediaType"`
 	ArtifactType string `json:"artifactType"`
-	Layers       []struct {
+	Config       struct {
+		MediaType string `json:"mediaType"`
+	} `json:"config"`
+	Layers []struct {
 		MediaType   string            `json:"mediaType"`
 		Digest      string            `json:"digest"`
 		Annotations map[string]string `json:"annotations"`

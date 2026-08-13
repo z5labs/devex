@@ -421,6 +421,21 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// The image is signed too, and not merely the provenance statement about
+// it: the manifest list and every per-platform manifest beneath it each
+// carry a cosign signature, so a consumer runs
+//
+//	cosign verify <address>/<repository>:<version> \
+//	  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/' \
+//	  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+//
+// against the tag, and the same command against any per-platform digest
+// their runtime resolved. Both pass, which is the point of signing every
+// manifest rather than only the one the tag names — see signImage. A
+// publish that cannot sign fails in the same way and for the same reason as
+// one that cannot attest. WithSigningKey changes the verifying command; its
+// doc comment says how.
+//
 // Within one repository the tag is the last thing written: the manifest list
 // goes up under its own digest, the attestations are attached to that digest,
 // and only then does the tag come to name it. So a publish that fails leaves
@@ -438,7 +453,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:303:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:329:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 
@@ -456,7 +471,7 @@ func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]strin
 // unverified connection. It is spelled insecure rather than tlsVerify
 // because a bool defaulting to true cannot be turned off from the CLI —
 // which is also why this method takes no argument at all.
-func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:225:1)
+func (r *Z5LabsApp) WithInsecure() *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:236:1)
 	q := r.query.Select("withInsecure")
 
 	return &Z5LabsApp{
@@ -496,7 +511,7 @@ func (r *Z5LabsApp) WithOidc(requestUrl string, requestToken *Secret) *Z5LabsApp
 // This exists for the same reason WithRegistryService does, and is used by
 // the test suite, which runs a real token endpoint rather than relaxing the
 // provenance requirement into the shape of the tests.
-func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:255:1)
+func (r *Z5LabsApp) WithOidcService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:266:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withOidcService")
 	q = q.Arg("svc", svc)
@@ -541,7 +556,7 @@ func (r *Z5LabsApp) WithRegistry(address string, username string, auth *Secret) 
 // into an address ahead of time; this is how the publish learns it. Used by
 // the test suite against a local registry, and by anyone whose private
 // registry is itself a Dagger service.
-func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:239:1)
+func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:250:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withRegistryService")
 	q = q.Arg("svc", svc)
@@ -560,7 +575,18 @@ func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (..
 // token's claims say. Use it for a build that cannot reach a public CA.
 // Leaving it unset is keyless signing and is what a normal CI publish
 // should do.
-func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:210:1)
+//
+// It changes what a consumer has to run, and the change is a downgrade
+// worth stating. Nothing certifies a supplied key, so there is no identity
+// to verify against and nothing to record in the public transparency log;
+// the image signature carries the signature alone, and verifying it means
+//
+//	cosign verify <ref> --key cosign.pub --insecure-ignore-tlog=true
+//
+// where the keyless mode gets an identity and an issuer and no such flag.
+// A caller who does not want to hand their consumers that flag should not
+// be supplying a key.
+func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:221:1)
 	assertNotNil("key", key)
 	q := r.query.Select("withSigningKey")
 	q = q.Arg("key", key)

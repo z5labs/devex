@@ -206,6 +206,17 @@ func (a *App) WithOidc(requestUrl string, requestToken *dagger.Secret) *App {
 // Leaving it unset is keyless signing and is what a normal CI publish
 // should do.
 //
+// It changes what a consumer has to run, and the change is a downgrade
+// worth stating. Nothing certifies a supplied key, so there is no identity
+// to verify against and nothing to record in the public transparency log;
+// the image signature carries the signature alone, and verifying it means
+//
+//	cosign verify <ref> --key cosign.pub --insecure-ignore-tlog=true
+//
+// where the keyless mode gets an identity and an issuer and no such flag.
+// A caller who does not want to hand their consumers that flag should not
+// be supplying a key.
+//
 // +cache="session"
 func (a *App) WithSigningKey(key *dagger.Secret) *App {
 	a.SigningKey = key
@@ -280,6 +291,21 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // comes from an exchanged workload identity token. A publish that cannot
 // produce provenance fails rather than publishing without it — see
 // newSigner.
+//
+// The image is signed too, and not merely the provenance statement about
+// it: the manifest list and every per-platform manifest beneath it each
+// carry a cosign signature, so a consumer runs
+//
+//	cosign verify <address>/<repository>:<version> \
+//	  --certificate-identity-regexp '^https://github.com/<owner>/<repo>/\.github/workflows/' \
+//	  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+//
+// against the tag, and the same command against any per-platform digest
+// their runtime resolved. Both pass, which is the point of signing every
+// manifest rather than only the one the tag names — see signImage. A
+// publish that cannot sign fails in the same way and for the same reason as
+// one that cannot attest. WithSigningKey changes the verifying command; its
+// doc comment says how.
 //
 // Within one repository the tag is the last thing written: the manifest list
 // goes up under its own digest, the attestations are attached to that digest,
@@ -390,6 +416,14 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 			// resolves, and a caller who wants to look at what was left behind
 			// should be able to. What the ordering buys is that no *name*
 			// reaches it, so nobody arrives at it by pulling a release.
+			return nil, fmt.Errorf("%v; %s was left untagged in %s, so no tag resolves to it%s",
+				err, digest, repository, alreadyPublished(refs))
+		}
+		// The image itself is signed last of the fallible steps, for the
+		// reason signImage records: it is the only one that writes a tag of
+		// its own, so it gets the smallest window in which a later failure
+		// can leave one behind.
+		if err := a.signImage(ctx, registry, sgn, repository, digest); err != nil {
 			return nil, fmt.Errorf("%v; %s was left untagged in %s, so no tag resolves to it%s",
 				err, digest, repository, alreadyPublished(refs))
 		}

@@ -526,6 +526,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Registry).PushImageUntagged(&parent, ctx, repository, variants)
+		case "PushLayer":
+			var parent Registry
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var repository string
+			if inputArgs["repository"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["repository"]), &repository)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repository", err))
+				}
+			}
+			var tag string
+			if inputArgs["tag"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["tag"]), &tag)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg tag", err))
+				}
+			}
+			var content *dagger.File
+			if inputArgs["content"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["content"]), &content)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg content", err))
+				}
+			}
+			var mediaType string
+			if inputArgs["mediaType"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["mediaType"]), &mediaType)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg mediaType", err))
+				}
+			}
+			var annotations string
+			if inputArgs["annotations"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["annotations"]), &annotations)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg annotations", err))
+				}
+			}
+			return (*Registry).PushLayer(&parent, ctx, repository, tag, content, mediaType, annotations)
 		case "Referrers":
 			var parent Registry
 			err = json.Unmarshal(parentJSON, &parent)

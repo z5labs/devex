@@ -346,6 +346,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PushImageUntaggedPublishesNoTag(&parent, ctx)
+		case "PushLayerCarriesMediaTypeAndAnnotations":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PushLayerCarriesMediaTypeAndAnnotations(&parent, ctx)
+		case "PushLayerRejectsMalformedAnnotations":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PushLayerRejectsMalformedAnnotations(&parent, ctx)
 		case "PushSucceedsAgainstPlaintextRegistryWhenInsecure":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
