@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -196,7 +197,7 @@ func parseSigningKey(ctx context.Context, secret *dagger.Secret) (*ecdsa.Private
 // their own key to that identity.
 //
 // fulcioURL is the authority to ask, which is the public sigstore unless
-// the caller stood one up inside the session — see App.WithSigstoreServices
+// the caller stood one up inside the session — see App.WithSessionSigstore
 // for why that seam takes services rather than a URL. The test suite drives
 // this function against a CA of its own, which verifies the proof of
 // possession before it issues, so what is exercised is the request this
@@ -284,31 +285,76 @@ func fulcioCertificate(ctx context.Context, key *ecdsa.PrivateKey, rawToken, sub
 	return chain.Bytes(), nil
 }
 
-// responseDetail is a bounded, single-line rendering of a rejected
-// sigstore response's body, for appending to the error that reports the
-// status.
+// responseDetail is a bounded rendering of the message a rejected sigstore
+// response carried, for appending to the error that reports the status.
 //
 // A status code alone says a request was refused and never why, and both
-// sigstore services answer a refusal with a message that says exactly
-// which part of the request they did not accept. Discarding it turns
-// "the proof of possession did not verify" into "returned 400 Bad
-// Request", which is a publish failure nobody can act on without a packet
-// capture.
+// sigstore services answer a refusal with a message saying which part of the
+// request they did not accept. Discarding it turns "the proof of possession
+// did not verify" into "returned 400 Bad Request", which is a publish
+// failure nobody can act on without a packet capture.
 //
-// It is bounded and flattened because this goes into an error a caller
-// reads in a terminal: a CA that answered with an HTML error page, or with
-// a megabyte of anything, must not become the whole failure message.
+// # It renders a parsed field, never the body
+//
+// The body is a remote server's to choose, and the request it is refusing
+// carries the raw workload identity token — a bearer credential good enough
+// to mint a certificate for this build's identity, and a plain string rather
+// than a dagger.Secret, so nothing in the engine scrubs it. A server that
+// echoes the request it rejected is not exotic; gateways and WAFs quote the
+// offending payload routinely. Splicing the body verbatim into an error
+// would therefore hand any server this module talks to — including, since
+// WithSessionSigstore exists, one the caller stood up — a channel into this
+// build's logs and traces.
+//
+// So only a known error field of a known error shape is rendered, and a body
+// that is not one of those shapes contributes nothing, which is exactly the
+// status-only behaviour that came before. What is left is still
+// attacker-chosen when the CA is, so it is scrubbed of anything JWT-shaped
+// as well: the point is that no path renders a token, not that one path
+// happens not to.
 func responseDetail(raw []byte) string {
-	const limit = 200
-	detail := strings.Join(strings.Fields(string(raw)), " ")
+	// Fulcio and Rekor are both grpc-gateway services and answer a refusal
+	// with `{"code":…,"message":"…"}`. The others are here because an
+	// intermediary that speaks OAuth answers in its own vocabulary and is
+	// still describing this request.
+	var payload struct {
+		Message          string `json:"message"`
+		Error            string `json:"error"`
+		ErrorDescription string `json:"error_description"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return ""
+	}
+	detail := payload.Message
+	if detail == "" {
+		detail = payload.Error
+	}
+	if detail == "" {
+		detail = payload.ErrorDescription
+	}
+	detail = strings.Join(strings.Fields(detail), " ")
 	if detail == "" {
 		return ""
 	}
-	if len(detail) > limit {
-		detail = detail[:limit] + "…"
+	detail = jwtLike.ReplaceAllString(detail, "[redacted]")
+	// Bounded on runes rather than bytes: this goes into an error a caller
+	// reads in a terminal, and cutting a multi-byte rune in half renders as
+	// a replacement character in the middle of the one useful sentence.
+	const limit = 200
+	if runes := []rune(detail); len(runes) > limit {
+		detail = string(runes[:limit]) + "…"
 	}
 	return ": " + detail
 }
+
+// jwtLike matches a JWS compact serialization — three base64url segments
+// separated by dots, the last of which may be empty for an unsigned token.
+//
+// It is deliberately loose. Its job is not to parse a token but to make
+// certain that nothing token-shaped survives into an error message, and a
+// pattern that matched only well-formed tokens would pass a truncated one
+// through — which is still most of a credential.
+var jwtLike = regexp.MustCompile(`[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*`)
 
 // dsseEnvelope wraps and signs a statement.
 //

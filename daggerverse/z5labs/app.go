@@ -130,7 +130,7 @@ type App struct {
 	SigningKey *dagger.Secret
 	// FulcioService and RekorService are a sigstore standing inside this
 	// session, in place of the public one. They are set together or not at
-	// all — see WithSigstoreServices, which is the only thing that sets
+	// all — see WithSessionSigstore, which is the only thing that sets
 	// them.
 	//
 	// +private
@@ -338,9 +338,9 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 	return a
 }
 
-// WithSigstoreServices points keyless signing at a certificate authority
-// and a transparency log running inside this Dagger session, instead of at
-// the public sigstore.
+// WithSessionSigstore points keyless signing at a certificate authority and
+// a transparency log running inside this Dagger session, instead of at the
+// public sigstore.
 //
 // It exists so the keyless path can be *executed* rather than only
 // described: without it, the certificate request, the chain split, the log
@@ -349,29 +349,43 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // verifies the result with stock `cosign verify --certificate-identity`,
 // which is the command Publish's doc comment tells consumers to run.
 //
-// # Why this cannot redirect a real publish by accident
+// # What it takes to redirect a real publish with this
 //
-// Four properties, and each of them is a decision:
+// Deliberate work, which is the property being bought — not impossibility,
+// which would be a stronger claim than the type supports. A *dagger.Service
+// is a container the caller controls, and a container can proxy: a service
+// running `socat` forwards a certificate request, workload identity token
+// and all, straight out of the session. So this is not a boundary; it is a
+// seam that cannot be crossed by accident. Three decisions make that so:
 //
-//   - It takes services, never URLs. A *dagger.Service exists only inside
-//     the session that created it and is addressed by an endpoint the
-//     engine assigns; there is no string a caller could pass here that
-//     names a host on the internet. A `--fulcio-url` flag would have been
-//     one typo, or one templated value, away from certifying a release
-//     against somebody else's CA.
+//   - It takes services, never URLs. There is no string argument here for a
+//     typo, an inherited environment variable or a templated value to land
+//     in, which is the whole class of accident a `--fulcio-url` flag would
+//     have opened: one wrong character and a release is certified by
+//     somebody else's CA. Redirecting this one takes a caller writing a
+//     service and passing it, which is not a thing that happens to a release
+//     pipeline unattended.
 //   - Both are required, in one call. A publish is either wholly against a
 //     session-hosted sigstore or wholly against the public one; there is no
 //     state in which the certificate comes from one place and the log entry
-//     from another, which is incoherent rather than merely unusual.
+//     from another, which is incoherent rather than merely unusual. A pair
+//     that arrives half set is refused rather than quietly completed from
+//     the public sigstore — see sigstoreEndpoints.
 //   - It is never inferred. Not from WithRegistryService, not from
 //     WithOidcService, not from WithInsecure — inferring it from the shape
 //     of a test session is the relaxation daggerverse/CLAUDE.md names, and
 //     it would leave the production path as the only unexercised one, which
 //     is the situation this method exists to end.
-//   - It conflicts with WithSigningKey rather than being ignored beside it.
-//     A supplied key is never certified by anything, so a call setting both
-//     has asked for two different modes; Publish refuses instead of picking
-//     one silently.
+//
+// It also conflicts with WithSigningKey rather than being ignored beside it.
+// A supplied key is never certified by anything, so a call setting both has
+// asked for two different modes; Publish refuses instead of picking one
+// silently.
+//
+// The name says "session" for the same reason WithInsecure says "insecure":
+// this method's job is to be conspicuous in a file where it does not belong.
+// A release pipeline signing against a sigstore that exists only for the
+// length of one build is a thing a reader should stop at.
 //
 // What a session-hosted sigstore cannot establish is stated where it is
 // asserted: a local log's countersignature is trusted by nobody, so a
@@ -379,7 +393,7 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // anything about the public services' availability.
 //
 // +cache="session"
-func (a *App) WithSigstoreServices(fulcio, rekor *dagger.Service) *App {
+func (a *App) WithSessionSigstore(fulcio, rekor *dagger.Service) *App {
 	a.FulcioService = fulcio
 	a.RekorService = rekor
 	return a
@@ -714,10 +728,10 @@ func (a *App) newSigner(ctx context.Context) (*signer, error) {
 	// naming a CA says they wanted. Refusing names the contradiction where
 	// picking one silently would leave them to find it in a consumer's
 	// failed verification.
-	if a.SigningKey != nil && a.FulcioService != nil {
+	if a.SigningKey != nil && (a.FulcioService != nil || a.RekorService != nil) {
 		return nil, fmt.Errorf(
-			"withSigningKey and withSigstoreServices were both called, but a supplied key is never certified by a CA: " +
-				"drop withSigningKey to sign keyless against the sigstore you supplied, or drop withSigstoreServices to sign with your key")
+			"withSigningKey and withSessionSigstore were both called, but a supplied key is never certified by a CA: " +
+				"drop withSigningKey to sign keyless against the sigstore you supplied, or drop withSessionSigstore to sign with your key")
 	}
 	sigstore, err := a.sigstoreEndpoints(ctx)
 	if err != nil {
@@ -729,12 +743,36 @@ func (a *App) newSigner(ctx context.Context) (*signer, error) {
 // sigstoreEndpoints is the CA and the log this publish uses: the public
 // sigstore, or the one the caller stood up in this session.
 //
-// The supplied-key mode reaches neither, so nothing is started for it —
-// which matters because starting a service is not free and because a
-// publish that talks to no CA should not need one to be running.
+// Neither service is started unless both are set, so the supplied-key mode —
+// which reaches no CA and no log — starts nothing. That falls out of the
+// first branch rather than needing a clause of its own: newSigner has
+// already refused a signing key beside either service, so a supplied key
+// implies both are nil.
+//
+// # A half-set pair is a refusal, not a fallback
+//
+// The tempting shape is `if either is nil, use the public sigstore`, and it
+// is wrong in the one direction that matters. A caller who asked for a
+// session-hosted CA and reached this with half a pair would silently send a
+// live workload identity token to fulcio.sigstore.dev and mint a real,
+// publicly logged certificate — the exact outcome WithSessionSigstore exists
+// to make impossible — and nothing in the output would say so. Nothing can
+// construct that state today, because the only setter sets both; it is
+// refused anyway, because "unreachable" and "checked" are different and only
+// one of them survives a second setter.
 func (a *App) sigstoreEndpoints(ctx context.Context) (sigstoreEndpoints, error) {
-	if a.FulcioService == nil || a.RekorService == nil || a.SigningKey != nil {
+	if a.FulcioService == nil && a.RekorService == nil {
 		return defaultSigstore(), nil
+	}
+	if a.FulcioService == nil || a.RekorService == nil {
+		missing := "certificate authority"
+		if a.RekorService == nil {
+			missing = "transparency log"
+		}
+		return sigstoreEndpoints{}, fmt.Errorf(
+			"this publish was given a session-hosted sigstore with no %s; refusing to fall back to the public %s, "+
+				"which would send this build's workload identity token to a certificate authority the caller did not ask for",
+			missing, missing)
 	}
 	fulcio, err := serviceOrigin(ctx, a.FulcioService, "certificate authority")
 	if err != nil {

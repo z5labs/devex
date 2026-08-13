@@ -262,14 +262,22 @@ that, the certificate request, the chain split, the log upload and the three
 Four things to keep, each of which is a decision and not an implementation
 detail:
 
-- **The seam takes `*dagger.Service`, never a URL.** A service exists only
-  inside the session that created it, so there is no string a caller can pass
-  that names a CA on the internet. `App.WithSigstoreServices` takes both the CA
-  and the log, in one call, because a publish certified by one sigstore and
-  logged in another's log is incoherent rather than merely unusual — and it
-  conflicts with `WithSigningKey` rather than being ignored beside it. It is
-  never inferred from a registry service being present; that inference is the
-  relaxation this file's provenance section names.
+- **The seam takes `*dagger.Service`, never a URL.** Not because a service
+  cannot reach the internet — a container running `socat` proxies straight out
+  of the session, so this is a seam and not a boundary — but because there is no
+  string argument for a typo, an inherited environment variable or a templated
+  value to land in. Redirecting the CA takes a caller deliberately writing a
+  service, which is not something that happens to a release pipeline unattended;
+  claiming containment as a property of the type is the overclaim to avoid, and
+  a future reader will cite whatever the doc comment says. `App.WithSessionSigstore`
+  takes both the CA and the log in one call, because a publish certified by one
+  sigstore and logged in another's is incoherent rather than merely unusual; a
+  half-set pair is **refused**, never completed from the public sigstore. It
+  conflicts with `WithSigningKey` rather than being ignored beside it, and it is
+  never inferred from a registry service being present — that inference is the
+  relaxation this file's provenance section names. The name says "session" for
+  the reason `WithInsecure` says "insecure": it should be conspicuous in a file
+  where it does not belong.
 - **A stand-in has to be fussy or it tests nothing.** The fake CA verifies the
   proof of possession against the public key in the same request and requires
   the `sigstore` audience; the fake log verifies the entry's signature against

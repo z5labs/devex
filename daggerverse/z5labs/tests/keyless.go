@@ -13,6 +13,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strings"
 	"time"
 
@@ -92,12 +93,16 @@ func newSigstoreHarness(ctx context.Context) (*sigstoreHarness, error) {
 	base := dag.Go().Container(source).
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithExec([]string{"go", "build", "-o", "/bin/fake-sigstore", "."}).
-		// NONCE is a plain environment variable and it is load bearing:
-		// services are content-addressed across sessions, so without a value
-		// that varies per run the engine would hand a later run an earlier
-		// run's CA — which would then be issuing against a root this run's
-		// cosign was never given. The same trap localRegistry's NONCE exists
-		// for.
+		// NONCE is belt and braces, and worth saying so rather than claiming
+		// to be the thing that saves this. Services are content-addressed
+		// across sessions, so a service whose definition did not vary per run
+		// would be reused — and a later run would get an earlier run's CA,
+		// issuing against a root this run's cosign was never given. What
+		// actually varies here is the three CA PEMs below, which are freshly
+		// generated every run and set on this same container. NONCE exists so
+		// that stays true if they ever become secrets, which Dagger excludes
+		// from cache keys by design; that is the trap localRegistry's NONCE
+		// was added for.
 		WithEnvVariable("NONCE", nonce).
 		WithEnvVariable("ROOT_CERT_PEM", string(ca.RootPEM)).
 		WithEnvVariable("INTERMEDIATE_CERT_PEM", string(ca.IntermediatePEM)).
@@ -239,7 +244,7 @@ func publishableKeyless(
 		WithInsecure().
 		WithOidc(prov.URL, prov.RequestToken).
 		WithOidcService(prov.Service).
-		WithSigstoreServices(sig.Fulcio, sig.Rekor)
+		WithSessionSigstore(sig.Fulcio, sig.Rekor)
 }
 
 // AppKeylessSignatureVerifiesAgainstALocalSigstore drives a publish through
@@ -347,7 +352,16 @@ func (t *Tests) AppKeylessSignatureVerifiesAgainstALocalSigstore(ctx context.Con
 	// The regexp form, because it is the one Publish's doc comment gives a
 	// consumer: an identity is a workflow file at a ref, and pinning the ref
 	// would make every consumer's command break on a branch rename.
-	identityPattern := "^https://github\\.com/z5labs/example/\\.github/workflows/"
+	//
+	// Derived from the identity rather than written out, so this is not the
+	// one constant the test and the harness have to agree on separately. A
+	// hardcoded pattern fails safe — a harness change turns the verification
+	// red rather than green — but it would make the claim two paragraphs up
+	// true of only half this test.
+	identityPattern, err := workflowIdentityPattern(identity)
+	if err != nil {
+		return err
+	}
 	if err := verifier.mustVerifyKeyless(ctx, reference, identityPattern, issuer); err != nil {
 		return err
 	}
@@ -356,7 +370,7 @@ func (t *Tests) AppKeylessSignatureVerifiesAgainstALocalSigstore(ctx context.Con
 	// reported success, which is the failure AppSignatureDoesNotVerifyForAnotherKey
 	// exists to close for the supplied-key mode.
 	code, stderr, err := verifier.verifyKeyless(ctx, reference,
-		"^https://github\\.com/somebody/else/\\.github/workflows/", issuer)
+		"^"+regexp.QuoteMeta("https://github.com/somebody/else"+workflowsSegment), issuer)
 	if err != nil {
 		return err
 	}
@@ -506,6 +520,29 @@ func (h *sigstoreHarness) assertBundle(tag, raw string) error {
 		return fmt.Errorf("signature %s: the bundle's body records a %q entry, want hashedrekord", tag, entry.Kind)
 	}
 	return nil
+}
+
+// workflowsSegment is what separates a repository from the workflow file in
+// a GitHub Actions identity, and is where a consumer's pattern stops.
+const workflowsSegment = "/.github/workflows/"
+
+// workflowIdentityPattern is the regexp a consumer is told to verify with,
+// derived from the identity that was actually certified: everything up to
+// and including the workflows directory, anchored, with the rest of the
+// identity — the workflow file and the ref it ran from — left to match.
+//
+// That shape is the point rather than a convenience. Pinning the ref would
+// hand every consumer a command that breaks on a branch rename, which is why
+// Publish's doc comment gives the prefix form; deriving it here is what stops
+// this test from asserting against a string only it and the harness agree on.
+func workflowIdentityPattern(identity string) (string, error) {
+	prefix, _, ok := strings.Cut(identity, workflowsSegment)
+	if !ok {
+		return "", fmt.Errorf(
+			"certified identity %q carries no %q, so there is no workflow prefix for a consumer's pattern to anchor on",
+			identity, workflowsSegment)
+	}
+	return "^" + regexp.QuoteMeta(prefix+workflowsSegment), nil
 }
 
 // certificatesIn parses a PEM bundle, refusing anything that is not a

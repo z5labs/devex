@@ -549,21 +549,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*App).WithRegistryService(&parent, svc), nil
-		case "WithSigningKey":
-			var parent App
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			var key *dagger.Secret
-			if inputArgs["key"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
-				}
-			}
-			return (*App).WithSigningKey(&parent, key), nil
-		case "WithSigstoreServices":
+		case "WithSessionSigstore":
 			var parent App
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
@@ -583,7 +569,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg rekor", err))
 				}
 			}
-			return (*App).WithSigstoreServices(&parent, fulcio, rekor), nil
+			return (*App).WithSessionSigstore(&parent, fulcio, rekor), nil
+		case "WithSigningKey":
+			var parent App
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var key *dagger.Secret
+			if inputArgs["key"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["key"]), &key)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg key", err))
+				}
+			}
+			return (*App).WithSigningKey(&parent, key), nil
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}

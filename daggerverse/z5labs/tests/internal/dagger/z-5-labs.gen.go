@@ -827,7 +827,7 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:493:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:507:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 
@@ -1040,6 +1040,71 @@ func (r *Z5LabsApp) WithRegistryService(svc *Service) *Z5LabsApp { // z5labs (..
 	}
 }
 
+// WithSessionSigstore points keyless signing at a certificate authority and
+// a transparency log running inside this Dagger session, instead of at the
+// public sigstore.
+//
+// It exists so the keyless path can be *executed* rather than only
+// described: without it, the certificate request, the chain split, the log
+// upload and the three annotations that carry them are reachable only by
+// publishing a real release. The suite stands up a CA of its own and
+// verifies the result with stock `cosign verify --certificate-identity`,
+// which is the command Publish's doc comment tells consumers to run.
+//
+// # What it takes to redirect a real publish with this
+//
+// Deliberate work, which is the property being bought — not impossibility,
+// which would be a stronger claim than the type supports. A *dagger.Service
+// is a container the caller controls, and a container can proxy: a service
+// running `socat` forwards a certificate request, workload identity token
+// and all, straight out of the session. So this is not a boundary; it is a
+// seam that cannot be crossed by accident. Three decisions make that so:
+//
+//   - It takes services, never URLs. There is no string argument here for a
+//     typo, an inherited environment variable or a templated value to land
+//     in, which is the whole class of accident a `--fulcio-url` flag would
+//     have opened: one wrong character and a release is certified by
+//     somebody else's CA. Redirecting this one takes a caller writing a
+//     service and passing it, which is not a thing that happens to a release
+//     pipeline unattended.
+//   - Both are required, in one call. A publish is either wholly against a
+//     session-hosted sigstore or wholly against the public one; there is no
+//     state in which the certificate comes from one place and the log entry
+//     from another, which is incoherent rather than merely unusual. A pair
+//     that arrives half set is refused rather than quietly completed from
+//     the public sigstore — see sigstoreEndpoints.
+//   - It is never inferred. Not from WithRegistryService, not from
+//     WithOidcService, not from WithInsecure — inferring it from the shape
+//     of a test session is the relaxation daggerverse/CLAUDE.md names, and
+//     it would leave the production path as the only unexercised one, which
+//     is the situation this method exists to end.
+//
+// It also conflicts with WithSigningKey rather than being ignored beside it.
+// A supplied key is never certified by anything, so a call setting both has
+// asked for two different modes; Publish refuses instead of picking one
+// silently.
+//
+// The name says "session" for the same reason WithInsecure says "insecure":
+// this method's job is to be conspicuous in a file where it does not belong.
+// A release pipeline signing against a sigstore that exists only for the
+// length of one build is a thing a reader should stop at.
+//
+// What a session-hosted sigstore cannot establish is stated where it is
+// asserted: a local log's countersignature is trusted by nobody, so a
+// verifier still has to be told to ignore the log, and nothing here says
+// anything about the public services' availability.
+func (r *Z5LabsApp) WithSessionSigstore(fulcio *Service, rekor *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:396:1)
+	assertNotNil("fulcio", fulcio)
+	assertNotNil("rekor", rekor)
+	q := r.query.Select("withSessionSigstore")
+	q = q.Arg("fulcio", fulcio)
+	q = q.Arg("rekor", rekor)
+
+	return &Z5LabsApp{
+		query: q,
+	}
+}
+
 // WithSigningKey signs the provenance with a caller-supplied PEM-encoded EC
 // private key instead of an ephemeral key certified by the public sigstore
 // CA.
@@ -1064,57 +1129,6 @@ func (r *Z5LabsApp) WithSigningKey(key *Secret) *Z5LabsApp { // z5labs (../../..
 	assertNotNil("key", key)
 	q := r.query.Select("withSigningKey")
 	q = q.Arg("key", key)
-
-	return &Z5LabsApp{
-		query: q,
-	}
-}
-
-// WithSigstoreServices points keyless signing at a certificate authority
-// and a transparency log running inside this Dagger session, instead of at
-// the public sigstore.
-//
-// It exists so the keyless path can be *executed* rather than only
-// described: without it, the certificate request, the chain split, the log
-// upload and the three annotations that carry them are reachable only by
-// publishing a real release. The suite stands up a CA of its own and
-// verifies the result with stock `cosign verify --certificate-identity`,
-// which is the command Publish's doc comment tells consumers to run.
-//
-// # Why this cannot redirect a real publish by accident
-//
-// Four properties, and each of them is a decision:
-//
-//   - It takes services, never URLs. A *dagger.Service exists only inside
-//     the session that created it and is addressed by an endpoint the
-//     engine assigns; there is no string a caller could pass here that
-//     names a host on the internet. A `--fulcio-url` flag would have been
-//     one typo, or one templated value, away from certifying a release
-//     against somebody else's CA.
-//   - Both are required, in one call. A publish is either wholly against a
-//     session-hosted sigstore or wholly against the public one; there is no
-//     state in which the certificate comes from one place and the log entry
-//     from another, which is incoherent rather than merely unusual.
-//   - It is never inferred. Not from WithRegistryService, not from
-//     WithOidcService, not from WithInsecure — inferring it from the shape
-//     of a test session is the relaxation daggerverse/CLAUDE.md names, and
-//     it would leave the production path as the only unexercised one, which
-//     is the situation this method exists to end.
-//   - It conflicts with WithSigningKey rather than being ignored beside it.
-//     A supplied key is never certified by anything, so a call setting both
-//     has asked for two different modes; Publish refuses instead of picking
-//     one silently.
-//
-// What a session-hosted sigstore cannot establish is stated where it is
-// asserted: a local log's countersignature is trusted by nobody, so a
-// verifier still has to be told to ignore the log, and nothing here says
-// anything about the public services' availability.
-func (r *Z5LabsApp) WithSigstoreServices(fulcio *Service, rekor *Service) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/app.go:382:1)
-	assertNotNil("fulcio", fulcio)
-	assertNotNil("rekor", rekor)
-	q := r.query.Select("withSigstoreServices")
-	q = q.Arg("fulcio", fulcio)
-	q = q.Arg("rekor", rekor)
 
 	return &Z5LabsApp{
 		query: q,

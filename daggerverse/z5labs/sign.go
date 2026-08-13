@@ -388,6 +388,21 @@ func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signa
 			"keyless signing produced no certificate chain, so nothing would vouch for the signing key; " +
 				"refusing to publish a signature no documented verify command can check")
 	}
+	// And a keyless signer with no log to record in is a refusal for the same
+	// reason, stated locally rather than left to be inferred from the fact
+	// that the only constructor sets both fields together. Unreachable today:
+	// newSigner sets rekorURL from sigstoreEndpoints on every keyless signer,
+	// and sigstoreEndpoints returns either the public log or a resolved one,
+	// never "". The check is here so that a reader of this call site does not
+	// have to go and establish that, and so that a future constructor cannot
+	// make it false quietly — what it would otherwise produce is a request to
+	// the relative URL "/api/v1/log/entries", failing a publish with a parse
+	// error that names no cause a caller could act on.
+	if strings.TrimSpace(s.rekorURL) == "" {
+		return nil, fmt.Errorf(
+			"keyless signing has no transparency log to record in, so nothing would establish the signing certificate " +
+				"was live when it signed; refusing to publish a signature that expires into unverifiability")
+	}
 	certificate, chain, err := splitCertificateChain(s.chain)
 	if err != nil {
 		return nil, err

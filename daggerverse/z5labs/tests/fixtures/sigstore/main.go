@@ -152,11 +152,21 @@ func mustEnv(name string) string {
 	return value
 }
 
-// fail answers with a status and a reason. The reason is the whole point:
-// the module appends a bounded snippet of this body to the error it reports,
-// so a refusal here names the part of the request that was wrong.
+// fail answers with a status and a reason, in the shape both real sigstore
+// services answer a refusal in.
+//
+// The shape matters as much as the reason. Fulcio and Rekor are grpc-gateway
+// services and answer `{"code":…,"message":"…"}`; the module renders that
+// `message` field and deliberately renders nothing at all from a body it does
+// not recognise, because the body is the server's to choose and the request
+// it is refusing carries a workload identity token. Answering plain text here
+// would leave the module's diagnostic path untested while the test still
+// passed — and would quietly reward loosening it.
 func fail(w http.ResponseWriter, code int, format string, args ...any) {
-	http.Error(w, fmt.Sprintf(format, args...), code)
+	respond(w, code, map[string]any{
+		"code":    code,
+		"message": fmt.Sprintf(format, args...),
+	})
 }
 
 // signingCert is Fulcio's certificate endpoint.
@@ -421,7 +431,11 @@ func logEntries(w http.ResponseWriter, r *http.Request) {
 func respond(w http.ResponseWriter, code int, payload any) {
 	body, err := json.Marshal(payload)
 	if err != nil {
-		fail(w, http.StatusInternalServerError, "encode response: %v", err)
+		// Not fail(): fail() answers through this function, and a marshal
+		// error reached from there would recurse. Nothing here can fail to
+		// marshal, which is exactly why the loop would be a silent hang
+		// rather than something a test would catch.
+		http.Error(w, "encode response: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
