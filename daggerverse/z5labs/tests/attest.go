@@ -381,7 +381,20 @@ func (t *Tests) AppRefusesToPublishWithoutProvenanceMachinery(ctx context.Contex
 	if err == nil {
 		return fmt.Errorf("expected Publish to refuse to publish without the id token machinery, got nil")
 	}
-	for _, want := range []string{"idTokenRequestUrl", "idTokenRequestToken", "provenance"} {
+	// The refusal names the inputs as a caller supplies them and the
+	// environment variables they usually come from, because the two failures
+	// look different from the two ends. Both are asserted: naming only the
+	// GitHub Actions variables would leave a CLI caller guessing at the
+	// flags, and naming only the flags would leave the CI case without the
+	// permission that is almost always what is actually missing.
+	for _, want := range []string{
+		"withOidc --request-url",
+		"withOidc --request-token",
+		"ACTIONS_ID_TOKEN_REQUEST_URL",
+		"ACTIONS_ID_TOKEN_REQUEST_TOKEN",
+		"id-token: write",
+		"provenance",
+	} {
 		if !strings.Contains(err.Error(), want) {
 			return fmt.Errorf("expected the refusal to name %q, got: %s", want, err.Error())
 		}

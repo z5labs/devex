@@ -31,9 +31,9 @@ func validateVersion(version string) error {
 	if before, after, ok := strings.Cut(version, "+"); ok {
 		return fmt.Errorf(
 			"version %q carries SemVer build metadata, which cannot be an image tag: \"+\" is not in the OCI tag charset, "+
-				"and dropping it would publish %q and any other %q+... build under the one tag %q, each silently replacing the last; "+
-				"release %q, or fold %q into the version itself",
-			version, version, before, before, before, after)
+				"so dropping it would publish this build and every other %q+... build under the one tag %q, each silently "+
+				"replacing the last; release %q, or fold %q into the version itself",
+			version, before, before, before, after)
 	}
 	if len(version) > maxTagLength {
 		return fmt.Errorf("version %q is %d characters, which cannot be an image tag: the OCI tag limit is %d", version, len(version), maxTagLength)

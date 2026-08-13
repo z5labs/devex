@@ -124,6 +124,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppContainerRunsTheEntrypoint", t.AppContainerRunsTheEntrypoint)
 	jobs = jobs.WithJob("AppContainersCoverEveryPlatformInOrder", t.AppContainersCoverEveryPlatformInOrder)
 	jobs = jobs.WithJob("AppImagesCarryTheStandardEnvironment", t.AppImagesCarryTheStandardEnvironment)
+	jobs = jobs.WithJob("AppBuildTagsReachTheCompiler", t.AppBuildTagsReachTheCompiler)
 	jobs = jobs.WithJob("AppStampsEveryPlatformVariant", t.AppStampsEveryPlatformVariant)
 	jobs = jobs.WithJob("AppRebuildIsByteIdenticalPerPlatform", t.AppRebuildIsByteIdenticalPerPlatform)
 	jobs = jobs.WithJob("AppPublishReturnsDigestPinnedReferences", t.AppPublishReturnsDigestPinnedReferences)
@@ -325,8 +326,8 @@ func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
 // next call can be made on, and that a fully configured chain still runs.
 //
 // WithBuild's tags reach App rather than Ci, so what is asserted here is
-// that supplying them neither errors nor disturbs the checks; that they
-// reach a build is App's business.
+// that supplying them neither errors nor disturbs the checks. That they
+// reach the compiler is AppBuildTagsReachTheCompiler.
 func (t *Tests) GoCiChainsEveryWithMethod(ctx context.Context) error {
 	err := dag.Z5Labs().Go(helloLibDir()).
 		WithLint(dagger.Z5LabsGoChainWithLintOpts{}).
@@ -444,8 +445,14 @@ func (t *Tests) AppValidatesTheVersion(ctx context.Context) error {
 		},
 		{
 			version: "1.0.0+build.7",
-			want:    "1.0.0",
-			why:     "the refusal has to name what the two builds would collapse to",
+			// Deliberately not the bare "1.0.0": that is a prefix of the
+			// rejected version itself, which the message already quotes, so
+			// the row would pass even if the message never mentioned the
+			// collapsed tag. `release "1.0.0"` can only come from the
+			// stripped form, which is the thing two releases would silently
+			// share and the whole reason this branch is separate.
+			want: `release "1.0.0"`,
+			why:  "the refusal has to name what the two builds would collapse to",
 		},
 		{version: "-1.0.0", want: "starts with", why: `an OCI tag may not open with "-"`},
 		{version: ".1.0.0", want: "starts with", why: `an OCI tag may not open with "."`},
@@ -671,6 +678,12 @@ func stampedDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/stamped")
 }
 
+// taggedDir returns the build-tag fixture: a main package whose output says
+// which `//go:build` constraint was selected.
+func taggedDir() *dagger.Directory {
+	return dag.CurrentModule().Source().Directory("fixtures/tagged")
+}
+
 // helloLibDir returns the on-disk hello-lib fixture (library variant).
 func helloLibDir() *dagger.Directory {
 	return dag.CurrentModule().Source().Directory("fixtures/hello-lib")
@@ -743,6 +756,46 @@ func binaryContains(ctx context.Context, bin *dagger.File, needle string) (bool,
 		return false, err
 	}
 	return strings.TrimSpace(out) == "yes", nil
+}
+
+// AppBuildTagsReachTheCompiler asserts WithBuild's tags select which files
+// compile, rather than being accepted and dropped.
+//
+// WithBuild recorded tags nothing consumed until App existed, and its doc
+// said so; App is what consumes them now, so the assertion has to live here.
+// The fixture has two files behind opposite `//go:build` constraints and
+// prints which one it was built with, so the binary's own output is the
+// evidence — and the run without tags is the control that stops the run with
+// them from passing for any other reason.
+func (t *Tests) AppBuildTagsReachTheCompiler(ctx context.Context) error {
+	src, err := gitFixture(ctx, taggedDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	opts := dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{hostPlatform()}}
+
+	plain, err := dag.Z5Labs().Go(src).App("v1.0.0", opts).
+		Container(hostPlatform()).
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("run the untagged build: %w", err)
+	}
+	if strings.TrimSpace(plain) != "variant=default" {
+		return fmt.Errorf("expected the untagged build to report %q, got %q", "variant=default", strings.TrimSpace(plain))
+	}
+
+	tagged, err := dag.Z5Labs().Go(src).WithBuild([]string{"integration"}).App("v1.0.0", opts).
+		Container(hostPlatform()).
+		WithExec([]string{}, dagger.ContainerWithExecOpts{UseEntrypoint: true}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("run the tagged build: %w", err)
+	}
+	if strings.TrimSpace(tagged) != "variant=integration" {
+		return fmt.Errorf("expected the build with -tags integration to report %q, got %q", "variant=integration", strings.TrimSpace(tagged))
+	}
+	return nil
 }
 
 // AppStampsEveryPlatformVariant asserts a multi-platform build stamps
@@ -1081,14 +1134,29 @@ func (t *Tests) AppPublishRefusesAnUnusableTarget(ctx context.Context) error {
 		}
 	}
 
-	// And a publish with no registry configured at all, which is the same
-	// class of mistake reached from the other side.
+	// And two mistakes reached from the other side: no registry configured at
+	// all, and a registry configured with an empty username.
 	_, err = prov.apply(app).Publish(ctx, []string{"hello"})
 	if err == nil {
 		return fmt.Errorf("expected Publish with no registry configured to be refused, got nil")
 	}
 	if !strings.Contains(err.Error(), "withRegistry") {
 		return fmt.Errorf("expected the refusal to name withRegistry, got: %s", err.Error())
+	}
+
+	// An empty username used to fall back to "ci". Publishing as a principal
+	// the caller never named turns a typo into a 401 from the registry
+	// naming a user they have never heard of, so it is refused here instead.
+	_, err = prov.apply(app.
+		WithRegistry(registryAlias+":5000", "", secret).
+		WithRegistryService(svc).
+		WithInsecure()).
+		Publish(ctx, []string{"hello"})
+	if err == nil {
+		return fmt.Errorf("expected Publish with an empty registry username to be refused, got nil")
+	}
+	if !strings.Contains(err.Error(), "credential") {
+		return fmt.Errorf("expected the refusal to name the credential, got: %s", err.Error())
 	}
 	return nil
 }

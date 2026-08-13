@@ -123,7 +123,8 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:59:6)
 	query *querybuilder.Selection
 
-	id *ID
+	id                       *ID
+	imageEnvironmentSelfTest *Void
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -201,6 +202,34 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 	}
 	*r = Z5Labs{query: selectNode(dag.query, id, "Z5Labs")}
 	return nil
+}
+
+// ImageEnvironmentSelfTest checks the rule every published image is held to:
+// its environment is exactly the standardized set, and anything else — a
+// stray variable, a changed value, a missing one — is refused.
+//
+// It sits on the module rather than in tests/ because the rule it checks is
+// unexported and, more to the point, because its most important case cannot
+// be reached from tests/ at all. Nothing caller-facing can put a variable on
+// an image, which is by design; the consequence is that the branch refusing
+// a stray variable is unexecutable through the public API, so a suite built
+// out of real images can only ever exercise the passing case. Splitting the
+// comparison out and driving it here is what makes the refusal a guarantee
+// rather than a comment — delete it and this check goes red.
+//
+// It also pins the standardized set itself: that PATH is the only variable,
+// and that the plugin directory is on it. Both are things other people write
+// Dockerfiles against.
+//
+// It runs in process and needs no container, so it is cheap enough to be a
+// check of its own.
+func (r *Z5Labs) ImageEnvironmentSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:31:1)
+	if r.imageEnvironmentSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("imageEnvironmentSelfTest")
+
+	return q.Execute(ctx)
 }
 
 // AsNode returns this Z5Labs as a Node.
@@ -392,10 +421,16 @@ func (r *Z5LabsApp) UnmarshalJSON(bs []byte) error {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// Repositories are published in the order given, and the operation is not
+// atomic: a failure part way through leaves the earlier repositories
+// published, and says which ones in its error. A registry has no transaction
+// spanning repositories, so the alternative to saying so is not atomicity —
+// it is a caller who cannot tell what shipped.
+//
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
-func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:289:1)
+func (r *Z5LabsApp) Publish(ctx context.Context, repositories []string) ([]string, error) { // z5labs (../../../../../daggerverse/z5labs/app.go:295:1)
 	q := r.query.Select("publish")
 	q = q.Arg("repositories", repositories)
 

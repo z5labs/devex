@@ -32,9 +32,14 @@ import (
 // PATH: appDir holds it and the entrypoint names it absolutely. PATH exists
 // for what an extension adds, not for finding the app itself.
 const (
-	appPath      = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 	appPluginDir = "/usr/local/bin"
-	appDir       = "/app"
+	// appPath is composed from appPluginDir rather than spelled out, so that
+	// "the plugin directory is on the PATH" is a fact the compiler keeps
+	// rather than one two string literals happen to agree on. Editing the
+	// PATH to drop the directory is then not something you can do by
+	// accident.
+	appPath = "/usr/local/sbin:" + appPluginDir + ":/usr/sbin:/usr/bin:/sbin:/bin"
+	appDir  = "/app"
 )
 
 // stampVersionVar and stampCommitVar are the linker symbols every binary

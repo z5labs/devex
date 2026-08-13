@@ -281,6 +281,12 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 // produce provenance fails rather than publishing without it — see
 // newSigner.
 //
+// Repositories are published in the order given, and the operation is not
+// atomic: a failure part way through leaves the earlier repositories
+// published, and says which ones in its error. A registry has no transaction
+// spanning repositories, so the alternative to saying so is not atomicity —
+// it is a caller who cannot tell what shipped.
+//
 // Publishing is a side effect against an external registry, so it is
 // uncached: a re-run must actually push. The build above it is session
 // cached, so the bytes pushed are the bytes Container returned.
@@ -298,8 +304,16 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	if strings.TrimSpace(a.Registry) == "" {
 		return nil, fmt.Errorf("publish requires a registry: call withRegistry with the address, the username and the credential first")
 	}
-	if a.RegistryAuth == nil {
-		return nil, fmt.Errorf("auth is required when registry is set")
+	// Both halves of the credential are required arguments of withRegistry,
+	// so the schema rejects a missing one before this runs; what is reachable
+	// is withRegistry never having been called, which the branch above
+	// catches, and an empty string passed for the username, which nothing
+	// else would. An empty username used to fall back to "ci" — inherited
+	// from the old defaulted parameter — and publishing as some other
+	// principal is the least useful answer to a caller who typed nothing:
+	// what comes back is a 401 naming a user they never chose.
+	if a.RegistryAuth == nil || strings.TrimSpace(a.RegistryUsername) == "" {
+		return nil, fmt.Errorf("publish requires a credential: call withRegistry with the address, the username and the credential")
 	}
 	if len(a.Variants) == 0 {
 		return nil, fmt.Errorf("this app carries no images to publish")
@@ -316,16 +330,23 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 	if err := a.assertImageEnvironment(ctx); err != nil {
 		return nil, err
 	}
-	username := a.RegistryUsername
-	if username == "" {
-		username = "ci"
+	// Force the builds before the first byte moves. Everything above this
+	// reads image *config*, which resolves without compiling anything, so
+	// without this the first thing to solve the build graph is the push —
+	// and a compile error would arrive wrapped in "publish <repo>:<version>",
+	// blaming a registry that is fine. The cost is nothing: these are the
+	// containers the push consumes, and the result is session-cached.
+	for _, v := range a.Variants {
+		if _, err := v.Container.Sync(ctx); err != nil {
+			return nil, fmt.Errorf("build %s: %v", v.Platform, err)
+		}
 	}
 	// The registry is the oci module's business, not this pipeline's. It
 	// knows that Container.Publish cannot see session service bindings and
 	// works around it in pure Go; this only knows which bytes to push and
 	// what to call them.
 	registry := dag.Oci().Registry(a.Registry, dagger.OciRegistryOpts{
-		Username: username,
+		Username: a.RegistryUsername,
 		Password: a.RegistryAuth,
 		Service:  a.RegistryService,
 		Insecure: a.Insecure,
@@ -341,7 +362,7 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 		// architecture.
 		digest, err := registry.PushImage(ctx, repository, a.Version, containers)
 		if err != nil {
-			return nil, fmt.Errorf("publish %s:%s: %v", repository, a.Version, err)
+			return nil, fmt.Errorf("publish %s:%s%s: %v", repository, a.Version, alreadyPublished(refs), err)
 		}
 		facts := buildFacts{
 			Repository: repository,
@@ -354,11 +375,28 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 			Version:    a.Version,
 		}
 		if err := a.attachAttestations(ctx, registry, sgn, facts); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%v%s", err, alreadyPublished(refs))
 		}
 		refs = append(refs, fmt.Sprintf("%s/%s:%s@%s", a.Registry, repository, a.Version, digest))
 	}
 	return refs, nil
+}
+
+// alreadyPublished names what a partial publish left behind, for appending to
+// the error that stopped it.
+//
+// Publishing several repositories is not atomic and cannot be: each is a
+// separate push to a registry that has no notion of a transaction spanning
+// them. So the failure has to say what already shipped. Without it a caller
+// publishing to a public registry and an internal mirror in one call — the
+// case Publish exists to serve — cannot tell "nothing shipped" from "the
+// public one already has the release", and Publish is uncached, so their
+// retry pushes everything again.
+func alreadyPublished(refs []string) string {
+	if len(refs) == 0 {
+		return ""
+	}
+	return " (already published, and left in place: " + strings.Join(refs, ", ") + ")"
 }
 
 // newSigner resolves the identity this publish signs its provenance with,
@@ -372,13 +410,19 @@ func (a *App) Publish(ctx context.Context, repositories []string) ([]string, err
 // names the missing inputs and how to obtain them, because the failure a
 // caller hits is almost always a missing permission rather than a missing
 // argument.
+//
+// The missing inputs are named as a caller can supply them — the withOidc
+// arguments — rather than as the environment variables they usually come
+// from. Both appear, because the two failures look different from the two
+// ends: someone reading this on GitHub Actions is looking for the
+// permission, and someone driving the CLI is looking for the flag.
 func (a *App) newSigner(ctx context.Context) (*signer, error) {
 	var missing []string
 	if strings.TrimSpace(a.IDTokenRequestURL) == "" {
-		missing = append(missing, "idTokenRequestUrl")
+		missing = append(missing, "withOidc --request-url")
 	}
 	if a.IDTokenRequestToken == nil {
-		missing = append(missing, "idTokenRequestToken")
+		missing = append(missing, "withOidc --request-token")
 	}
 	if len(missing) > 0 {
 		return nil, fmt.Errorf(
@@ -413,14 +457,8 @@ func expectedImageEnv() map[string]string {
 }
 
 // assertImageEnvironment refuses to publish an image whose environment is
-// not exactly the standardized set.
-//
-// It fails on an *unexpected* variable and not only on a missing one, which
-// is the half that is easy to leave out and is the half that matters: a
-// missing PATH breaks the plugin contract loudly, while a stray variable —
-// a credential leaked in from a build step, a debug flag — ships silently
-// inside something people pull. Checking equality rather than containment
-// is what turns the doc comment on appPath into a guarantee.
+// not exactly the standardized set. It reads each variant's environment and
+// hands the comparison to diffImageEnv.
 func (a *App) assertImageEnvironment(ctx context.Context) error {
 	want := expectedImageEnv()
 	for _, v := range a.Variants {
@@ -440,24 +478,49 @@ func (a *App) assertImageEnvironment(ctx context.Context) error {
 			}
 			got[name] = value
 		}
-		for _, name := range sortedKeys(got) {
-			expected, ok := want[name]
-			if !ok {
-				return fmt.Errorf(
-					"refusing to publish: the %s image carries an environment variable this pipeline never sets, %s; "+
-						"a published image's environment is exactly %s",
-					v.Platform, name, strings.Join(sortedKeys(want), ", "))
-			}
-			if got[name] != expected {
-				return fmt.Errorf(
-					"refusing to publish: the %s image sets %s=%q, but every image this pipeline publishes carries %s=%q",
-					v.Platform, name, got[name], name, expected)
-			}
+		if err := diffImageEnv(got, want); err != nil {
+			return fmt.Errorf("refusing to publish: the %s image %v", v.Platform, err)
 		}
-		for _, name := range sortedKeys(want) {
-			if _, ok := got[name]; !ok {
-				return fmt.Errorf("refusing to publish: the %s image carries no %s", v.Platform, name)
-			}
+	}
+	return nil
+}
+
+// diffImageEnv reports how an image's environment differs from the
+// standardized set, and reports nothing when it does not differ.
+//
+// It fails on an *unexpected* variable and not only on a missing one, which
+// is the half that is easy to leave out and is the half that matters: a
+// missing PATH breaks the plugin contract loudly, while a stray variable —
+// a credential leaked in from a build step, a debug flag — ships silently
+// inside something people pull. Checking equality rather than containment
+// is what turns the doc comment on appPath into a guarantee.
+//
+// It is a free function over two maps rather than a method reading
+// containers, and that is what makes the guarantee testable. Nothing
+// caller-facing can put a variable on an image today, so driving the
+// unexpected-variable branch through the public API is impossible and the
+// strongest half of the check would be unexecutable — deletable tomorrow
+// with every test still green. Split this way, ImageEnvironmentSelfTest
+// drives every branch in process, and assertImageEnvironment is left with
+// the part that genuinely needs a container: reading the environment.
+//
+// The branch stops being hypothetical as soon as an image has a base layer
+// to inherit from, which is the direction this module is going.
+func diffImageEnv(got, want map[string]string) error {
+	for _, name := range sortedKeys(got) {
+		expected, ok := want[name]
+		if !ok {
+			return fmt.Errorf(
+				"carries an environment variable this pipeline never sets, %s; a published image's environment is exactly %s",
+				name, strings.Join(sortedKeys(want), ", "))
+		}
+		if got[name] != expected {
+			return fmt.Errorf("sets %s=%q, but every image this pipeline publishes carries %s=%q", name, got[name], name, expected)
+		}
+	}
+	for _, name := range sortedKeys(want) {
+		if _, ok := got[name]; !ok {
+			return fmt.Errorf("carries no %s", name)
 		}
 	}
 	return nil
