@@ -548,6 +548,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Z5labs).ImageEnvironmentSelfTest(&parent, ctx)
+		case "VersionTagsSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).VersionTagsSelfTest(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
