@@ -335,8 +335,8 @@ func (t *Tests) AppRefusesContributionsThatCollide(ctx context.Context) error {
 	return nil
 }
 
-// AppRefusesContributionsToThePluginDirectory asserts that the one directory on
-// the image's PATH is filled by composition and by nothing else.
+// AppRefusesContributionsOntoThePath asserts that the directories the image's
+// PATH resolves against are filled by composition and by nothing else.
 //
 // The image contract has always said that /usr/local/bin is where an
 // extension's executables land. Until devex#427 the two halves of the module
@@ -354,6 +354,11 @@ func (t *Tests) AppRefusesContributionsThatCollide(ctx context.Context) error {
 // of the call, and a rule that has to look inside changes its mind between
 // builds.
 //
+// The rule is the whole PATH rather than the plugin directory alone, which is
+// the correction this test's last case pins: /usr/local/bin is one of six
+// directories the image searches, and a tree at /usr/bin would be discovered by
+// bare name exactly as one in the plugin directory would.
+//
 // The positive half is the point of the negative half and is asserted in the
 // same test rather than left to be inferred from a comment: the same base, with
 // the same directory, takes a composed application's entry and runs it **by
@@ -361,7 +366,7 @@ func (t *Tests) AppRefusesContributionsThatCollide(ctx context.Context) error {
 // path the contract describes, and it works because composition carries a
 // platform on every byte and pairs the variant sets — which is exactly what a
 // *dagger.File and a *dagger.Directory cannot do.
-func (t *Tests) AppRefusesContributionsToThePluginDirectory(ctx context.Context) error {
+func (t *Tests) AppRefusesContributionsOntoThePath(ctx context.Context) error {
 	const version = "v2.5.0"
 	platforms := []dagger.Platform{hostPlatform()}
 	base := prebuiltApp(helloDir(), "hello", version, platforms).Build()
@@ -391,9 +396,27 @@ func (t *Tests) AppRefusesContributionsToThePluginDirectory(ctx context.Context)
 			want: wantPluginDir + " is the plugin directory",
 		},
 		{
+			// The bypass at its likeliest spelling. "Wrap the binary in a
+			// directory" lands a tree at a subpath far more naturally than at
+			// the directory itself.
+			name: "a tree under the plugin directory",
+			app:  base.WithDirectory(wantPluginDir+"/tools", fixture.Dir, fixture.DirDocument),
+			want: "is inside " + wantPluginDir,
+		},
+		{
 			name: "a tree that would contain the plugin directory",
 			app:  base.WithDirectory("/usr/local", fixture.Dir, fixture.DirDocument),
 			want: "would contain " + wantPluginDir,
+		},
+		{
+			// Not the plugin directory at all. The PATH names six directories
+			// and discovery by bare name works in every one of them, so a rule
+			// that guarded only the documented one would leave this open — and
+			// a 0555 tree here is an executable of no stated architecture that
+			// the image finds by name.
+			name: "a tree at another directory on the image's PATH",
+			app:  base.WithDirectory("/usr/bin", fixture.Dir, fixture.DirDocument),
+			want: "/usr/bin is a directory the image's PATH resolves against",
 		},
 	}
 	for _, c := range cases {

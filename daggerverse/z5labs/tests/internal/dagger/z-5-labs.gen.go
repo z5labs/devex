@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Z5Labs
-func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:556:6)
+func (r *Binding) AsZ5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	q := r.query.Select("asZ5Labs")
 
 	return &Z5Labs{
@@ -118,7 +118,7 @@ func (r *Env) WithZ5LabsGoChainOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type Z5Labs in the environment
-func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:556:6)
+func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withZ5LabsInput")
 	q = q.Arg("name", name)
@@ -131,7 +131,7 @@ func (r *Env) WithZ5LabsInput(name string, value *Z5Labs, description string) *E
 }
 
 // Declare a desired Z5Labs output to be assigned in the environment
-func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:556:6)
+func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	q := r.query.Select("withZ5LabsOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -143,7 +143,7 @@ func (r *Env) WithZ5LabsOutput(name string, description string) *Env { // z5labs
 
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:556:6)
+func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	q := r.query.Select("z5Labs")
 
 	return &Z5Labs{
@@ -153,7 +153,7 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 
 // Z5labs is the root module type. Construct the Go language chain via Go;
 // everything this module does is reached from there.
-type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:556:6)
+type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	query *querybuilder.Selection
 
 	composeSelfTest          *Void
@@ -263,16 +263,18 @@ func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (../../.
 // contribution mechanism exists to prevent, arriving through the mechanism
 // itself.
 //
-// The plugin directory's rows are the exception, and they answer a different
-// question: what may reach the one directory the image's PATH resolves against.
-// Only composition may, because only composition names the architecture of what
-// it brings — see contribute.go. They are a table row rather than a mode bit
-// because a rule enforced by a mode was bypassed by wrapping a binary in a
-// directory, which is what devex#427 closed.
+// The PATH's rows are the exception, and they answer a different question: what
+// may reach a directory the image searches by name. Nothing contributed may,
+// because only composition names the architecture of what it brings — see
+// contribute.go. They are table rows rather than a mode bit because a rule
+// enforced by a mode was bypassed by wrapping a binary in a directory, which is
+// what devex#427 closed, and they cover every directory appPath names rather
+// than the plugin directory alone: discovery by bare name is what the rule is
+// about, and /usr/local/bin is one of six directories it can happen in.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributionPathSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/contributeselftest.go:38:1)
+func (r *Z5Labs) ContributionPathSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/contributeselftest.go:40:1)
 	if r.contributionPathSelfTest != nil {
 		return nil
 	}
@@ -403,7 +405,7 @@ func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File 
 //
 // The returned object is GoChain rather than Go because the `go` module
 // this one depends on already owns that name — see GoChain's doc comment.
-func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:572:1)
+func (r *Z5Labs) Go(source *Directory) *Z5LabsGoChain { // z5labs (../../../../../daggerverse/z5labs/main.go:573:1)
 	assertNotNil("source", source)
 	q := r.query.Select("go")
 	q = q.Arg("source", source)
@@ -931,10 +933,11 @@ func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (../../../..
 //
 // An executable inside such a tree is therefore executable, and that is not a
 // way to extend the image: like WithFile, this refuses a path at, under or over
-// the plugin directory, so nothing a caller contributes is ever discovered on
-// the PATH. Wrapping a binary in a directory used to be exactly that bypass —
-// see the file comment above and App.WithApp, which is the seam that names the
-// platform of every byte it brings.
+// any directory the image's PATH resolves against, so nothing a caller
+// contributes is ever discovered on the PATH by name. Wrapping a binary in a
+// directory used to be exactly that bypass — see the file comment above and
+// App.WithApp, which is the seam that names the platform of every byte it
+// brings.
 //
 // document is an SPDX 2.3 JSON document describing the tree, and it is
 // required for the reason WithFile's is. Z5labs.DirectoryDocument produces one
@@ -942,7 +945,7 @@ func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (../../../..
 // carries one file element per file in the tree, because "the contribution is
 // described" and "every file in the image is accounted for" are different
 // promises and only the second one is the point.
-func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:239:1)
+func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:249:1)
 	assertNotNil("dir", dir)
 	assertNotNil("document", document)
 	q := r.query.Select("withDirectory")
@@ -973,11 +976,12 @@ func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *
 // contributed to every variant. That is why there is no WithExecutable beside
 // this — a raw file carries no platform, so a helper landing one in the
 // executable directory would silently admit a binary built for the wrong
-// architecture — and it is why a path at, under or over the plugin directory is
-// refused here rather than merely being useless. Platform-specific executables
-// arrive as an App instead: App.WithApp composes one, matched platform by
-// platform, and lands its entry in the plugin directory.
-func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:188:1)
+// architecture — and it is why a path at, under or over any directory the
+// image's PATH resolves against is refused here rather than merely being
+// useless. Platform-specific executables arrive as an App instead: App.WithApp
+// composes one, matched platform by platform, and lands its entry in the plugin
+// directory.
+func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:197:1)
 	assertNotNil("file", file)
 	assertNotNil("document", document)
 	q := r.query.Select("withFile")

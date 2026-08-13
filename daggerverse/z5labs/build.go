@@ -34,7 +34,10 @@ import (
 // Contributing there is refused outright, in all three directions —
 // App.WithFile and App.WithDirectory take a file and a directory, neither of
 // which carries an architecture, and both land the same bytes in every
-// variant. See compose.go for the seam and contribute.go for the refusal.
+// variant. The refusal covers every directory appPath names and not this one
+// alone, because the hazard is discovery by bare name and this is one of six
+// directories the image searches. See compose.go for the seam and contribute.go
+// for the refusal.
 //
 // Those two halves used to contradict each other, which is what devex#427
 // settled: a contributed file lands 0444 and so was unusable here, while a

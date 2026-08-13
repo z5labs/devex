@@ -23,12 +23,14 @@ import (
 // contribution mechanism exists to prevent, arriving through the mechanism
 // itself.
 //
-// The plugin directory's rows are the exception, and they answer a different
-// question: what may reach the one directory the image's PATH resolves against.
-// Only composition may, because only composition names the architecture of what
-// it brings — see contribute.go. They are a table row rather than a mode bit
-// because a rule enforced by a mode was bypassed by wrapping a binary in a
-// directory, which is what devex#427 closed.
+// The PATH's rows are the exception, and they answer a different question: what
+// may reach a directory the image searches by name. Nothing contributed may,
+// because only composition names the architecture of what it brings — see
+// contribute.go. They are table rows rather than a mode bit because a rule
+// enforced by a mode was bypassed by wrapping a binary in a directory, which is
+// what devex#427 closed, and they cover every directory appPath names rather
+// than the plugin directory alone: discovery by bare name is what the rule is
+// about, and /usr/local/bin is one of six directories it can happen in.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
@@ -52,7 +54,14 @@ func checkContributionPaths() error {
 		want string
 		// refusal is a substring the refusal must carry.
 		refusal string
-		why     string
+		// method is the helper the rule is driven as, and it is checked rather
+		// than merely passed: every refusal opens with the method that hit it,
+		// and a caller reading "withFile" under a withDirectory call goes
+		// looking at the wrong line of their own pipeline. Empty means
+		// withFile, so only the rows that exist to exercise the other helper
+		// have to say so.
+		method string
+		why    string
 	}{
 		{path: "/etc/ssl/certs/ca-certificates.crt", want: "/etc/ssl/certs/ca-certificates.crt", why: "the ordinary case"},
 		{path: "/srv/templates", want: "/srv/templates", why: "a directory"},
@@ -107,12 +116,19 @@ func checkContributionPaths() error {
 		{
 			path:    "/usr/local/bin",
 			refusal: "/usr/local/bin is the plugin directory",
+			method:  "withDirectory",
 			why:     "the plugin directory itself, which App.WithApp fills and no contribution may",
 		},
 		{
 			path:    "/usr/local/bin/gen",
 			refusal: "/usr/local/bin/gen is inside /usr/local/bin",
 			why:     "an executable contributed onto the PATH, which names no architecture and lands in every variant",
+		},
+		{
+			path:    "/usr/local/bin/tools",
+			refusal: "/usr/local/bin/tools is inside /usr/local/bin",
+			method:  "withDirectory",
+			why:     "a tree under the plugin directory, which is the bypass this rule was written for at its likeliest spelling",
 		},
 		{
 			path:    "/usr/local/bin/../bin/gen",
@@ -122,6 +138,7 @@ func checkContributionPaths() error {
 		{
 			path:    "/usr/local",
 			refusal: "/usr/local would contain /usr/local/bin",
+			method:  "withDirectory",
 			why:     "a tree over the plugin directory, which is the bypass a mode bit could not refuse",
 		},
 		{
@@ -129,19 +146,57 @@ func checkContributionPaths() error {
 			refusal: "/usr would contain /usr/local/bin",
 			why:     "a tree further up, refused for the same reason and without reading what is in it",
 		},
+
+		// The rest of the PATH. The plugin directory is one of six directories
+		// the image searches, so a rule that guarded it alone would leave the
+		// other five open to an executable of no stated architecture that
+		// something finds by name — which is the failure the whole rule is
+		// about, not a property of that one directory. These rows are what keep
+		// the set derived from appPath rather than narrowed back to a constant.
+		{
+			path:    "/usr/bin",
+			refusal: "/usr/bin is a directory the image's PATH resolves against",
+			why:     "another directory on the PATH, where discovery by bare name works exactly as it does in the plugin directory",
+		},
+		{
+			path:    "/bin/helper",
+			refusal: "/bin/helper is inside /bin",
+			method:  "withDirectory",
+			why:     "a tree under the last directory on the PATH, which the leading-segment order must not skip",
+		},
+		{
+			path:    "/usr/local/sbin",
+			refusal: "/usr/local/sbin is a directory the image's PATH resolves against",
+			why:     "the directory the PATH names first, which is not the plugin directory and is protected all the same",
+		},
+
 		{
 			path: "/usr/local/binaries",
 			want: "/usr/local/binaries",
 			why:  "a sibling whose name merely opens with the plugin directory's, which is not inside it",
 		},
 		{
+			path: "/binaries",
+			want: "/binaries",
+			why:  "a sibling of /bin, which the prefix test must not read as being under it",
+		},
+		{
 			path: "/usr/local/share/ca-certificates/corp.crt",
 			want: "/usr/local/share/ca-certificates/corp.crt",
-			why:  "content beside the plugin directory, which is refused by nothing — the rule is about that one directory",
+			why:  "content beside the PATH's directories, which is refused by nothing — the rule is about the PATH",
+		},
+		{
+			path: "/opt/thing/run",
+			want: "/opt/thing/run",
+			why:  "an executable off the PATH, which is the caller's own arrangement and deliberately not refused",
 		},
 	}
 	for _, c := range cases {
-		got, err := validateContributionPath("withFile", c.path)
+		method := c.method
+		if method == "" {
+			method = "withFile"
+		}
+		got, err := validateContributionPath(method, c.path)
 		if c.want != "" {
 			if err != nil {
 				return fmt.Errorf("expected %q to be accepted (%s), got: %v", c.path, c.why, err)
@@ -156,6 +211,9 @@ func checkContributionPaths() error {
 		}
 		if !strings.Contains(err.Error(), c.refusal) {
 			return fmt.Errorf("expected the refusal of %q (%s) to carry %q, got: %v", c.path, c.why, c.refusal, err)
+		}
+		if !strings.HasPrefix(err.Error(), method) {
+			return fmt.Errorf("expected the refusal of %q (%s) to open with %q, got: %v", c.path, c.why, method, err)
 		}
 	}
 	return nil

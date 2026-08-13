@@ -324,12 +324,18 @@ func (t *Tests) AppRefusesToComposeAcrossPlatforms(ctx context.Context) error {
 // Contributing a file where a plugin already is used to be the same collision
 // arriving through the seam that was there first, and after devex#427 it is
 // refused *before* the collision rule is consulted — every composed entry lives
-// in the plugin directory, and no contribution may reach that directory whether
-// or not something is already in it. So the second half asserts a refusal that
-// names the directory rather than the holder. That is a strengthening and not a
-// gap: the path is protected by a rule that does not depend on a plugin having
-// been composed there first, and the holder-naming property is what the first
-// half is for.
+// in the plugin directory, and no contribution may reach any directory on the
+// image's PATH whether or not something is already in it. So the second case
+// asserts the distinguishing half of that message rather than the path, which
+// both refusals name and which would therefore pass whichever rule fired.
+//
+// That leaves the third case doing what the second used to. A composed
+// application's *other* paths are still ordinary contributed paths — a complete
+// application brings its own tree at its own path — so a contribution can still
+// collide with content a composition brought, and the refusal still has to name
+// which application brought it. That branch of the collision rule would
+// otherwise have lost its only coverage to the PATH rule taking the case away
+// from it.
 func (t *Tests) AppRefusesToComposeOntoOccupiedPaths(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
@@ -354,9 +360,35 @@ func (t *Tests) AppRefusesToComposeOntoOccupiedPaths(ctx context.Context) error 
 	if err == nil {
 		return fmt.Errorf("expected contributing a file at %s to be refused, got nil", wantComposedEntry)
 	}
-	if !strings.Contains(err.Error(), wantPluginDir) {
-		return fmt.Errorf("expected the refusal of a contribution at %s to name the plugin directory, got: %s",
-			wantComposedEntry, err.Error())
+	// The distinguishing half. Both refusals name the path, so asserting the
+	// path alone would not say which rule stopped it — and the point of the
+	// case after devex#427 is that the PATH rule got there first.
+	if want := "is inside " + wantPluginDir; !strings.Contains(err.Error(), want) {
+		return fmt.Errorf("expected the refusal of a contribution at %s to carry %q, got: %s",
+			wantComposedEntry, want, err.Error())
+	}
+
+	// And a contribution onto what a composed application brought with it,
+	// which is off the PATH and so is still the collision rule's to refuse. The
+	// version and the fixture match AppComposesACompleteApplication's so the
+	// payload is built once for both.
+	const treePath = "/srv/payload"
+	tree := dag.Directory().
+		WithNewFile("greeting.txt", "hi\n").
+		WithNewFile("data/extra.txt", "extra\n")
+	complete := prebuiltApp(payloadDir(), "payload", "v1.2.3", platforms).
+		Build().
+		WithDirectory(treePath, tree, dag.Z5Labs().DirectoryDocument(tree, treePath))
+	derived := dag.Z5Labs().Go(src).App("v5.1.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms}).
+		WithApp(complete)
+	_, err = derived.WithFile(treePath+"/greeting.txt", note, dag.Z5Labs().FileDocument(note)).ID(ctx)
+	if err == nil {
+		return fmt.Errorf("expected contributing a file inside %s to be refused, got nil", treePath)
+	}
+	for _, want := range []string{treePath, "brought in by the application composed at"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("expected the collision refusal inside %s to carry %q, got: %s", treePath, want, err.Error())
+		}
 	}
 	return nil
 }
