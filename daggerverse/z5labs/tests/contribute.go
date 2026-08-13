@@ -249,6 +249,13 @@ func onlyFiles(entries []string) []string {
 // side, which would also leave the provenance describing a build whose output
 // is no longer in the image.
 //
+// Two of the cases below are not collisions with content — a relative path,
+// and a path under the scratch space TMPDIR names — and they are here rather
+// than in a test of their own because they are refused by the same call and
+// would be just as easy to leave unwired. The scratch-space one is the same
+// failure as a collision, with the deployment's mount on the winning side
+// instead of another contribution.
+//
 // The rules themselves are a table in Z5labs.ContributionPathSelfTest, which
 // costs no build. What is asserted here is the part that cannot be checked in
 // process: that they are wired into both helpers, and that the entrypoint they
@@ -301,6 +308,15 @@ func (t *Tests) AppRefusesContributionsThatCollide(ctx context.Context) error {
 			name: "a relative path, which resolves against a working directory this pipeline never sets",
 			app:  app.WithFile("etc/hosts", fixture.File, fixture.FileDocument),
 			want: "is not an absolute path",
+		},
+		{
+			// The image ships no /tmp: TMPDIR names a path the deployment
+			// mounts scratch space at, so a file contributed under it is in
+			// the image and its documents and invisible the moment anything
+			// is mounted there.
+			name: "a file under the scratch space the deployment mounts",
+			app:  app.WithFile(wantImageTmpDir+"/seed.json", fixture.File, fixture.FileDocument),
+			want: "the scratch space TMPDIR names",
 		},
 	}
 	for _, c := range cases {

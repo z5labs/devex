@@ -90,7 +90,7 @@ func checkComposeWiring(ctx context.Context) error {
 		}
 		return app
 	}
-	standard := map[string]string{"PATH": appPath}
+	standard := expectedImageEnv()
 
 	cases := []struct {
 		base, from *App
@@ -212,7 +212,7 @@ func checkComposablePayloads() error {
 // checkComposedEnvConflicts drives composedEnvConflict over the three ways two
 // environments can fail to be one environment, and the one way they cannot.
 func checkComposedEnvConflicts() error {
-	standard := map[string]string{"PATH": appPath}
+	standard := expectedImageEnv()
 	cases := []struct {
 		base, from map[string]string
 		refusal    string
@@ -220,7 +220,7 @@ func checkComposedEnvConflicts() error {
 	}{
 		{
 			base: standard,
-			from: map[string]string{"PATH": appPath},
+			from: expectedImageEnv(),
 			why:  "the ordinary case: both sides carry the standardized environment and nothing else",
 		},
 		{
