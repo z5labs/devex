@@ -66,7 +66,7 @@ on:
           engine image is cached and docker-loaded under it, and the CLI installed at
           it, so the run legs provision from the local image rather than the registry.
         type: string
-        default: "0.21.7"
+        default: "0.21.8"
       runs-on:
         description: The runner label for every job here.
         type: string
