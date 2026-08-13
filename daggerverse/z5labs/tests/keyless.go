@@ -74,19 +74,16 @@ func newSigstoreHarness(ctx context.Context) (*sigstoreHarness, error) {
 	if err != nil {
 		return nil, err
 	}
-	logID, err := dag.Random().Sha256(ctx)
+	// One random, split, rather than two calls. The suite runs unbounded in
+	// parallel and every publishing test already makes several of these; the
+	// two values here are a public identifier and a cache key, neither of
+	// them a secret whose name has to be independent of its value, so there
+	// is nothing to buy with a second call.
+	random, err := dag.Random().Sha256(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("random sha256 (log id): %v", err)
+		return nil, fmt.Errorf("random sha256: %v", err)
 	}
-	// A separate random from the log id, and a plain environment variable:
-	// services are content-addressed, so without a value that varies per
-	// session the engine would hand a later run an earlier run's CA — which
-	// would then be issuing against a root this run's cosign was never
-	// given. The same trap localRegistry's NONCE exists for.
-	nonce, err := dag.Random().Sha256(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("random sha256 (nonce): %v", err)
-	}
+	logID, nonce := random[:32], random[32:]
 
 	// Built from source rather than run by an interpreter because issuing an
 	// X.509 certificate is what this has to do, and Go's standard library
@@ -95,6 +92,12 @@ func newSigstoreHarness(ctx context.Context) (*sigstoreHarness, error) {
 	base := dag.Go().Container(source).
 		WithEnvVariable("CGO_ENABLED", "0").
 		WithExec([]string{"go", "build", "-o", "/bin/fake-sigstore", "."}).
+		// NONCE is a plain environment variable and it is load bearing:
+		// services are content-addressed across sessions, so without a value
+		// that varies per run the engine would hand a later run an earlier
+		// run's CA — which would then be issuing against a root this run's
+		// cosign was never given. The same trap localRegistry's NONCE exists
+		// for.
 		WithEnvVariable("NONCE", nonce).
 		WithEnvVariable("ROOT_CERT_PEM", string(ca.RootPEM)).
 		WithEnvVariable("INTERMEDIATE_CERT_PEM", string(ca.IntermediatePEM)).
