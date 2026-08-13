@@ -334,6 +334,11 @@ func (b *AppBuilder) Build(ctx context.Context) (*App, error) {
 		SourceURI: b.SourceURI,
 	}, b.Version)
 
+	// Every variant's entry is called the same thing — variantConflict refuses
+	// a set where it is not — so the entry path is one value for the whole
+	// application, which is exactly what makes it declarable.
+	entryPath := appDir + "/" + b.Variants[0].Name
+
 	variants := make([]*variant, 0, len(b.Variants))
 	for _, p := range b.Variants {
 		variants = append(variants, &variant{
@@ -344,7 +349,7 @@ func (b *AppBuilder) Build(ctx context.Context) (*App, error) {
 			// contribution into the documents it attaches. Carrying the entry
 			// itself beside the document is what lets that publish check the
 			// document is about these bytes — see digest.go.
-			Contributions: []contribution{{Name: p.Name, File: p.Document, Content: p.Entry}},
+			Contributions: []contribution{{Name: p.Name, Path: entryPath, File: p.Document, Content: p.Entry}},
 		})
 	}
 	return &App{
@@ -353,6 +358,13 @@ func (b *AppBuilder) Build(ctx context.Context) (*App, error) {
 		SourceURI: b.SourceURI,
 		Pkg:       b.Pkg,
 		Variants:  variants,
+		// The payload is declared here because this is the only place that
+		// knows it: the constructor put the executable in the image, so it is
+		// the only party that can say which paths make the application
+		// runnable and which of them is exec'd. Composition reads this and
+		// never the entrypoint — compose.go says why that distinction is the
+		// whole design.
+		Payload: appPayload{Entry: entryPath, Files: []string{entryPath}},
 	}, nil
 }
 

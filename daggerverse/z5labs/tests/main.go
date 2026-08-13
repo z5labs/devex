@@ -155,6 +155,12 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppFromPrebuiltComposesATreeShapedPayload", t.AppFromPrebuiltComposesATreeShapedPayload)
 	jobs = jobs.WithJob("AppBuilderRefusesAnInconsistentVariantSet", t.AppBuilderRefusesAnInconsistentVariantSet)
 	jobs = jobs.WithJob("AppRefusesADocumentThatDescribesOtherBytes", t.AppRefusesADocumentThatDescribesOtherBytes)
+	jobs = jobs.WithJob("AppComposesAnotherAppsPayload", t.AppComposesAnotherAppsPayload)
+	jobs = jobs.WithJob("AppComposesACompleteApplication", t.AppComposesACompleteApplication)
+	jobs = jobs.WithJob("AppRefusesToComposeAcrossPlatforms", t.AppRefusesToComposeAcrossPlatforms)
+	jobs = jobs.WithJob("AppRefusesToComposeOntoOccupiedPaths", t.AppRefusesToComposeOntoOccupiedPaths)
+	jobs = jobs.WithJob("AppRefusesToPublishAPayloadThatCannotRun", t.AppRefusesToPublishAPayloadThatCannotRun)
+	jobs = jobs.WithJob("AppComposedImageStaysAttested", t.AppComposedImageStaysAttested)
 
 	return jobs.Run(ctx)
 }

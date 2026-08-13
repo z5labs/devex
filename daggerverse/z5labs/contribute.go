@@ -172,9 +172,9 @@ func (a *App) WithFile(
 			Owner:       appOwner,
 			Permissions: contributedFileMode,
 		})
-		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document, Content: file})
+		v.Contributions = append(v.Contributions, contribution{Name: clean, Path: clean, File: document, Content: file})
 	}
-	a.ContributedPaths = append(a.ContributedPaths, clean)
+	a.ContributedPaths = append(a.ContributedPaths, occupied{Path: clean, Holder: contributedHolder})
 	return a, nil
 }
 
@@ -216,9 +216,9 @@ func (a *App) WithDirectory(
 		v.Container = v.Container.WithDirectory(clean, tree, dagger.ContainerWithDirectoryOpts{
 			Owner: appOwner,
 		})
-		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document, Tree: dir})
+		v.Contributions = append(v.Contributions, contribution{Name: clean, Path: clean, File: document, Tree: dir})
 	}
-	a.ContributedPaths = append(a.ContributedPaths, clean)
+	a.ContributedPaths = append(a.ContributedPaths, occupied{Path: clean, Holder: contributedHolder})
 	return a, nil
 }
 
@@ -266,6 +266,12 @@ type occupied struct {
 	Holder string
 }
 
+// contributedHolder is what WithFile and WithDirectory record as holding the
+// path they landed at. Composition records something more specific — which
+// application brought the bytes — which is the reason the holder is carried
+// with the path rather than assumed by whatever reads the list.
+const contributedHolder = "content already contributed"
+
 // occupiedPaths is every path in the image that something already holds: the
 // entrypoint each variant runs, and everything contributed before now.
 //
@@ -278,9 +284,7 @@ type occupied struct {
 // App state is a value that can disagree with them.
 func (a *App) occupiedPaths(ctx context.Context) ([]occupied, error) {
 	out := make([]occupied, 0, len(a.ContributedPaths)+len(a.Variants))
-	for _, p := range a.ContributedPaths {
-		out = append(out, occupied{Path: p, Holder: "content already contributed"})
-	}
+	out = append(out, a.ContributedPaths...)
 	for _, v := range a.Variants {
 		entrypoint, err := v.Container.Entrypoint(ctx)
 		if err != nil {

@@ -47,6 +47,9 @@ type buildFacts struct {
 	Commit string
 	// Version is the version stamped into the binary.
 	Version string
+	// Composed are the applications composed into this image, each with
+	// where its entry landed and the version it was built under.
+	Composed []composedApp
 }
 
 // provenanceStatement renders the in-toto statement for one published
@@ -127,6 +130,21 @@ func externalParameters(identity *workloadIdentity, facts buildFacts) map[string
 // in a predicate reads as a package whose name is the empty string rather
 // than as a build that had none — the same reason the source annotation is
 // absent rather than blank when a tree has no origin.
+//
+// composed is where a derived image says which releases of which payloads it
+// carries, and it is here rather than anywhere else for a reason worth
+// stating. The image is published under the *base's* version, and the SBOM
+// says which module versions went into each executable — so without this,
+// nothing anywhere names the release of the plugin that shipped.
+//
+// It is an internal parameter and not a resolved dependency, because it is the
+// builder's own record of what it put in the image rather than something an
+// identity provider vouched for. The base's published digest is deliberately
+// not recorded beside it: composition layers onto the in-session base rather
+// than pulling a published reference, so at the moment the derived image is
+// built there is no base digest — one exists only if somebody separately
+// published the base, and a predicate whose completeness depended on an
+// unrelated publish would be worse than one that does not claim it.
 func internalParameters(facts buildFacts) map[string]any {
 	out := map[string]any{
 		"platforms": facts.Platforms,
@@ -134,6 +152,16 @@ func internalParameters(facts buildFacts) map[string]any {
 	}
 	if facts.Pkg != "" {
 		out["pkg"] = facts.Pkg
+	}
+	if len(facts.Composed) > 0 {
+		composed := make([]map[string]any, 0, len(facts.Composed))
+		for _, c := range facts.Composed {
+			composed = append(composed, map[string]any{
+				"entry":   c.Entry,
+				"version": c.Version,
+			})
+		}
+		out["composed"] = composed
 	}
 	return out
 }
