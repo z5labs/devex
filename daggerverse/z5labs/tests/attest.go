@@ -275,7 +275,39 @@ func (t *Tests) AppAttachesSbomsAndProvenance(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := envelopeRecordsNoLogEntry(envelope); err != nil {
+		return err
+	}
 	return checkStatement(statement, digest, repository, prov.Claims)
+}
+
+// envelopeRecordsNoLogEntry asserts a supplied-key publish embeds no
+// transparency log bundle in its provenance envelope.
+//
+// The keyless publish embeds one — AppKeylessSignatureVerifiesAgainstALocalSigstore
+// asserts it, and asserts what it is over. This is the other side of that
+// split, and it is worth pinning rather than leaving to follow from the code:
+// a supplied-key publish contacts no log, so a bundle here would be a
+// countersignature nothing issued, on a signature no log ever saw. It is the
+// same mode split signatureAnnotations makes for the signature's annotations,
+// read back from the published bytes.
+func envelopeRecordsNoLogEntry(raw []byte) error {
+	var envelope struct {
+		Signatures []struct {
+			Bundle json.RawMessage `json:"bundle"`
+		} `json:"signatures"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("decode the provenance envelope: %v", err)
+	}
+	for i, signature := range envelope.Signatures {
+		if len(signature.Bundle) > 0 {
+			return fmt.Errorf(
+				"a supplied-key publish embedded a transparency log bundle in signature %d of its provenance envelope, "+
+					"but it contacted no log: %s", i, signature.Bundle)
+		}
+	}
+	return nil
 }
 
 // AppAttestsTwoSegmentRepositories asserts a publish whose repository

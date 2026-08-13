@@ -364,36 +364,140 @@ var jwtLike = regexp.MustCompile(`[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0
 // JSON is not. cert and chain are cosign's extension fields, carried so
 // a verifier can recover the signing identity from the envelope alone
 // rather than needing a separate bundle.
-func (s *signer) dsseEnvelope(statement []byte) ([]byte, error) {
+//
+// # The envelope is recorded in the transparency log too
+//
+// A keyless envelope carries its own log entry, in the bundle field beside
+// the certificate, and that is devex#419's decision. The alternative on the
+// table was to leave it unlogged and call the indirect anchor sufficient —
+// the envelope is a referrer of a digest whose signature *is* logged — and it
+// was rejected, for two reasons.
+//
+// The first is that the indirect anchor does not establish the property. A
+// referrer can be attached to a digest at any time by anyone who can push to
+// the repository, so "this envelope hangs off a digest that was signed at
+// time T" says nothing about when the envelope was signed. What the log
+// establishes for a signature is that the signature existed while the
+// certificate was live, and nothing but a log entry over *this* signature
+// establishes that for this signature.
+//
+// The second is that the module already holds the opposite opinion one file
+// away and cannot coherently hold both. sign.go's defaultRekorURL comment
+// says keyless signing with no log entry is not a weaker signature but a
+// broken one, and signatureAnnotations refuses to publish one. The envelope
+// is signed by the same ephemeral key under the same ten-minute certificate;
+// there is no argument that makes the signature's expiry fatal and the
+// envelope's acceptable.
+//
+// Three things about the shape, each of which is a decision:
+//
+//   - The bundle is embedded rather than left to be looked up, for the reason
+//     rekorBundle gives on the signature's side: a consumer inside a network
+//     that cannot reach rekor.sigstore.dev still has everything the check
+//     needs. It keeps the envelope verifiable on its own bytes, which is what
+//     the package doc promises about it.
+//   - It hangs off the signature, not off the envelope. A log entry
+//     countersigns one signature, and DSSE allows an envelope to carry
+//     several; a top-level field could not say which one it timestamped.
+//     cert and chain are already extension fields in the same place, so this
+//     is the position cosign established rather than a new one.
+//   - It is the same bundle format the signature's dev.sigstore.cosign/bundle
+//     annotation carries, as an object rather than as a string containing
+//     JSON. One format is one thing for a consumer to learn, and a document
+//     meant to be read with jq should not need a second parse to reach half
+//     of itself.
+//
+// # What it costs
+//
+// One more transparency log upload per publish, and it is stated here the way
+// signImage states its own because it is the same cost: another serial round
+// trip to a shared third-party service inside the publish, bounded by
+// rekorTimeout, and another way for a publish to fail that has nothing to do
+// with the artifact. It is one per publish rather than one per platform —
+// there is a single provenance statement per publish — so a four-platform
+// keyless release goes from five round trips to six.
+func (s *signer) dsseEnvelope(ctx context.Context, statement []byte) ([]byte, error) {
 	pae := preAuthenticationEncoding(dssePayloadType, statement)
 	digest := sha256.Sum256(pae)
 	sig, err := ecdsa.SignASN1(rand.Reader, s.key, digest[:])
 	if err != nil {
 		return nil, fmt.Errorf("sign attestation: %v", err)
 	}
-	signature := map[string]string{
-		"sig":   base64.StdEncoding.EncodeToString(sig),
+	encoded := base64.StdEncoding.EncodeToString(sig)
+	signature := map[string]any{
+		"sig":   encoded,
 		"keyid": s.keyID(),
 	}
-	if len(s.chain) > 0 {
-		signature["cert"] = string(s.chain)
-	} else {
+	// The mode is read off the signer rather than off the chain, which is the
+	// rule the keyless field exists to make possible and the one
+	// signatureAnnotations follows. Branching on a non-empty chain would mean
+	// a keyless publish that somehow lost its certificate silently produced
+	// the supplied-key envelope — a bare public key, no identity, and no log
+	// entry — and reported success.
+	if !s.keyless {
 		publicDER, err := x509.MarshalPKIXPublicKey(&s.key.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("encode signing public key: %v", err)
 		}
 		signature["publicKey"] = string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: publicDER}))
+	} else {
+		bundle, err := s.logEnvelopeSignature(ctx, digest[:], encoded)
+		if err != nil {
+			return nil, err
+		}
+		signature["cert"] = string(s.chain)
+		signature["bundle"] = json.RawMessage(bundle)
 	}
 	envelope := map[string]any{
 		"payloadType": dssePayloadType,
 		"payload":     base64.StdEncoding.EncodeToString(statement),
-		"signatures":  []map[string]string{signature},
+		"signatures":  []map[string]any{signature},
 	}
 	out, err := json.MarshalIndent(envelope, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("encode attestation envelope: %v", err)
 	}
 	return append(out, '\n'), nil
+}
+
+// logEnvelopeSignature records the envelope's signature in the transparency
+// log and returns the bundle to embed beside it.
+//
+// The certificate the entry names is the leaf and not the whole chain, which
+// is the same split signatureAnnotations makes and for a reason worth stating
+// rather than inheriting: the entry says which key signed, and a log lenient
+// enough to accept a chain would record an intermediate as the signer. The
+// envelope's own cert field still carries the chain, because that is where a
+// verifier walks to a root and it is what cosign's extension field means.
+//
+// The two refusals mirror signatureAnnotations' exactly. Neither is reachable
+// today — newSigner sets the chain and the log together on every keyless
+// signer, and refuses if the CA returned no chain — and they are here for the
+// same reason the ones there are: what they would otherwise let out is a
+// provenance envelope carrying an identity nothing vouches for, or a
+// certificate that expires into unverifiability, published as though it were
+// complete.
+func (s *signer) logEnvelopeSignature(ctx context.Context, digest []byte, signature string) ([]byte, error) {
+	if len(s.chain) == 0 {
+		return nil, fmt.Errorf(
+			"keyless signing produced no certificate chain, so nothing would vouch for the key that signed the " +
+				"provenance envelope; refusing to publish an attestation no documented check can attribute")
+	}
+	if strings.TrimSpace(s.rekorURL) == "" {
+		return nil, fmt.Errorf(
+			"keyless signing has no transparency log to record in, so nothing would establish the signing certificate " +
+				"was live when it signed the provenance envelope; refusing to publish an attestation that expires " +
+				"into unverifiability")
+	}
+	leaf, _, err := splitCertificateChain(s.chain)
+	if err != nil {
+		return nil, err
+	}
+	bundle, err := rekorBundle(ctx, digest, signature, leaf, s.rekorURL)
+	if err != nil {
+		return nil, err
+	}
+	return bundle, nil
 }
 
 // keyID is the SHA-256 of the DER public key, which is how a verifier

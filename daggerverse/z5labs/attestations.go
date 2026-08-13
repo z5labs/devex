@@ -160,7 +160,7 @@ func (a *App) attachAttestations(
 	if err != nil {
 		return err
 	}
-	envelope, err := sgn.dsseEnvelope(statement)
+	envelope, err := sgn.dsseEnvelope(ctx, statement)
 	if err != nil {
 		return err
 	}

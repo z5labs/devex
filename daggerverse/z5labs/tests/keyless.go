@@ -6,9 +6,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -399,6 +401,107 @@ func (t *Tests) AppKeylessSignatureVerifiesAgainstALocalSigstore(ctx context.Con
 			return err
 		}
 	}
+
+	// The provenance envelope's own log entry, which is the other half of the
+	// same verification story and the half that used to be missing. It is
+	// asserted from the same publish rather than from a second one, because
+	// what makes it meaningful is that the envelope and the signatures above
+	// were produced by one signer against one sigstore.
+	envelope, err := attachedDocument(ctx, registry, repository, digest, provenanceArtifactType)
+	if err != nil {
+		return err
+	}
+	return sig.assertEnvelopeBundle(envelope)
+}
+
+// assertEnvelopeBundle checks the transparency log entry a keyless publish
+// embeds in the provenance envelope.
+//
+// The load-bearing assertion is the hash. The entry has to be over the
+// SHA-256 of *this* envelope's pre-authentication encoding, which is rebuilt
+// here rather than taken from the module for the same reason verifyEnvelope
+// rebuilds it: an entry over anything else — the payload, the envelope bytes,
+// some other signature — is a countersignature that timestamps something
+// other than the signature it travels with, and it would satisfy every
+// weaker check in this function.
+//
+// The certificate is checked the same way round: the signature in the
+// envelope has to verify against the key in the leaf the entry names, so the
+// identity the log recorded is the identity that signed.
+func (h *sigstoreHarness) assertEnvelopeBundle(raw []byte) error {
+	const what = "the provenance envelope"
+	var envelope struct {
+		PayloadType string `json:"payloadType"`
+		Payload     string `json:"payload"`
+		Signatures  []struct {
+			Sig    string          `json:"sig"`
+			Cert   string          `json:"cert"`
+			Bundle json.RawMessage `json:"bundle"`
+		} `json:"signatures"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("decode %s: %v", what, err)
+	}
+	if len(envelope.Signatures) != 1 {
+		return fmt.Errorf("%s carries %d signatures, want 1", what, len(envelope.Signatures))
+	}
+	signature := envelope.Signatures[0]
+	if len(signature.Bundle) == 0 {
+		return fmt.Errorf(
+			"%s carries no bundle, so nothing establishes its certificate was live when it signed", what)
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(envelope.Payload)
+	if err != nil {
+		return fmt.Errorf("decode %s payload: %v", what, err)
+	}
+	pae := fmt.Sprintf("DSSEv1 %d %s %d ", len(envelope.PayloadType), envelope.PayloadType, len(payload))
+	digest := sha256.Sum256(append([]byte(pae), payload...))
+
+	leaves, err := certificatesIn(signature.Cert)
+	if err != nil {
+		return fmt.Errorf("%s: cert: %v", what, err)
+	}
+	if len(leaves) == 0 {
+		return fmt.Errorf("%s carries no certificate", what)
+	}
+	public, ok := leaves[0].PublicKey.(*ecdsa.PublicKey)
+	if !ok {
+		return fmt.Errorf("%s carries a %T certificate key, want an ECDSA key", what, leaves[0].PublicKey)
+	}
+	sig, err := base64.StdEncoding.DecodeString(signature.Sig)
+	if err != nil {
+		return fmt.Errorf("decode %s signature: %v", what, err)
+	}
+	if !ecdsa.VerifyASN1(public, digest[:], sig) {
+		return fmt.Errorf("%s: the signature does not verify against the certificate travelling with it", what)
+	}
+
+	entry, err := h.checkBundle(what, string(signature.Bundle))
+	if err != nil {
+		return err
+	}
+	if got, want := entry.Spec.Data.Hash.Value, hex.EncodeToString(digest[:]); got != want {
+		return fmt.Errorf(
+			"%s: the log recorded an entry over %s, want %s — the SHA-256 of the envelope's pre-authentication encoding",
+			what, got, want)
+	}
+	if got := entry.Spec.Signature.Content; got != signature.Sig {
+		return fmt.Errorf("%s: the log recorded signature %q, want the envelope's own %q", what, got, signature.Sig)
+	}
+	recorded, err := base64.StdEncoding.DecodeString(entry.Spec.Signature.PublicKey.Content)
+	if err != nil {
+		return fmt.Errorf("%s: the logged public key is not base64: %v", what, err)
+	}
+	logged, err := certificatesIn(string(recorded))
+	if err != nil {
+		return fmt.Errorf("%s: the logged public key: %v", what, err)
+	}
+	// One certificate, and the leaf. A chain here would be a log entry naming
+	// an intermediate as the signer on any log lenient enough to take it.
+	if len(logged) != 1 || !bytes.Equal(logged[0].Raw, leaves[0].Raw) {
+		return fmt.Errorf("%s: the log recorded %d certificates, want only the leaf that signed", what, len(logged))
+	}
 	return nil
 }
 
@@ -465,10 +568,38 @@ func (h *sigstoreHarness) assertKeylessAnnotations(
 		}
 	}
 
-	return h.assertBundle(tag, annotations[bundleAnnotation])
+	_, err = h.checkBundle("signature "+tag, annotations[bundleAnnotation])
+	return err
 }
 
-// assertBundle checks the transparency log bundle the publish embedded.
+// loggedEntry is the hashedrekord a bundle's body carries, as much of it as
+// this suite reads back.
+type loggedEntry struct {
+	Kind string `json:"kind"`
+	Spec struct {
+		Data struct {
+			Hash struct {
+				Algorithm string `json:"algorithm"`
+				Value     string `json:"value"`
+			} `json:"hash"`
+		} `json:"data"`
+		Signature struct {
+			Content   string `json:"content"`
+			PublicKey struct {
+				Content string `json:"content"`
+			} `json:"publicKey"`
+		} `json:"signature"`
+	} `json:"spec"`
+}
+
+// checkBundle checks one embedded transparency log bundle and returns the
+// entry inside it, so a caller can go on to assert what that entry is over.
+//
+// Both places a bundle is embedded come through here — a signature's
+// dev.sigstore.cosign/bundle annotation and the provenance envelope's own
+// bundle field — because they are one format written once, and a check that
+// knew only the annotation's would let the envelope's drift into a shape
+// nothing else reads.
 //
 // The field names are capitalized because cosign's bundle type spells them
 // that way, and getting that wrong is invisible until a consumer's cosign
@@ -479,9 +610,9 @@ func (h *sigstoreHarness) assertKeylessAnnotations(
 // only to the log, so a bundle carrying it is a bundle assembled out of what
 // the log answered; a module that fabricated a well-formed bundle without
 // ever reading the response would pass every other check here.
-func (h *sigstoreHarness) assertBundle(tag, raw string) error {
-	if raw == "" {
-		return fmt.Errorf("signature %s carries no %s annotation", tag, bundleAnnotation)
+func (h *sigstoreHarness) checkBundle(what, raw string) (*loggedEntry, error) {
+	if strings.TrimSpace(raw) == "" {
+		return nil, fmt.Errorf("%s carries no transparency log bundle", what)
 	}
 	var bundle struct {
 		SignedEntryTimestamp string `json:"SignedEntryTimestamp"`
@@ -493,33 +624,31 @@ func (h *sigstoreHarness) assertBundle(tag, raw string) error {
 		} `json:"Payload"`
 	}
 	if err := json.Unmarshal([]byte(raw), &bundle); err != nil {
-		return fmt.Errorf("signature %s: decode %s: %v", tag, bundleAnnotation, err)
+		return nil, fmt.Errorf("%s: decode the bundle: %v", what, err)
 	}
 	if bundle.SignedEntryTimestamp == "" {
-		return fmt.Errorf("signature %s: the bundle carries no SignedEntryTimestamp, so nothing establishes the certificate was live when it signed", tag)
+		return nil, fmt.Errorf("%s: the bundle carries no SignedEntryTimestamp, so nothing establishes the certificate was live when it signed", what)
 	}
 	if bundle.Payload.LogID != h.LogID {
-		return fmt.Errorf("signature %s: the bundle names log %q, want this session's %q",
-			tag, bundle.Payload.LogID, h.LogID)
+		return nil, fmt.Errorf("%s: the bundle names log %q, want this session's %q",
+			what, bundle.Payload.LogID, h.LogID)
 	}
 	if bundle.Payload.LogIndex <= 0 || bundle.Payload.IntegratedTime <= 0 {
-		return fmt.Errorf("signature %s: the bundle records index %d at time %d, want both from the log's answer",
-			tag, bundle.Payload.LogIndex, bundle.Payload.IntegratedTime)
+		return nil, fmt.Errorf("%s: the bundle records index %d at time %d, want both from the log's answer",
+			what, bundle.Payload.LogIndex, bundle.Payload.IntegratedTime)
 	}
 	body, err := base64.StdEncoding.DecodeString(bundle.Payload.Body)
 	if err != nil {
-		return fmt.Errorf("signature %s: the bundle's body is not base64: %v", tag, err)
+		return nil, fmt.Errorf("%s: the bundle's body is not base64: %v", what, err)
 	}
-	var entry struct {
-		Kind string `json:"kind"`
-	}
+	var entry loggedEntry
 	if err := json.Unmarshal(body, &entry); err != nil {
-		return fmt.Errorf("signature %s: the bundle's body is not a log entry: %v", tag, err)
+		return nil, fmt.Errorf("%s: the bundle's body is not a log entry: %v", what, err)
 	}
 	if entry.Kind != "hashedrekord" {
-		return fmt.Errorf("signature %s: the bundle's body records a %q entry, want hashedrekord", tag, entry.Kind)
+		return nil, fmt.Errorf("%s: the bundle's body records a %q entry, want hashedrekord", what, entry.Kind)
 	}
-	return nil
+	return &entry, nil
 }
 
 // workflowsSegment is what separates a repository from the workflow file in

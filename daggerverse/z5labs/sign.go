@@ -116,10 +116,12 @@ const rekorTimeout = 60 * time.Second
 // One signature per manifest, and in the keyless mode one transparency log
 // upload per signature, issued one after another against a shared public
 // service. A four-platform release is therefore five serial round trips to
-// rekor.sigstore.dev inside the publish, each bounded by rekorTimeout. That
-// is a publish-latency and third-party-availability characteristic rather
-// than a defect, and it is written down here so it is a known cost rather
-// than a surprise in a release that suddenly takes minutes.
+// rekor.sigstore.dev inside this function, each bounded by rekorTimeout, and
+// a sixth in attachAttestations, which records the provenance envelope's
+// signature the same way — see dsseEnvelope, which states that cost from its
+// own side. That is a publish-latency and third-party-availability
+// characteristic rather than a defect, and it is written down here so it is a
+// known cost rather than a surprise in a release that suddenly takes minutes.
 //
 // repository and digest are taken as arguments rather than read off a
 // buildFacts, so this cannot drift from the repository the caller's error
@@ -411,11 +413,14 @@ func (s *signer) signatureAnnotations(ctx context.Context, payload []byte, signa
 	if chain != "" {
 		out[cosignChainAnnotation] = chain
 	}
-	bundle, err := rekorBundle(ctx, payload, signature, certificate, s.rekorURL)
+	// The log is told the payload's hash, never the payload — see rekorBundle,
+	// which takes the hash for that reason rather than hashing for its caller.
+	sum := sha256.Sum256(payload)
+	bundle, err := rekorBundle(ctx, sum[:], signature, certificate, s.rekorURL)
 	if err != nil {
 		return nil, err
 	}
-	out[cosignBundleAnnotation] = bundle
+	out[cosignBundleAnnotation] = string(bundle)
 	return out, nil
 }
 
@@ -472,13 +477,35 @@ func splitCertificateChain(chain []byte) (string, string, error) {
 	return leaf.String(), rest.String(), nil
 }
 
-// rekorBundle uploads the signature to the public transparency log and
-// returns the bundle cosign carries beside it.
+// rekorBundle records one signature in the transparency log and returns the
+// bundle that travels beside it.
 //
-// The entry is a `hashedrekord`: the log is told the payload's hash, the
-// signature and the certificate, never the payload. That matters for a
-// private image — the log is public and permanent, and a simple signing
-// payload names the repository.
+// Two kinds of signature come through here, and one function serves both
+// because what the log is being told is the same proposition each time — this
+// certificate signed something with this hash, at this moment. A keyless
+// publish records one entry per image signature (signatureAnnotations, over
+// the simple signing payload) and one for the provenance envelope
+// (dsseEnvelope, over its pre-authentication encoding). Nothing distinguishes
+// them here, and nothing needs to: the caller has already decided what it
+// hashed.
+//
+// The entry is a `hashedrekord`: the log is told a hash, the signature and
+// the certificate, never the bytes. That matters for a private image — the
+// log is public and permanent, a simple signing payload names the repository,
+// and a provenance statement names the repository, the commit and the
+// workflow that built it. It is also why the envelope's entry is a
+// hashedrekord over its pre-authentication encoding rather than Rekor's
+// `intoto` type, which is the shape sigstore built for a DSSE envelope and
+// takes the whole envelope, payload included, in the request. What is
+// established is identical — the hash a verifier recomputes from the envelope
+// it holds is the hash the log countersigned — and what is avoided is
+// uploading every provenance statement this pipeline ever signs to a public
+// service. See main.go's package doc, which records the decision and the
+// commands a consumer checks it with.
+//
+// hash is taken rather than computed from bytes for the same reason: a
+// function that hashed for its caller would have to be handed the payload,
+// and then the thing it exists not to send would have to be passed to it.
 //
 // What comes back and is stored is the log's countersignature (the signed
 // entry timestamp) over the entry, plus enough of the entry to check it.
@@ -497,8 +524,10 @@ func splitCertificateChain(chain []byte) (string, string, error) {
 // cannot establish is anything about the public log's availability, its
 // inclusion proof, or a verifier's willingness to trust its
 // countersignature. The suite says as much where it asserts.
-func rekorBundle(ctx context.Context, payload []byte, signature, certificate, rekorURL string) (string, error) {
-	sum := sha256.Sum256(payload)
+func rekorBundle(ctx context.Context, hash []byte, signature, certificate, rekorURL string) ([]byte, error) {
+	if len(hash) != sha256.Size {
+		return nil, fmt.Errorf("transparency log entry needs a %d-byte SHA-256, got %d bytes", sha256.Size, len(hash))
+	}
 	body, err := json.Marshal(map[string]any{
 		"apiVersion": "0.0.1",
 		"kind":       "hashedrekord",
@@ -506,7 +535,7 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate, re
 			"data": map[string]any{
 				"hash": map[string]string{
 					"algorithm": "sha256",
-					"value":     hex.EncodeToString(sum[:]),
+					"value":     hex.EncodeToString(hash),
 				},
 			},
 			"signature": map[string]any{
@@ -518,7 +547,7 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate, re
 		},
 	})
 	if err != nil {
-		return "", fmt.Errorf("encode transparency log entry: %v", err)
+		return nil, fmt.Errorf("encode transparency log entry: %v", err)
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, rekorTimeout)
@@ -527,23 +556,23 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate, re
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		rekorURL+"/api/v1/log/entries", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build transparency log request: %v", err)
+		return nil, fmt.Errorf("build transparency log request: %v", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("record signature in the transparency log at %s: %v", rekorURL, err)
+		return nil, fmt.Errorf("record signature in the transparency log at %s: %v", rekorURL, err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return "", fmt.Errorf("read transparency log response: %v", err)
+		return nil, fmt.Errorf("read transparency log response: %v", err)
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		return "", fmt.Errorf("transparency log at %s returned %s%s", rekorURL, resp.Status, responseDetail(raw))
+		return nil, fmt.Errorf("transparency log at %s returned %s%s", rekorURL, resp.Status, responseDetail(raw))
 	}
 
 	// The response is keyed by the entry's UUID, which is not known until
@@ -562,15 +591,15 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate, re
 		} `json:"verification"`
 	}
 	if err := json.Unmarshal(raw, &entries); err != nil {
-		return "", fmt.Errorf("decode transparency log response: %v", err)
+		return nil, fmt.Errorf("decode transparency log response: %v", err)
 	}
 	if len(entries) != 1 {
-		return "", fmt.Errorf("transparency log at %s recorded %d entries for one signature, want exactly 1",
+		return nil, fmt.Errorf("transparency log at %s recorded %d entries for one signature, want exactly 1",
 			rekorURL, len(entries))
 	}
 	for _, entry := range entries {
 		if entry.Verification.SignedEntryTimestamp == "" {
-			return "", fmt.Errorf("transparency log entry from %s carried no signed entry timestamp", rekorURL)
+			return nil, fmt.Errorf("transparency log entry from %s carried no signed entry timestamp", rekorURL)
 		}
 		// The field names are capitalized because cosign's bundle type
 		// spells them that way; they are a wire format, not a style choice.
@@ -584,10 +613,10 @@ func rekorBundle(ctx context.Context, payload []byte, signature, certificate, re
 			},
 		})
 		if err != nil {
-			return "", fmt.Errorf("encode transparency log bundle: %v", err)
+			return nil, fmt.Errorf("encode transparency log bundle: %v", err)
 		}
-		return string(bundle), nil
+		return bundle, nil
 	}
 	// Unreachable: the length check above already refused an empty map.
-	return "", fmt.Errorf("transparency log at %s recorded no entry", rekorURL)
+	return nil, fmt.Errorf("transparency log at %s recorded no entry", rekorURL)
 }
