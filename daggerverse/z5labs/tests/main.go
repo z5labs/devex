@@ -186,6 +186,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppDocumentHelpersDescribeContentWithNoEcosystem", t.AppDocumentHelpersDescribeContentWithNoEcosystem)
 	jobs = jobs.WithJob("AppContributionsLandInEveryVariant", t.AppContributionsLandInEveryVariant)
 	jobs = jobs.WithJob("AppRefusesContributionsThatCollide", t.AppRefusesContributionsThatCollide)
+	jobs = jobs.WithJob("AppRefusesContributionsOntoThePath", t.AppRefusesContributionsOntoThePath)
 	jobs = jobs.WithJob("AppCustomizedImageStaysAttested", t.AppCustomizedImageStaysAttested)
 	jobs = jobs.WithJob("AppCustomizedImageStillNeedsProvenance", t.AppCustomizedImageStillNeedsProvenance)
 	jobs = jobs.WithJob("AppAttestsTwoSegmentRepositories", t.AppAttestsTwoSegmentRepositories)

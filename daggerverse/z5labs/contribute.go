@@ -59,6 +59,39 @@ import (
 // thing from a document about some other artifact entirely, which is no longer
 // publishable.
 //
+// # The PATH is composition's, and nothing may be contributed onto it
+//
+// Neither helper may put anything in, under or over any directory the image's
+// PATH resolves against. App.WithApp is what puts an executable there — in
+// /usr/local/bin, the plugin directory, see compose.go — and the reason is the
+// one prebuilt.go states about executables generally: a *dagger.File and a
+// *dagger.Directory carry no architecture, and both helpers contribute the same
+// bytes to every variant, so a contribution into a directory the PATH searches
+// is a way to leave an arm64 image holding an amd64 executable that something
+// found by name. Composition carries a platform on every byte, pairs the
+// variants platform by platform, and execs the entry before a byte is
+// published.
+//
+// The rule is the whole PATH and not the plugin directory alone, because the
+// hazard is discovery rather than convention: /usr/local/bin is one of the six
+// directories appPath names, and a tree at /usr/bin would be found by name
+// exactly as one at /usr/local/bin would. pathDirs derives the set from appPath
+// so that adding a directory to the PATH protects it.
+//
+// It was refused by *accident* before devex#427, and only half of it: a
+// contributed file lands 0444 and is therefore not executable, while a
+// contributed tree lands 0555 throughout and is — so the rule the mode policy
+// enforced by omission was bypassed by wrapping the same binary in a directory.
+// A rule that depends on a mode bit is not a rule, so it is stated here and
+// enforced on the path instead.
+//
+// The executable bit a 0555 tree carries *off* the PATH stays, and is accepted
+// rather than worked around: nothing discovers it, because every directory the
+// PATH searches is one no contribution can reach, so an executable contributed
+// at /opt/thing/run is reachable only by something that already knows that path
+// — the caller's own arrangement inside their own image, and not a contract
+// this module advertises.
+//
 // # The directories on the way are the image's, not the contribution's
 //
 // Contributing at /etc/ssl/certs/ca-certificates.crt on a scratch image brings
@@ -94,12 +127,18 @@ const appOwner = "65532:65532"
 // The directory mode is the residue worth stating rather than hiding. The
 // permission is applied to the copied directory *and its contents*, so the
 // mode is uniform: a directory needs 0555 to be traversable, which drags the
-// files inside it to 0555 too. That is accepted because it is harmless on a
-// scratch image with no shell and no loader — an executable bit is worth
-// something only to something that can exec — and because the alternative is
-// rebuilding the tree file by file at 0444 under a 0555 parent, which hits the
-// chained-WithFile fold ceiling on a large directory. A tree of ten thousand
-// templates is a use case; a mode bit nothing in the image can act on is not.
+// files inside it to 0555 too. That is accepted rather than worked around,
+// because the alternative is rebuilding the tree file by file at 0444 under a
+// 0555 parent, which hits the chained-WithFile fold ceiling on a large
+// directory — a tree of ten thousand templates is a use case.
+//
+// What the residue is *not* is a way onto the PATH. It used to be exactly that,
+// which is what devex#427 closed: nothing may be contributed at, under or over
+// any directory the image's PATH resolves against, so an executable a tree
+// carries is discovered by nothing and can only be run by something that
+// already knows its absolute path. That is the caller arranging their own
+// image, rather than this module admitting an executable whose architecture
+// nobody stated.
 const (
 	contributedFileMode      = 0o444
 	contributedDirectoryMode = 0o555
@@ -148,7 +187,11 @@ func normalizedTree(dir *dagger.Directory) *dagger.Directory {
 // contributed to every variant. That is why there is no WithExecutable beside
 // this — a raw file carries no platform, so a helper landing one in the
 // executable directory would silently admit a binary built for the wrong
-// architecture. Platform-specific executables arrive as an App instead.
+// architecture — and it is why a path at, under or over any directory the
+// image's PATH resolves against is refused here rather than merely being
+// useless. Platform-specific executables arrive as an App instead: App.WithApp
+// composes one, matched platform by platform, and lands its entry in the plugin
+// directory.
 //
 // +cache="session"
 func (a *App) WithFile(
@@ -186,6 +229,14 @@ func (a *App) WithFile(
 // too, rather than 0444 under a traversable parent — and the comment on
 // contributedDirectoryMode above records why that is accepted rather than
 // worked around.
+//
+// An executable inside such a tree is therefore executable, and that is not a
+// way to extend the image: like WithFile, this refuses a path at, under or over
+// any directory the image's PATH resolves against, so nothing a caller
+// contributes is ever discovered on the PATH by name. Wrapping a binary in a
+// directory used to be exactly that bypass — see the file comment above and
+// App.WithApp, which is the seam that names the platform of every byte it
+// brings.
 //
 // document is an SPDX 2.3 JSON document describing the tree, and it is
 // required for the reason WithFile's is. Z5labs.DirectoryDocument produces one
@@ -322,6 +373,23 @@ func (a *App) occupiedPaths(ctx context.Context) ([]occupied, error) {
 // undetectable incompleteness the overlap rules exist for, arriving from the
 // deployment's side instead of from another contribution's.
 //
+// Every directory the image's PATH resolves against is refused too, in all
+// three directions — the directory itself, anything under it, and anything that
+// would contain it. App.WithApp is what puts an executable on the PATH; the
+// file comment above carries why a contribution there is a wrong-architecture
+// executable waiting to be discovered by name, and why the rule is the whole
+// PATH rather than the plugin directory alone. The containing direction is
+// refused without looking inside the tree, exactly as overlappingPath refuses a
+// contribution that would contain something already in the image: a tree at
+// /usr/local is refused whether or not it happens to carry a bin/ today,
+// because whether it does is a property of the caller's tree rather than of the
+// call, and a rule that has to read the content is one that changes its mind
+// between builds.
+//
+// The image's root is refused before any of that, by the check above, which is
+// what keeps "/" out of the containing direction — a candidate of "/" would
+// make the prefix test look for "//".
+//
 // HOME's directory is *not* refused, and the asymmetry is deliberate.
 // /home/nonroot is in the image and read-only, and a deployment mounts over it
 // only in the one case where an application genuinely needs a writable home —
@@ -360,7 +428,75 @@ func validateContributionPath(method, raw string) (string, error) {
 				"there, and anything contributed under it disappears the moment it does",
 			method, what)
 	}
+	if where := pathDirCollision(clean); where != "" {
+		return "", fmt.Errorf(
+			"%s: %s, and nothing may be contributed to a directory the image's PATH resolves against — a contributed "+
+				"file or tree carries no architecture and lands in every variant, so content that something finds on "+
+				"the PATH by name is a way to leave an arm64 image running an amd64 executable; withApp composes "+
+				"another application's payload, which is matched platform by platform and run before anything is "+
+				"published, and lands its entry in %s",
+			method, where, appPluginDir)
+	}
 	return clean, nil
+}
+
+// pathDirs is every directory the image's PATH resolves against, with the
+// plugin directory first.
+//
+// It is derived from appPath rather than listed again, so the set the rule
+// protects is the set the image really searches: a directory added to the PATH
+// is protected by having been added, and one removed stops being protected the
+// same way. Two lists would be two things to keep in agreement, and the way
+// they would disagree is a directory on the PATH that a caller may contribute
+// an executable of no stated architecture into.
+//
+// The plugin directory is first because it is the one a candidate is most
+// likely to collide with and the only one anything fills, so it is the one a
+// refusal should name when a path collides with more than one — /usr/local
+// contains both it and /usr/local/sbin, and being told about the plugin
+// directory is what points at withApp.
+func pathDirs() []string {
+	out := []string{appPluginDir}
+	for _, dir := range strings.Split(appPath, ":") {
+		if dir != appPluginDir && dir != "" {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// pathDirCollision reports how clean collides with a directory the image's
+// PATH resolves against, or "" when it collides with none of them.
+//
+// The rule is the PATH's rather than the plugin directory's alone, and that is
+// the correction devex#427's review forced. The hazard is discovery by bare
+// name: a contributed tree lands 0555 throughout and carries no architecture,
+// so an executable in it is a wrong-architecture binary something can find by
+// name — and /usr/local/bin is one of six directories the image's PATH names,
+// not the only one. A rule that guarded the plugin directory alone would have
+// left /usr/bin and /bin open while the comments above claimed nothing
+// contributed is ever discovered on the PATH.
+//
+// The three directions are the three overlappingPath distinguishes, and they
+// are separated here for the same reason: a caller told only that a path is
+// refused has to work out for themselves whether they landed in the directory
+// or over it.
+func pathDirCollision(clean string) string {
+	for _, dir := range pathDirs() {
+		what := ", a directory the image's PATH resolves against"
+		if dir == appPluginDir {
+			what = ", the plugin directory an extension's executables land in"
+		}
+		switch {
+		case clean == dir:
+			return clean + " is" + strings.TrimPrefix(what, ",")
+		case strings.HasPrefix(clean, dir+"/"):
+			return clean + " is inside " + dir + what
+		case strings.HasPrefix(dir, clean+"/"):
+			return clean + " would contain " + dir + what
+		}
+	}
+	return ""
 }
 
 // overlappingPath reports how the candidate collides with something already in

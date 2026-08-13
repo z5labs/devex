@@ -31,6 +31,15 @@
 // default a container runtime injects when an image sets none, so an image
 // that later gains a real base layer behaves the way its base expects.
 //
+// Exactly one seam puts an executable in that directory, and it is App.WithApp
+// — see "Composing one application into another" below. Contributing at, under
+// or over it is refused, and so is contributing onto any of the other five
+// directories that PATH names: a contributed file or tree states no
+// architecture and lands in every variant, so content something finds on the
+// PATH by name is a way to leave an arm64 image running an amd64 executable.
+// "An extension's executables land here" therefore means composition, and
+// nothing else (devex#427).
+//
 // The application's own entrypoint does not rely on any of that. It is an
 // absolute path — /app/<binary> — so the app runs whatever the PATH says.
 // PATH exists for what an extension adds, not for finding the app itself.

@@ -27,6 +27,24 @@ import (
 // worth anything — a plugin directory that moved per app could not be
 // written against at all.
 //
+// One seam puts an executable there and it is App.WithApp: an extension
+// arrives as a whole application, so every byte it brings names the platform
+// it was built for, the variant sets are paired platform by platform, and the
+// entry is exec'd in the derived image before anything is published.
+// Contributing there is refused outright, in all three directions —
+// App.WithFile and App.WithDirectory take a file and a directory, neither of
+// which carries an architecture, and both land the same bytes in every
+// variant. The refusal covers every directory appPath names and not this one
+// alone, because the hazard is discovery by bare name and this is one of six
+// directories the image searches. See compose.go for the seam and contribute.go
+// for the refusal.
+//
+// Those two halves used to contradict each other, which is what devex#427
+// settled: a contributed file lands 0444 and so was unusable here, while a
+// contributed tree lands 0555 and was not — so the rule one helper enforced
+// by omission was bypassed by wrapping the same binary in a directory. The
+// sentence above means composition, and now says so.
+//
 // The application's own binary does not live here and does not rely on the
 // PATH: appDir holds it and the entrypoint names it absolutely. PATH exists
 // for what an extension adds, not for finding the app itself.
