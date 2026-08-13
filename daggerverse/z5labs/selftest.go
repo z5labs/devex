@@ -215,12 +215,19 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 // comparison out and driving it here is what makes the refusal a guarantee
 // rather than a comment — delete it and this check goes red.
 //
-// It also pins the standardized set itself: that it is PATH, HOME and TMPDIR
-// and nothing else, that the plugin directory is on the PATH, and what the
-// other two point at. All of those are things other people write Dockerfiles
-// and Kubernetes manifests against — TMPDIR in particular names the path a
-// deployment has to mount scratch space at, so moving it silently would break
-// every manifest already written.
+// It also pins the shape of the standardized set: that it is PATH, HOME and
+// TMPDIR and nothing else, that each is the constant that names it, and that
+// the plugin directory is on the PATH.
+//
+// It does **not** pin the values, and the distinction is worth stating because
+// the check below reads like it does. The comparison is against the same
+// constants expectedImageEnv returns, so it catches a fourth variable, a
+// missing one, or a literal written into expectedImageEnv beside the constant
+// — drift between the map and the constants — and not a constant that moved.
+// Moving one is what breaks published Dockerfiles and deployed manifests, and
+// the pin that catches it is the deliberately literal one in tests/, beside
+// wantImagePath. Two literal copies here would be a third place to update and
+// a second place to get it wrong.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
@@ -230,12 +237,13 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 	want := expectedImageEnv()
 
-	// The standardized set is exactly these three, with these values. A
-	// caller who writes `COPY --from=... /usr/local/bin/thing` is relying on
-	// the plugin directory being on the PATH; a deployment mounting an
-	// emptyDir is relying on TMPDIR naming the path it mounts at; and an
-	// out-of-pipeline consumer reading the image's config is relying on the
-	// set being knowable at all.
+	// The standardized set is exactly these three names, each carrying the
+	// constant that names it. A caller who writes `COPY --from=...
+	// /usr/local/bin/thing` is relying on the plugin directory being on the
+	// PATH; a deployment mounting an emptyDir is relying on TMPDIR being in
+	// the set at all; and an out-of-pipeline consumer reading the image's
+	// config is relying on the set being knowable. What each constant is set
+	// to is pinned in tests/, not here — see the doc comment.
 	pinned := map[string]string{"PATH": appPath, "HOME": appHomeDir, "TMPDIR": appTmpDir}
 	if len(want) != len(pinned) {
 		return fmt.Errorf("expected the standardized environment to be %v, got %v", sortedKeys(pinned), sortedKeys(want))

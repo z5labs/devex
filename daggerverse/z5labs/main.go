@@ -51,16 +51,28 @@
 //
 // What the image carries behind the two values is deliberately different.
 //
-// HOME names a directory the image really has: /home/nonroot, empty, owned by
-// root, mode 0555. A read under it fails ENOENT and a write fails EACCES, the
-// same way on every runtime and under every user a deployment picks, instead
-// of succeeding into a writable layer under one and failing under another.
-// /home/nonroot is the conventional home of uid 65532, which is who these
-// images' files belong to, so it is also the path a deployment mounts a volume
-// at in the case where an application genuinely needs a writable home. Nothing
-// in the image needs one: an application that writes to its home directory is
-// making its own state part of a digest that is supposed to describe what is
-// running.
+// HOME names a directory the image really has: /home/nonroot, owned by root,
+// mode 0555, and shipped empty. A read under it fails ENOENT and a write fails
+// EACCES, the same way on every runtime, instead of succeeding into a writable
+// layer under one and failing under another. /home/nonroot is the conventional
+// home of uid 65532, which is who these images' files belong to, so it is also
+// the path a deployment mounts a volume at in the case where an application
+// genuinely needs a writable home. Nothing in the image needs one: an
+// application that writes to its home directory is making its own state part
+// of a digest that is supposed to describe what is running.
+//
+// The one user that mode does not stop is root, which bypasses the permission
+// check — so "a write fails" is a promise under every user except uid 0, and
+// uid 0 is what a container runtime picks when nothing overrides it (devex#399
+// is the image's own user, and is open). Owning the directory as root rather
+// than as the application's user is what makes the promise hold for every
+// other choice a deployment can make, rather than only for the default one.
+//
+// A caller may contribute read-only content under it — a default
+// configuration an operator can override by mounting one — and that is
+// contributed content like any other, landing owned by the application's user
+// and read-only. "Empty" is what the image ships, not a rule about what may go
+// there; see contribute.go.
 //
 // TMPDIR names /tmp, and the image does not contain /tmp. An application that
 // needs scratch space therefore fails — os.CreateTemp with "no such file or

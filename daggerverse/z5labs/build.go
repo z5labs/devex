@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
 )
 
 // The image environment every application this module builds carries, in
-// full. Both values are fixed here and there is deliberately no
-// caller-facing way to move either: a published image is something other
+// full. Every value is fixed here and there is deliberately no
+// caller-facing way to move any of them: a published image is something other
 // people write `FROM` and `COPY` lines against, and a PATH that varied per
 // app would make "put your plugin on the PATH" a question you have to ask
 // per image rather than a contract the module promises.
@@ -278,12 +277,7 @@ func imageForEntry(platform dagger.Platform, name string, entry *dagger.File, an
 		ctr = ctr.WithEnvVariable(k, env[k])
 	}
 	ctr = ctr.WithEntrypoint([]string{entrypoint})
-	keys := make([]string, 0, len(annotations))
-	for k := range annotations {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	for _, k := range sortedKeys(annotations) {
 		ctr = ctr.WithAnnotation(k, annotations[k])
 	}
 	return ctr

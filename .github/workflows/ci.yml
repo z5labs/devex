@@ -94,7 +94,11 @@ jobs:
       #                            31716230729), and the first commit to add anything
       #                            to the suite (#424) came back a timeout rather than
       #                            a failure. A bare module key, because the module
-      #                            has the one check and the coarse leg runs it too.
+      #                            has the one check and the coarse leg runs it too
+      #                            — which is also why `split-modules` above does
+      #                            nothing for it and why this is a budget increase
+      #                            rather than a fix. Splitting the suite so the
+      #                            number can come back down is #433.
       timeouts: >-
         {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
         "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
