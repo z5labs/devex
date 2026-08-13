@@ -369,7 +369,7 @@ type Z5LabsBuilderID string
 type Z5LabsGoAppID string
 
 // A unique identifier for an object.
-type Z5LabsGoLibID string
+type Z5LabsGoChainID string
 
 // A unique identifier for an object.
 type Z5LabsID string
@@ -13495,12 +13495,12 @@ func (r *Query) LoadZ5LabsGoAppFromID(id Z5LabsGoAppID) *Z5LabsGoApp {
 	}
 }
 
-// Load a Z5LabsGoLib from its ID.
-func (r *Query) LoadZ5LabsGoLibFromID(id Z5LabsGoLibID) *Z5LabsGoLib {
-	q := r.query.Select("loadZ5LabsGoLibFromID")
+// Load a Z5LabsGoChain from its ID.
+func (r *Query) LoadZ5LabsGoChainFromID(id Z5LabsGoChainID) *Z5LabsGoChain {
+	q := r.query.Select("loadZ5LabsGoChainFromID")
 	q = q.Arg("id", id)
 
-	return &Z5LabsGoLib{
+	return &Z5LabsGoChain{
 		query: q,
 	}
 }

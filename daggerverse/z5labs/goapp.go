@@ -85,7 +85,7 @@ func (a *GoApp) Ci(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := sharedCheck(ctx, a.Source, a.LintConfig, a.LintVersion); err != nil {
+	if err := sharedCheck(ctx, a.Source, a.LintConfig, a.LintVersion, true); err != nil {
 		return "", err
 	}
 	annotations, err := a.ociAnnotations(ctx)

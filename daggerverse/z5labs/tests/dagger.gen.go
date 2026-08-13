@@ -367,27 +367,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GoAppStampsWhenPublishOnDoesNotMatch(&parent, ctx)
-		case "GoLibCiFailsForFailingTest":
+		case "GoCiChainsEveryWithMethod":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoLibCiFailsForFailingTest(&parent, ctx)
-		case "GoLibCiPassesForValidSource":
+			return nil, (*Tests).GoCiChainsEveryWithMethod(&parent, ctx)
+		case "GoCiFailsForFailingTest":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoLibCiPassesForValidSource(&parent, ctx)
-		case "GoLibCiRoutesLintVersion":
+			return nil, (*Tests).GoCiFailsForFailingTest(&parent, ctx)
+		case "GoCiLintConfigOverridesBundledPolicy":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Tests).GoLibCiRoutesLintVersion(&parent, ctx)
+			return nil, (*Tests).GoCiLintConfigOverridesBundledPolicy(&parent, ctx)
+		case "GoCiPassesForValidSource":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoCiPassesForValidSource(&parent, ctx)
+		case "GoCiRoutesLintVersion":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoCiRoutesLintVersion(&parent, ctx)
+		case "GoCiRunsWithRaceByDefault":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GoCiRunsWithRaceByDefault(&parent, ctx)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
