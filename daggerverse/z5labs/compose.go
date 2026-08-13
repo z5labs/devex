@@ -206,45 +206,107 @@ func (a *App) WithApp(
 			return nil, fmt.Errorf("withApp cannot compose this application: the %s images %v", pair.Base.Platform, err)
 		}
 	}
-	// Nothing above this line has changed anything. Every refusal is made
-	// before the first variant is touched, so a WithApp that fails leaves the
-	// App exactly as it found it rather than half composed.
-	destinations := make(map[string]string, len(crossings))
-	for _, c := range crossings {
-		destinations[c.From] = c.To
+	placements, err := composedPlacements(from, pairs, crossings)
+	if err != nil {
+		return nil, err
 	}
-	for _, pair := range pairs {
-		for _, c := range pair.From.Contributions {
-			to, ok := destinations[c.Path]
-			if !ok {
-				// Unreachable while every contribution is made through the
-				// paths composedCrossings reads. It is an error rather than a
-				// silent skip because the thing it would skip is bytes: an
-				// image missing a file its documents describe is exactly what
-				// this seam refuses everywhere else.
-				return nil, fmt.Errorf(
-					"withApp: the composed application carries %s in its %s image, which its declaration does not account for",
-					c.Path, pair.From.Platform)
-			}
-			pair.Base.Container = placeContribution(pair.Base.Container, to, to == destinations[from.Payload.Entry], c)
+	// Only now is anything changed. Every refusal above is made before the
+	// first variant is touched — including the per-variant ones, which is why
+	// the placements are worked out for every platform before any of them is
+	// applied. A WithApp that failed part way through the platforms would
+	// leave behind an image set that disagreed with itself, which is the one
+	// state worse than not composing at all.
+	for i, pair := range pairs {
+		for _, p := range placements[i] {
+			pair.Base.Container = placeContribution(pair.Base.Container, p.To, p.Entry, p.Source)
 			pair.Base.Contributions = append(pair.Base.Contributions, contribution{
-				Name:    c.Name,
-				Path:    to,
-				File:    c.File,
-				Content: c.Content,
-				Tree:    c.Tree,
+				Name:    p.Source.Name,
+				Path:    p.To,
+				File:    p.Source.File,
+				Content: p.Source.Content,
+				Tree:    p.Source.Tree,
 			})
 		}
 	}
 	for _, c := range crossings {
 		a.ContributedPaths = append(a.ContributedPaths, occupied{Path: c.To, Holder: c.Holder})
 	}
+	// The composed application's own entry, and then everything that had
+	// already been composed into it. The order matters no more than the order
+	// of the crossings does, but it is stable, which is what keeps a predicate
+	// a pure function of what was built.
 	a.Composed = append(a.Composed, composedApp{
-		Entry:   destinations[from.Payload.Entry],
+		Entry:   composedEntryPath(from.Payload.Entry),
 		Version: from.Version,
 	})
 	a.Composed = append(a.Composed, from.Composed...)
 	return a, nil
+}
+
+// placement is one contribution of the composed application, resolved to where
+// it lands in the derived image and whether it lands executable.
+type placement struct {
+	To     string
+	Entry  bool
+	Source contribution
+}
+
+// composedPlacements resolves every platform's contributions to placements, and
+// refuses a set that does not account for exactly what was declared.
+//
+// It is separate from applying them because it is fallible, and applying them
+// is not: worked out first, a refusal for the last platform cannot leave the
+// first one already composed.
+//
+// Both directions of the accounting are checked and they catch different
+// failures. A contribution the declaration does not cover would land nowhere,
+// silently. A declared path no contribution carries is worse: nothing lands,
+// and the path is still recorded as composed, named in the provenance and
+// counted among the image's contents — a document about bytes that are not in
+// the image, which is the exact failure this whole seam is built to refuse.
+func composedPlacements(from *App, pairs []variantPair, crossings []crossing) ([][]placement, error) {
+	destinations := make(map[string]string, len(crossings))
+	for _, c := range crossings {
+		destinations[c.From] = c.To
+	}
+	// Every path that has to land executable: the composed application's own
+	// entry, and every entry that had already been composed into it. Without
+	// the second, composing a *derived* image — which the seam explicitly
+	// allows — would carry its plugins across as ordinary read-only
+	// contributions and strip the one bit that makes them runnable. That
+	// failure is caught at publish, but it is caught as a payload that will
+	// not start, which blames the payload rather than the composition.
+	entries := map[string]bool{destinations[from.Payload.Entry]: true}
+	for _, c := range from.Composed {
+		if to, ok := destinations[c.Entry]; ok {
+			entries[to] = true
+		}
+	}
+	out := make([][]placement, 0, len(pairs))
+	for _, pair := range pairs {
+		placed := make(map[string]bool, len(crossings))
+		resolved := make([]placement, 0, len(pair.From.Contributions))
+		for _, c := range pair.From.Contributions {
+			to, ok := destinations[c.Path]
+			if !ok {
+				return nil, fmt.Errorf(
+					"withApp: the composed application carries %s in its %s image, which its declaration does not account for",
+					c.Path, pair.From.Platform)
+			}
+			placed[c.Path] = true
+			resolved = append(resolved, placement{To: to, Entry: entries[to], Source: c})
+		}
+		for _, c := range crossings {
+			if !placed[c.From] {
+				return nil, fmt.Errorf(
+					"withApp: the composed application declares %s, which its %s image carries nothing for; "+
+						"composing it would record a path in the derived image's documents that no byte in the image answers to",
+					c.From, pair.From.Platform)
+			}
+		}
+		out = append(out, resolved)
+	}
+	return out, nil
 }
 
 // crossing is one thing a composed application brings into the derived image:

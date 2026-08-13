@@ -157,6 +157,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("AppRefusesADocumentThatDescribesOtherBytes", t.AppRefusesADocumentThatDescribesOtherBytes)
 	jobs = jobs.WithJob("AppComposesAnotherAppsPayload", t.AppComposesAnotherAppsPayload)
 	jobs = jobs.WithJob("AppComposesACompleteApplication", t.AppComposesACompleteApplication)
+	jobs = jobs.WithJob("AppComposesADerivedImage", t.AppComposesADerivedImage)
 	jobs = jobs.WithJob("AppRefusesToComposeAcrossPlatforms", t.AppRefusesToComposeAcrossPlatforms)
 	jobs = jobs.WithJob("AppRefusesToComposeOntoOccupiedPaths", t.AppRefusesToComposeOntoOccupiedPaths)
 	jobs = jobs.WithJob("AppRefusesToPublishAPayloadThatCannotRun", t.AppRefusesToPublishAPayloadThatCannotRun)

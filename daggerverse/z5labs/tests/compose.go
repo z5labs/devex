@@ -205,6 +205,75 @@ func (t *Tests) AppComposesACompleteApplication(ctx context.Context) error {
 	return nil
 }
 
+// AppComposesADerivedImage asserts that an application that has already been
+// composed into may itself be composed, and that the plugins it picked up on
+// the way stay runnable.
+//
+// A derived image is an ordinary App, so composing one is a documented use and
+// the payload of the result is the union of both sides'. The failure this test
+// exists for is that the union is not uniform: the composed application's own
+// entry is declared, while a plugin it picked up earlier travels as an ordinary
+// contribution — so a composition that decided what lands executable from the
+// declaration alone would carry the earlier plugin across read-only and strip
+// the one bit that makes it runnable. That failure is caught at publish, as a
+// payload that will not start, which blames the payload rather than the
+// composition; so it is caught here, where the mode can be read.
+//
+// Every executable in the final image is run rather than merely stat'd, and by
+// bare name where it is on the PATH. A mode assertion alone would not catch a
+// plugin that landed executable and unreachable.
+func (t *Tests) AppComposesADerivedImage(ctx context.Context) error {
+	inner, err := gitFixture(ctx, helloDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	outer, err := gitFixture(ctx, stampedDir(), "main", nil)
+	if err != nil {
+		return fmt.Errorf("gitFixture: %v", err)
+	}
+	platforms := []dagger.Platform{hostPlatform()}
+	derived := dag.Z5Labs().Go(inner).
+		App("v7.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms}).
+		WithApp(composedPlugin(wantPluginName, "v0.3.0", platforms))
+	composed := dag.Z5Labs().Go(outer).
+		App("v8.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: platforms}).
+		WithApp(derived)
+	ctr := composed.Container(hostPlatform())
+
+	// The outer application's own binary, the application composed into it,
+	// and the plugin that application had already picked up. All three are
+	// executables and all three have to land as one.
+	paths := []string{"/app/stamped", "/usr/local/bin/hello", wantComposedEntry}
+	modes, err := statInImage(ctx, ctr, paths)
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		if got, want := modes[p], wantEntryMode+" "+wantOwner; got != want {
+			return fmt.Errorf("%s is %q, want %q", p, got, want)
+		}
+	}
+	// The outer image's entrypoint is still its own, not either of the
+	// applications composed into it.
+	entrypoint, err := ctr.Entrypoint(ctx)
+	if err != nil {
+		return fmt.Errorf("read entrypoint: %v", err)
+	}
+	if len(entrypoint) != 1 || entrypoint[0] != "/app/stamped" {
+		return fmt.Errorf("the twice-derived image's entrypoint is %v, want [/app/stamped]", entrypoint)
+	}
+	for name, want := range map[string]string{"hello": "hello\n", wantPluginName: "plugin ok\n"} {
+		out, err := ctr.WithExec([]string{name}).Stdout(ctx)
+		if err != nil {
+			return fmt.Errorf("run %s through the image's PATH: %w", name, err)
+		}
+		if out != want {
+			return fmt.Errorf("%s printed %q, want %q", name, out, want)
+		}
+	}
+	return nil
+}
+
 // AppRefusesToComposeAcrossPlatforms asserts that a platform set which does
 // not match exactly is refused, in both directions.
 //
@@ -234,7 +303,7 @@ func (t *Tests) AppRefusesToComposeAcrossPlatforms(ctx context.Context) error {
 		app := dag.Z5Labs().Go(src).App("v4.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: c.base})
 		_, err := app.WithApp(composedPlugin(wantPluginName, "v0.1.0", c.plugin)).ID(ctx)
 		if err == nil {
-			return fmt.Errorf("expected %s to be refused (%s), got nil", c.why, c.why)
+			return fmt.Errorf("expected a base carrying %v and a payload carrying %v to be refused (%s), got nil", c.base, c.plugin, c.why)
 		}
 		if !strings.Contains(err.Error(), c.want) {
 			return fmt.Errorf("expected the refusal of %s to mention %q, got: %s", c.why, c.want, err.Error())

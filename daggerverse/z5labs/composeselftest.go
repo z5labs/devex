@@ -44,7 +44,109 @@ func (m *Z5labs) ComposeSelfTest(ctx context.Context) error {
 	if err := checkExecRefusals(); err != nil {
 		return err
 	}
-	return checkComposedCrossings()
+	if err := checkComposedCrossings(); err != nil {
+		return err
+	}
+	return checkComposeWiring(ctx)
+}
+
+// checkComposeWiring drives WithApp itself over the refusals whose rules the
+// tables above check in isolation.
+//
+// It exists because a rule and its wiring are two things, and two of these
+// rules have no route in through the public API at all: nothing caller-facing
+// can declare a multi-file payload or put an environment variable on an image,
+// so `composablePayload` and `composedEnvConflict` could be left unreferenced
+// by WithApp and every other test here would still pass. That is the failure
+// mode a table alone cannot see.
+//
+// The applications are constructed as struct literals rather than through a
+// constructor, which is the whole reason this is a module self-test and not a
+// test in tests/: nothing outside this package can build an App that is wrong
+// in these particular ways, and an assertion that cannot be driven is an
+// assertion that gets deleted.
+//
+// The containers are real, because the environment check reads them. They are
+// empty containers with variables set and nothing else, so no image is built
+// and nothing is compiled.
+func checkComposeWiring(ctx context.Context) error {
+	const platform = dagger.Platform("linux/amd64")
+	build := func(entry string, env map[string]string, mutate func(*App)) *App {
+		ctr := dag.Container(dagger.ContainerOpts{Platform: platform})
+		for _, name := range sortedKeys(env) {
+			ctr = ctr.WithEnvVariable(name, env[name])
+		}
+		app := &App{
+			Version: "v1.0.0",
+			Variants: []*variant{{
+				Platform:      platform,
+				Container:     ctr,
+				Contributions: []contribution{{Name: "gen", Path: entry}},
+			}},
+			Payload: appPayload{Entry: entry, Files: []string{entry}},
+		}
+		if mutate != nil {
+			mutate(app)
+		}
+		return app
+	}
+	standard := map[string]string{"PATH": appPath}
+
+	cases := []struct {
+		base, from *App
+		refusal    string
+		why        string
+	}{
+		{
+			base:    build("/app/hello", standard, nil),
+			from:    build("/app/gen", map[string]string{"PATH": "/opt/bin"}, nil),
+			refusal: "one image has one environment",
+			why:     "an environment conflict, which no caller-facing seam can produce and which last-writer-wins would hide",
+		},
+		{
+			base: build("/app/hello", standard, nil),
+			from: build("/app/gen", standard, func(a *App) {
+				a.Payload.Files = []string{"/app/gen", "/app/lib/runtime.so"}
+			}),
+			refusal: "composing more than one file is not supported yet",
+			why:     "a multi-file declared payload, which no constructor here can produce",
+		},
+		{
+			base: build("/app/hello", standard, nil),
+			from: build("/app/gen", standard, func(a *App) {
+				// A declaration naming an entry, and a variant carrying
+				// something else entirely: everything the variant does carry
+				// is accounted for, so only the other direction can see this.
+				a.ContributedPaths = []occupied{{Path: "/etc/thing.conf", Holder: contributedHolder}}
+				a.Variants[0].Contributions = []contribution{{Name: "thing.conf", Path: "/etc/thing.conf"}}
+			}),
+			refusal: "carries nothing for",
+			why:     "a declaration whose entry no contribution answers to, which would record a composed path holding no bytes",
+		},
+	}
+	for _, c := range cases {
+		if _, err := c.base.WithApp(ctx, c.from); err == nil {
+			return fmt.Errorf("expected withApp to refuse %s, got nil", c.why)
+		} else if !strings.Contains(err.Error(), c.refusal) {
+			return fmt.Errorf("expected the refusal of %s to mention %q, got: %v", c.why, c.refusal, err)
+		}
+	}
+
+	// A refusal must leave the base untouched. It is checked on the last case
+	// above rather than on a case of its own because the refusal that fires
+	// latest is the one with the most work already done behind it.
+	base := build("/app/hello", standard, nil)
+	from := build("/app/gen", standard, func(a *App) {
+		a.Variants[0].Contributions[0].Path = "/app/somewhere-else"
+	})
+	if _, err := base.WithApp(ctx, from); err == nil {
+		return fmt.Errorf("expected withApp to refuse a declaration nothing answers to, got nil")
+	}
+	if len(base.Variants[0].Contributions) != 1 || len(base.ContributedPaths) != 0 || len(base.Composed) != 0 {
+		return fmt.Errorf("a refused withApp left the base holding %d contributions, %d paths and %d composed applications, want 1, 0 and 0",
+			len(base.Variants[0].Contributions), len(base.ContributedPaths), len(base.Composed))
+	}
+	return nil
 }
 
 // checkComposablePayloads drives composablePayload over every shape of
