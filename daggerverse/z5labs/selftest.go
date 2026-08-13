@@ -202,18 +202,26 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 	return nil
 }
 
-// ImageEnvironmentSelfTest checks the rule every published image is held to:
-// its environment is exactly the standardized set, and anything else — a
-// stray variable, a changed value, a missing one — is refused.
+// ImageConfigSelfTest checks the rule every published image is held to: its
+// OCI configuration is exactly what expectedImageConfig describes — the
+// standardized environment, the declared entrypoint, and nothing else — and
+// any difference from it is refused.
 //
 // It sits on the module rather than in tests/ because the rule it checks is
-// unexported and, more to the point, because its most important case cannot
-// be reached from tests/ at all. Nothing caller-facing can put a variable on
-// an image, which is by design; the consequence is that the branch refusing
-// a stray variable is unexecutable through the public API, so a suite built
-// out of real images can only ever exercise the passing case. Splitting the
-// comparison out and driving it here is what makes the refusal a guarantee
-// rather than a comment — delete it and this check goes red.
+// unexported and, more to the point, because its most important cases cannot
+// be reached from tests/ at all. Nothing caller-facing can put a variable, a
+// label, a port, a working directory or a default argument on an image, which
+// is by design; the consequence is that every branch refusing one is
+// unexecutable through the public API, so a suite built out of real images can
+// only ever exercise the passing case. Splitting the comparison out and
+// driving it here is what makes those refusals guarantees rather than comments
+// — delete one and this check goes red.
+//
+// The empty expectations are the half worth insisting on. An image that
+// promises no working directory, no default arguments, no exposed ports and no
+// labels promises those things exactly as much as it promises its PATH, and
+// every one of them would be inherited from a base layer the moment this
+// module builds on one (devex#426).
 //
 // It also pins the shape of the standardized set: that it is PATH, HOME and
 // TMPDIR and nothing else, that each is the constant that names it, and that
@@ -234,7 +242,7 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 //
 // +check
 // +cache="session"
-func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
+func (m *Z5labs) ImageConfigSelfTest(ctx context.Context) error {
 	want := expectedImageEnv()
 
 	// The standardized set is exactly these three names, each carrying the
@@ -263,42 +271,73 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 		return fmt.Errorf("the plugin directory %s is not on the standardized PATH %q", appPluginDir, want["PATH"])
 	}
 
-	// standard is the standardized set, optionally broken in one way. Each
-	// case starts from expectedImageEnv rather than from a literal so that a
-	// variable added to the set does not leave a row here silently asserting
-	// the *old* set is accepted.
-	standard := func(mutate func(map[string]string)) map[string]string {
-		env := expectedImageEnv()
+	// entry is the entrypoint the expected configuration is built around: an
+	// ordinary one, in the directory an application's own binary lands in,
+	// because a row that breaks the entrypoint has to differ from the
+	// expectation the way a real image would.
+	const entry = appDir + "/hello"
+
+	// standard is the whole expected configuration, optionally broken in one
+	// way. Each case starts from expectedImageConfig rather than from a
+	// literal so that a field added to the contract — or a value moved within
+	// it — does not leave a row here silently asserting the *old* contract is
+	// accepted.
+	standard := func(mutate func(*imageConfig)) imageConfig {
+		cfg := expectedImageConfig(entry)
 		if mutate != nil {
-			mutate(env)
+			mutate(&cfg)
 		}
-		return env
+		return cfg
+	}
+	// demanding is an expectation that asks for something this pipeline does
+	// not promise today.
+	//
+	// Every field but the entrypoint is expected empty right now, so a table
+	// built only from the real expectation would drive one side of each
+	// comparison and leave the other unexecutable — the exact shape of check
+	// this whole split exists to avoid. Concretely: with only empty
+	// expectations, replacing each comparison with a hard-coded `!= ""` or
+	// `len(...) != 0` leaves every row green, and the day expectedImageConfig
+	// grows a non-empty User for devex#399 the check would silently be
+	// asserting nothing. So each field is also driven against an expectation
+	// that demands a value, in both directions.
+	demanding := func(mutate func(*imageConfig)) *imageConfig {
+		cfg := expectedImageConfig(entry)
+		mutate(&cfg)
+		return &cfg
+	}
+	withLabels := func(labels map[string]string) *imageConfig {
+		return demanding(func(c *imageConfig) { c.Labels = labels })
 	}
 
 	cases := []struct {
 		name string
-		env  map[string]string
+		// cfg is the configuration read off an image.
+		cfg imageConfig
+		// expect is what the pipeline demands of it. Nil means the standard
+		// expectation, which is what a publish uses.
+		expect *imageConfig
 		// want is a substring the refusal must carry, or "" when the
-		// environment has to be accepted.
+		// configuration has to be accepted.
 		want string
 	}{
 		{
-			name: "exactly the standardized set",
-			env:  standard(nil),
+			name: "exactly the standardized configuration",
+			cfg:  standard(nil),
 		},
 		{
 			name: "a stray variable beside a correct environment",
-			env:  standard(func(m map[string]string) { m["AWS_SECRET_ACCESS_KEY"] = "leaked" }),
+			cfg:  standard(func(c *imageConfig) { c.Env["AWS_SECRET_ACCESS_KEY"] = "leaked" }),
 			want: "carries an environment variable this pipeline never sets, AWS_SECRET_ACCESS_KEY",
 		},
 		{
 			name: "a stray variable and nothing else",
-			env:  map[string]string{"DEBUG": "1"},
+			cfg:  standard(func(c *imageConfig) { c.Env = map[string]string{"DEBUG": "1"} }),
 			want: "carries an environment variable this pipeline never sets, DEBUG",
 		},
 		{
 			name: "a PATH that lost the plugin directory",
-			env:  standard(func(m map[string]string) { m["PATH"] = "/usr/bin:/bin" }),
+			cfg:  standard(func(c *imageConfig) { c.Env["PATH"] = "/usr/bin:/bin" }),
 			want: `sets PATH="/usr/bin:/bin"`,
 		},
 		{
@@ -306,12 +345,12 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 			// image that moved it would take every manifest written against
 			// the old one with it.
 			name: "a TMPDIR pointing somewhere else",
-			env:  standard(func(m map[string]string) { m["TMPDIR"] = "/var/tmp" }),
+			cfg:  standard(func(c *imageConfig) { c.Env["TMPDIR"] = "/var/tmp" }),
 			want: `sets TMPDIR="/var/tmp"`,
 		},
 		{
 			name: "an image that lost TMPDIR",
-			env:  standard(func(m map[string]string) { delete(m, "TMPDIR") }),
+			cfg:  standard(func(c *imageConfig) { delete(c.Env, "TMPDIR") }),
 			want: "carries no TMPDIR",
 		},
 		{
@@ -319,17 +358,170 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 			// whatever the engine supplies instead, which is exactly the
 			// per-runtime answer pinning it removed.
 			name: "an image that lost HOME",
-			env:  standard(func(m map[string]string) { delete(m, "HOME") }),
+			cfg:  standard(func(c *imageConfig) { delete(c.Env, "HOME") }),
 			want: "carries no HOME",
 		},
 		{
 			name: "no environment at all",
-			env:  map[string]string{},
+			cfg:  standard(func(c *imageConfig) { c.Env = map[string]string{} }),
 			want: "carries no HOME",
+		},
+
+		{
+			// An image config's User is a string the runtime resolves, so
+			// "root" and an unset field are the same identity said two ways.
+			// The refusal is still right: this pipeline sets no user at all,
+			// and something that wrote one wrote it from somewhere nothing
+			// here controls.
+			name: "an image that names root as its user",
+			cfg:  standard(func(c *imageConfig) { c.User = "root" }),
+			want: `sets its user to "root"`,
+		},
+		{
+			// Refused *today*, and this row is the one that inverts when
+			// devex#399 lands: the expectation gains 65532:65532, imageForEntry
+			// gains the WithUser that puts it there, and this becomes the
+			// accepted row while an empty User becomes the refused one. Written
+			// out rather than left implicit so that landing #399 is a change to
+			// this file rather than a discovery.
+			name: "an image that runs as the application's user",
+			cfg:  standard(func(c *imageConfig) { c.User = appOwner }),
+			want: `sets its user to "65532:65532"`,
+		},
+		{
+			name: "an entrypoint in the plugin directory",
+			cfg:  standard(func(c *imageConfig) { c.Entrypoint = []string{appPluginDir + "/hello"} }),
+			want: `sets its entrypoint to ["/usr/local/bin/hello"]`,
+		},
+		{
+			// An argument baked into the entrypoint answers at build time a
+			// question the deployment asks at run time, and it cannot be
+			// overridden by a runtime's args the way a default argument can.
+			name: "an entrypoint carrying an argument",
+			cfg:  standard(func(c *imageConfig) { c.Entrypoint = []string{entry, "--serve"} }),
+			want: `sets its entrypoint to ["/app/hello" "--serve"]`,
+		},
+		{
+			name: "an image with no entrypoint at all",
+			cfg:  standard(func(c *imageConfig) { c.Entrypoint = nil }),
+			want: "sets its entrypoint to nothing",
+		},
+		{
+			// A working directory is refused rather than merely unset: the
+			// refusal of a relative contribution path is written on the
+			// grounds that nothing here sets one — see contribute.go — so an
+			// image that gained one would leave that message describing a
+			// world the image no longer lives in.
+			name: "an image with a working directory",
+			cfg:  standard(func(c *imageConfig) { c.WorkingDir = appDir }),
+			want: `sets its working directory to "/app"`,
+		},
+		{
+			name: "an image with default arguments",
+			cfg:  standard(func(c *imageConfig) { c.DefaultArgs = []string{"--help"} }),
+			want: `sets its default arguments to ["--help"]`,
+		},
+		{
+			// A port in the config is a claim about what the application does,
+			// made by the image rather than by the application, and a
+			// deployment publishes what it publishes regardless.
+			name: "an image exposing a port",
+			cfg:  standard(func(c *imageConfig) { c.ExposedPorts = []string{"8080/TCP"} }),
+			want: `exposes ["8080/TCP"]`,
+		},
+		{
+			name: "an image carrying a label nothing here wrote",
+			cfg: standard(func(c *imageConfig) {
+				c.Labels = map[string]string{"org.opencontainers.image.source": "https://example.com/elsewhere"}
+			}),
+			want: `carries a label this pipeline never sets, org.opencontainers.image.source="https://example.com/elsewhere"; a published image carries no labels`,
+		},
+		{
+			name:   "a label whose value is not the one demanded",
+			cfg:    standard(func(c *imageConfig) { c.Labels = map[string]string{"org.opencontainers.image.title": "other"} }),
+			expect: withLabels(map[string]string{"org.opencontainers.image.title": "hello"}),
+			want:   `sets the label org.opencontainers.image.title="other"`,
+		},
+		{
+			name:   "a demanded label the image does not carry",
+			cfg:    standard(nil),
+			expect: withLabels(map[string]string{"org.opencontainers.image.title": "hello"}),
+			want:   "carries no org.opencontainers.image.title label",
+		},
+		{
+			name:   "a stray label beside a demanded set",
+			cfg:    standard(func(c *imageConfig) { c.Labels = map[string]string{"com.example.debug": "1"} }),
+			expect: withLabels(map[string]string{"org.opencontainers.image.title": "hello"}),
+			want:   "a published image's labels are exactly org.opencontainers.image.title",
+		},
+		{
+			// The accepting side of a non-empty expectation, without which
+			// every label row above would stay green under a comparison that
+			// had started refusing labels outright.
+			name:   "exactly the labels demanded",
+			cfg:    standard(func(c *imageConfig) { c.Labels = map[string]string{"org.opencontainers.image.title": "hello"} }),
+			expect: withLabels(map[string]string{"org.opencontainers.image.title": "hello"}),
+		},
+
+		// The other side of every field this pipeline expects empty today.
+		// See demanding: without these, each comparison could be a hard-coded
+		// test for emptiness and this table would not know.
+		{
+			// This is the row devex#399 turns into the ordinary case.
+			name:   "no user, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
+			want:   `sets its user to nothing, but every image this pipeline publishes sets its user to "65532:65532"`,
+		},
+		{
+			name:   "exactly the user demanded",
+			cfg:    standard(func(c *imageConfig) { c.User = appOwner }),
+			expect: demanding(func(c *imageConfig) { c.User = appOwner }),
+		},
+		{
+			name:   "no working directory, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.WorkingDir = appDir }),
+			want:   `sets its working directory to nothing, but every image this pipeline publishes sets it to "/app"`,
+		},
+		{
+			name:   "exactly the working directory demanded",
+			cfg:    standard(func(c *imageConfig) { c.WorkingDir = appDir }),
+			expect: demanding(func(c *imageConfig) { c.WorkingDir = appDir }),
+		},
+		{
+			name:   "no default arguments, where the pipeline demands them",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+			want:   `sets its default arguments to nothing, but every image this pipeline publishes sets them to ["serve"]`,
+		},
+		{
+			name:   "exactly the default arguments demanded",
+			cfg:    standard(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+			expect: demanding(func(c *imageConfig) { c.DefaultArgs = []string{"serve"} }),
+		},
+		{
+			// Lower-cased, which is the form readImageConfig renders and the
+			// form the OCI config's own keys take. A row written "8080/TCP"
+			// against this expectation would be refused, which is what the
+			// rendering exists to prevent.
+			name:   "no exposed port, where the pipeline demands one",
+			cfg:    standard(nil),
+			expect: demanding(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
+			want:   `exposes nothing, but every image this pipeline publishes exposes ["8080/tcp"]`,
+		},
+		{
+			name:   "exactly the port demanded",
+			cfg:    standard(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
+			expect: demanding(func(c *imageConfig) { c.ExposedPorts = []string{"8080/tcp"} }),
 		},
 	}
 	for _, c := range cases {
-		err := diffImageEnv(c.env, want)
+		expect := expectedImageConfig(entry)
+		if c.expect != nil {
+			expect = *c.expect
+		}
+		err := diffImageConfig(c.cfg, expect)
 		if c.want == "" {
 			if err != nil {
 				return fmt.Errorf("expected %s to be accepted, got: %v", c.name, err)
@@ -341,6 +533,70 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 		}
 		if !strings.Contains(err.Error(), c.want) {
 			return fmt.Errorf("expected the refusal of %s to carry %q, got: %v", c.name, c.want, err)
+		}
+	}
+
+	// The entrypoint's expected value is the payload's declaration rather than
+	// a constant, so the comparison above can only catch the image and the
+	// declaration disagreeing. checkExpectedEntrypoint is the half that holds
+	// the declaration itself to the layout the package doc promises, and these
+	// are its cases: no constructor here produces any of the refused ones,
+	// which is exactly why they are driven from a table.
+	entrypoints := []struct {
+		entry string
+		// want is a substring the refusal must carry, or "" when the entry
+		// has to be accepted.
+		want string
+		why  string
+	}{
+		{
+			entry: appDir + "/hello",
+			why:   "the ordinary case: a binary directly in the application's own directory",
+		},
+		{
+			entry: "",
+			want:  "declares no entry to exec",
+			why:   "an application with no declared entry has no entrypoint to hold an image to",
+		},
+		{
+			entry: appPluginDir + "/hello",
+			want:  `entry is "/usr/local/bin/hello"`,
+			why:   "the plugin directory is an extension's to fill, and an app that exec'd out of it would make \"the app does not need the PATH\" true by accident",
+		},
+		{
+			entry: appDir + "/nested/hello",
+			want:  `entry is "/app/nested/hello"`,
+			why:   "a directory below the standardized one, which no COPY --from= line written against the layout would find",
+		},
+		{
+			entry: "app/hello",
+			want:  `entry is "app/hello"`,
+			why:   "a relative path, which would resolve against a working directory this pipeline never sets",
+		},
+		{
+			entry: appDir + "/",
+			want:  `entry is "/app/"`,
+			why:   "the directory itself, which is not a binary and would exec nothing",
+		},
+		{
+			entry: appDir + "hello",
+			want:  `entry is "/apphello"`,
+			why:   "a path that merely starts with the directory's name, which a prefix test written without the separator would accept",
+		},
+	}
+	for _, c := range entrypoints {
+		err := checkExpectedEntrypoint(c.entry)
+		if c.want == "" {
+			if err != nil {
+				return fmt.Errorf("expected the entry %q to be accepted (%s), got: %v", c.entry, c.why, err)
+			}
+			continue
+		}
+		if err == nil {
+			return fmt.Errorf("expected the entry %q to be refused (%s), got nil", c.entry, c.why)
+		}
+		if !strings.Contains(err.Error(), c.want) {
+			return fmt.Errorf("expected the refusal of the entry %q (%s) to carry %q, got: %v", c.entry, c.why, c.want, err)
 		}
 	}
 	return nil

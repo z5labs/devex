@@ -100,7 +100,7 @@ func (t *Tests) AppComposesAnotherAppsPayload(ctx context.Context) error {
 		if len(entrypoint) != 1 || entrypoint[0] != "/app/hello" {
 			return fmt.Errorf("%s: the derived image's entrypoint is %v, want the base's [/app/hello]", platform, entrypoint)
 		}
-		if err := assertStandardEnvironment(ctx, ctr, string(platform)); err != nil {
+		if err := assertStandardImageConfig(ctx, ctr, string(platform)); err != nil {
 			return err
 		}
 	}
