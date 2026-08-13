@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -270,6 +271,16 @@ func (a *App) resolveContributions(ctx context.Context) ([]variantBom, error) {
 			// and why it lives at publish time rather than at the
 			// contributing call.
 			if err := verifyContributionDigest(ctx, seen, c, bom.Subject); err != nil {
+				// The check reads the content as well as the document, so it
+				// has two ways to fail and they are about different things.
+				// A refused entry is a fault in what was contributed — no
+				// document could have made that tree publishable — and
+				// announcing it as a fault of the document would send the
+				// reader to rewrite one that is fine.
+				var bad *unsupportedEntry
+				if errors.As(err, &bad) {
+					return nil, fmt.Errorf("%s in the %s image: %v", c.Name, v.Platform, err)
+				}
 				return nil, fmt.Errorf("the document describing %s in the %s image %v", c.Name, v.Platform, err)
 			}
 			parsed = append(parsed, *bom)
