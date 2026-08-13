@@ -244,6 +244,84 @@ cache field and is unaffected — which is why `Client.Export` (returns a
 `Chan`, `Default`, `Package`, and the rest of the Go keyword list as
 scalar-returning method names.
 
+The **object**-returning counterpart is safe, and this has now been measured
+rather than assumed (devex#402, Dagger v0.21.8). A method
+`func (m *Z5labs) Go(source *dagger.Directory) *Go` — keyword as both the
+method name and the returned object's name — generates, compiles and runs in
+a consumer module. The returned object namespaces to `<Module><Object>`:
+
+```go
+func (r *Z5Labs) Go(source *Directory) *Z5LabsGo   // consumer binding
+```
+
+so the keyword never appears anywhere it could be parsed as one. Adding a
+scalar-returning `Go` method to *any* object in the same module breaks the
+consumer immediately, with `expected '}', found 'go'` — so the rule is about
+the return type, not the name in isolation. A keyword-named object with only
+object-returning and non-keyword scalar methods is fine.
+
+### Unexported types are where module-object state belongs
+
+A module object's fields are serialized across every call boundary, which
+raises the question of whether a field holding a slice of structs needs
+those structs registered as Dagger object types. It does not, and unexported
+is strictly the better choice (measured in devex#402):
+
+```go
+type App struct {
+    Version  string     // +private
+    Variants []*variant // +private
+}
+
+type variant struct {
+    Platform  dagger.Platform
+    Container *dagger.Container
+    Documents []document
+}
+```
+
+`variant` and `document` are unexported, so **nothing about them reaches the
+schema** — the consumer's generated bindings contain no `Z5LabsVariant` and
+no `Z5LabsDocument`, only the methods of `App` itself. The state still
+round-trips intact, including `*dagger.Container` and `*dagger.File` fields,
+which travel as IDs and resolve on the far side. Verified both by chained
+resolution and by an explicit `ID()` → `LoadZ5LabsAppFromID()` round trip,
+across three platforms, with the containers and files still readable
+afterwards.
+
+Two consequences:
+
+- **The field-naming rules do not apply to unexported types.** A field
+  literally named `Type` on `document` — the name that breaks dependency
+  codegen outright on an *exported* struct — is harmless here, because there
+  is no schema object for it to collide in. Confirmed by trying it. Name
+  these fields for the code, not for the generator.
+- Their fields still need to be **exported**, and getting this wrong fails
+  silently and late. The round trip is `encoding/json`, so an unexported
+  field is dropped on the way out and comes back zero. Codegen still
+  succeeds and the consumer still compiles; the module then panics at
+  runtime with `invalid memory address or nil pointer dereference` the first
+  time it touches the field — measured, with a lower-cased `file
+  *dagger.File`. The struct is unexported; its fields are not.
+
+Prefer this to registering a helper object type. A registered one adds a
+schema object with no methods that a caller can see and must ignore, and it
+drags the naming rules along with it.
+
+### `[]dagger.Platform` parameters carry variants intact
+
+Nothing in this repo took a `dagger.Platform` as an *input* before — every
+use constructed one — so it was unverified whether a slice of them survived
+a call boundary. It does, order preserved and variant preserved:
+`linux/amd64`, `linux/arm64` and `linux/arm/v7` all arrive byte-identical to
+what the caller passed (devex#402). `Platform` is a string scalar in the
+schema, so the three-component variant form is not special-cased anywhere.
+
+One ergonomic wrinkle when round-tripping a *dependency's* object by ID: the
+generated `ID()` on a dependency type returns the generic `dagger.ID`, not
+the specific one, so `LoadZ5LabsAppFromID` needs an explicit
+`dagger.Z5LabsAppID(id)` conversion. Own-module types are unaffected.
+
 ### Method parameters named `r` collide with the generated receiver
 
 The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,
