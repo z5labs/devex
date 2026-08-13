@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/url"
+	"strings"
 )
 
 // The standard OCI annotation keys this module populates. They are the
@@ -72,17 +73,125 @@ func ociAnnotations(facts gitState, version string) map[string]string {
 // off. A URL that carried credentials keeps its host and path and loses
 // only the part that was never meant to travel.
 //
-// Anything that does not parse as a URL is returned unchanged: an SSH
-// remote is spelled `git@host:org/repo`, which is not a URL and carries a
-// username that is part of the address rather than a secret.
+// A string that does not parse as a URL is not therefore safe, and treating
+// it as safe is what devex#425 was: the fallback returned the input
+// untouched, and the inputs that reach it include the ones url.Parse refuses
+// *because of the credential inside them*. Any percent not followed by two
+// hex digits, and any control character, in the userinfo is enough — so the
+// correctly encoded credential was redacted and the naive one was published,
+// which inverts the purpose of the function in the one case it cannot parse
+// its way out of.
+//
+// So an unparseable string is read structurally instead. RFC 3986 puts the
+// userinfo in the authority, and the authority is present only where the
+// hierarchical part begins with `//`:
+//
+//   - No authority: returned unchanged. This is the case the old fallback was
+//     written for and it is still the right answer — an SSH remote is spelled
+//     `git@host:org/repo`, which is not a URL, has no authority, and carries a
+//     username that is part of the address rather than a secret.
+//   - An authority with no `@`: returned unchanged. It failed to parse for a
+//     reason somewhere else in the string, and there is no credential in it to
+//     omit an annotation over.
+//   - An authority with an `@`: the userinfo is cut out textually, and the
+//     result is then re-parsed. It is published only if it parses and carries
+//     no userinfo; otherwise the empty string is returned and the annotation is
+//     omitted altogether.
+//
+// That last clause is the decision devex#425 asked for, and it is the
+// conservative half of the rule rather than the useful one. A textual cut over
+// a string no parser would accept is a claim about a shape nothing validated;
+// re-parsing is what turns it into something checked, and where it cannot be
+// checked, an omitted annotation is the safe outcome. It is the rule
+// ociAnnotations already states for a tree with no origin — a key present and
+// wrong is worse than an absent one — applied to a value that might be a
+// credential rather than to one that is merely blank.
+//
+// Nothing here reports why a string would not parse. url.Parse's error quotes
+// the whole input, credential included, so a redactor that explained itself
+// would leak by exactly the path this function closes.
+//
+// SourceRedactionSelfTest is the table this behaviour is stated in.
 func redactURLCredentials(raw string) string {
 	if raw == "" {
 		return ""
 	}
-	parsed, err := url.Parse(raw)
-	if err != nil || parsed.User == nil {
+	if parsed, err := url.Parse(raw); err == nil {
+		if parsed.User == nil {
+			return raw
+		}
+		parsed.User = nil
+		return parsed.String()
+	}
+
+	stripped, hadUserinfo := stripAuthorityUserinfo(raw)
+	if !hadUserinfo {
 		return raw
 	}
-	parsed.User = nil
-	return parsed.String()
+	if parsed, err := url.Parse(stripped); err != nil || parsed.User != nil {
+		return ""
+	}
+	return stripped
+}
+
+// stripAuthorityUserinfo removes the userinfo from raw's authority
+// component, textually, and reports whether there was one to remove.
+//
+// It exists for strings url.Parse has already refused, so it works from the
+// grammar rather than from a parse. Per RFC 3986 the authority is present
+// only when the hierarchical part opens with `//`; it runs to the first `/`,
+// `?` or `#` after that, and within it the userinfo ends at an `@`.
+//
+// Two details are load bearing. The `//` has to open the hierarchical part —
+// at the start of the string, or immediately after a scheme — because a
+// doubled slash inside a path is not an authority, and reading one as an
+// authority would rewrite an SSH remote like `git@host:org//repo` into
+// something that is not the address it names. And the split is at the **last**
+// `@` in the authority, which is where url.Parse itself splits: `@` is not
+// legal unescaped in userinfo, so a string carrying two of them is one of the
+// unparseable inputs this path exists for, and splitting at the first would
+// leave the tail of the credential in the value.
+func stripAuthorityUserinfo(raw string) (string, bool) {
+	rest := raw
+	offset := 0
+	if colon := strings.IndexByte(raw, ':'); colon > 0 && isURLScheme(raw[:colon]) {
+		offset = colon + 1
+		rest = raw[offset:]
+	}
+	if !strings.HasPrefix(rest, "//") {
+		return raw, false
+	}
+
+	start := offset + 2
+	end := len(raw)
+	if i := strings.IndexAny(raw[start:], "/?#"); i >= 0 {
+		end = start + i
+	}
+	at := strings.LastIndexByte(raw[start:end], '@')
+	if at < 0 {
+		return raw, false
+	}
+	return raw[:start] + raw[start+at+1:], true
+}
+
+// isURLScheme reports whether s is a URL scheme: an ASCII letter followed by
+// letters, digits, `+`, `-` and `.`, per RFC 3986.
+//
+// It is what keeps the colon in `git@host:org/repo` from being read as a
+// scheme separator — `git@host` is not a scheme, so that remote has no
+// authority and is left alone.
+func isURLScheme(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z':
+		case i > 0 && ('0' <= c && c <= '9' || c == '+' || c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return true
 }

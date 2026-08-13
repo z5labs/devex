@@ -162,6 +162,7 @@ type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:639:6)
 	id                       *ID
 	imageConfigSelfTest      *Void
 	imageSbomSelfTest        *Void
+	sourceRedactionSelfTest  *Void
 	variantSetSelfTest       *Void
 	versionTagsSelfTest      *Void
 }
@@ -568,6 +569,44 @@ func (r *Z5Labs) ImageSbomSelfTest(ctx context.Context) error { // z5labs (../..
 		return nil
 	}
 	q := r.query.Select("imageSbomSelfTest")
+
+	return q.Execute(ctx)
+}
+
+// SourceRedactionSelfTest checks redactURLCredentials against the rule rather
+// than against a publish: no remote reaches
+// org.opencontainers.image.source carrying userinfo, and an SSH remote —
+// whose username is part of the address — survives untouched.
+//
+// It is a check of its own because the failure it guards cannot be seen from
+// a publish. A remote whose credential leaks produces an image that builds,
+// pushes and runs exactly like one whose credential was stripped; the
+// difference is a field on a manifest that anyone who can pull the image can
+// read, discovered by whoever reads it rather than by this pipeline. And the
+// inputs that leak are the ones a working tree cannot easily be made to have:
+// driving them through GoChain.gitFacts would mean a container, a repository
+// and a remote URL that git itself would have to accept, per row.
+//
+// It sits on the module rather than in tests/ for the same reason
+// VersionTagsSelfTest does — the function is unexported — and because a table
+// of a dozen remotes costs one in-process call here.
+//
+// The rows are the shapes that distinguish the rule, including the accepting
+// ones. A redactor that returned the empty string for everything would pass a
+// table of leaking inputs alone while deleting the annotation from every
+// image this module publishes.
+//
+// Nothing here quotes an input. url.Parse's own error is the reason the habit
+// is worth keeping: it renders as `parse "<the whole URL>": invalid URL
+// escape "%zz"`, credential included, so a redactor that reported why it
+// could not parse would leak by exactly the path this check closes. The
+// assertions below print a row's name and its expectation, and print what
+// came back only after establishing that it does not carry the credential.
+func (r *Z5Labs) SourceRedactionSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/annotationsselftest.go:54:1)
+	if r.sourceRedactionSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("sourceRedactionSelfTest")
 
 	return q.Execute(ctx)
 }
