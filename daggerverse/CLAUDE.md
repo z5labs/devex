@@ -246,6 +246,18 @@ Three things that are easy to get wrong and are not obvious from the spec:
   Embed the bundle in the `dev.sigstore.cosign/bundle` annotation rather than
   leaving it to be looked up, so a consumer behind a network that cannot reach
   `rekor.sigstore.dev` can still verify.
+- **The attestation envelope needs one too, and for the same reason.** A DSSE
+  provenance envelope is signed by the same ephemeral key under the same
+  ten-minute certificate as the image signature, so leaving it unlogged leaves
+  it with exactly the defect the bullet above calls fatal. Being a referrer of
+  a digest whose signature *is* logged is not a substitute: a referrer can be
+  attached at any time by anyone who can push, so it says nothing about when
+  the envelope was signed (devex#419). Record it as a **hashedrekord over the
+  envelope's pre-authentication encoding**, not as Rekor's `intoto` type —
+  `intoto` uploads the whole envelope, and a provenance statement names the
+  repository, the commit and the workflow, which the public log then keeps
+  forever. Embed the bundle on the *signature object* beside `cert`, because a
+  countersignature timestamps one signature and DSSE permits several.
 
 ### The keyless path is exercised against a sigstore standing in the session
 

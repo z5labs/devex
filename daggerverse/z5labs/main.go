@@ -310,17 +310,36 @@
 //
 // # What can be checked about the envelope, and what cannot
 //
-// The provenance is a DSSE envelope. Its statement, and the identity that
-// signed it, are readable from those bytes alone:
+// The provenance is a DSSE envelope. Its statement, the identity that signed
+// it, and the transparency log entry that says when it was signed are all
+// readable from those bytes alone:
 //
 //	jq -r .payload provenance.intoto.jsonl | base64 -d | jq .
 //	jq -r '.signatures[0].cert' provenance.intoto.jsonl |
 //	  openssl x509 -noout -text | grep -A1 'Subject Alternative Name'
+//	jq -r '.signatures[0].bundle.Payload.body' provenance.intoto.jsonl |
+//	  base64 -d | jq .
 //
 // The first prints the in-toto statement — subject digest, build type and
 // predicate. The second prints the workflow identity out of the leaf of the
 // Fulcio chain, which dsseEnvelope carries in cosign's `cert` extension
-// field for exactly this reason.
+// field for exactly this reason. The third prints the log entry recorded for
+// this envelope, countersigned by the log at upload time; the bundle around
+// it is the same format the image signature's `dev.sigstore.cosign/bundle`
+// annotation carries, one decode shallower because an envelope is JSON and
+// an annotation is a string.
+//
+// `cert` holds the *whole* PEM chain, leaf first, rather than cosign's split
+// of a leaf in `cert` and the intermediates in `chain` — dsseEnvelope records
+// why. `openssl x509` above reads the first certificate, which is the leaf
+// and the one carrying the identity, so the command is unaffected; a reader
+// that requires exactly one certificate there is not.
+//
+// The statement is readable whatever signed it. The identity and the log
+// entry are keyless properties: a publish signed with `--signing-key`
+// contacts no CA and no log, so its envelope carries a bare `publicKey` in
+// place of `cert` and no bundle at all, and how a verifier learns that key is
+// the caller's to arrange.
 //
 // Checking the *signature* over that statement needs DSSE tooling rather
 // than a cosign subcommand, because none of this is in cosign's attestation
@@ -329,17 +348,57 @@
 // in tests/attest.go is this repository's reference implementation of that
 // check, and it is about thirty lines.
 //
-// And there is a limit here worth stating rather than leaving to be
-// discovered. The image signature is recorded in the public transparency log
-// and the provenance envelope is not, so checking the envelope establishes
-// "this signature matches a certificate claiming this identity" and not
-// "that certificate was inside its validity window when it signed" — the
-// property the log provides, and the one sign.go's defaultRekorURL comment
-// says makes keyless signing a trade rather than a hole. What anchors the
-// envelope today is indirect: it is a referrer of a digest whose signature
-// *is* logged, which is the other reason the digest above comes from cosign
-// rather than from resolving the tag. Closing that gap directly is
-// devex#419.
+// # Tying the log entry to the envelope it travels with
+//
+// A bundle beside a signature proves nothing until you have checked it is a
+// bundle for *that* signature. The entry is a `hashedrekord` over the SHA-256
+// of the envelope's pre-authentication encoding, so the check is to rebuild
+// that encoding from the envelope and compare:
+//
+//	env=provenance.intoto.jsonl
+//	type=application/vnd.in-toto+json
+//	jq -r .payload "$env" | base64 -d > statement.json
+//	rebuilt=$({ printf 'DSSEv1 %d %s %d ' "${#type}" "$type" "$(wc -c < statement.json)"
+//	            cat statement.json; } | sha256sum | cut -d' ' -f1)
+//	logged=$(jq -r '.signatures[0].bundle.Payload.body' "$env" | base64 -d |
+//	         jq -r .spec.data.hash.value)
+//	[ "$rebuilt" = "$logged" ] && echo "the log entry is over this envelope"
+//
+// The `cut` is not decoration: `sha256sum` prints the hash, two spaces and
+// the file name — `-` for stdin — so the two values are not comparable
+// without it, and a snippet that has to be eyeballed is one that gets
+// eyeballed wrongly. The comparison is the point, so it is the thing the
+// snippet prints.
+//
+// If the two match, the entry the log countersigned is an entry over the
+// signature in this envelope, made by the certificate in this envelope —
+// which is what establishes that the certificate was inside its ten-minute
+// validity window when it signed, the property sign.go's defaultRekorURL
+// comment calls the difference between a trade and a hole. "The certificate
+// in this envelope" is the leaf: the entry names one certificate and `cert`
+// carries the chain, so the entry's
+// `spec.signature.publicKey.content`, base64-decoded, is the *first*
+// certificate in `cert` and not the whole field. Comparing it against all of
+// `cert` will not match, by construction.
+//
+// The entry is a hashedrekord rather than Rekor's `intoto` type, which is the
+// shape sigstore built for a DSSE envelope, and that is deliberate: an
+// `intoto` upload sends the whole envelope, and a provenance statement names
+// the repository, the commit and the workflow that produced it. The public
+// log is permanent, so a private image's build history would be published by
+// the act of anchoring its provenance. rekorBundle records the same
+// proposition against a hash and sends nothing that has to be kept.
+//
+// What no command here does is check the log's countersignature itself —
+// that the log really issued this timestamp. That needs the log's public key
+// (`curl https://rekor.sigstore.dev/api/v1/log/publicKey`) and an ECDSA
+// verification over the canonicalized entry, which is what sigstore's own
+// verifiers do and what no cosign subcommand will do for this layout. Nothing
+// in this module ships that verifier, and the suite's own log is
+// countersigned by a key nobody trusts, so what this repository establishes
+// is the encoding: that the entry travelling with an envelope is an entry
+// over that envelope's signature, and that the log's answer reached the
+// bundle unaltered.
 //
 // # Why the documents are referrers alone
 //

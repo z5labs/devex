@@ -275,7 +275,59 @@ func (t *Tests) AppAttachesSbomsAndProvenance(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := envelopeRecordsNoLogEntry(envelope); err != nil {
+		return err
+	}
 	return checkStatement(statement, digest, repository, prov.Claims)
+}
+
+// envelopeRecordsNoLogEntry asserts a supplied-key publish produces the
+// supplied-key envelope: a bare public key, no certificate, and no
+// transparency log bundle.
+//
+// The keyless publish produces the other one — AppKeylessSignatureVerifiesAgainstALocalSigstore
+// asserts the certificate, the bundle and what the bundle is over. This is
+// the other side of that split, and all three fields are checked rather than
+// only the bundle, because dsseEnvelope decides all three from one branch on
+// signer.keyless. Asserting the absent bundle alone would leave a regression
+// that emitted a certificate here — or neither a certificate nor a key —
+// passing a test whose whole subject is the mode split.
+//
+// What makes it worth pinning at all: a supplied-key publish contacts no log,
+// so a bundle here would be a countersignature nothing issued, on a signature
+// no log ever saw.
+func envelopeRecordsNoLogEntry(raw []byte) error {
+	var envelope struct {
+		Signatures []struct {
+			Cert      string          `json:"cert"`
+			PublicKey string          `json:"publicKey"`
+			Bundle    json.RawMessage `json:"bundle"`
+		} `json:"signatures"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return fmt.Errorf("decode the provenance envelope: %v", err)
+	}
+	if len(envelope.Signatures) != 1 {
+		return fmt.Errorf("the provenance envelope carries %d signatures, want 1", len(envelope.Signatures))
+	}
+	for i, signature := range envelope.Signatures {
+		if len(signature.Bundle) > 0 {
+			return fmt.Errorf(
+				"a supplied-key publish embedded a transparency log bundle in signature %d of its provenance envelope, "+
+					"but it contacted no log: %s", i, signature.Bundle)
+		}
+		if signature.Cert != "" {
+			return fmt.Errorf(
+				"a supplied-key publish put a certificate in signature %d of its provenance envelope, "+
+					"but nothing certified that key", i)
+		}
+		if signature.PublicKey == "" {
+			return fmt.Errorf(
+				"signature %d of a supplied-key publish's provenance envelope carries neither a certificate nor a "+
+					"public key, so nothing identifies what signed it", i)
+		}
+	}
+	return nil
 }
 
 // AppAttestsTwoSegmentRepositories asserts a publish whose repository

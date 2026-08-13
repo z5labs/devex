@@ -278,8 +278,11 @@ func (a *App) WithOidc(requestUrl string, requestToken *dagger.Secret) *App {
 //
 // It changes what a consumer has to run, and the change is a downgrade
 // worth stating. Nothing certifies a supplied key, so there is no identity
-// to verify against and nothing to record in the public transparency log;
-// the image signature carries the signature alone, and verifying it means
+// to verify against and nothing to record in the public transparency log.
+// That covers both signed things: the image signature carries the signature
+// alone, and the provenance envelope carries a bare public key with no log
+// entry, where a keyless publish gives each of them a certificate and a
+// countersigned log entry. Verifying the image then means
 //
 //	cosign verify <ref> --key cosign.pub --insecure-ignore-tlog=true
 //
@@ -344,8 +347,9 @@ func (a *App) WithOidcService(svc *dagger.Service) *App {
 //
 // It exists so the keyless path can be *executed* rather than only
 // described: without it, the certificate request, the chain split, the log
-// upload and the three annotations that carry them are reachable only by
-// publishing a real release. The suite stands up a CA of its own and
+// uploads — the image signatures' and the provenance envelope's — and the
+// three annotations that carry them are reachable only by publishing a real
+// release. The suite stands up a CA of its own and
 // verifies the result with stock `cosign verify --certificate-identity`,
 // which is the command Publish's doc comment tells consumers to run.
 //
