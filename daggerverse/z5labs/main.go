@@ -329,7 +329,14 @@
 // annotation carries, one decode shallower because an envelope is JSON and
 // an annotation is a string.
 //
-// All three are keyless properties. A publish signed with `--signing-key`
+// `cert` holds the *whole* PEM chain, leaf first, rather than cosign's split
+// of a leaf in `cert` and the intermediates in `chain` — dsseEnvelope records
+// why. `openssl x509` above reads the first certificate, which is the leaf
+// and the one carrying the identity, so the command is unaffected; a reader
+// that requires exactly one certificate there is not.
+//
+// The statement is readable whatever signed it. The identity and the log
+// entry are keyless properties: a publish signed with `--signing-key`
 // contacts no CA and no log, so its envelope carries a bare `publicKey` in
 // place of `cert` and no bundle at all, and how a verifier learns that key is
 // the caller's to arrange.
@@ -351,17 +358,28 @@
 //	env=provenance.intoto.jsonl
 //	type=application/vnd.in-toto+json
 //	jq -r .payload "$env" | base64 -d > statement.json
-//	{ printf 'DSSEv1 %d %s %d ' "${#type}" "$type" "$(wc -c < statement.json)"
-//	  cat statement.json; } | sha256sum
-//	jq -r '.signatures[0].bundle.Payload.body' "$env" | base64 -d |
-//	  jq -r .spec.data.hash.value
+//	rebuilt=$({ printf 'DSSEv1 %d %s %d ' "${#type}" "$type" "$(wc -c < statement.json)"
+//	            cat statement.json; } | sha256sum | cut -d' ' -f1)
+//	logged=$(jq -r '.signatures[0].bundle.Payload.body' "$env" | base64 -d |
+//	         jq -r .spec.data.hash.value)
+//	[ "$rebuilt" = "$logged" ] && echo "the log entry is over this envelope"
 //
-// The two hashes have to be equal. If they are, the entry the log
-// countersigned is an entry over the signature in this envelope, made by the
-// certificate in this envelope — which is what establishes that the
-// certificate was inside its ten-minute validity window when it signed, the
-// property sign.go's defaultRekorURL comment calls the difference between a
-// trade and a hole.
+// The `cut` is not decoration: `sha256sum` prints the hash, two spaces and
+// the file name — `-` for stdin — so the two values are not comparable
+// without it, and a snippet that has to be eyeballed is one that gets
+// eyeballed wrongly. The comparison is the point, so it is the thing the
+// snippet prints.
+//
+// If the two match, the entry the log countersigned is an entry over the
+// signature in this envelope, made by the certificate in this envelope —
+// which is what establishes that the certificate was inside its ten-minute
+// validity window when it signed, the property sign.go's defaultRekorURL
+// comment calls the difference between a trade and a hole. "The certificate
+// in this envelope" is the leaf: the entry names one certificate and `cert`
+// carries the chain, so the entry's
+// `spec.signature.publicKey.content`, base64-decoded, is the *first*
+// certificate in `cert` and not the whole field. Comparing it against all of
+// `cert` will not match, by construction.
 //
 // The entry is a hashedrekord rather than Rekor's `intoto` type, which is the
 // shape sigstore built for a DSSE envelope, and that is deliberate: an

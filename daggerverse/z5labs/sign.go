@@ -119,9 +119,14 @@ const rekorTimeout = 60 * time.Second
 // rekor.sigstore.dev inside this function, each bounded by rekorTimeout, and
 // a sixth in attachAttestations, which records the provenance envelope's
 // signature the same way — see dsseEnvelope, which states that cost from its
-// own side. That is a publish-latency and third-party-availability
-// characteristic rather than a defect, and it is written down here so it is a
-// known cost rather than a surprise in a release that suddenly takes minutes.
+// own side.
+//
+// That count is per repository, because Publish calls this and
+// attachAttestations inside its loop over repositories: publishing the same
+// four-platform release to two repositories is twelve round trips, not six.
+// That is a publish-latency and third-party-availability characteristic
+// rather than a defect, and it is written down here so it is a known cost
+// rather than a surprise in a release that suddenly takes minutes.
 //
 // repository and digest are taken as arguments rather than read off a
 // buildFacts, so this cannot drift from the repository the caller's error

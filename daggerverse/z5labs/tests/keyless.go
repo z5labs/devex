@@ -481,6 +481,13 @@ func (h *sigstoreHarness) assertEnvelopeBundle(raw []byte) error {
 	if err != nil {
 		return err
 	}
+	// The algorithm is checked before the value it labels. Comparing the hex
+	// alone would accept an entry that named some other algorithm beside a
+	// value this test computed with SHA-256, which is an entry no verifier
+	// following the recipe in the package doc would reproduce.
+	if got := entry.Spec.Data.Hash.Algorithm; got != "sha256" {
+		return fmt.Errorf("%s: the log recorded a %q hash, want sha256", what, got)
+	}
 	if got, want := entry.Spec.Data.Hash.Value, hex.EncodeToString(digest[:]); got != want {
 		return fmt.Errorf(
 			"%s: the log recorded an entry over %s, want %s — the SHA-256 of the envelope's pre-authentication encoding",

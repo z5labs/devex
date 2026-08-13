@@ -361,9 +361,26 @@ var jwtLike = regexp.MustCompile(`[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0
 // DSSE rather than a detached signature over the JSON: the payload type
 // is signed alongside the payload, so a document cannot be replayed as a
 // different kind of attestation, and the encoding is stable in a way raw
-// JSON is not. cert and chain are cosign's extension fields, carried so
-// a verifier can recover the signing identity from the envelope alone
-// rather than needing a separate bundle.
+// JSON is not. cert is cosign's extension field, carried so a verifier can
+// recover the signing identity from the envelope alone rather than needing a
+// separate bundle.
+//
+// # It carries the whole chain in cert, where cosign would split it
+//
+// cosign's own split is the one signatureAnnotations makes for the signature
+// annotations: the leaf goes in cert and the intermediates in chain. This
+// envelope writes the whole PEM chain into cert and no chain field at all,
+// which predates devex#419 and is left alone by it — moving certificates
+// between fields would change bytes already published under a documented
+// read path, which is not something to do incidentally to adding a log entry.
+//
+// What that costs a reader is one surprise, so it is written down here and
+// in the package doc rather than left in the bytes. `cert` holds one or more
+// certificates, leaf first. A single pem.Decode or `openssl x509` reads the
+// leaf and is correct. Anything that requires cert to hold exactly one
+// certificate is not, and the log entry below names the leaf alone — so the
+// certificate in the entry is the *first* certificate in cert, never the
+// whole field.
 //
 // # The envelope is recorded in the transparency log too
 //
@@ -409,13 +426,17 @@ var jwtLike = regexp.MustCompile(`[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0
 //
 // # What it costs
 //
-// One more transparency log upload per publish, and it is stated here the way
-// signImage states its own because it is the same cost: another serial round
-// trip to a shared third-party service inside the publish, bounded by
-// rekorTimeout, and another way for a publish to fail that has nothing to do
-// with the artifact. It is one per publish rather than one per platform —
-// there is a single provenance statement per publish — so a four-platform
-// keyless release goes from five round trips to six.
+// One more transparency log upload, and it is stated here the way signImage
+// states its own because it is the same cost: another serial round trip to a
+// shared third-party service inside the publish, bounded by rekorTimeout, and
+// another way for a publish to fail that has nothing to do with the artifact.
+//
+// The unit is one per repository published to, not one per platform and not
+// one per publish. There is a single provenance statement per repository —
+// its subject is that repository's digest — and Publish loops repositories,
+// calling attachAttestations and signImage inside the loop. So a
+// four-platform keyless release costs six round trips to one repository, and
+// twelve to two.
 func (s *signer) dsseEnvelope(ctx context.Context, statement []byte) ([]byte, error) {
 	pae := preAuthenticationEncoding(dssePayloadType, statement)
 	digest := sha256.Sum256(pae)
@@ -466,9 +487,14 @@ func (s *signer) dsseEnvelope(ctx context.Context, statement []byte) ([]byte, er
 // The certificate the entry names is the leaf and not the whole chain, which
 // is the same split signatureAnnotations makes and for a reason worth stating
 // rather than inheriting: the entry says which key signed, and a log lenient
-// enough to accept a chain would record an intermediate as the signer. The
-// envelope's own cert field still carries the chain, because that is where a
-// verifier walks to a root and it is what cosign's extension field means.
+// enough to accept a chain would record an intermediate as the signer.
+//
+// The envelope's own cert field still carries the whole chain, which is what
+// it carried before this and is dsseEnvelope's divergence from cosign rather
+// than an agreement with it — see the section there that says so. The
+// consequence to hold on to is that the entry's certificate and the cert
+// field are deliberately not the same bytes: the entry names the first
+// certificate in cert.
 //
 // The two refusals mirror signatureAnnotations' exactly. Neither is reachable
 // today — newSigner sets the chain and the log together on every keyless
