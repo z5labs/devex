@@ -244,6 +244,132 @@ cache field and is unaffected — which is why `Client.Export` (returns a
 `Chan`, `Default`, `Package`, and the rest of the Go keyword list as
 scalar-returning method names.
 
+The **object**-returning counterpart is safe, and this has now been measured
+rather than assumed (devex#402, Dagger v0.21.8). A method
+`func (m *Z5labs) Go(source *dagger.Directory) *Go` — the name as both the
+method and the returned object's type — generates, compiles and runs in a
+consumer module:
+
+```go
+// source:   func (m *Z5labs) Go(source *dagger.Directory) *Go
+// consumer: func (r *Z5Labs) Go(source *Directory) *Z5LabsGo
+```
+
+The reason is the cache field described just above, and nothing else. A
+method name is emitted as a capitalized identifier, which is never a Go
+keyword — `Go` is a legal identifier, only lowercase `go` is reserved. What
+breaks is the *lowercased* cache field a scalar-returning method emits
+(`go *string`), so a method that returns an object emits no field and there
+is nothing to collide. The returned type namespacing to `Z5LabsGo` is a real
+observation but not the mechanism; a type named `Go` would have been fine
+too.
+
+So the rule is about the **return type**, not the name in isolation, and it
+is per generated method rather than per module: adding a scalar-returning
+`Go` method to any object — measured on a second object, not the keyword-named
+one — breaks that object's generated type with `expected '}', found 'go'`.
+A keyword-named object carrying only object-returning and non-keyword scalar
+methods is fine.
+
+Worth knowing while reading that pair: the schema name is derived from
+the **module name**, not from the Go type's spelling. Module `z5labs` gives
+`Z5Labs` in the bindings even though the Go source declares `type Z5labs
+struct{}`, and secondary objects namespace onto that same normalized prefix.
+The casing difference is the generator's, not a typo.
+
+### Unexported types are where module-object state belongs
+
+A module object's fields are serialized across every call boundary, which
+raises the question of whether a field holding a slice of structs needs
+those structs registered as Dagger object types. It does not — unexported
+Go structs round-trip fine (measured in devex#402):
+
+```go
+type App struct {
+    Version  string     // +private
+    Variants []*variant // +private   <- the +private is load bearing
+}
+
+type variant struct {
+    Platform  dagger.Platform
+    Container *dagger.Container
+    Documents []document
+}
+
+type document struct {
+    Name string
+    Type string        // safe here; see below
+    File *dagger.File
+}
+```
+
+**Nothing about `variant` or `document` reaches the schema** — the consumer's
+generated bindings contain no `Z5LabsVariant` and no `Z5LabsDocument`, only
+the methods of `App` itself. The state round-trips intact, `*dagger.Container`
+and `*dagger.File` included; those travel as IDs and resolve on the far side.
+Verified both by chained resolution and by an explicit `ID()` →
+`LoadZ5LabsAppFromID()` round trip, across three platforms, with the
+containers and files still readable afterwards.
+
+One ergonomic wrinkle when doing that ID round trip on a *dependency's*
+object: the generated `ID()` on a dependency type returns the generic
+`dagger.ID`, not the specific one, so `LoadZ5LabsAppFromID` needs an explicit
+`dagger.Z5LabsAppID(id)` conversion. Own-module types are unaffected.
+
+What keeps them out of the schema is that **no exposed API signature
+references them** — not the lowercase initial by itself. Drop the `+private`
+from `Variants` and you are asking the generator to expose a field whose type
+it cannot register, which fails in the module's *own* `dagger develop`, before
+any consumer is involved:
+
+```
+Error: generate code: template: module.go.tmpl:96:3: ... cannot code-generate
+unexported type variant
+```
+
+Measured, because the causal link is easy to state backwards.
+
+Two consequences:
+
+- **The field-naming rules do not apply to unexported types.** A field
+  literally named `Type` on `document` — the name that breaks dependency
+  codegen outright on an *exported* struct — is harmless here, because there
+  is no schema object for it to collide in. Confirmed by trying it. Name
+  these fields for the code, not for the generator.
+- Their fields still need to be **exported**, and getting this wrong fails
+  silently and late. The round trip is `encoding/json`, so an unexported
+  field is dropped on the way out and comes back as the zero value. Codegen
+  still succeeds and the consumer still compiles. With a pointer, slice, map
+  or interface field you at least get a crash the first time you touch it —
+  measured, with a lower-cased `file *dagger.File`, giving `invalid memory
+  address or nil pointer dereference`. With a scalar you get **no** crash: an
+  unexported `count int` or `name string` comes back `0` or `""` and the
+  module computes on wrong data indefinitely. The panic is the lucky
+  outcome. The struct is unexported; its fields are not.
+
+The registered alternative was never run — the criteria for this spike called
+for it only if the unexported form failed, and it did not — so what follows is
+reasoning rather than measurement: a registered helper type would add a schema
+object with no methods that callers can see and must ignore, and would drag
+the exported-field naming rules along with it. On that basis prefer the
+unexported form, bearing in mind the silent-zeroing trap above is the price.
+
+### `[]dagger.Platform` parameters carry variants intact
+
+Nothing in this repo took a `dagger.Platform` as an *input* before — every
+use constructed one — so it was unverified whether a slice of them survived
+a call boundary. It does, order preserved and variant preserved:
+`linux/amd64`, `linux/arm64` and `linux/arm/v7` all arrive byte-identical to
+what the caller passed (devex#402). `Platform` is a string scalar in the
+schema, so nothing rewrites the variant component in transit across a call
+boundary.
+
+That is a statement about **parameter marshaling only**. Platform values are
+normalized in containerd-style handling elsewhere in the stack, and this
+spike says nothing about what `WithPlatform`, image building or a
+`Platform()`-returning call do with a `linux/arm/v7`; treat those as
+untested.
+
 ### Method parameters named `r` collide with the generated receiver
 
 The codegen renders methods as `func (r *<Type>) Method(<args>) ...`,
