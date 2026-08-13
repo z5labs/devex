@@ -314,6 +314,20 @@ func (a *App) occupiedPaths(ctx context.Context) ([]occupied, error) {
 // at /etc/hosts today and somewhere else the moment an image gains a workdir,
 // with nothing in the document to say which.
 //
+// TMPDIR's directory is refused, and it is the one refusal here that is not
+// about the path being unusable. /tmp is a mount point the deployment fills —
+// the image ships no /tmp at all, see the package doc — so content contributed
+// under it would be in the published image, described by its document, and
+// invisible at runtime behind whatever gets mounted over it. That is the same
+// undetectable incompleteness the overlap rules exist for, arriving from the
+// deployment's side instead of from another contribution's.
+//
+// HOME's directory is *not* refused, and the asymmetry is deliberate.
+// /home/nonroot is in the image and read-only, and a deployment mounts over it
+// only in the one case where an application genuinely needs a writable home —
+// so read-only content under it, a default configuration an operator can
+// override by mounting one, is content that is normally there at runtime.
+//
 // The path is cleaned — "/srv/./templates//index.html" and a trailing slash
 // are normalized — and it is otherwise taken literally. In particular
 // surrounding whitespace is *not* stripped: " /srv/data" is refused for not
@@ -335,6 +349,16 @@ func validateContributionPath(method, raw string) (string, error) {
 	clean := imagepath.Clean(raw)
 	if clean == "/" {
 		return "", fmt.Errorf("%s: the image's root is not a path to contribute at", method)
+	}
+	if clean == appTmpDir || strings.HasPrefix(clean, appTmpDir+"/") {
+		what := appTmpDir + " is the scratch space TMPDIR names"
+		if clean != appTmpDir {
+			what = clean + " is inside " + appTmpDir + ", the scratch space TMPDIR names"
+		}
+		return "", fmt.Errorf(
+			"%s: %s, and the image deliberately does not carry it — the deployment mounts a tmpfs or an emptyDir "+
+				"there, and anything contributed under it disappears the moment it does",
+			method, what)
 	}
 	return clean, nil
 }

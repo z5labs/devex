@@ -39,20 +39,33 @@ const curlImage = "curlimages/curl:8.10.1"
 // alone and is free to move independently. ":latest" is a moving target.
 const skopeoImage = "quay.io/skopeo/stable:v1.22.2"
 
-// wantImagePath is the PATH the module promises every image it builds
-// carries, and wantPluginDir is the directory on it that an extension's
-// executables land in.
+// wantImagePath, wantImageHome and wantImageTmpDir are the environment the
+// module promises every image it builds carries, and wantPluginDir is the
+// directory on the PATH that an extension's executables land in.
 //
-// Both are written out here rather than read from the module: they are a
-// contract with everyone who writes a `FROM` or a `COPY --from=` line
-// against a published image, and a test that imported the module's own
-// constants would agree with whatever the module changed them to. That is
-// the whole point of pinning them — changing either breaks published
-// Dockerfiles, so changing either has to break this test first.
+// They are written out here rather than read from the module: they are a
+// contract with everyone who writes a `FROM` or a `COPY --from=` line against
+// a published image, or a volume mount against a running one, and a test that
+// imported the module's own constants would agree with whatever the module
+// changed them to. That is the whole point of pinning them — changing any of
+// them breaks published Dockerfiles or deployed manifests, so changing any of
+// them has to break this test first.
 const (
-	wantImagePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-	wantPluginDir = "/usr/local/bin"
+	wantImagePath   = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	wantPluginDir   = "/usr/local/bin"
+	wantImageHome   = "/home/nonroot"
+	wantImageTmpDir = "/tmp"
 )
+
+// wantImageHomeStat is what HOME's directory has to look like on disk, in the
+// "<mode> <uid>:<gid>" form statInImage reports: mode 0555, owned by root.
+//
+// The mode and the owner together are the promise — a home directory nothing
+// can write, under any user a deployment picks. An application that needs a
+// writable home then fails identically everywhere instead of succeeding into
+// the container's writable layer under one runtime and failing under another,
+// which is the whole reason HOME is pinned rather than left to the engine.
+const wantImageHomeStat = "555 0:0"
 
 // hostPlatform is the platform a single-platform test builds for. Test
 // module code runs in a linux container on the engine, so runtime.GOARCH
@@ -603,6 +616,11 @@ func (t *Tests) AppContainersCoverEveryPlatformInOrder(ctx context.Context) erro
 // because that is the promise a `COPY` line is written against, and the
 // entrypoint is asserted absolute because the app must run whatever the
 // PATH says: PATH is for what an extension adds, not for finding the app.
+//
+// Two of the three variables also say something about the image's filesystem —
+// HOME names a directory that is there and TMPDIR one that is not — and this
+// is the test that checks it, once, on the host's platform. See
+// assertHomeAndScratch.
 func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error {
 	src, err := gitFixture(ctx, helloDir(), "main", nil)
 	if err != nil {
@@ -628,7 +646,11 @@ func (t *Tests) AppImagesCarryTheStandardEnvironment(ctx context.Context) error 
 			return fmt.Errorf("%s: the app's own binary is in the plugin directory %s, which is an extension's to fill", platform, wantPluginDir)
 		}
 	}
-	return nil
+	// Two of the three variables are also claims about the image's filesystem,
+	// and this is where they are checked — on the host's platform, because
+	// materializing a foreign one costs a cross-compile to learn the same
+	// thing.
+	return assertHomeAndScratch(ctx, app.Container(hostPlatform()), string(hostPlatform()))
 }
 
 // assertStandardEnvironment checks ctr's environment is exactly the
@@ -650,11 +672,18 @@ func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what 
 		}
 		got[name] = value
 	}
-	if len(got) != 1 {
-		return fmt.Errorf("%s: expected the image environment to be PATH alone, got %v", what, got)
+	want := map[string]string{
+		"PATH":   wantImagePath,
+		"HOME":   wantImageHome,
+		"TMPDIR": wantImageTmpDir,
 	}
-	if got["PATH"] != wantImagePath {
-		return fmt.Errorf("%s: expected PATH=%q, got %q", what, wantImagePath, got["PATH"])
+	if len(got) != len(want) {
+		return fmt.Errorf("%s: expected the image environment to be PATH, HOME and TMPDIR alone, got %v", what, got)
+	}
+	for _, name := range []string{"PATH", "HOME", "TMPDIR"} {
+		if got[name] != want[name] {
+			return fmt.Errorf("%s: expected %s=%q, got %q", what, name, want[name], got[name])
+		}
 	}
 	onPath := false
 	for _, dir := range strings.Split(got["PATH"], ":") {
@@ -664,6 +693,55 @@ func assertStandardEnvironment(ctx context.Context, ctr *dagger.Container, what 
 	}
 	if !onPath {
 		return fmt.Errorf("%s: the plugin directory %s is not on the image's PATH %q", what, wantPluginDir, got["PATH"])
+	}
+	return nil
+}
+
+// assertHomeAndScratch checks the half of the environment contract that is a
+// claim about the image's filesystem rather than about its config: HOME names
+// a directory the image really has, owned by root and writable by nobody, and
+// TMPDIR names one it deliberately does not.
+//
+// Both halves are asserted because both are things an adopter is told and
+// cannot see. A HOME naming a directory that is not there would leave every
+// $HOME read failing ENOENT and every write racing the runtime's writable
+// layer, which is what pinning HOME was supposed to end; a /tmp that appeared
+// in the image would make the "mount scratch space yourself" instruction
+// optional in a way that works until somebody turns on
+// readOnlyRootFilesystem.
+//
+// The mode and the owner go through statInImage because a glob reports
+// neither, and the scratch directory's absence goes through the rootfs listing
+// because statInImage would report a missing path as a failed exec rather than
+// as an answer.
+//
+// It is called once, on one platform, rather than from assertStandardEnvironment
+// beside the config half. Reading an image's environment costs nothing — no
+// build is solved to answer it — while reading its filesystem forces the whole
+// image to materialize, which on a platform that is not the host is a
+// cross-compile. Both halves are written by imageForEntry, the one place an
+// image is built, and neither varies by platform or by entry point, so paying
+// that on every variant of every app this suite builds buys nothing — and this
+// suite is already the workspace's longest leg.
+func assertHomeAndScratch(ctx context.Context, ctr *dagger.Container, what string) error {
+	top, err := ctr.Rootfs().Entries(ctx)
+	if err != nil {
+		return fmt.Errorf("%s: list the image's root: %v", what, err)
+	}
+	for _, e := range top {
+		if strings.TrimSuffix(e, "/") == strings.TrimPrefix(wantImageTmpDir, "/") {
+			return fmt.Errorf(
+				"%s: the image carries %s, which TMPDIR names and the deployment mounts scratch space at; "+
+					"an image that ships it makes that mount look optional until somebody sets readOnlyRootFilesystem",
+				what, wantImageTmpDir)
+		}
+	}
+	modes, err := statInImage(ctx, ctr, []string{wantImageHome})
+	if err != nil {
+		return fmt.Errorf("%s: %v", what, err)
+	}
+	if modes[wantImageHome] != wantImageHomeStat {
+		return fmt.Errorf("%s: %s is %q, want %q", what, wantImageHome, modes[wantImageHome], wantImageHomeStat)
 	}
 	return nil
 }

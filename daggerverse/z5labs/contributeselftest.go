@@ -72,6 +72,31 @@ func checkContributionPaths() error {
 		{path: "./config.yml", refusal: "is not an absolute path", why: "an explicitly relative path"},
 		{path: "/", refusal: "root is not a path to contribute at", why: "the whole filesystem"},
 		{path: "/srv/..", refusal: "root is not a path to contribute at", why: "a path that climbs back out to the root"},
+		{
+			path:    "/tmp",
+			refusal: "/tmp is the scratch space TMPDIR names",
+			why:     "the scratch space itself, which the image does not carry and the deployment mounts over",
+		},
+		{
+			path:    "/tmp/seed.json",
+			refusal: "/tmp/seed.json is inside /tmp",
+			why:     "a file under the scratch space, which is in the image and its documents and invisible at runtime",
+		},
+		{
+			path:    "/tmp/../tmp/cache",
+			refusal: "is inside /tmp",
+			why:     "a path that reaches the scratch space only after cleaning, which a prefix test on the raw string would miss",
+		},
+		{
+			path: "/tmpfiles",
+			want: "/tmpfiles",
+			why:  "a sibling whose name merely opens with /tmp, which is not under it",
+		},
+		{
+			path: "/home/nonroot/.config/app.yaml",
+			want: "/home/nonroot/.config/app.yaml",
+			why:  "read-only content under HOME, which the image does carry and which is deliberately not refused",
+		},
 	}
 	for _, c := range cases {
 		got, err := validateContributionPath("withFile", c.path)

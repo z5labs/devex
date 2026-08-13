@@ -16,22 +16,93 @@
 // # The image contract
 //
 // Every image this module builds carries the same environment, and it is
-// exactly one variable:
+// exactly three variables:
 //
 //	PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+//	HOME=/home/nonroot
+//	TMPDIR=/tmp
 //
 // with /usr/local/bin as the directory an extension's executables land in.
-// Both values are fixed by the module and no caller-facing method can move
-// either, because a published image is something other people write `FROM`
+// Every value is fixed by the module and no caller-facing method can move any
+// of them, because a published image is something other people write `FROM`
 // and `COPY` lines against: a PATH that varied per app would make "put your
 // plugin on the PATH" a per-image question, and moving the directory later
-// would break every line already written. The value is the conventional
+// would break every line already written. The PATH value is the conventional
 // default a container runtime injects when an image sets none, so an image
 // that later gains a real base layer behaves the way its base expects.
 //
 // The application's own entrypoint does not rely on any of that. It is an
 // absolute path — /app/<binary> — so the app runs whatever the PATH says.
 // PATH exists for what an extension adds, not for finding the app itself.
+//
+// # HOME is a directory; TMPDIR is a mount point
+//
+// HOME and TMPDIR are on that list for a reason PATH's paragraph does not
+// cover, and it is not that an application here needs either of them. The
+// alternative to setting them is not "no value" — it is the *runtime's* value.
+// A process reads a home directory and a scratch directory out of its
+// environment whether or not the image set them, and what it reads when the
+// image sets neither is the engine's choice: measured under podman 5.8.4 on an
+// image with exactly this layout, an unset HOME leaves os.UserHomeDir failing
+// with "$HOME is not defined" under uid 0 and returning "/" — a root-owned
+// directory nothing can write — under a uid override, from one digest.
+// Pinning them makes the answer a property of the image, which is what the
+// rest of this contract is for (devex#424).
+//
+// What the image carries behind the two values is deliberately different.
+//
+// HOME names a directory the image really has: /home/nonroot, owned by root,
+// mode 0555, and shipped empty. A read under it fails ENOENT and a write fails
+// EACCES, the same way on every runtime, instead of succeeding into a writable
+// layer under one and failing under another. /home/nonroot is the conventional
+// home of uid 65532, which is who these images' files belong to, so it is also
+// the path a deployment mounts a volume at in the case where an application
+// genuinely needs a writable home. Nothing in the image needs one: an
+// application that writes to its home directory is making its own state part
+// of a digest that is supposed to describe what is running.
+//
+// The one user that mode does not stop is root, which bypasses the permission
+// check — so "a write fails" is a promise under every user except uid 0, and
+// uid 0 is what a container runtime picks when nothing overrides it (devex#399
+// is the image's own user, and is open). Owning the directory as root rather
+// than as the application's user is what makes the promise hold for every
+// other choice a deployment can make, rather than only for the default one.
+//
+// A caller may contribute read-only content under it — a default
+// configuration an operator can override by mounting one — and that is
+// contributed content like any other, landing owned by the application's user
+// and read-only. "Empty" is what the image ships, not a rule about what may go
+// there; see contribute.go.
+//
+// TMPDIR names /tmp, and the image does not contain /tmp. An application that
+// needs scratch space therefore fails — os.CreateTemp with "no such file or
+// directory" — until the deployment mounts something there, a tmpfs or an
+// emptyDir. That is a runtime failure an adopter cannot discover by looking at
+// the image, which is why it is written here rather than left to be found. The
+// image ships no /tmp because a directory baked into one has no size to set:
+// it is the container's writable layer, unbounded, and gone the moment anyone
+// turns on readOnlyRootFilesystem. Only whoever runs the image can size
+// scratch space, so only they can supply it — naming the path is the
+// archetype's job and supplying the storage behind it is the deployment's,
+// which is this file's own division of labour rather than an exception to it.
+// Contributing content under /tmp is refused for the other half of the same
+// reason: the mount the deployment makes would shadow it.
+//
+// # No working directory
+//
+// Nothing sets one, and this is the decision rather than an omission. It is
+// worth stating beside HOME because a working directory is the natural first
+// guess at the problem HOME solves, and it does not solve it: os.UserHomeDir
+// reads $HOME and never falls back to the working directory, so a WORKDIR
+// would change only what relative paths resolve against. The two are
+// orthogonal.
+//
+// Leaving it unset is also load bearing elsewhere. validateContributionPath
+// refuses a relative contribution path on the grounds that it "would resolve
+// against a working directory this pipeline never sets" — see contribute.go —
+// and that reasoning holds only while nothing sets one. Setting a working
+// directory later means deciding what happens to that refusal, not merely
+// adding a line to the image config.
 //
 // # Environment is a runtime concern
 //
@@ -40,7 +111,9 @@
 // every category of variable has an owner other than the caller of a build.
 // A language chain owns the runtime search paths it created the layout for —
 // CLASSPATH, PYTHONPATH. This archetype owns PATH, HOME and TMPDIR, because
-// they are the contract other people write FROM and COPY lines against. The
+// they are the contract other people write FROM and COPY lines against, and it
+// sets all three on every image it builds — the section above is what they are
+// and why each one is pinned rather than left to the runtime. The
 // source owns its own baked defaults, GOMEMLIMIT among them, where a constant
 // in the program says it better than a variable outside it. A CA bundle
 // contributed where the library already looks needs no variable at all. And

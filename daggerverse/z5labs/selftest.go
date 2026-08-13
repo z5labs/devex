@@ -215,9 +215,19 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 // comparison out and driving it here is what makes the refusal a guarantee
 // rather than a comment — delete it and this check goes red.
 //
-// It also pins the standardized set itself: that PATH is the only variable,
-// and that the plugin directory is on it. Both are things other people write
-// Dockerfiles against.
+// It also pins the shape of the standardized set: that it is PATH, HOME and
+// TMPDIR and nothing else, that each is the constant that names it, and that
+// the plugin directory is on the PATH.
+//
+// It does **not** pin the values, and the distinction is worth stating because
+// the check below reads like it does. The comparison is against the same
+// constants expectedImageEnv returns, so it catches a fourth variable, a
+// missing one, or a literal written into expectedImageEnv beside the constant
+// — drift between the map and the constants — and not a constant that moved.
+// Moving one is what breaks published Dockerfiles and deployed manifests, and
+// the pin that catches it is the deliberately literal one in tests/, beside
+// wantImagePath. Two literal copies here would be a third place to update and
+// a second place to get it wrong.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
@@ -227,12 +237,21 @@ func (m *Z5labs) VersionTagsSelfTest(ctx context.Context) error {
 func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 	want := expectedImageEnv()
 
-	// The standardized set is PATH alone, and the plugin directory is on it.
-	// A caller who writes `COPY --from=... /usr/local/bin/thing` is relying
-	// on the second of those, and an out-of-pipeline consumer reading the
-	// image's config is relying on the first.
-	if len(want) != 1 || want["PATH"] == "" {
-		return fmt.Errorf("expected the standardized environment to be PATH alone, got %v", want)
+	// The standardized set is exactly these three names, each carrying the
+	// constant that names it. A caller who writes `COPY --from=...
+	// /usr/local/bin/thing` is relying on the plugin directory being on the
+	// PATH; a deployment mounting an emptyDir is relying on TMPDIR being in
+	// the set at all; and an out-of-pipeline consumer reading the image's
+	// config is relying on the set being knowable. What each constant is set
+	// to is pinned in tests/, not here — see the doc comment.
+	pinned := map[string]string{"PATH": appPath, "HOME": appHomeDir, "TMPDIR": appTmpDir}
+	if len(want) != len(pinned) {
+		return fmt.Errorf("expected the standardized environment to be %v, got %v", sortedKeys(pinned), sortedKeys(want))
+	}
+	for _, name := range sortedKeys(pinned) {
+		if want[name] != pinned[name] {
+			return fmt.Errorf("expected the standardized environment to carry %s=%q, got %q", name, pinned[name], want[name])
+		}
 	}
 	onPath := false
 	for _, dir := range strings.Split(want["PATH"], ":") {
@@ -244,6 +263,18 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 		return fmt.Errorf("the plugin directory %s is not on the standardized PATH %q", appPluginDir, want["PATH"])
 	}
 
+	// standard is the standardized set, optionally broken in one way. Each
+	// case starts from expectedImageEnv rather than from a literal so that a
+	// variable added to the set does not leave a row here silently asserting
+	// the *old* set is accepted.
+	standard := func(mutate func(map[string]string)) map[string]string {
+		env := expectedImageEnv()
+		if mutate != nil {
+			mutate(env)
+		}
+		return env
+	}
+
 	cases := []struct {
 		name string
 		env  map[string]string
@@ -253,11 +284,11 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 	}{
 		{
 			name: "exactly the standardized set",
-			env:  map[string]string{"PATH": appPath},
+			env:  standard(nil),
 		},
 		{
-			name: "a stray variable beside a correct PATH",
-			env:  map[string]string{"PATH": appPath, "AWS_SECRET_ACCESS_KEY": "leaked"},
+			name: "a stray variable beside a correct environment",
+			env:  standard(func(m map[string]string) { m["AWS_SECRET_ACCESS_KEY"] = "leaked" }),
 			want: "carries an environment variable this pipeline never sets, AWS_SECRET_ACCESS_KEY",
 		},
 		{
@@ -267,13 +298,34 @@ func (m *Z5labs) ImageEnvironmentSelfTest(ctx context.Context) error {
 		},
 		{
 			name: "a PATH that lost the plugin directory",
-			env:  map[string]string{"PATH": "/usr/bin:/bin"},
+			env:  standard(func(m map[string]string) { m["PATH"] = "/usr/bin:/bin" }),
 			want: `sets PATH="/usr/bin:/bin"`,
+		},
+		{
+			// The scratch space's path is what a deployment mounts at, so an
+			// image that moved it would take every manifest written against
+			// the old one with it.
+			name: "a TMPDIR pointing somewhere else",
+			env:  standard(func(m map[string]string) { m["TMPDIR"] = "/var/tmp" }),
+			want: `sets TMPDIR="/var/tmp"`,
+		},
+		{
+			name: "an image that lost TMPDIR",
+			env:  standard(func(m map[string]string) { delete(m, "TMPDIR") }),
+			want: "carries no TMPDIR",
+		},
+		{
+			// Losing HOME does not fail loudly at runtime: the process reads
+			// whatever the engine supplies instead, which is exactly the
+			// per-runtime answer pinning it removed.
+			name: "an image that lost HOME",
+			env:  standard(func(m map[string]string) { delete(m, "HOME") }),
+			want: "carries no HOME",
 		},
 		{
 			name: "no environment at all",
 			env:  map[string]string{},
-			want: "carries no PATH",
+			want: "carries no HOME",
 		},
 	}
 	for _, c := range cases {

@@ -3,15 +3,14 @@ package main
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
 	"dagger/z-5-labs/internal/dagger"
 )
 
 // The image environment every application this module builds carries, in
-// full. Both values are fixed here and there is deliberately no
-// caller-facing way to move either: a published image is something other
+// full. Every value is fixed here and there is deliberately no
+// caller-facing way to move any of them: a published image is something other
 // people write `FROM` and `COPY` lines against, and a PATH that varied per
 // app would make "put your plugin on the PATH" a question you have to ask
 // per image rather than a contract the module promises.
@@ -31,6 +30,17 @@ import (
 // The application's own binary does not live here and does not rely on the
 // PATH: appDir holds it and the entrypoint names it absolutely. PATH exists
 // for what an extension adds, not for finding the app itself.
+//
+// appHomeDir and appTmpDir are the other two variables' values, and they are
+// pinned here for the reason PATH is: what a process reads out of HOME and
+// TMPDIR is otherwise the *runtime's* choice rather than the image's. Measured
+// under podman 5.8.4 on an image with this layout, an unset HOME gives ""
+// under uid 0 and "/" under a uid override, so os.UserHomeDir returns an error
+// in one deployment and a root-owned directory in another, from one digest.
+// Pinning them makes the answer a property of the image (devex#424).
+//
+// They differ in what the image carries behind them, and the difference is
+// deliberate — see imageHome and the package doc's "The image contract".
 const (
 	appPluginDir = "/usr/local/bin"
 	// appPath is composed from appPluginDir rather than spelled out, so that
@@ -38,9 +48,41 @@ const (
 	// rather than one two string literals happen to agree on. Editing the
 	// PATH to drop the directory is then not something you can do by
 	// accident.
-	appPath = "/usr/local/sbin:" + appPluginDir + ":/usr/sbin:/usr/bin:/sbin:/bin"
-	appDir  = "/app"
+	appPath    = "/usr/local/sbin:" + appPluginDir + ":/usr/sbin:/usr/bin:/sbin:/bin"
+	appDir     = "/app"
+	appHomeDir = "/home/nonroot"
+	appTmpDir  = "/tmp"
 )
+
+// appHomeMode is the mode HOME's directory lands with: traversable and
+// readable, writable by nobody.
+//
+// It is the same mode a contributed directory gets, and for a stronger version
+// of the same reason — an image whose files the application can rewrite is one
+// whose published digest stops describing what is running, and a home
+// directory is the first place a program tries to write. It stays owned by
+// root rather than by appOwner, so the refusal survives a caller overriding
+// the runtime user to anything but root.
+const appHomeMode = 0o555
+
+// imageHome is the directory HOME names, as content to copy into an image.
+//
+// The mode is set on a Directory and the Directory is copied in, because
+// Container.withDirectory silently ignores its permissions argument while
+// Directory.withNewDirectory honours it (measured, Dagger v0.21.8 — see
+// daggerverse/CLAUDE.md). Setting it on the container copy would leave this
+// comment describing a mode the image does not have.
+//
+// It is created under a name and taken back out of it for the reason
+// normalizedTree is: the root of a Directory is not something a copy sets a
+// mode on, so building it at the root would leave the home directory itself at
+// the default while nothing inside it changed.
+func imageHome() *dagger.Directory {
+	const at = "home"
+	return dag.Directory().
+		WithNewDirectory(at, dagger.DirectoryWithNewDirectoryOpts{Permissions: appHomeMode}).
+		Directory(at)
+}
 
 // stampVersionVar and stampCommitVar are the linker symbols every binary
 // this module builds is stamped with. They are fixed by the module rather
@@ -192,8 +234,19 @@ func (g *GoChain) buildBinaryForPlatform(platform, pkg, binaryName, version, com
 // image.
 //
 // The entrypoint is the executable's absolute path, so the app runs whatever
-// PATH says. The PATH is the module's standardized value and is set here
+// PATH says. The environment is the module's standardized set and is set here
 // rather than anywhere a caller can reach — see the constants above.
+//
+// It is written by iterating expectedImageEnv rather than by naming the
+// variables again, so the set an image carries and the set a publish asserts
+// are one list rather than two that have to agree. Adding a variable to the
+// standardized set is then a one-line change that cannot half-land. The keys
+// are applied in sorted order because an image config's environment is a list,
+// so two builds of one commit have to write it the same way round.
+//
+// HOME's directory is created here too, empty and read-only. TMPDIR's is
+// deliberately not — the package doc's "The image contract" carries why the
+// two variables are treated differently.
 //
 // The entry lands owned by the image's non-root user and read-only, which is
 // the same treatment every contributed byte gets and for the same reason: an
@@ -218,14 +271,13 @@ func imageForEntry(platform dagger.Platform, name string, entry *dagger.File, an
 			Owner:       appOwner,
 			Permissions: entryMode,
 		}).
-		WithEnvVariable("PATH", appPath).
-		WithEntrypoint([]string{entrypoint})
-	keys := make([]string, 0, len(annotations))
-	for k := range annotations {
-		keys = append(keys, k)
+		WithDirectory(appHomeDir, imageHome())
+	env := expectedImageEnv()
+	for _, k := range sortedKeys(env) {
+		ctr = ctr.WithEnvVariable(k, env[k])
 	}
-	sort.Strings(keys)
-	for _, k := range keys {
+	ctr = ctr.WithEntrypoint([]string{entrypoint})
+	for _, k := range sortedKeys(annotations) {
 		ctr = ctr.WithAnnotation(k, annotations[k])
 	}
 	return ctr

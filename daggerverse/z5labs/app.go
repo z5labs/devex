@@ -807,8 +807,26 @@ func pluralIsAre(n int) string {
 // and the last seam that could have — a WithEnvVariable on the image — is
 // gone. That is what makes an image's environment assertable rather than
 // merely documented.
+//
+// It is also what imageForEntry writes, rather than a second list beside it,
+// so the set an image carries and the set a publish demands cannot drift
+// apart.
+//
+// HOME and TMPDIR are here because the alternative is not "no value" but "the
+// runtime's value": a process reads a home directory and a scratch directory
+// out of the environment whether or not the image set them, and what it reads
+// when the image sets neither varies by engine and by whether a caller
+// overrode the user (devex#424). Pinning them makes the answer the image's,
+// which is the same reason PATH is pinned. What the image carries *behind*
+// them differs — a read-only HOME directory, and no /tmp at all — and the
+// package doc's "The image contract" is where that is written down for
+// adopters.
 func expectedImageEnv() map[string]string {
-	return map[string]string{"PATH": appPath}
+	return map[string]string{
+		"PATH":   appPath,
+		"HOME":   appHomeDir,
+		"TMPDIR": appTmpDir,
+	}
 }
 
 // assertImageEnvironment refuses to publish an image whose environment is
