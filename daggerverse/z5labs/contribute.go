@@ -92,6 +92,58 @@ import (
 // — the caller's own arrangement inside their own image, and not a contract
 // this module advertises.
 //
+// # A symbolic link is not content
+//
+// A contributed tree may not carry one, nor a device, a pipe or a socket. The
+// refusal is walkTree's, so it applies to the tree the module actually copies
+// rather than to a claim about the tree a caller passed: Z5labs.DirectoryDocument
+// refuses to describe such a tree, and a publish refuses it again when it
+// recomputes the digest, which is the path a caller who brought their own
+// document takes.
+//
+// Every other rule in this file works on path strings, and a link is the one
+// kind of content that walks past all of them. The mode above is set on the
+// copied tree, and a mode on a link is not a mode on what it resolves to.
+// overlappingPath refuses a contribution that collides with the entrypoint or
+// with something already contributed by comparing cleaned paths, and a link
+// names a path that comparison never sees. And the digest, which is the control
+// digest.go exists to provide, is taken over a list of regular files — so a
+// link contributed nothing to it, and a tree with one hashed the same as the
+// tree without it. That last one made the claim in digest.go false, in the
+// exact mechanism devex#410 added to make an asserted document checkable.
+//
+// Three things were measured against Dagger v0.21.8 before choosing, because
+// the answer depends on them (devex#428):
+//
+//   - Directory.Export preserves a link as a link, relative and absolute
+//     alike. So the export the digest is computed over really does carry the
+//     link, and the walk really does skip it.
+//   - The copy into a container preserves it too, and Directory.withDirectory's
+//     permissions do not apply to it. So the image really does end up holding a
+//     link nothing described.
+//   - An absolute link exported to this module's filesystem points into *this
+//     module's* filesystem. /etc/passwd in a contributed tree is one path
+//     during the export and a different file in the image, which is why
+//     "allowed when it resolves inside the contributed tree" is not a rule that
+//     can be checked where the module can check anything.
+//
+// The alternatives were to follow links, to keep skipping them, or to admit
+// them and describe them. Following one puts a digest for bytes that are not in
+// the image into the document, and the third measurement above says which
+// filesystem's bytes those would be. Skipping is the status quo and is the hole
+// itself. Describing them means inventing a checksum for a thing that has none
+// and teaching every consumer of these documents what it meant, for content a
+// scratch image has almost no use for. Silently dropping them from the copy was
+// rejected for the reason every other silent repair here is: an image missing
+// something the caller put in it, with a document that agrees, is the
+// undetectable incompleteness this whole file is written against.
+//
+// So the caller contributes what the link pointed at, at the path it should
+// have in the image, and everything downstream describes bytes that are really
+// there. If a real need for links inside an image ever arrives — a base layer
+// makes that likelier — it arrives as a seam that names them, not as content
+// that slipped past the seams.
+//
 // # The directories on the way are the image's, not the contribution's
 //
 // Contributing at /etc/ssl/certs/ca-certificates.crt on a scratch image brings
@@ -162,6 +214,11 @@ const (
 // than being written at the root: the root of a Directory is not something the
 // copy sets a mode on, so the contributed tree's own directory would keep 0755
 // while everything inside it changed.
+//
+// What the normalization does not reach is a symbolic link — a mode on a link
+// is not a mode on what it resolves to, and the copy carries the link through
+// unchanged. That is one of the three reasons a tree carrying one is refused
+// outright rather than normalized; see the file comment above.
 func normalizedTree(dir *dagger.Directory) *dagger.Directory {
 	const at = "content"
 	return dag.Directory().
@@ -237,6 +294,14 @@ func (a *App) WithFile(
 // directory used to be exactly that bypass — see the file comment above and
 // App.WithApp, which is the seam that names the platform of every byte it
 // brings.
+//
+// The tree may hold directories and regular files and nothing else. A
+// symbolic link in it is refused — when the document is produced, and again at
+// publish time for a caller who brought one of their own — because a link is
+// the one kind of content none of the rules here can see: it is not given the
+// mode, the path it names is not compared against anything, and it is in no
+// document and no digest. The file comment above carries the decision and what
+// was measured to reach it; contribute what the link pointed at instead.
 //
 // document is an SPDX 2.3 JSON document describing the tree, and it is
 // required for the reason WithFile's is. Z5labs.DirectoryDocument produces one

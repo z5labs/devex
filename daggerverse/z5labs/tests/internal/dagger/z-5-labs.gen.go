@@ -157,6 +157,7 @@ type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:557:6)
 	query *querybuilder.Selection
 
 	composeSelfTest          *Void
+	contributedTreeSelfTest  *Void
 	contributionPathSelfTest *Void
 	id                       *ID
 	imageConfigSelfTest      *Void
@@ -246,6 +247,33 @@ func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (../../.
 	return q.Execute(ctx)
 }
 
+// ContributedTreeSelfTest checks what a contributed tree may hold: directories
+// and regular files, and nothing else.
+//
+// It sits on the module for the reason ContributionPathSelfTest does — walkTree
+// is an unexported function over a real filesystem, and every row below would
+// otherwise cost a Dagger call to build a tree that differs from its neighbour
+// by one entry. What cannot be checked in process is that the rule is wired
+// into both readers of a contributed tree, that Dagger's own export and copy
+// preserve a link at all, and that a publish carrying one is refused before
+// anything is pushed; those are in tests/.
+//
+// The rule is a refusal rather than a skip because a skipped link is in no
+// document and no digest while still being in the image — see the "A symbolic
+// link is not content" section in contribute.go, which carries the decision and
+// the measurements behind it.
+//
+// It runs in process and needs no container, so it is cheap enough to be a
+// check of its own.
+func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/documentselftest.go:33:1)
+	if r.contributedTreeSelfTest != nil {
+		return nil
+	}
+	q := r.query.Select("contributedTreeSelfTest")
+
+	return q.Execute(ctx)
+}
+
 // ContributionPathSelfTest checks the rules that decide where a caller may
 // contribute content, and where they may not.
 //
@@ -288,11 +316,11 @@ type Z5LabsDirectoryDocumentOpts struct {
 	//
 	// An SPDX licence expression for the content, e.g. MIT or Apache-2.0.
 	//
-	License string // z5labs (../../../../../daggerverse/z5labs/document.go:179:2)
+	License string // z5labs (../../../../../daggerverse/z5labs/document.go:188:2)
 	//
 	// The version of the contributed content, if it has one.
 	//
-	Version string // z5labs (../../../../../daggerverse/z5labs/document.go:183:2)
+	Version string // z5labs (../../../../../daggerverse/z5labs/document.go:192:2)
 }
 
 // DirectoryDocument produces the SPDX document required to contribute dir to
@@ -309,9 +337,16 @@ type Z5LabsDirectoryDocumentOpts struct {
 // paths and their digests, so two directories with the same name and version
 // and different contents are different packages rather than one.
 //
+// A tree carrying a symbolic link is **refused**, and so is one carrying a
+// device, a pipe or a socket. A link is not bytes and cannot be enumerated,
+// digested or given the mode the module sets, so a document that skipped it
+// would describe a tree the image does not have — see the "A symbolic link is
+// not content" section in contribute.go. The refusal names the link and what
+// it points at, so it can be found and replaced with the thing itself.
+//
 // name is required, because a directory has no name of its own to fall back
 // to. See FileDocument for license and version.
-func (r *Z5Labs) DirectoryDocument(dir *Directory, name string, opts ...Z5LabsDirectoryDocumentOpts) *File { // z5labs (../../../../../daggerverse/z5labs/document.go:170:1)
+func (r *Z5Labs) DirectoryDocument(dir *Directory, name string, opts ...Z5LabsDirectoryDocumentOpts) *File { // z5labs (../../../../../daggerverse/z5labs/document.go:179:1)
 	assertNotNil("dir", dir)
 	q := r.query.Select("directoryDocument")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -337,16 +372,16 @@ type Z5LabsFileDocumentOpts struct {
 	//
 	// An SPDX licence expression for the content, e.g. MIT or Apache-2.0.
 	//
-	License string // z5labs (../../../../../daggerverse/z5labs/document.go:100:2)
+	License string // z5labs (../../../../../daggerverse/z5labs/document.go:102:2)
 	//
 	// How the contribution is named in the image's document. Defaults to
 	// the file's own name.
 	//
-	Name string // z5labs (../../../../../daggerverse/z5labs/document.go:105:2)
+	Name string // z5labs (../../../../../daggerverse/z5labs/document.go:107:2)
 	//
 	// The version of the contributed content, if it has one.
 	//
-	Version string // z5labs (../../../../../daggerverse/z5labs/document.go:109:2)
+	Version string // z5labs (../../../../../daggerverse/z5labs/document.go:111:2)
 }
 
 // FileDocument produces the SPDX document required to contribute file to an
@@ -369,7 +404,7 @@ type Z5LabsFileDocumentOpts struct {
 // version is what the contributed content is a version of. There is no
 // default: content with no ecosystem usually has no version, and inventing
 // one would put a value in a field consumers compare.
-func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File { // z5labs (../../../../../daggerverse/z5labs/document.go:93:1)
+func (r *Z5Labs) FileDocument(file *File, opts ...Z5LabsFileDocumentOpts) *File { // z5labs (../../../../../daggerverse/z5labs/document.go:95:1)
 	assertNotNil("file", file)
 	q := r.query.Select("fileDocument")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -939,13 +974,21 @@ func (r *Z5LabsApp) WithApp(from *Z5LabsApp) *Z5LabsApp { // z5labs (../../../..
 // App.WithApp, which is the seam that names the platform of every byte it
 // brings.
 //
+// The tree may hold directories and regular files and nothing else. A
+// symbolic link in it is refused — when the document is produced, and again at
+// publish time for a caller who brought one of their own — because a link is
+// the one kind of content none of the rules here can see: it is not given the
+// mode, the path it names is not compared against anything, and it is in no
+// document and no digest. The file comment above carries the decision and what
+// was measured to reach it; contribute what the link pointed at instead.
+//
 // document is an SPDX 2.3 JSON document describing the tree, and it is
 // required for the reason WithFile's is. Z5labs.DirectoryDocument produces one
 // for content with no ecosystem, and it enumerates: the document it writes
 // carries one file element per file in the tree, because "the contribution is
 // described" and "every file in the image is accounted for" are different
 // promises and only the second one is the point.
-func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:249:1)
+func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:314:1)
 	assertNotNil("dir", dir)
 	assertNotNil("document", document)
 	q := r.query.Select("withDirectory")
@@ -981,7 +1024,7 @@ func (r *Z5LabsApp) WithDirectory(path string, dir *Directory, document *File) *
 // useless. Platform-specific executables arrive as an App instead: App.WithApp
 // composes one, matched platform by platform, and lands its entry in the plugin
 // directory.
-func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:197:1)
+func (r *Z5LabsApp) WithFile(path string, file *File, document *File) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/contribute.go:254:1)
 	assertNotNil("file", file)
 	assertNotNil("document", document)
 	q := r.query.Select("withFile")

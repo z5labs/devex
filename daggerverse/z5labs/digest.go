@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -62,6 +63,14 @@ import (
 // produced somewhere else with some other notion of a tree checksum will be
 // refused, and the refusal says what was expected — which is the right outcome
 // for a value nothing else could interpret.
+//
+// "Two directories that differ anywhere differ in it" is a claim about a list
+// of files and their digests, and it was false for exactly one kind of
+// difference: a symbolic link is in no file list, so a tree with one and the
+// same tree without it hashed identically. It is true now because such a tree
+// is refused rather than hashed — walkTree returns an unsupportedEntry and
+// this function passes it on, so the publish stops here. contribute.go carries
+// why refusing is the answer and what was measured to choose it.
 
 // verifyContributionDigest refuses a contribution whose document is about
 // bytes other than the ones entering the image.
@@ -177,6 +186,16 @@ func contentDigest(ctx context.Context, c contribution) (string, error) {
 		}
 		files, err := walkTree(path)
 		if err != nil {
+			// A tree the module refuses to describe is returned unwrapped:
+			// the message already names the entry and why it cannot be
+			// contributed, and "hash the contributed tree:" in front of it
+			// would read as a failure of the hashing rather than as a
+			// refusal of the content. resolveContributions keeps it apart
+			// from a document's failings for the same reason.
+			var bad *unsupportedEntry
+			if errors.As(err, &bad) {
+				return "", err
+			}
 			return "", fmt.Errorf("hash the contributed tree: %v", err)
 		}
 		if len(files) == 0 {

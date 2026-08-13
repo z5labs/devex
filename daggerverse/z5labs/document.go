@@ -6,12 +6,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -163,6 +165,13 @@ func (m *Z5labs) FileDocument(
 // paths and their digests, so two directories with the same name and version
 // and different contents are different packages rather than one.
 //
+// A tree carrying a symbolic link is **refused**, and so is one carrying a
+// device, a pipe or a socket. A link is not bytes and cannot be enumerated,
+// digested or given the mode the module sets, so a document that skipped it
+// would describe a tree the image does not have — see the "A symbolic link is
+// not content" section in contribute.go. The refusal names the link and what
+// it points at, so it can be found and replaced with the thing itself.
+//
 // name is required, because a directory has no name of its own to fall back
 // to. See FileDocument for license and version.
 //
@@ -203,6 +212,13 @@ func (m *Z5labs) DirectoryDocument(
 	}
 	files, err := walkTree(root)
 	if err != nil {
+		// A refused entry is not a failure to read the tree, and sending it
+		// to the reader as one would put "read /srv/templates:" in front of a
+		// sentence that already says exactly what is wrong and where.
+		var bad *unsupportedEntry
+		if errors.As(err, &bad) {
+			return nil, fmt.Errorf("%s cannot be described: %v", name, err)
+		}
 		return nil, fmt.Errorf("read %s: %v", name, err)
 	}
 	if len(files) == 0 {
@@ -325,17 +341,29 @@ func validateLicenseExpression(license string) error {
 // relative to root and sorted, so the document is a pure function of the
 // tree.
 //
-// Symlinks and devices are skipped rather than followed or described: a
-// document that hashed a symlink's target would describe bytes that are not
-// in the image, and one that hashed the link would report a digest nothing
-// can verify against a pulled layer.
+// Anything that is neither a directory nor a regular file is **refused**, and
+// a symbolic link is the case that matters. It used to be skipped, which made
+// this walk describe a tree the image did not have: a link contributed nothing
+// to the file list, so it was in no document, and — because treeDigest is a
+// digest of that list — two trees differing only in their links had the same
+// digest. See the "A symbolic link is not content" section in contribute.go
+// for the decision and the measurements behind it.
+//
+// The refusal lives here because this is the one place the module reads a
+// contributed tree, and both readers need it: Z5labs.DirectoryDocument, so an
+// adopter on the paved path is refused at the call that produced the document,
+// and contentDigest at publish time, so a caller who brought a document of
+// their own is refused before the first byte is pushed.
 func walkTree(root string) ([]bomFile, error) {
 	var out []bomFile
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() || !d.Type().IsRegular() {
+		if !d.IsDir() && !d.Type().IsRegular() {
+			return unsupportedEntryAt(root, path, d)
+		}
+		if d.IsDir() {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
@@ -354,6 +382,67 @@ func walkTree(root string) ([]bomFile, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out, nil
+}
+
+// unsupportedEntry is a tree entry that is neither a directory nor a regular
+// file, and so cannot be contributed to an image.
+//
+// It is a type rather than a string because its two readers word the refusal
+// differently — DirectoryDocument is answering "why can I not have a
+// document?" and a publish is answering "why was my image refused?" — and
+// because a message this specific must not be mistaken for the I/O errors the
+// same walk can return.
+type unsupportedEntry struct {
+	// Path is relative to the tree's root, which is what a caller recognises;
+	// the absolute one names a temporary directory inside this module.
+	Path string
+	// What the entry is, as a noun phrase read after the path.
+	Kind string
+	// Target is where a symbolic link points, verbatim. It is carried because
+	// it is the whole content of the refusal for the case that matters: a
+	// caller who did not know their tree held a link needs to be told what it
+	// pointed at to find it.
+	Target string
+}
+
+func (e *unsupportedEntry) Error() string {
+	what := e.Path + " is " + e.Kind
+	if e.Target != "" {
+		what += " to " + strconv.Quote(e.Target)
+	}
+	return what + ", and that is not content this module can contribute: " +
+		"it is copied into the image as it stands, the mode this module sets does not reach through it, the rules " +
+		"that refuse a contribution landing on top of something never see the path it names, and it is in no " +
+		"document and no digest — so a tree carrying one is indistinguishable from the same tree without it. " +
+		"Contribute what it points at instead, at the path it should have in the image"
+}
+
+// unsupportedEntryAt describes the entry the walk refused.
+//
+// The link target is read with os.Readlink rather than resolved: what the
+// refusal has to name is what the caller wrote, and resolving it here would
+// resolve it against this module's own filesystem — which the measurement in
+// contribute.go shows is not the filesystem the link will land in.
+func unsupportedEntryAt(root, path string, d fs.DirEntry) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		rel = path
+	}
+	bad := &unsupportedEntry{Path: filepath.ToSlash(rel), Kind: "an entry of a kind an image cannot carry"}
+	switch {
+	case d.Type()&fs.ModeSymlink != 0:
+		bad.Kind = "a symbolic link"
+		if target, err := os.Readlink(path); err == nil {
+			bad.Target = target
+		}
+	case d.Type()&fs.ModeDevice != 0:
+		bad.Kind = "a device node"
+	case d.Type()&fs.ModeNamedPipe != 0:
+		bad.Kind = "a named pipe"
+	case d.Type()&fs.ModeSocket != 0:
+		bad.Kind = "a socket"
+	}
+	return bad
 }
 
 // fileDigests returns a file's SHA-256 and SHA-1, streamed rather than read

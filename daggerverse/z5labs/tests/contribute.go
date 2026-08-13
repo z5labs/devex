@@ -640,3 +640,101 @@ func (t *Tests) AppCustomizedImageStillNeedsProvenance(ctx context.Context) erro
 	}
 	return nil
 }
+
+// AppRefusesTreesCarryingSymlinks asserts that a symbolic link in a
+// contributed tree is refused, and measures the two Dagger behaviours the
+// decision rests on.
+//
+// A link is the one kind of content the contribution rules do not see. They
+// work on path strings: the mode is set on the copied tree and a mode on a link
+// is not a mode on what it resolves to, the overlap rules compare cleaned paths
+// and a link names a path they never compare, and the digest that makes an
+// asserted document checkable is taken over a list of regular files, which a
+// link is not in. So before this, a tree with a link and the same tree without
+// one were one tree to every check the module makes, and the link was in the
+// image regardless. contribute.go carries the decision; this is the part that
+// cannot be checked in process.
+//
+// The measurements are the reason it has to be a refusal rather than a
+// documented caveat, and they are asserted rather than described because both
+// are Dagger's behaviour rather than this module's:
+//
+//   - the copy into an image preserves the link, and the permissions the module
+//     normalizes a tree with do not touch it — so an admitted link really is in
+//     the published image, at whatever mode it arrived with;
+//   - Directory.Export preserves it too, which is what the refusal firing at
+//     all establishes: the module walks an export, and a walk that saw a
+//     regular file there would have described the target's bytes instead.
+//
+// Both readers of a contributed tree are driven. DirectoryDocument is the paved
+// path, where an adopter is refused at the call that would have produced the
+// document. The publish is the path a caller who brought a document of their
+// own takes, and it is checked with a document that is valid and about another
+// tree entirely: the tree is refused as content, before anything is compared,
+// so no document could have made it publishable.
+func (t *Tests) AppRefusesTreesCarryingSymlinks(ctx context.Context) error {
+	const (
+		version    = "v12.0.0"
+		name       = "hello"
+		repository = "z5labs/symlinked"
+		treePath   = "/srv/templates"
+	)
+	linked := dag.Directory().
+		WithNewFile("index.html", "<!doctype html>\n").
+		WithSymlink("index.html", "current.html")
+
+	// What an admitted link would leave in the image, read through the same
+	// normalization WithDirectory copies a tree with. A published image has no
+	// shell, so the tree is read where it is still a Directory.
+	out, err := dag.Container().From(alpineImage).
+		WithDirectory("/srv", dag.Directory().
+			WithDirectory("content", linked, dagger.DirectoryWithDirectoryOpts{Permissions: 0o555}).
+			Directory("content"), dagger.ContainerWithDirectoryOpts{Owner: wantOwner}).
+		WithExec([]string{"sh", "-c", "stat -c '%F %a' /srv/current.html; readlink /srv/current.html"}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("read a copied tree's symlink: %v", err)
+	}
+	if got := strings.Fields(strings.TrimSpace(out)); len(got) != 4 || got[0] != "symbolic" || got[3] != "index.html" {
+		return fmt.Errorf("expected the copy to preserve the link, got %q", strings.TrimSpace(out))
+	} else if got[2] == wantDirectoryMode {
+		return fmt.Errorf("the copy applied the module's mode to a symlink (%q); the refusal's premise no longer holds", out)
+	}
+
+	// The paved path: the helper that would produce the document refuses to.
+	if _, err := dag.Z5Labs().DirectoryDocument(linked, treePath).Contents(ctx); err == nil {
+		return fmt.Errorf("expected DirectoryDocument over a tree with a symlink to be refused, got nil")
+	} else if !strings.Contains(err.Error(), `current.html is a symbolic link to "index.html"`) {
+		return fmt.Errorf("expected the refusal to name the link and its target, got: %v", err)
+	}
+
+	// The publish path, for a caller carrying a document of their own.
+	svc, pwdHex, secret, err := localRegistry(ctx)
+	if err != nil {
+		return err
+	}
+	prov, err := newProvenanceHarness(ctx, "")
+	if err != nil {
+		return err
+	}
+	platform := hostPlatform()
+	entry := prebuiltEntry(helloDir(), name, platform)
+	elsewhere := dag.Directory().WithNewFile("index.html", "<!doctype html>\n")
+	app := dag.Z5Labs().App(version).
+		WithVariant(platform, entry, dag.Z5Labs().FileDocument(entry, dagger.Z5LabsFileDocumentOpts{Name: name})).
+		Build().
+		WithDirectory(treePath, linked, dag.Z5Labs().DirectoryDocument(elsewhere, treePath))
+	if _, err := publishable(app, svc, secret, prov).Publish(ctx, []string{repository}); err == nil {
+		return fmt.Errorf("expected a publish carrying a tree with a symlink to be refused, got nil")
+	} else if !strings.Contains(err.Error(), `current.html is a symbolic link to "index.html"`) {
+		return fmt.Errorf("expected the publish to be refused for the link rather than for the document, got: %v", err)
+	}
+	code, err := curlProbeManifest(ctx, svc, registryAlias, "ci", pwdHex, repository, version)
+	if err != nil {
+		return fmt.Errorf("probe the registry after the refusal: %v", err)
+	}
+	if code == 200 {
+		return fmt.Errorf("the publish was refused but manifest %s:%s is present in the registry", repository, version)
+	}
+	return nil
+}
