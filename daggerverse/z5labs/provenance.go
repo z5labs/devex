@@ -121,12 +121,21 @@ func externalParameters(identity *workloadIdentity, facts buildFacts) map[string
 // internalParameters are the builder's own choices: things the pipeline
 // decided, which a verifier may want to see but must not confuse with
 // anything the identity provider vouched for.
+//
+// pkg is omitted rather than published empty when there is none. An App
+// assembled from prebuilt executables compiled no package, and a `"pkg": ""`
+// in a predicate reads as a package whose name is the empty string rather
+// than as a build that had none — the same reason the source annotation is
+// absent rather than blank when a tree has no origin.
 func internalParameters(facts buildFacts) map[string]any {
-	return map[string]any{
-		"pkg":       facts.Pkg,
+	out := map[string]any{
 		"platforms": facts.Platforms,
 		"version":   facts.Version,
 	}
+	if facts.Pkg != "" {
+		out["pkg"] = facts.Pkg
+	}
+	return out
 }
 
 // resolvedDependencies records the source tree the build actually read.

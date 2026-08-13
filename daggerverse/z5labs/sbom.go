@@ -257,6 +257,17 @@ func (a *App) resolveContributions(ctx context.Context) ([]variantBom, error) {
 			if err != nil {
 				return nil, fmt.Errorf("the document describing %s in the %s image: %v", c.Name, v.Platform, err)
 			}
+			// The document is checked against the bytes it claims to describe
+			// here, and only here. A document naming some other artifact's
+			// digest is well-formed, attaches cleanly and is
+			// indistinguishable from a right one once published, so it has to
+			// be refused before the push rather than reported afterwards.
+			// digest.go records what the check does and does not establish,
+			// and why it lives at publish time rather than at the
+			// contributing call.
+			if err := verifyContributionDigest(ctx, c, bom.Subject); err != nil {
+				return nil, fmt.Errorf("the document describing %s in the %s image %v", c.Name, v.Platform, err)
+			}
 			parsed = append(parsed, *bom)
 		}
 		out = append(out, variantBom{Platform: v.Platform, Contributions: parsed})

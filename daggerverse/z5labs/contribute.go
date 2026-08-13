@@ -43,19 +43,21 @@ import (
 // carries the assembly; Z5labs.FileDocument and Z5labs.DirectoryDocument
 // produce a document for content whose ecosystem has no module able to.
 //
-// What is enforced is that a document arrives, that it parses as SPDX 2.3 and
-// that it describes exactly one thing — not that it describes *these* bytes.
-// Nothing here compares the document's checksums against the content beside
-// it, so a caller who passes the wrong document publishes an SBOM about bytes
-// that are not in the image. That is a deliberate limit rather than an
-// oversight, and it is the same limit every contribution has always had: a
-// language chain's own document is produced from the binary it built, and this
-// module has no way to re-derive an arbitrary ecosystem's document to check it
-// against. What the seam removes is the *undescribed* contribution, which is
-// the case nothing downstream could even ask about. A wrong document is at
-// least a claim someone made, in a signed artifact, checkable against the image
-// by anyone who pulls it. The paved path is honest by construction, because the
-// two helpers above compute their digests from the content themselves.
+// What is enforced is that a document arrives, that it parses as SPDX 2.3, that
+// it describes exactly one thing, and that the thing it describes is *these*
+// bytes: a publish hashes the contributed content and refuses a document naming
+// any other digest. That last check was not here at first — the limit stated in
+// this comment was that a caller passing the wrong document published an SBOM
+// about bytes that are not in the image — and devex#410 closed it, because an
+// asserted document is only worth something if something can tell it apart from
+// a worthless one. digest.go carries the rule, and why it runs at publish time.
+//
+// What is still not enforced is what is *inside* a document. Nothing here can
+// re-derive an arbitrary ecosystem's dependency graph, so a supplier can
+// overstate what their own artifact is made of. That is a claim someone made,
+// in a signed artifact, checkable by anyone who pulls the image — a different
+// thing from a document about some other artifact entirely, which is no longer
+// publishable.
 //
 // # The directories on the way are the image's, not the contribution's
 //
@@ -170,7 +172,7 @@ func (a *App) WithFile(
 			Owner:       appOwner,
 			Permissions: contributedFileMode,
 		})
-		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document})
+		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document, Content: file})
 	}
 	a.ContributedPaths = append(a.ContributedPaths, clean)
 	return a, nil
@@ -214,7 +216,7 @@ func (a *App) WithDirectory(
 		v.Container = v.Container.WithDirectory(clean, tree, dagger.ContainerWithDirectoryOpts{
 			Owner: appOwner,
 		})
-		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document})
+		v.Contributions = append(v.Contributions, contribution{Name: clean, File: document, Tree: dir})
 	}
 	a.ContributedPaths = append(a.ContributedPaths, clean)
 	return a, nil

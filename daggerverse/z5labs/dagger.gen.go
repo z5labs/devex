@@ -73,6 +73,46 @@ func (r *Z5labs) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+func (r AppBuilder) MarshalJSON() ([]byte, error) {
+	var concrete struct {
+		Version   string
+		Commit    string
+		SourceURI string
+		Created   string
+		Pkg       string
+		Variants  []*pendingVariant
+	}
+	concrete.Version = r.Version
+	concrete.Commit = r.Commit
+	concrete.SourceURI = r.SourceURI
+	concrete.Created = r.Created
+	concrete.Pkg = r.Pkg
+	concrete.Variants = r.Variants
+	return json.Marshal(&concrete)
+}
+
+func (r *AppBuilder) UnmarshalJSON(bs []byte) error {
+	var concrete struct {
+		Version   string
+		Commit    string
+		SourceURI string
+		Created   string
+		Pkg       string
+		Variants  []*pendingVariant
+	}
+	err := json.Unmarshal(bs, &concrete)
+	if err != nil {
+		return err
+	}
+	r.Version = concrete.Version
+	r.Commit = concrete.Commit
+	r.SourceURI = concrete.SourceURI
+	r.Created = concrete.Created
+	r.Pkg = concrete.Pkg
+	r.Variants = concrete.Variants
+	return nil
+}
+
 func (r GoChain) MarshalJSON() ([]byte, error) {
 	var concrete struct {
 		Source      *dagger.Directory
@@ -496,6 +536,46 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "AppBuilder":
+		switch fnName {
+		case "Build":
+			var parent AppBuilder
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*AppBuilder).Build(&parent, ctx)
+		case "WithVariant":
+			var parent AppBuilder
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var platform dagger.Platform
+			if inputArgs["platform"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["platform"]), &platform)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg platform", err))
+				}
+			}
+			var entry *dagger.File
+			if inputArgs["entry"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["entry"]), &entry)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg entry", err))
+				}
+			}
+			var document *dagger.File
+			if inputArgs["document"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["document"]), &document)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg document", err))
+				}
+			}
+			return (*AppBuilder).WithVariant(&parent, ctx, platform, entry, document)
+		default:
+			return nil, fmt.Errorf("unknown function %s", fnName)
+		}
 	case "GoChain":
 		switch fnName {
 		case "App":
@@ -587,6 +667,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "Z5labs":
 		switch fnName {
+		case "App":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var version string
+			if inputArgs["version"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["version"]), &version)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg version", err))
+				}
+			}
+			return (*Z5labs).App(&parent, version), nil
 		case "ContributionPathSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)
@@ -692,6 +786,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Z5labs).ImageSbomSelfTest(&parent, ctx)
+		case "VariantSetSelfTest":
+			var parent Z5labs
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Z5labs).VariantSetSelfTest(&parent, ctx)
 		case "VersionTagsSelfTest":
 			var parent Z5labs
 			err = json.Unmarshal(parentJSON, &parent)

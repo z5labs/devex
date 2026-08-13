@@ -1,12 +1,17 @@
 // Package main implements the z5labs daggerverse module: opinionated CI
 // and release pipelines for Go projects.
 //
-// There is one entry point, Z5labs.Go, and everything hangs off it. The
-// chain it returns carries the standardized checks over a source tree and
-// its terminal Ci runs them; its other terminal, App, cross-compiles the
-// application, packages one image per platform and hands back an App whose
-// Publish pushes them. A library is a source tree you never call App on,
-// which is why there is no library archetype.
+// There are two entry points. Z5labs.Go is the Go language chain: it carries
+// the standardized checks over a source tree and its terminal Ci runs them,
+// while its other terminal, App, cross-compiles the application, packages one
+// image per platform and hands back an App whose Publish pushes them. A
+// library is a source tree you never call App on, which is why there is no
+// library archetype.
+//
+// Z5labs.App is the other, and it is the general one: an App assembled from
+// executables this module did not build. See "Prebuilt executables, and
+// languages with no chain" below. Z5labs.Go is built on it rather than beside
+// it, so there is one image build, one variant-set validation and one publish.
 //
 // # The image contract
 //
@@ -52,11 +57,61 @@
 //
 // The one case that genuinely cannot move is a variable whose value is a fact
 // about the image's own filesystem layout, for a program whose source you do
-// not control. That belongs to whoever assembled the payload it points at,
-// which is devex#410, and not to a helper here.
+// not control. That belongs to whoever assembled the payload it points at —
+// the caller of Z5labs.App, who chose where the payload landed — and not to a
+// helper here.
 //
 // Contributing files and directories to an image is a different question and
 // has a different answer: App.WithFile and App.WithDirectory, in contribute.go.
+//
+// # Prebuilt executables, and languages with no chain
+//
+// Z5labs.App builds an application out of executables this module did not
+// compile. It is the seam for three things the Go chain cannot reach: a
+// prebuilt or vendor executable, a language whose chain nobody has written
+// yet, and a payload shape — an entry plus the files it needs to run — that no
+// single Go binary produces.
+//
+//	dagger call app --version=v1.2.3 \
+//	  with-variant --platform=linux/amd64 --entry=./dist/app-amd64 --document=./dist/app-amd64.spdx.json \
+//	  with-variant --platform=linux/arm64 --entry=./dist/app-arm64 --document=./dist/app-arm64.spdx.json \
+//	  build \
+//	  with-registry --address=ghcr.io --username=... --auth=env:TOKEN \
+//	  publish --repositories=owner/app
+//
+// What comes back from Build is the same App a language chain produces, so
+// everything above and below this section applies to it unchanged: the same
+// PATH and executable directory, the same non-root ownership and read-only
+// modes, the same per-platform annotations, the same assembled SBOMs and the
+// same signed provenance. Nothing about supplying the executable yourself is
+// an exemption — the module still builds the image around it.
+//
+// Three properties of it are worth stating rather than leaving to be found.
+//
+// **Every variant names its platform, and nothing is inferred.** A
+// *dagger.File carries no architecture, so there is deliberately no helper
+// that takes an executable and works out where it belongs: one that did would
+// admit an index whose arm64 manifest holds an amd64 binary, which fails at
+// exec time with the kernel's message and for nobody here. A single-platform
+// application is expressible and is not a degenerate case.
+//
+// **Its documents are asserted rather than derived.** A Go binary's SBOM comes
+// out of the compiled artifact and cannot disagree with it; a document handed
+// to WithVariant is a claim its supplier made. What keeps the claim honest is
+// that it has to name the SHA-256 of the content it accompanies and a publish
+// checks it, so a document about other bytes fails the publish rather than
+// shipping. What that does not establish is whether the components listed
+// inside it are really in the artifact — that remains the supplier's
+// assertion, in a signed artifact, checkable by anyone who pulls the image.
+// The same check now applies to WithFile and WithDirectory.
+//
+// **It records no build identity.** There is no commit, origin or build-time
+// argument, because a build identity a caller could have supplied identifies
+// nothing — the same rule that keeps a repository parameter off the
+// provenance. So an application assembled this way carries the version
+// annotation and no revision, source or created annotation, and its provenance
+// records the publish and the image and no source tree. A language chain
+// records those because it observed them.
 //
 // # Versions
 //

@@ -40,11 +40,22 @@ const (
 //   - version is the caller's version. It is always set now: it used to be
 //     present only when a tag pointed at HEAD, because that was the only
 //     case in which the pipeline had a version worth the name.
+//
+// Every key but the version is omitted when the fact behind it was never
+// observed, and the source key has always been. An App assembled from
+// prebuilt executables read no working tree, so it has no revision and no
+// commit time; a key present and blank would be worse than an absent one for
+// exactly the reason the source key already gives, because a consumer cannot
+// tell it apart from a revision that really is "". A language chain always
+// has all three — gitFacts refuses a tree that cannot supply them — so
+// nothing about the Go path changes here.
 func ociAnnotations(facts gitState, version string) map[string]string {
-	out := map[string]string{
-		annotationRevision: facts.SHA,
-		annotationCreated:  facts.Created,
-		annotationVersion:  version,
+	out := map[string]string{annotationVersion: version}
+	if facts.SHA != "" {
+		out[annotationRevision] = facts.SHA
+	}
+	if facts.Created != "" {
+		out[annotationCreated] = facts.Created
 	}
 	if facts.SourceURI != "" {
 		out[annotationSource] = facts.SourceURI

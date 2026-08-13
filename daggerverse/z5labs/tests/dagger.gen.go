@@ -234,6 +234,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppBuildTagsReachTheCompiler(&parent, ctx)
+		case "AppBuilderRefusesAnInconsistentVariantSet":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppBuilderRefusesAnInconsistentVariantSet(&parent, ctx)
 		case "AppContainerRunsTheEntrypoint":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -276,6 +283,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppDocumentHelpersDescribeContentWithNoEcosystem(&parent, ctx)
+		case "AppFromPrebuiltComposesATreeShapedPayload":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppFromPrebuiltComposesATreeShapedPayload(&parent, ctx)
+		case "AppFromPrebuiltExecutablesIsHardenedLikeAnyOther":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppFromPrebuiltExecutablesIsHardenedLikeAnyOther(&parent, ctx)
+		case "AppFromPrebuiltExecutablesPublishesAttested":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppFromPrebuiltExecutablesPublishesAttested(&parent, ctx)
 		case "AppImagesCarryTheStandardEnvironment":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -346,6 +374,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).AppRedactsCredentialsFromTheSourceAnnotation(&parent, ctx)
+		case "AppRefusesADocumentThatDescribesOtherBytes":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).AppRefusesADocumentThatDescribesOtherBytes(&parent, ctx)
 		case "AppRefusesContributionsThatCollide":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
