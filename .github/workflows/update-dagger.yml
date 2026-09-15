@@ -75,22 +75,49 @@ jobs:
           [ "$GOT" = "v${BARE}" ] \
             || { echo "dagger version is '$GOT', expected 'v${BARE}'" >&2; exit 1; }
 
-      - name: Regenerate every module (leaf -> tests -> root)
-        # tests/ load their parent module, and the root ci module depends on
-        # daggerverse/workspace-ci, so develop mains first, tests next, root LAST
-        # (else a module regenerates against stale deps -- the java/kafka
-        # aggregator-binding concern). Glob-based discovery needs no hardcoded
-        # module list and picks up modules added later automatically; the
-        # [ -f ... ] guard skips any dir without a dagger.json.
+      - name: Regenerate every module (leaf -> tests -> examples -> root)
+        # tests/ and examples/ load their parent module, and the root ci module
+        # depends on daggerverse/workspace-ci, so develop mains first, tests and
+        # examples next, root LAST (else a module regenerates against stale deps --
+        # the java/kafka aggregator-binding concern). The [ -f ... ] guard skips any
+        # dir without a dagger.json.
+        #
+        # These globs are shapes, not discovery: a module whose path matches none of
+        # them is never regenerated and silently keeps whatever engineVersion it was
+        # last developed on. That is not hypothetical -- the six
+        # daggerverse/*/examples/go modules sat at v0.21.7 while every other module
+        # moved to v0.21.8, because until now there was no examples pass at all. The
+        # coverage guard below turns the next new shape into a failed run instead of
+        # another silent skew.
         run: |
           set -euo pipefail
-          for d in daggerverse/*/; do
-            [ -f "${d}dagger.json" ] && dagger develop -m "$d"
-          done
-          for d in daggerverse/*/tests/; do
-            [ -f "${d}dagger.json" ] && dagger develop -m "$d"
-          done
+
+          developed=""
+          develop_pass() {
+            # $1 is an unquoted glob on purpose -- pathname expansion happens here.
+            for d in $1; do
+              [ -f "${d}dagger.json" ] || continue
+              dagger develop -m "$d"
+              developed="${developed}${d}dagger.json"$'\n'
+            done
+          }
+
+          develop_pass 'daggerverse/*/'
+          develop_pass 'daggerverse/*/tests/'
+          develop_pass 'daggerverse/*/examples/*/'
+          develop_pass 'examples/*/'
           dagger develop -m .
+          developed="${developed}dagger.json"$'\n'
+
+          missing="$(comm -23 \
+            <(find . -name dagger.json -not -path './.git/*' -printf '%P\n' | sort) \
+            <(printf '%s' "$developed" | sed '/^$/d' | sort))"
+          if [ -n "$missing" ]; then
+            echo "::error::these modules match no develop pass, so an upgrade would" \
+                 "leave them on an older engineVersion:" >&2
+            echo "$missing" >&2
+            exit 1
+          fi
 
       - name: Verify Module.checks still matches `dagger check -l`
         # The planner (daggerverse/workspace-ci) builds the CI matrix by asking

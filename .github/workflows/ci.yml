@@ -51,9 +51,16 @@ jobs:
       # failed on main in 20 runs. Splitting it restores main's layout: five legs,
       # five runners, five engines.
       #
+      # examples/kafka-consumer is the same shape for a different reason: it carries
+      # two checks, and one of them — mtls-avro-consume — stands up a KRaft broker,
+      # a standalone Confluent Schema Registry, Tempo, Mimir, Loki and an OTel
+      # collector before it builds the example and runs it against them. Coarse,
+      # that whole stack would share one runner and one step budget with go-ci,
+      # which is itself the archetype's fmt/vet/lint/test -race plus a build.
+      #
       # Each name costs one module load in the list job, so this stays a short list
       # of modules that need it rather than every module with more than one check.
-      split-modules: daggerverse/kafka/tests
+      split-modules: daggerverse/kafka/tests,examples/kafka-consumer
 
       # Per-leg check-step budgets in minutes; anything unlisted gets the planner's
       # default of 6, which fits a leg that runs a single check and — since a
@@ -99,11 +106,26 @@ jobs:
       #                            nothing for it and why this is a budget increase
       #                            rather than a fix. Splitting the suite so the
       #                            number can come back down is #433.
+      #   examples/kafka-consumer  two checks, and mtls-avro-consume boots a KRaft
+      #                            broker, a Confluent Schema Registry, Tempo,
+      #                            Mimir, Loki and an OTel collector, then builds
+      #                            the example and runs it against them. It is red
+      #                            by design on the pinned engine (#147), and the
+      #                            point of a budget here is that it fail with that
+      #                            diagnostic rather than with a timeout, which is
+      #                            the confusion #290's first run already paid for
+      #                            once. Measured on a 32-core workstation: 1m20s
+      #                            to the #147 failure, 1m52s for the full green
+      #                            path on a fixed engine. A 2-core runner is well
+      #                            short of that pace and the 6m default leaves no
+      #                            margin, so this takes z5labs/tests' 12. A bare
+      #                            module key, covering go-ci too, which is cheap
+      #                            and cannot be hurt by a larger maximum.
       timeouts: >-
         {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
         "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
         "daggerverse/workspace-ci:generated-self-test": 8,
-        "daggerverse/z5labs/tests": 12}
+        "daggerverse/z5labs/tests": 12, "examples/kafka-consumer": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the
