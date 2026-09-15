@@ -383,7 +383,7 @@ func (s *schemaResolver) fetchSchema(ctx context.Context, id int) (string, error
 	if err != nil {
 		return "", fmt.Errorf("get schema id %d: %w", id, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("registry returned %s for schema id %d", resp.Status, id)
 	}

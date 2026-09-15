@@ -213,7 +213,7 @@ func jsonFromValue(v generic.Value, s avro.Schema, t *nameTable, ns string) (any
 		}
 		return map[string]any{unionBranchName(branch, ns): inner}, nil
 	default:
-		return nil, fmt.Errorf("Avro type %T is not supported", s)
+		return nil, fmt.Errorf("unsupported Avro type %T", s)
 	}
 }
 

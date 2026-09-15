@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Kafka
-func (r *Binding) AsKafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Binding) AsKafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("asKafka")
 
 	return &Kafka{
@@ -37,7 +37,7 @@ func (r *Binding) AsKafkaClientSecurity() *KafkaClientSecurity { // kafka (../..
 }
 
 // Retrieve the binding value, as type KafkaCluster
-func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
+func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:16:6)
 	q := r.query.Select("asKafkaCluster")
 
 	return &KafkaCluster{
@@ -46,7 +46,7 @@ func (r *Binding) AsKafkaCluster() *KafkaCluster { // kafka (../../../../../dagg
 }
 
 // Retrieve the binding value, as type KafkaRedpandaCluster
-func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	q := r.query.Select("asKafkaRedpandaCluster")
 
 	return &KafkaRedpandaCluster{
@@ -55,7 +55,7 @@ func (r *Binding) AsKafkaRedpandaCluster() *KafkaRedpandaCluster { // kafka (../
 }
 
 // Retrieve the binding value, as type KafkaRedpandaServerSecurity
-func (r *Binding) AsKafkaRedpandaServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Binding) AsKafkaRedpandaServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	q := r.query.Select("asKafkaRedpandaServerSecurity")
 
 	return &KafkaRedpandaServerSecurity{
@@ -166,7 +166,7 @@ func (r *Env) WithKafkaClientSecurityOutput(name string, description string) *En
 }
 
 // Create or update a binding of type KafkaCluster in the environment
-func (r *Env) WithKafkaClusterInput(name string, value *KafkaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
+func (r *Env) WithKafkaClusterInput(name string, value *KafkaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:16:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaClusterInput")
 	q = q.Arg("name", name)
@@ -179,7 +179,7 @@ func (r *Env) WithKafkaClusterInput(name string, value *KafkaCluster, descriptio
 }
 
 // Declare a desired KafkaCluster output to be assigned in the environment
-func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
+func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:16:6)
 	q := r.query.Select("withKafkaClusterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -190,7 +190,7 @@ func (r *Env) WithKafkaClusterOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type Kafka in the environment
-func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaInput")
 	q = q.Arg("name", name)
@@ -203,7 +203,7 @@ func (r *Env) WithKafkaInput(name string, value *Kafka, description string) *Env
 }
 
 // Declare a desired Kafka output to be assigned in the environment
-func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("withKafkaOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -214,7 +214,7 @@ func (r *Env) WithKafkaOutput(name string, description string) *Env { // kafka (
 }
 
 // Create or update a binding of type KafkaRedpandaCluster in the environment
-func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaCluster, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaRedpandaClusterInput")
 	q = q.Arg("name", name)
@@ -227,7 +227,7 @@ func (r *Env) WithKafkaRedpandaClusterInput(name string, value *KafkaRedpandaClu
 }
 
 // Declare a desired KafkaRedpandaCluster output to be assigned in the environment
-func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	q := r.query.Select("withKafkaRedpandaClusterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -238,7 +238,7 @@ func (r *Env) WithKafkaRedpandaClusterOutput(name string, description string) *E
 }
 
 // Create or update a binding of type KafkaRedpandaServerSecurity in the environment
-func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedpandaServerSecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedpandaServerSecurity, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withKafkaRedpandaServerSecurityInput")
 	q = q.Arg("name", name)
@@ -251,7 +251,7 @@ func (r *Env) WithKafkaRedpandaServerSecurityInput(name string, value *KafkaRedp
 }
 
 // Declare a desired KafkaRedpandaServerSecurity output to be assigned in the environment
-func (r *Env) WithKafkaRedpandaServerSecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+func (r *Env) WithKafkaRedpandaServerSecurityOutput(name string, description string) *Env { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	q := r.query.Select("withKafkaRedpandaServerSecurityOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -408,7 +408,7 @@ func (r *Env) WithKafkaServerSecurityOutput(name string, description string) *En
 // Kafka is the root namespace for every exported function in this module.
 // All cluster constructors and security helpers hang off *Kafka so the
 // generated Dagger SDK surfaces them under `dag.Kafka().<Func>(...)`.
-type Kafka struct { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+type Kafka struct { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -424,16 +424,16 @@ func (r *Kafka) WithGraphQLQuery(q *querybuilder.Selection) *Kafka {
 type KafkaApacheClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:91:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:98:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:93:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:100:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:95:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:102:2)
 
 	// Default: "4.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:97:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:104:2)
 }
 
 // ApacheCluster spins up a KRaft Kafka cluster of the requested size with
@@ -448,7 +448,7 @@ type KafkaApacheClusterOpts struct {
 // been observed to segfault during broker startup — see Dagger Cloud
 // trace `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor
 // whenever startup robustness matters more than cold-start latency.
-func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:87:1)
+func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:94:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("apacheCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -481,31 +481,37 @@ func (r *Kafka) ApacheCluster(clusterId string, clientListenerSecurity *KafkaSer
 type KafkaApacheNativeClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:60:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:67:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:62:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:69:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:64:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:71:2)
 
 	// Default: "4.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:66:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:73:2)
 }
 
 // ApacheNativeCluster spins up a KRaft Kafka cluster of the requested
 // size with dedicated controller and broker containers, using the
 // `apache/kafka-native` GraalVM-compiled image.
 //
-// Topology: a single controller forms a one-node KRaft quorum; one or more
-// brokers connect to it and discover each other over the engine's
-// session-wide DNS — no broker-to-broker WithServiceBinding needed.
+// Topology: controllers form a KRaft quorum (1 controller = a one-node
+// quorum, 3 or 5 = an HA quorum); one or more brokers connect to it and
+// every node discovers every other over the engine's session-wide DNS — no
+// controller-to-controller or broker-to-broker WithServiceBinding needed.
 //
-// Multi-controller (controllers > 1) is rejected for now: a true HA quorum
-// needs every controller to know every other controller at static config
-// time, which Dagger's WithServiceBinding model can't express without an
-// unresolvable cycle. TLS / mTLS and multi-controller both land in a
-// follow-up.
+// Multi-controller HA works because controller hostnames are deterministic
+// (controller-<n>-<suffix>, derived from clusterId), so the full
+// quorum-voters string is computed before any container is built and pinned
+// onto every controller and broker via WithHostname + session-wide DNS —
+// sidestepping the WithServiceBinding cycle a true peer mesh would need.
+//
+// controllers must be odd (1, 3, 5, ...): a KRaft quorum tolerates
+// floor((N-1)/2) controller failures, so an even count buys no extra fault
+// tolerance over the next-lower odd count while enlarging the majority a
+// commit must reach — even values are rejected with an error.
 //
 // Session-cached so that repeated chained method calls on the returned
 // cluster (Client.Produce → Consume → ListTopics) all observe the SAME
@@ -518,7 +524,7 @@ type KafkaApacheNativeClusterOpts struct {
 // `setup` step under load — see Dagger Cloud trace
 // `377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,
 // use `ApacheCluster()`.
-func (r *Kafka) ApacheNativeCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheNativeClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:56:1)
+func (r *Kafka) ApacheNativeCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaApacheNativeClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:63:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("apacheNativeCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -615,16 +621,16 @@ func (r *Kafka) Client(bootstrapServers []string, security *KafkaClientSecurity)
 type KafkaConfluentClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:122:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:129:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:124:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:131:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:126:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:133:2)
 
 	// Default: "8.2.0"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:128:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:135:2)
 }
 
 // ConfluentCluster spins up a KRaft Kafka cluster of the requested size
@@ -639,7 +645,7 @@ type KafkaConfluentClusterOpts struct {
 // The constructor silently disables Confluent's phone-home telemetry
 // (`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`) on every broker so
 // the cluster behaves the same way the Apache variants do at startup.
-func (r *Kafka) ConfluentCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaConfluentClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:118:1)
+func (r *Kafka) ConfluentCluster(clusterId string, clientListenerSecurity *KafkaServerSecurity, opts ...KafkaConfluentClusterOpts) *KafkaCluster { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:125:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("confluentCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -943,28 +949,52 @@ func (r *Kafka) PlaintextServerSecurity() *KafkaServerSecurity { // kafka (../..
 type KafkaRedpandaClusterOpts struct {
 
 	// Default: 1
-	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:87:2)
+	Controllers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:119:2)
 
 	// Default: 1
-	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:89:2)
+	Brokers int // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:121:2)
 
 	// Default: "docker.io"
-	Registry string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:91:2)
+	Registry string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:123:2)
 
 	// Default: "v26.1.7"
-	Tag string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:93:2)
+	Tag string // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:125:2)
 }
 
-// RedpandaCluster spins up a single-node Redpanda cluster using the
+// RedpandaCluster spins up a Redpanda cluster of `brokers` nodes using the
 // `redpandadata/redpanda` image. Redpanda runs broker and Raft duties in the
-// same process, so there is no separate controller container.
+// same process, so there is no separate controller container — every node is
+// a full broker that also participates in the Raft group.
 //
-// Multi-node (controllers != 1 or brokers != 1) is rejected — multi-broker
-// Redpanda needs `--seeds` plumbing + per-node `rpc_server` advertising
-// that doesn't fit single-story scope. The wire protocol matches Kafka,
-// so RedpandaCluster.Client() returns the same *Client type the Apache
-// constructors return.
-func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaRedpandaServerSecurity, opts ...KafkaRedpandaClusterOpts) *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:83:1)
+// Topology: node hostnames are deterministic (redpanda-<n>-<suffix>, node IDs
+// 0..N-1, suffix derived from clusterId), so the seed list is computed before
+// any container is built and pinned onto every node via WithHostname +
+// session-wide DNS. For brokers > 1 the cluster uses Redpanda's seed-driven
+// bootstrap: every node shares the identical seed_servers list (all N nodes)
+// and empty_seed_starts_cluster=false, so the nodes deterministically form one
+// Raft group over the internal RPC listener (:33145) with NO node-to-node
+// WithServiceBinding — they are started concurrently and discover each other
+// by hostname over session-wide DNS. A single-broker cluster keeps the legacy
+// empty_seed_starts_cluster=true bootstrap (empty seed list).
+//
+// controllers must be 1: Redpanda has no separate controller role, so a
+// controller count is not a meaningful concept and any other value is
+// rejected (see the constructor's error). Size the cluster with `brokers`.
+//
+// Inter-node RPC security: the internal RPC listener (:33145) that carries
+// Raft traffic is PLAINTEXT and unauthenticated even when the external Kafka
+// listener is TLS. Redpanda's RPC-listener TLS would need its own internal
+// CA + per-node leaves + mutual trust — a whole parallel PKI — for traffic
+// that never leaves the Dagger engine's isolated per-session network. This
+// deliberately differs from the Apache path (which always mTLS-encrypts its
+// internal + controller listeners) because Redpanda has no equivalent PKCS#12
+// env-var contract to reuse; TLS here is scoped to the client-facing Kafka
+// listener + bundled Schema Registry REST endpoint, which is what external
+// clients actually verify.
+//
+// The wire protocol matches Kafka, so RedpandaCluster.Client() returns the
+// same *Client type the Apache constructors return.
+func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaRedpandaServerSecurity, opts ...KafkaRedpandaClusterOpts) *KafkaRedpandaCluster { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:115:1)
 	assertNotNil("clientListenerSecurity", clientListenerSecurity)
 	q := r.query.Select("redpandaCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -996,7 +1026,7 @@ func (r *Kafka) RedpandaCluster(clusterId string, clientListenerSecurity *KafkaR
 // RedpandaPlaintextServerSecurity returns a RedpandaServerSecurity profile
 // configured for unencrypted, unauthenticated traffic on the external Kafka
 // listener.
-func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:49:1)
+func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:57:1)
 	q := r.query.Select("redpandaPlaintextServerSecurity")
 
 	return &KafkaRedpandaServerSecurity{
@@ -1006,13 +1036,13 @@ func (r *Kafka) RedpandaPlaintextServerSecurity() *KafkaRedpandaServerSecurity {
 
 // RedpandaTlsServerSecurity returns a RedpandaServerSecurity profile that
 // terminates TLS on the external Kafka listener. caKeyStore is a PKCS#12
-// archive of the CA cert + private key used to mint the per-cluster server
-// leaf — same shape as Kafka.TlsServerSecurity, so callers don't have to
+// archive of the CA cert + private key used to mint the per-node server
+// leaves — same shape as Kafka.TlsServerSecurity, so callers don't have to
 // convert between formats even though Redpanda itself reads PEM internally.
-// The leaf carries the broker's stable hostname as a DNS SAN so franz-go
-// clients dialing the bootstrap address can verify the cert against the
-// matching truststore.
-func (r *Kafka) RedpandaTLSServerSecurity(caKeyStore *File, caKeyStorePassword *Secret) *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:61:1)
+// Each node's leaf carries that node's stable hostname as a DNS SAN so
+// franz-go clients dialing any broker in the bootstrap list can verify the
+// cert against the matching truststore.
+func (r *Kafka) RedpandaTLSServerSecurity(caKeyStore *File, caKeyStorePassword *Secret) *KafkaRedpandaServerSecurity { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:69:1)
 	assertNotNil("caKeyStore", caKeyStore)
 	assertNotNil("caKeyStorePassword", caKeyStorePassword)
 	q := r.query.Select("redpandaTlsServerSecurity")
@@ -1124,35 +1154,65 @@ func (r *KafkaClient) WithGraphQLQuery(q *querybuilder.Selection) *KafkaClient {
 type KafkaClientConsumeOpts struct {
 
 	// Default: 1
-	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:650:2)
+	MaxMessages int // kafka (../../../../../daggerverse/kafka/client.go:749:2)
 
 	// Default: "10s"
-	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:652:2)
+	Timeout string // kafka (../../../../../daggerverse/kafka/client.go:751:2)
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:654:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:753:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:656:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:755:2)
 
-	Group string // kafka (../../../../../daggerverse/kafka/client.go:658:2)
+	Group string // kafka (../../../../../daggerverse/kafka/client.go:757:2)
+	//
+	// commitOffsets, when true and group is set, commits the consumed
+	// records' offsets before returning so the group persists with committed
+	// offsets (and thus reportable lag). Ignored when group is empty.
+	//
+	CommitOffsets bool // kafka (../../../../../daggerverse/kafka/client.go:763:2)
 
-	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:660:2)
+	SchemaRegistryAware bool // kafka (../../../../../daggerverse/kafka/client.go:765:2)
 
-	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:662:2)
+	KeyDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:767:2)
 
-	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:664:2)
+	ValueDeserializeAs string // kafka (../../../../../daggerverse/kafka/client.go:769:2)
 	//
 	// registry resolves the Avro schema text by id when keyDeserializeAs /
 	// valueDeserializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:669:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:774:2)
 	//
 	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
 	// schema text against a secured registry. Nil (the default) resolves over
 	// plaintext HTTP, reproducing today's behaviour.
 	//
-	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:675:2)
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:780:2)
+	//
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keyDeserializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	KeyDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:786:2)
+	//
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keyDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	KeyMessageName string // kafka (../../../../../daggerverse/kafka/client.go:792:2)
+	//
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueDeserializeAs is "PROTOBUF";
+	// ignored otherwise.
+	//
+	ValueDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:798:2)
+	//
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueDeserializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	ValueMessageName string // kafka (../../../../../daggerverse/kafka/client.go:804:2)
 }
 
 // Consume reads up to maxMessages records from the topic, starting at the
@@ -1164,8 +1224,12 @@ type KafkaClientConsumeOpts struct {
 //
 // When group is non-empty, the consume runs as a member of that consumer
 // group: the broker assigns partitions and the join itself writes group
-// metadata to __consumer_offsets (offsets are not committed — the function
-// stays idempotent underdefault), partitions are consumed directly with no group state.
+// metadata to __consumer_offsets. By default offsets are not committed, so
+// the function stays idempotent undertrue (and group is set), the consumed records' offsets are committed before
+// returning, so the group persists in the Empty state with committed offsets
+// afterwards — enough for DescribeConsumerGroup to report non-zero lag. When
+// group is empty (the default), partitions are consumed directly with no group
+// state and commitOffsets is ignored.
 //
 // When schemaRegistryAware is true, each record's key and value are
 // inspected for the Confluent Schema Registry wire-format header
@@ -1195,7 +1259,20 @@ type KafkaClientConsumeOpts struct {
 // per id for the duration of the call. The JSON shape follows the Avro
 // spec's JSON encoding; logical types, decimal, and fixed are not yet
 // supported.
-func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:646:1)
+//
+// keyDeserializeAs / valueDeserializeAs set to "PROTOBUF" strip the
+// Confluent message-index array that follows the wire header, then decode
+// the remaining Protobuf wire bytes against a *caller-supplied* descriptor
+// set and re-serialise them to JSON via protojson. keyDescriptorSet /
+// valueDescriptorSet (a precompiled FileDescriptorSet) and keyMessageName /
+// valueMessageName are required in this mode and are validated before any
+// broker I/O, as is schemaRegistryAware=true. registry is *not* required —
+// the descriptor set already carries the message definition, so no schema
+// text is ever fetched; the wire id is still surfaced on ConsumedRecord.
+// The descriptor set is exported and parsed at most once per call, not once
+// per record. A record whose message-index names a different message than
+// the one requested is rejected rather than decoded into garbage.
+func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaClientConsumeOpts) (string, error) { // kafka (../../../../../daggerverse/kafka/client.go:745:1)
 	if r.consume != nil {
 		return *r.consume, nil
 	}
@@ -1221,6 +1298,10 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 		if !querybuilder.IsZeroValue(opts[i].Group) {
 			q = q.Arg("group", opts[i].Group)
 		}
+		// `commitOffsets` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CommitOffsets) {
+			q = q.Arg("commitOffsets", opts[i].CommitOffsets)
+		}
 		// `schemaRegistryAware` optional argument
 		if !querybuilder.IsZeroValue(opts[i].SchemaRegistryAware) {
 			q = q.Arg("schemaRegistryAware", opts[i].SchemaRegistryAware)
@@ -1241,6 +1322,22 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
 			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
+		// `keyDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyDescriptorSet) {
+			q = q.Arg("keyDescriptorSet", opts[i].KeyDescriptorSet)
+		}
+		// `keyMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyMessageName) {
+			q = q.Arg("keyMessageName", opts[i].KeyMessageName)
+		}
+		// `valueDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueDescriptorSet) {
+			q = q.Arg("valueDescriptorSet", opts[i].ValueDescriptorSet)
+		}
+		// `valueMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueMessageName) {
+			q = q.Arg("valueMessageName", opts[i].ValueMessageName)
+		}
 	}
 	q = q.Arg("topic", topic)
 
@@ -1254,15 +1351,15 @@ func (r *KafkaClient) Consume(ctx context.Context, topic string, opts ...KafkaCl
 type KafkaClientCreateTopicOpts struct {
 
 	// Default: 1
-	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:441:2)
+	Partitions int // kafka (../../../../../daggerverse/kafka/client.go:481:2)
 
 	// Default: 1
-	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:443:2)
+	ReplicationFactor int // kafka (../../../../../daggerverse/kafka/client.go:483:2)
 }
 
 // CreateTopic creates a new topic with the given partition count and
 // replication factor. Errors out if the topic already exists.
-func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:437:1)
+func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...KafkaClientCreateTopicOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:477:1)
 	if r.createTopic != nil {
 		return nil
 	}
@@ -1283,7 +1380,7 @@ func (r *KafkaClient) CreateTopic(ctx context.Context, name string, opts ...Kafk
 }
 
 // DeleteTopic deletes the named topic.
-func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:471:1)
+func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // kafka (../../../../../daggerverse/kafka/client.go:511:1)
 	if r.deleteTopic != nil {
 		return nil
 	}
@@ -1291,6 +1388,36 @@ func (r *KafkaClient) DeleteTopic(ctx context.Context, name string) error { // k
 	q = q.Arg("name", name)
 
 	return q.Execute(ctx)
+}
+
+// DescribeConsumerGroup returns a consumer group's detail as JSON: its
+// coordinator, state, and assignment protocol; its live members with the
+// partitions assigned to each; and the per-partition committed-offset lag
+// (with the total). Lag is only reported for partitions the group has
+// committed offsets for. The JSON is returned as a *dagger.File so it crosses
+// the module boundary as a core type.
+func (r *KafkaClient) DescribeConsumerGroup(group string) *File { // kafka (../../../../../daggerverse/kafka/introspection.go:193:1)
+	q := r.query.Select("describeConsumerGroup")
+	q = q.Arg("group", group)
+
+	return &File{
+		query: q,
+	}
+}
+
+// DescribeTopic returns per-topic metadata as JSON: the partition layout
+// (leader, replicas, ISR per partition), the derived partition count and
+// replication factor, and the topic-level configuration set (retention,
+// cleanup policy, and so on). The JSON is returned as a *dagger.File so it
+// crosses the module boundary as a core type; callers export it and unmarshal
+// the bytes themselves.
+func (r *KafkaClient) DescribeTopic(name string) *File { // kafka (../../../../../daggerverse/kafka/introspection.go:104:1)
+	q := r.query.Select("describeTopic")
+	q = q.Arg("name", name)
+
+	return &File{
+		query: q,
+	}
 }
 
 // A unique identifier for this KafkaClient.
@@ -1342,8 +1469,21 @@ func (r *KafkaClient) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
+// ListConsumerGroups returns the names of every consumer group the cluster
+// reports, sorted. A fresh cluster reports none; a group appears once a
+// consumer has joined it and persists (in the Empty state) while it retains
+// committed offsets.
+func (r *KafkaClient) ListConsumerGroups(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/introspection.go:170:1)
+	q := r.query.Select("listConsumerGroups")
+
+	var response []string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
+}
+
 // ListTopics returns the names of every topic the broker reports.
-func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:789:1)
+func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/client.go:967:1)
 	q := r.query.Select("listTopics")
 
 	var response []string
@@ -1356,29 +1496,53 @@ func (r *KafkaClient) ListTopics(ctx context.Context) ([]string, error) { // kaf
 type KafkaClientProduceOpts struct {
 
 	// Default: "raw"
-	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:525:2)
+	KeyEncoding string // kafka (../../../../../daggerverse/kafka/client.go:579:2)
 
 	// Default: "raw"
-	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:527:2)
+	ValueEncoding string // kafka (../../../../../daggerverse/kafka/client.go:581:2)
 
-	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:529:2)
+	KeySchemaID int // kafka (../../../../../daggerverse/kafka/client.go:583:2)
 
-	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:531:2)
+	ValueSchemaID int // kafka (../../../../../daggerverse/kafka/client.go:585:2)
 
-	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:533:2)
+	KeySerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:587:2)
 
-	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:535:2)
+	ValueSerializeAs string // kafka (../../../../../daggerverse/kafka/client.go:589:2)
 	//
 	// registry resolves the Avro schema text by id when keySerializeAs /
 	// valueSerializeAs is "AVRO". Required in that mode; ignored otherwise.
 	//
-	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:540:2)
+	Registry *KafkaSchemaRegistry // kafka (../../../../../daggerverse/kafka/client.go:594:2)
 	//
 	// registrySecurity is the TLS/mTLS client profile used to resolve Avro
 	// schema text against a secured registry. Nil (the default) resolves over
 	// plaintext HTTP, reproducing today's behaviour.
 	//
-	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:546:2)
+	RegistrySecurity *KafkaSchemaRegistryClientSecurity // kafka (../../../../../daggerverse/kafka/client.go:600:2)
+	//
+	// keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// keyMessageName. Required when keySerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	KeyDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:606:2)
+	//
+	// keyMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside keyDescriptorSet. Required when
+	// keySerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	KeyMessageName string // kafka (../../../../../daggerverse/kafka/client.go:612:2)
+	//
+	// valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering
+	// valueMessageName. Required when valueSerializeAs is "PROTOBUF"; ignored
+	// otherwise.
+	//
+	ValueDescriptorSet *File // kafka (../../../../../daggerverse/kafka/client.go:618:2)
+	//
+	// valueMessageName is the fully-qualified protobuf message name (e.g.
+	// "my.pkg.MyMessage") to resolve inside valueDescriptorSet. Required when
+	// valueSerializeAs is "PROTOBUF"; ignored otherwise.
+	//
+	ValueMessageName string // kafka (../../../../../daggerverse/kafka/client.go:624:2)
 }
 
 // Produce synchronously writes one record to the topic. Key and value are
@@ -1407,7 +1571,21 @@ type KafkaClientProduceOpts struct {
 // I/O — and registry must be supplied so the schema text can be resolved
 // by id. The JSON shape follows the Avro spec's JSON encoding; logical
 // types, decimal, and fixed are not yet supported.
-func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:519:1)
+//
+// keySerializeAs / valueSerializeAs set to "PROTOBUF" interpret the decoded
+// bytes as a protobuf-JSON document and marshal it to Protobuf wire bytes
+// against a *caller-supplied* descriptor set. The module never runs protoc:
+// keyDescriptorSet / valueDescriptorSet must be a precompiled
+// FileDescriptorSet (`protoc --descriptor_set_out=x.desc --include_imports
+// x.proto`) and keyMessageName / valueMessageName the fully-qualified message
+// name within it. Both are required in this mode and are checked before any
+// broker, registry, or file I/O. The id is required too, because framing a
+// Protobuf payload also carries the Confluent message-index array that names
+// which message in the .proto file the payload is — records produced this way
+// are readable by stock Confluent Protobuf consumers. Unlike "AVRO", registry
+// is not consulted: the descriptor set already carries the message definition.
+// The JSON shape is protojson's canonical protobuf JSON mapping.
+func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, value string, opts ...KafkaClientProduceOpts) error { // kafka (../../../../../daggerverse/kafka/client.go:573:1)
 	if r.produce != nil {
 		return nil
 	}
@@ -1445,6 +1623,22 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 		if !querybuilder.IsZeroValue(opts[i].RegistrySecurity) {
 			q = q.Arg("registrySecurity", opts[i].RegistrySecurity)
 		}
+		// `keyDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyDescriptorSet) {
+			q = q.Arg("keyDescriptorSet", opts[i].KeyDescriptorSet)
+		}
+		// `keyMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].KeyMessageName) {
+			q = q.Arg("keyMessageName", opts[i].KeyMessageName)
+		}
+		// `valueDescriptorSet` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueDescriptorSet) {
+			q = q.Arg("valueDescriptorSet", opts[i].ValueDescriptorSet)
+		}
+		// `valueMessageName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ValueMessageName) {
+			q = q.Arg("valueMessageName", opts[i].ValueMessageName)
+		}
 	}
 	q = q.Arg("topic", topic)
 	q = q.Arg("key", key)
@@ -1463,7 +1657,7 @@ func (r *KafkaClient) Produce(ctx context.Context, topic string, key string, val
 // export the parent directory (`props.Directory()`) so the relative
 // references resolve. Passwords appear plaintext, which is a Kafka CLI
 // constraint.
-func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:256:1)
+func (r *KafkaClient) PropertiesFile() *File { // kafka (../../../../../daggerverse/kafka/client.go:296:1)
 	q := r.query.Select("propertiesFile")
 
 	return &File{
@@ -1553,7 +1747,7 @@ func (r *KafkaClientSecurity) AsNode() Node {
 // Cluster represents a running KRaft Kafka cluster, holding references to
 // every broker service so callers can bind them into their own containers or
 // open a franz-go Client against them.
-type KafkaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:15:6)
+type KafkaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:16:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -1570,7 +1764,7 @@ func (r *KafkaCluster) WithGraphQLQuery(q *querybuilder.Selection) *KafkaCluster
 // same hostname BootstrapServers reports, so the container can dial brokers
 // using the same address strings as a franz-go Client returned from
 // Cluster.Client.
-func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:346:1)
+func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:401:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1582,7 +1776,7 @@ func (r *KafkaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../
 
 // BootstrapServers returns the host:port pairs each broker advertises on its
 // client-facing listener.
-func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:332:1)
+func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:387:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1593,7 +1787,7 @@ func (r *KafkaCluster) BootstrapServers(ctx context.Context) ([]string, error) {
 
 // Client starts every broker service in the cluster and returns a franz-go
 // Client wired with their bootstrap addresses.
-func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:357:1)
+func (r *KafkaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:412:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1652,17 +1846,17 @@ func (r *KafkaCluster) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-// Stop tears down every service container backing this cluster (the
-// controller plus every broker). Tests should call this in a defer so each
-// broker `Container.asService` span closes when the test work is done,
-// rather than running out to the parent parallel group's lifetime.
+// Stop tears down every service container backing this cluster (every
+// controller in the quorum plus every broker). Tests should call this in a
+// defer so each broker `Container.asService` span closes when the test work
+// is done, rather than running out to the parent parallel group's lifetime.
 //
 // Kill is set so Service.Stop skips graceful shutdown — Kafka's broker
 // shutdown path waits on replica-drain timeouts that on a torn-down test
 // cluster just run out the clock (~5 min observed in Dagger trace
 // `972bc311bf374f817b7c88481229a10c`). SIGKILL returns immediately, which
 // is all a test needs.
-func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:309:1)
+func (r *KafkaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_kafka.go:361:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1683,9 +1877,14 @@ func (r *KafkaCluster) AsNode() Node {
 // the Kafka wire protocol but is a from-scratch C++ implementation with a
 // completely different configuration layer (`rpk redpanda start`, a YAML
 // config file, PEM cert/key files instead of PKCS#12), so it gets its own
-// return type to make the divergence visible at the API surface. Single
-// node only in this story (controllers=1, brokers=1).
-type KafkaRedpandaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:20:6)
+// return type to make the divergence visible at the API surface.
+//
+// Supports a genuine multi-broker Raft cluster: N brokers (node IDs 0..N-1)
+// form a single Raft group over the internal RPC listener, discovering each
+// other by deterministic hostname (redpanda-<n>-<suffix>) via the engine's
+// session-wide DNS. Redpanda runs broker and Raft duties in the SAME process,
+// so there is no separate controller container.
+type KafkaRedpandaCluster struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:28:6)
 	query *querybuilder.Selection
 
 	id   *ID
@@ -1698,9 +1897,9 @@ func (r *KafkaRedpandaCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kafk
 	}
 }
 
-// BindBrokers binds the single Redpanda broker service into the given
-// container so the container can reach it by hostname.
-func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:430:1)
+// BindBrokers binds every Redpanda broker service into the given container so
+// the container can reach them by the same hostnames BootstrapServers reports.
+func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:602:1)
 	assertNotNil("ctr", ctr)
 	q := r.query.Select("bindBrokers")
 	q = q.Arg("ctr", ctr)
@@ -1710,9 +1909,9 @@ func (r *KafkaRedpandaCluster) BindBrokers(ctr *Container) *Container { // kafka
 	}
 }
 
-// BootstrapServers returns the bootstrap address (single broker:9092) for
-// this Redpanda cluster.
-func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:384:1)
+// BootstrapServers returns the host:port bootstrap addresses for every broker
+// in this Redpanda cluster.
+func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, error) { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:542:1)
 	q := r.query.Select("bootstrapServers")
 
 	var response []string
@@ -1721,10 +1920,10 @@ func (r *KafkaRedpandaCluster) BootstrapServers(ctx context.Context) ([]string, 
 	return response, q.Execute(ctx)
 }
 
-// Client starts the Redpanda broker service and returns a franz-go-backed
-// *Client targeting it. The Kafka wire protocol matches Apache Kafka, so
-// the existing *Client + *ClientSecurity (PKCS#12) are reused unchanged.
-func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:439:1)
+// Client starts every Redpanda broker service — bringing the whole Raft group
+// online — and returns a franz-go-backed *Client targeting them. The Kafka
+// wire protocol matches Apache Kafka, so the existing *Client(PKCS#12) are reused unchanged.
+func (r *KafkaRedpandaCluster) Client(security *KafkaClientSecurity) *KafkaClient { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:615:1)
 	assertNotNil("security", security)
 	q := r.query.Select("client")
 	q = q.Arg("security", security)
@@ -1787,10 +1986,13 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 // *SchemaRegistry type Kafka.ConfluentSchemaRegistry returns, so callers can
 // treat the bundled and separate-container registries uniformly.
 //
-// `rpk redpanda start` runs a Schema Registry inside the broker process on
-// :8081 — no extra container — so the returned *SchemaRegistry points at the
-// broker service itself. Redpanda's SR speaks the Confluent Schema Registry
-// REST API, so the *SchemaRegistryClient from Client() works unchanged.
+// `rpk redpanda start` runs a Schema Registry inside every broker process on
+// :8081 — no extra container. The returned *SchemaRegistry points at the first
+// broker (node 0); because the registry client only starts that one service,
+// this method brings the whole cluster online (startAll) before returning, so
+// the registry is backed by a formed Raft group. Redpanda's SR speaks the
+// Confluent Schema Registry REST API, so the *SchemaRegistryClient from
+// Client() works unchanged.
 //
 // security must match the cluster's mode (PLAINTEXT or TLS — Redpanda has no
 // mTLS): on a TLS cluster the bundled SR REST endpoint terminates HTTPS
@@ -1799,11 +2001,11 @@ func (r *KafkaRedpandaCluster) UnmarshalJSON(bs []byte) error {
 // client. The profile's CA keystore is unused here (the leaf is already
 // minted); it is required only for API uniformity with the other registries.
 //
-// The returned registry is Bundled: its service is the broker itself, so
-// Stop is a no-op on it — call cluster.Stop to tear the registry down with
-// the cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
+// The returned registry is Bundled: its service is a broker itself, so Stop is
+// a no-op on it — call cluster.Stop to tear the registry down with the
+// cluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared
 // *SchemaRegistry type therefore can't accidentally kill the cluster.
-func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecurity) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:410:1)
+func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecurity) *KafkaSchemaRegistry { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:575:1)
 	assertNotNil("security", security)
 	q := r.query.Select("schemaRegistry")
 	q = q.Arg("security", security)
@@ -1813,11 +2015,11 @@ func (r *KafkaRedpandaCluster) SchemaRegistry(security *KafkaSchemaRegistrySecur
 	}
 }
 
-// Stop tears down the broker container backing this Redpanda cluster.
-// Tests should call this in a defer so the broker `Container.asService`
+// Stop tears down every broker container backing this Redpanda cluster.
+// Tests should call this in a defer so each broker `Container.asService`
 // span closes when the test work is done. Kill is set so Service.Stop
 // skips graceful shutdown — see Cluster.Stop for the rationale.
-func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:455:1)
+func (r *KafkaRedpandaCluster) Stop(ctx context.Context) error { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:631:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -1839,7 +2041,7 @@ func (r *KafkaRedpandaCluster) AsNode() Node {
 // issued leaf internally for redpanda.yaml. Separate type from
 // *ServerSecurity so a caller can't accidentally hand an Apache profile
 // (e.g. MtlsServerSecurity, not supported here yet) to RedpandaCluster.
-type KafkaRedpandaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:37:6)
+type KafkaRedpandaServerSecurity struct { // kafka (../../../../../daggerverse/kafka/cluster_redpanda.go:45:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -2604,7 +2806,7 @@ func (r *KafkaServerSecurity) AsNode() Node {
 // Kafka is the root namespace for every exported function in this module.
 // All cluster constructors and security helpers hang off *Kafka so the
 // generated Dagger SDK surfaces them under `dag.Kafka().<Func>(...)`.
-func (r *Query) Kafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:37:6)
+func (r *Query) Kafka() *Kafka { // kafka (../../../../../daggerverse/kafka/main.go:41:6)
 	q := r.query.Select("kafka")
 
 	return &Kafka{

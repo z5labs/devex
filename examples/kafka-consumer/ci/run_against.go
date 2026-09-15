@@ -37,17 +37,19 @@ func (c *Ci) RunAgainst(
 // wired together, runnable from anywhere in the example.
 //
 // This models exactly how a developer would run the example locally, and is the
-// canonical reproduction to reference when planning the fix for kafka-module bug
-// #147. It stands up the same topology as the mtls/tls-avro-consume checks —
-// Apache Kafka plus a standalone Confluent Schema Registry — precisely so the
-// registry is its own service reached via SchemaRegistry.BindTo. That BindTo
-// advertises the registry's own DNS alias, and the consumer's WithExec fails at
-// hosts-file setup with "lookup csr-… no such host": the registry hostname, which
-// names exactly the detached-ModuleObject handle #147 is about. (The previous
-// Redpanda build used a *bundled* registry sharing the broker host, so it instead
-// failed on the broker alias "redpanda-1-… no such host" — obscuring which hop
-// #147 actually breaks.) So Local currently FAILS by design; once #147 lands it
-// will run green. See the example README for the full write-up.
+// reproduction that validated the #147 fix end to end. It stands up the same
+// topology as the mtls/tls-avro-consume checks — Apache Kafka plus a standalone
+// Confluent Schema Registry — so the registry is its own service reached via
+// SchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.
+// Under #147 the consumer's WithExec fails at hosts-file setup with "lookup
+// <alias> … no such host". Both binds are affected and the hosts-file aliases are
+// resolved in a nondeterministic order, so the alias named in the error varies
+// between runs — observed as "broker-…" on v0.21.8 against this very topology.
+//
+// dagger/dagger#13751 fixes it, in v1.0.0-beta.12 and later and in no v0.21.x
+// release. So Local FAILS by design on the pinned v0.21.8 engine and passes on a
+// fixed one: run against v1.0.0-beta.13 it returned all three decoded records in
+// 1m52s. See the example README for the full write-up.
 //
 // The wire + registry hops are server-TLS (trust-only) to keep a local run
 // simple; the mutual-TLS posture is exercised by the mtls-avro-consume check.
@@ -149,9 +151,17 @@ func (ra *RunAgainst) Local(
 		WithPipeline(o.Pipeline("metrics", "metrics").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("mimir", "http://mimir:9009/otlp"))).
 		WithPipeline(o.Pipeline("logs", "logs").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")))
 
-	// Run the SAME container GoApp CI builds and publishes (Builder needs no
-	// .git) against the bound services.
-	base := dag.Z5Labs().GoApp(ra.Source).Builder().Container()
+	// Run the SAME image the z5labs Go chain's App terminal builds and
+	// publishes, against the bound services. App stamps main.commit from HEAD,
+	// so its source must be a git working tree — hence gitFixture. Only one
+	// platform is built, and Container has to name that same platform.
+	src, err := gitFixture(ctx, ra.Source, "main")
+	if err != nil {
+		return "", fmt.Errorf("gitFixture: %w", err)
+	}
+	base := dag.Z5Labs().Go(src).
+		App("v0.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{"linux/amd64"}}).
+		Container("linux/amd64")
 	brokers, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return "", fmt.Errorf("bootstrap servers: %w", err)

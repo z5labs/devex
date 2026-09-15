@@ -10,7 +10,7 @@ import (
 )
 
 // Retrieve the binding value, as type Otel
-func (r *Binding) AsOtel() *Otel { // otel (../../../../../daggerverse/otel/main.go:88:6)
+func (r *Binding) AsOtel() *Otel { // otel (../../../../../daggerverse/otel/main.go:151:6)
 	q := r.query.Select("asOtel")
 
 	return &Otel{
@@ -19,7 +19,7 @@ func (r *Binding) AsOtel() *Otel { // otel (../../../../../daggerverse/otel/main
 }
 
 // Retrieve the binding value, as type OtelContribCollector
-func (r *Binding) AsOtelContribCollector() *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:596:6)
+func (r *Binding) AsOtelContribCollector() *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:819:6)
 	q := r.query.Select("asOtelContribCollector")
 
 	return &OtelContribCollector{
@@ -28,7 +28,7 @@ func (r *Binding) AsOtelContribCollector() *OtelContribCollector { // otel (../.
 }
 
 // Retrieve the binding value, as type OtelCoreCollector
-func (r *Binding) AsOtelCoreCollector() *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:363:6)
+func (r *Binding) AsOtelCoreCollector() *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:491:6)
 	q := r.query.Select("asOtelCoreCollector")
 
 	return &OtelCoreCollector{
@@ -37,7 +37,7 @@ func (r *Binding) AsOtelCoreCollector() *OtelCoreCollector { // otel (../../../.
 }
 
 // Retrieve the binding value, as type OtelExporter
-func (r *Binding) AsOtelExporter() *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:107:6)
+func (r *Binding) AsOtelExporter() *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:173:6)
 	q := r.query.Select("asOtelExporter")
 
 	return &OtelExporter{
@@ -46,7 +46,7 @@ func (r *Binding) AsOtelExporter() *OtelExporter { // otel (../../../../../dagge
 }
 
 // Retrieve the binding value, as type OtelPipeline
-func (r *Binding) AsOtelPipeline() *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:279:6)
+func (r *Binding) AsOtelPipeline() *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:407:6)
 	q := r.query.Select("asOtelPipeline")
 
 	return &OtelPipeline{
@@ -55,7 +55,7 @@ func (r *Binding) AsOtelPipeline() *OtelPipeline { // otel (../../../../../dagge
 }
 
 // Retrieve the binding value, as type OtelProcessor
-func (r *Binding) AsOtelProcessor() *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:100:6)
+func (r *Binding) AsOtelProcessor() *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:163:6)
 	q := r.query.Select("asOtelProcessor")
 
 	return &OtelProcessor{
@@ -64,7 +64,7 @@ func (r *Binding) AsOtelProcessor() *OtelProcessor { // otel (../../../../../dag
 }
 
 // Retrieve the binding value, as type OtelReceiver
-func (r *Binding) AsOtelReceiver() *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:93:6)
+func (r *Binding) AsOtelReceiver() *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:156:6)
 	q := r.query.Select("asOtelReceiver")
 
 	return &OtelReceiver{
@@ -73,7 +73,7 @@ func (r *Binding) AsOtelReceiver() *OtelReceiver { // otel (../../../../../dagge
 }
 
 // Create or update a binding of type OtelContribCollector in the environment
-func (r *Env) WithOtelContribCollectorInput(name string, value *OtelContribCollector, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:596:6)
+func (r *Env) WithOtelContribCollectorInput(name string, value *OtelContribCollector, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:819:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelContribCollectorInput")
 	q = q.Arg("name", name)
@@ -86,7 +86,7 @@ func (r *Env) WithOtelContribCollectorInput(name string, value *OtelContribColle
 }
 
 // Declare a desired OtelContribCollector output to be assigned in the environment
-func (r *Env) WithOtelContribCollectorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:596:6)
+func (r *Env) WithOtelContribCollectorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:819:6)
 	q := r.query.Select("withOtelContribCollectorOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -97,7 +97,7 @@ func (r *Env) WithOtelContribCollectorOutput(name string, description string) *E
 }
 
 // Create or update a binding of type OtelCoreCollector in the environment
-func (r *Env) WithOtelCoreCollectorInput(name string, value *OtelCoreCollector, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:363:6)
+func (r *Env) WithOtelCoreCollectorInput(name string, value *OtelCoreCollector, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:491:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelCoreCollectorInput")
 	q = q.Arg("name", name)
@@ -110,7 +110,7 @@ func (r *Env) WithOtelCoreCollectorInput(name string, value *OtelCoreCollector, 
 }
 
 // Declare a desired OtelCoreCollector output to be assigned in the environment
-func (r *Env) WithOtelCoreCollectorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:363:6)
+func (r *Env) WithOtelCoreCollectorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:491:6)
 	q := r.query.Select("withOtelCoreCollectorOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -121,7 +121,7 @@ func (r *Env) WithOtelCoreCollectorOutput(name string, description string) *Env 
 }
 
 // Create or update a binding of type OtelExporter in the environment
-func (r *Env) WithOtelExporterInput(name string, value *OtelExporter, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:107:6)
+func (r *Env) WithOtelExporterInput(name string, value *OtelExporter, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:173:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelExporterInput")
 	q = q.Arg("name", name)
@@ -134,7 +134,7 @@ func (r *Env) WithOtelExporterInput(name string, value *OtelExporter, descriptio
 }
 
 // Declare a desired OtelExporter output to be assigned in the environment
-func (r *Env) WithOtelExporterOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:107:6)
+func (r *Env) WithOtelExporterOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:173:6)
 	q := r.query.Select("withOtelExporterOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -145,7 +145,7 @@ func (r *Env) WithOtelExporterOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type Otel in the environment
-func (r *Env) WithOtelInput(name string, value *Otel, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:88:6)
+func (r *Env) WithOtelInput(name string, value *Otel, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:151:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelInput")
 	q = q.Arg("name", name)
@@ -158,7 +158,7 @@ func (r *Env) WithOtelInput(name string, value *Otel, description string) *Env {
 }
 
 // Declare a desired Otel output to be assigned in the environment
-func (r *Env) WithOtelOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:88:6)
+func (r *Env) WithOtelOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:151:6)
 	q := r.query.Select("withOtelOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -169,7 +169,7 @@ func (r *Env) WithOtelOutput(name string, description string) *Env { // otel (..
 }
 
 // Create or update a binding of type OtelPipeline in the environment
-func (r *Env) WithOtelPipelineInput(name string, value *OtelPipeline, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:279:6)
+func (r *Env) WithOtelPipelineInput(name string, value *OtelPipeline, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:407:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelPipelineInput")
 	q = q.Arg("name", name)
@@ -182,7 +182,7 @@ func (r *Env) WithOtelPipelineInput(name string, value *OtelPipeline, descriptio
 }
 
 // Declare a desired OtelPipeline output to be assigned in the environment
-func (r *Env) WithOtelPipelineOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:279:6)
+func (r *Env) WithOtelPipelineOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:407:6)
 	q := r.query.Select("withOtelPipelineOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -193,7 +193,7 @@ func (r *Env) WithOtelPipelineOutput(name string, description string) *Env { // 
 }
 
 // Create or update a binding of type OtelProcessor in the environment
-func (r *Env) WithOtelProcessorInput(name string, value *OtelProcessor, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:100:6)
+func (r *Env) WithOtelProcessorInput(name string, value *OtelProcessor, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:163:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelProcessorInput")
 	q = q.Arg("name", name)
@@ -206,7 +206,7 @@ func (r *Env) WithOtelProcessorInput(name string, value *OtelProcessor, descript
 }
 
 // Declare a desired OtelProcessor output to be assigned in the environment
-func (r *Env) WithOtelProcessorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:100:6)
+func (r *Env) WithOtelProcessorOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:163:6)
 	q := r.query.Select("withOtelProcessorOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -217,7 +217,7 @@ func (r *Env) WithOtelProcessorOutput(name string, description string) *Env { //
 }
 
 // Create or update a binding of type OtelReceiver in the environment
-func (r *Env) WithOtelReceiverInput(name string, value *OtelReceiver, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:93:6)
+func (r *Env) WithOtelReceiverInput(name string, value *OtelReceiver, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:156:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withOtelReceiverInput")
 	q = q.Arg("name", name)
@@ -230,7 +230,7 @@ func (r *Env) WithOtelReceiverInput(name string, value *OtelReceiver, descriptio
 }
 
 // Declare a desired OtelReceiver output to be assigned in the environment
-func (r *Env) WithOtelReceiverOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:93:6)
+func (r *Env) WithOtelReceiverOutput(name string, description string) *Env { // otel (../../../../../daggerverse/otel/main.go:156:6)
 	q := r.query.Select("withOtelReceiverOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -240,7 +240,7 @@ func (r *Env) WithOtelReceiverOutput(name string, description string) *Env { // 
 	}
 }
 
-type Otel struct { // otel (../../../../../daggerverse/otel/main.go:88:6)
+type Otel struct { // otel (../../../../../daggerverse/otel/main.go:151:6)
 	query *querybuilder.Selection
 
 	id *ID
@@ -253,7 +253,7 @@ func (r *Otel) WithGraphQLQuery(q *querybuilder.Selection) *Otel {
 }
 
 // BatchProcessor builds a batch processor with collector defaults.
-func (r *Otel) BatchProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:195:1)
+func (r *Otel) BatchProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:323:1)
 	q := r.query.Select("batchProcessor")
 	q = q.Arg("name", name)
 
@@ -266,17 +266,17 @@ func (r *Otel) BatchProcessor(name string) *OtelProcessor { // otel (../../../..
 type OtelContribOpts struct {
 
 	// Default: "docker.io"
-	Registry string // otel (../../../../../daggerverse/otel/main.go:609:2)
+	Registry string // otel (../../../../../daggerverse/otel/main.go:838:2)
 
 	// Default: "0.130.1"
-	Tag string // otel (../../../../../daggerverse/otel/main.go:611:2)
+	Tag string // otel (../../../../../daggerverse/otel/main.go:840:2)
 
-	ConfigFile *File // otel (../../../../../daggerverse/otel/main.go:613:2)
+	ConfigFile *File // otel (../../../../../daggerverse/otel/main.go:842:2)
 }
 
 // Contrib returns a ContribCollector backed by the
 // otel/opentelemetry-collector-contrib image. See Core.
-func (r *Otel) Contrib(opts ...OtelContribOpts) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:607:1)
+func (r *Otel) Contrib(opts ...OtelContribOpts) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:836:1)
 	q := r.query.Select("contrib")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -302,19 +302,19 @@ func (r *Otel) Contrib(opts ...OtelContribOpts) *OtelContribCollector { // otel 
 type OtelCoreOpts struct {
 
 	// Default: "docker.io"
-	Registry string // otel (../../../../../daggerverse/otel/main.go:378:2)
+	Registry string // otel (../../../../../daggerverse/otel/main.go:512:2)
 
 	// Default: "0.130.1"
-	Tag string // otel (../../../../../daggerverse/otel/main.go:380:2)
+	Tag string // otel (../../../../../daggerverse/otel/main.go:514:2)
 
-	ConfigFile *File // otel (../../../../../daggerverse/otel/main.go:382:2)
+	ConfigFile *File // otel (../../../../../daggerverse/otel/main.go:516:2)
 }
 
 // Core returns a CoreCollector backed by the
 // otel/opentelemetry-collector image at <registry>/<image>:<tag>.
 // configFile, when supplied, fully replaces the rendered pipeline
 // YAML; the image path is fixed.
-func (r *Otel) Core(opts ...OtelCoreOpts) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:376:1)
+func (r *Otel) Core(opts ...OtelCoreOpts) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:510:1)
 	q := r.query.Select("core")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `registry` optional argument
@@ -337,7 +337,7 @@ func (r *Otel) Core(opts ...OtelCoreOpts) *OtelCoreCollector { // otel (../../..
 }
 
 // CustomExporter — see CustomReceiver.
-func (r *Otel) CustomExporter(kind string, name string, yamlBody string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:267:1)
+func (r *Otel) CustomExporter(kind string, name string, yamlBody string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:395:1)
 	q := r.query.Select("customExporter")
 	q = q.Arg("kind", kind)
 	q = q.Arg("name", name)
@@ -349,7 +349,7 @@ func (r *Otel) CustomExporter(kind string, name string, yamlBody string) *OtelEx
 }
 
 // CustomProcessor — see CustomReceiver.
-func (r *Otel) CustomProcessor(kind string, name string, yamlBody string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:259:1)
+func (r *Otel) CustomProcessor(kind string, name string, yamlBody string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:387:1)
 	q := r.query.Select("customProcessor")
 	q = q.Arg("kind", kind)
 	q = q.Arg("name", name)
@@ -362,7 +362,7 @@ func (r *Otel) CustomProcessor(kind string, name string, yamlBody string) *OtelP
 
 // CustomReceiver builds a receiver of arbitrary kind whose body is the
 // caller-supplied YAML, spliced verbatim under `receivers.<kind>/<name>`.
-func (r *Otel) CustomReceiver(kind string, name string, yamlBody string) *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:251:1)
+func (r *Otel) CustomReceiver(kind string, name string, yamlBody string) *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:379:1)
 	q := r.query.Select("customReceiver")
 	q = q.Arg("kind", kind)
 	q = q.Arg("name", name)
@@ -374,7 +374,7 @@ func (r *Otel) CustomReceiver(kind string, name string, yamlBody string) *OtelRe
 }
 
 // DebugExporter builds the stdout `debug` exporter at verbosity=detailed.
-func (r *Otel) DebugExporter(name string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:183:1)
+func (r *Otel) DebugExporter(name string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:311:1)
 	q := r.query.Select("debugExporter")
 	q = q.Arg("name", name)
 
@@ -387,7 +387,7 @@ func (r *Otel) DebugExporter(name string) *OtelExporter { // otel (../../../../.
 // otlp receiver → batch processor → debug exporter for signal.
 // Component names are fixed (`otlp/debug`, `batch/debug`,
 // `debug/debug`); the pipeline name is `debug`.
-func (r *Otel) DebugPipeline(signal string) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:311:1)
+func (r *Otel) DebugPipeline(signal string) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:439:1)
 	q := r.query.Select("debugPipeline")
 	q = q.Arg("signal", signal)
 
@@ -448,7 +448,7 @@ func (r *Otel) UnmarshalJSON(bs []byte) error {
 // MemoryLimiterProcessor builds a memory_limiter processor with
 // conservative defaults (check_interval: 1s, limit_mib: 512). Callers
 // needing different thresholds should reach for CustomProcessor.
-func (r *Otel) MemoryLimiterProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:205:1)
+func (r *Otel) MemoryLimiterProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:333:1)
 	q := r.query.Select("memoryLimiterProcessor")
 	q = q.Arg("name", name)
 
@@ -457,10 +457,46 @@ func (r *Otel) MemoryLimiterProcessor(name string) *OtelProcessor { // otel (../
 	}
 }
 
+// OtelOtlpExporterOpts contains options for Otel.OtlpExporter
+type OtelOtlpExporterOpts struct {
+	//
+	// PEM-encoded CA certificate to verify the receiver against. When set
+	// the exporter speaks TLS instead of plaintext.
+	//
+	CaCert *File // otel (../../../../../daggerverse/otel/main.go:232:2)
+	//
+	// PEM-encoded client certificate presented for mTLS. Must be paired
+	// with clientKey.
+	//
+	ClientCert *File // otel (../../../../../daggerverse/otel/main.go:236:2)
+	//
+	// PEM-encoded PKCS#8 client private key for mTLS. Must be paired with
+	// clientCert.
+	//
+	ClientKey *Secret // otel (../../../../../daggerverse/otel/main.go:240:2)
+}
+
 // OtlpExporter builds an OTLP gRPC exporter pointing at endpoint
-// (host:port, no scheme). Plaintext only — TLS is follow-up #24.
-func (r *Otel) OtlpExporter(name string, endpoint string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:152:1)
+// (host:port, no scheme). With no TLS options the exporter is plaintext
+// (tls.insecure=true). Supplying caCert pins the server CA; supplying
+// clientCert + clientKey (which must be given together) presents an mTLS
+// identity.
+func (r *Otel) OtlpExporter(name string, endpoint string, opts ...OtelOtlpExporterOpts) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:227:1)
 	q := r.query.Select("otlpExporter")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `caCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CaCert) {
+			q = q.Arg("caCert", opts[i].CaCert)
+		}
+		// `clientCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientCert) {
+			q = q.Arg("clientCert", opts[i].ClientCert)
+		}
+		// `clientKey` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientKey) {
+			q = q.Arg("clientKey", opts[i].ClientKey)
+		}
+	}
 	q = q.Arg("name", name)
 	q = q.Arg("endpoint", endpoint)
 
@@ -469,10 +505,34 @@ func (r *Otel) OtlpExporter(name string, endpoint string) *OtelExporter { // ote
 	}
 }
 
+// OtelOtlpHTTPExporterOpts contains options for Otel.OtlpHTTPExporter
+type OtelOtlpHTTPExporterOpts struct {
+	CaCert *File // otel (../../../../../daggerverse/otel/main.go:251:2)
+
+	ClientCert *File // otel (../../../../../daggerverse/otel/main.go:253:2)
+
+	ClientKey *Secret // otel (../../../../../daggerverse/otel/main.go:255:2)
+}
+
 // OtlpHttpExporter builds an OTLP/HTTP exporter pointing at endpoint
-// (URL with scheme, e.g. http://loki:3100/otlp).
-func (r *Otel) OtlpHTTPExporter(name string, endpoint string) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:168:1)
+// (URL with scheme, e.g. http://loki:3100/otlp). TLS options behave as
+// on OtlpExporter; point endpoint at an https:// URL when supplying them.
+func (r *Otel) OtlpHTTPExporter(name string, endpoint string, opts ...OtelOtlpHTTPExporterOpts) *OtelExporter { // otel (../../../../../daggerverse/otel/main.go:248:1)
 	q := r.query.Select("otlpHttpExporter")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `caCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].CaCert) {
+			q = q.Arg("caCert", opts[i].CaCert)
+		}
+		// `clientCert` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientCert) {
+			q = q.Arg("clientCert", opts[i].ClientCert)
+		}
+		// `clientKey` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ClientKey) {
+			q = q.Arg("clientKey", opts[i].ClientKey)
+		}
+	}
 	q = q.Arg("name", name)
 	q = q.Arg("endpoint", endpoint)
 
@@ -483,7 +543,7 @@ func (r *Otel) OtlpHTTPExporter(name string, endpoint string) *OtelExporter { //
 
 // OtlpReceiver builds the standard OTLP receiver listening on gRPC :4317
 // and HTTP :4318.
-func (r *Otel) OtlpReceiver(name string) *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:134:1)
+func (r *Otel) OtlpReceiver(name string) *OtelReceiver { // otel (../../../../../daggerverse/otel/main.go:206:1)
 	q := r.query.Select("otlpReceiver")
 	q = q.Arg("name", name)
 
@@ -494,7 +554,7 @@ func (r *Otel) OtlpReceiver(name string) *OtelReceiver { // otel (../../../../..
 
 // Pipeline builds an empty pipeline for signal (logs|traces|metrics)
 // keyed at <signal>/<name> in the rendered config.
-func (r *Otel) Pipeline(signal string, name string) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:297:1)
+func (r *Otel) Pipeline(signal string, name string) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:425:1)
 	q := r.query.Select("pipeline")
 	q = q.Arg("signal", signal)
 	q = q.Arg("name", name)
@@ -507,7 +567,7 @@ func (r *Otel) Pipeline(signal string, name string) *OtelPipeline { // otel (../
 // ResourceProcessor builds a no-op resource processor (empty
 // attributes list). Callers needing actual attribute upserts should
 // reach for CustomProcessor.
-func (r *Otel) ResourceProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:222:1)
+func (r *Otel) ResourceProcessor(name string) *OtelProcessor { // otel (../../../../../daggerverse/otel/main.go:350:1)
 	q := r.query.Select("resourceProcessor")
 	q = q.Arg("name", name)
 
@@ -527,7 +587,7 @@ func (r *Otel) AsNode() Node {
 // ContribCollector wraps the otel/opentelemetry-collector-contrib
 // image. Method set is identical to CoreCollector; only the image
 // path differs, so the rendering and service helpers are shared.
-type OtelContribCollector struct { // otel (../../../../../daggerverse/otel/main.go:596:6)
+type OtelContribCollector struct { // otel (../../../../../daggerverse/otel/main.go:819:6)
 	query *querybuilder.Selection
 
 	id               *ID
@@ -551,7 +611,7 @@ func (r *OtelContribCollector) WithGraphQLQuery(q *querybuilder.Selection) *Otel
 	}
 }
 
-func (r *OtelContribCollector) BindingHosts(ctx context.Context) ([]string, error) { // otel (../../../../../daggerverse/otel/main.go:601:2)
+func (r *OtelContribCollector) BindingHosts(ctx context.Context) ([]string, error) { // otel (../../../../../daggerverse/otel/main.go:824:2)
 	q := r.query.Select("bindingHosts")
 
 	var response []string
@@ -560,7 +620,7 @@ func (r *OtelContribCollector) BindingHosts(ctx context.Context) ([]string, erro
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelContribCollector) BindingSvcs(ctx context.Context) ([]Service, error) { // otel (../../../../../daggerverse/otel/main.go:602:2)
+func (r *OtelContribCollector) BindingSvcs(ctx context.Context) ([]Service, error) { // otel (../../../../../daggerverse/otel/main.go:825:2)
 	q := r.query.Select("bindingSvcs")
 
 	q = q.Select("id")
@@ -593,7 +653,7 @@ func (r *OtelContribCollector) BindingSvcs(ctx context.Context) ([]Service, erro
 }
 
 // ConfigFile — see CoreCollector.ConfigFile.
-func (r *OtelContribCollector) ConfigFile() *File { // otel (../../../../../daggerverse/otel/main.go:641:1)
+func (r *OtelContribCollector) ConfigFile() *File { // otel (../../../../../daggerverse/otel/main.go:885:1)
 	q := r.query.Select("configFile")
 
 	return &File{
@@ -651,7 +711,7 @@ func (r *OtelContribCollector) UnmarshalJSON(bs []byte) error {
 }
 
 // OtlpGrpcEndpoint — see CoreCollector.OtlpGrpcEndpoint.
-func (r *OtelContribCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:653:1)
+func (r *OtelContribCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:897:1)
 	if r.otlpGrpcEndpoint != nil {
 		return *r.otlpGrpcEndpoint, nil
 	}
@@ -664,7 +724,7 @@ func (r *OtelContribCollector) OtlpGrpcEndpoint(ctx context.Context) (string, er
 }
 
 // OtlpHttpEndpoint — see CoreCollector.OtlpHttpEndpoint.
-func (r *OtelContribCollector) OtlpHTTPEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:668:1)
+func (r *OtelContribCollector) OtlpHTTPEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:912:1)
 	if r.otlpHttpEndpoint != nil {
 		return *r.otlpHttpEndpoint, nil
 	}
@@ -676,7 +736,7 @@ func (r *OtelContribCollector) OtlpHTTPEndpoint(ctx context.Context) (string, er
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelContribCollector) Override() *File { // otel (../../../../../daggerverse/otel/main.go:599:2)
+func (r *OtelContribCollector) Override() *File { // otel (../../../../../daggerverse/otel/main.go:822:2)
 	q := r.query.Select("override")
 
 	return &File{
@@ -684,7 +744,7 @@ func (r *OtelContribCollector) Override() *File { // otel (../../../../../dagger
 	}
 }
 
-func (r *OtelContribCollector) Pipelines(ctx context.Context) ([]OtelPipeline, error) { // otel (../../../../../daggerverse/otel/main.go:600:2)
+func (r *OtelContribCollector) Pipelines(ctx context.Context) ([]OtelPipeline, error) { // otel (../../../../../daggerverse/otel/main.go:823:2)
 	q := r.query.Select("pipelines")
 
 	q = q.Select("id")
@@ -716,7 +776,7 @@ func (r *OtelContribCollector) Pipelines(ctx context.Context) ([]OtelPipeline, e
 	return convert(response), nil
 }
 
-func (r *OtelContribCollector) Registry(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:597:2)
+func (r *OtelContribCollector) Registry(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:820:2)
 	if r.registry != nil {
 		return *r.registry, nil
 	}
@@ -729,7 +789,7 @@ func (r *OtelContribCollector) Registry(ctx context.Context) (string, error) { /
 }
 
 // Service — see CoreCollector.Service.
-func (r *OtelContribCollector) Service() *Service { // otel (../../../../../daggerverse/otel/main.go:646:1)
+func (r *OtelContribCollector) Service() *Service { // otel (../../../../../daggerverse/otel/main.go:890:1)
 	q := r.query.Select("service")
 
 	return &Service{
@@ -737,7 +797,7 @@ func (r *OtelContribCollector) Service() *Service { // otel (../../../../../dagg
 	}
 }
 
-func (r *OtelContribCollector) Tag(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:598:2)
+func (r *OtelContribCollector) Tag(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:821:2)
 	if r.tag != nil {
 		return *r.tag, nil
 	}
@@ -750,7 +810,7 @@ func (r *OtelContribCollector) Tag(ctx context.Context) (string, error) { // ote
 }
 
 // WithConfigFile — see CoreCollector.WithConfigFile.
-func (r *OtelContribCollector) WithConfigFile(f *File) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:634:1)
+func (r *OtelContribCollector) WithConfigFile(f *File) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:863:1)
 	assertNotNil("f", f)
 	q := r.query.Select("withConfigFile")
 	q = q.Arg("f", f)
@@ -760,8 +820,19 @@ func (r *OtelContribCollector) WithConfigFile(f *File) *OtelContribCollector { /
 	}
 }
 
+// WithMtls — see CoreCollector.WithMtls.
+func (r *OtelContribCollector) WithMtls(clientCa *File) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:878:1)
+	assertNotNil("clientCa", clientCa)
+	q := r.query.Select("withMtls")
+	q = q.Arg("clientCa", clientCa)
+
+	return &OtelContribCollector{
+		query: q,
+	}
+}
+
 // WithPipeline — see CoreCollector.WithPipeline.
-func (r *OtelContribCollector) WithPipeline(p *OtelPipeline) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:627:1)
+func (r *OtelContribCollector) WithPipeline(p *OtelPipeline) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:856:1)
 	assertNotNil("p", p)
 	q := r.query.Select("withPipeline")
 	q = q.Arg("p", p)
@@ -772,11 +843,24 @@ func (r *OtelContribCollector) WithPipeline(p *OtelPipeline) *OtelContribCollect
 }
 
 // WithServiceBinding — see CoreCollector.WithServiceBinding.
-func (r *OtelContribCollector) WithServiceBinding(host string, svc *Service) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:619:1)
+func (r *OtelContribCollector) WithServiceBinding(host string, svc *Service) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:848:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withServiceBinding")
 	q = q.Arg("host", host)
 	q = q.Arg("svc", svc)
+
+	return &OtelContribCollector{
+		query: q,
+	}
+}
+
+// WithTls — see CoreCollector.WithTls.
+func (r *OtelContribCollector) WithTLS(serverCert *File, serverKey *Secret) *OtelContribCollector { // otel (../../../../../daggerverse/otel/main.go:870:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	q := r.query.Select("withTls")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
 
 	return &OtelContribCollector{
 		query: q,
@@ -795,7 +879,7 @@ func (r *OtelContribCollector) AsNode() Node {
 // public surface is identical to ContribCollector — both share the
 // rendering and service-construction helpers below; only the image
 // path differs.
-type OtelCoreCollector struct { // otel (../../../../../daggerverse/otel/main.go:363:6)
+type OtelCoreCollector struct { // otel (../../../../../daggerverse/otel/main.go:491:6)
 	query *querybuilder.Selection
 
 	id               *ID
@@ -819,7 +903,7 @@ func (r *OtelCoreCollector) WithGraphQLQuery(q *querybuilder.Selection) *OtelCor
 	}
 }
 
-func (r *OtelCoreCollector) BindingHosts(ctx context.Context) ([]string, error) { // otel (../../../../../daggerverse/otel/main.go:368:2)
+func (r *OtelCoreCollector) BindingHosts(ctx context.Context) ([]string, error) { // otel (../../../../../daggerverse/otel/main.go:496:2)
 	q := r.query.Select("bindingHosts")
 
 	var response []string
@@ -828,7 +912,7 @@ func (r *OtelCoreCollector) BindingHosts(ctx context.Context) ([]string, error) 
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelCoreCollector) BindingSvcs(ctx context.Context) ([]Service, error) { // otel (../../../../../daggerverse/otel/main.go:369:2)
+func (r *OtelCoreCollector) BindingSvcs(ctx context.Context) ([]Service, error) { // otel (../../../../../daggerverse/otel/main.go:497:2)
 	q := r.query.Select("bindingSvcs")
 
 	q = q.Select("id")
@@ -863,7 +947,7 @@ func (r *OtelCoreCollector) BindingSvcs(ctx context.Context) ([]Service, error) 
 // ConfigFile returns the file that will be mounted as the collector's
 // --config: either the caller-supplied override or the
 // pipeline-rendered YAML. Inspecting it does not launch the service.
-func (r *OtelCoreCollector) ConfigFile() *File { // otel (../../../../../daggerverse/otel/main.go:418:1)
+func (r *OtelCoreCollector) ConfigFile() *File { // otel (../../../../../daggerverse/otel/main.go:573:1)
 	q := r.query.Select("configFile")
 
 	return &File{
@@ -922,7 +1006,7 @@ func (r *OtelCoreCollector) UnmarshalJSON(bs []byte) error {
 
 // OtlpGrpcEndpoint returns the host:port of the running collector's
 // OTLP/gRPC listener (no scheme).
-func (r *OtelCoreCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:434:1)
+func (r *OtelCoreCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:589:1)
 	if r.otlpGrpcEndpoint != nil {
 		return *r.otlpGrpcEndpoint, nil
 	}
@@ -934,9 +1018,10 @@ func (r *OtelCoreCollector) OtlpGrpcEndpoint(ctx context.Context) (string, error
 	return response, q.Execute(ctx)
 }
 
-// OtlpHttpEndpoint returns http://<host>:4318 for the running
-// collector's OTLP/HTTP listener.
-func (r *OtelCoreCollector) OtlpHTTPEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:450:1)
+// OtlpHttpEndpoint returns <scheme>://<host>:4318 for the running
+// collector's OTLP/HTTP listener. The scheme is https once WithTls has
+// been called, http otherwise.
+func (r *OtelCoreCollector) OtlpHTTPEndpoint(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:606:1)
 	if r.otlpHttpEndpoint != nil {
 		return *r.otlpHttpEndpoint, nil
 	}
@@ -948,7 +1033,7 @@ func (r *OtelCoreCollector) OtlpHTTPEndpoint(ctx context.Context) (string, error
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelCoreCollector) Override() *File { // otel (../../../../../daggerverse/otel/main.go:366:2)
+func (r *OtelCoreCollector) Override() *File { // otel (../../../../../daggerverse/otel/main.go:494:2)
 	q := r.query.Select("override")
 
 	return &File{
@@ -956,7 +1041,7 @@ func (r *OtelCoreCollector) Override() *File { // otel (../../../../../daggerver
 	}
 }
 
-func (r *OtelCoreCollector) Pipelines(ctx context.Context) ([]OtelPipeline, error) { // otel (../../../../../daggerverse/otel/main.go:367:2)
+func (r *OtelCoreCollector) Pipelines(ctx context.Context) ([]OtelPipeline, error) { // otel (../../../../../daggerverse/otel/main.go:495:2)
 	q := r.query.Select("pipelines")
 
 	q = q.Select("id")
@@ -988,7 +1073,7 @@ func (r *OtelCoreCollector) Pipelines(ctx context.Context) ([]OtelPipeline, erro
 	return convert(response), nil
 }
 
-func (r *OtelCoreCollector) Registry(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:364:2)
+func (r *OtelCoreCollector) Registry(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:492:2)
 	if r.registry != nil {
 		return *r.registry, nil
 	}
@@ -1004,7 +1089,7 @@ func (r *OtelCoreCollector) Registry(ctx context.Context) (string, error) { // o
 // and :4318 (OTLP HTTP). Mounts the resolved config (override or
 // rendered) when one exists; otherwise launches with no --config flag,
 // matching the collector binary's behavior of refusing to start.
-func (r *OtelCoreCollector) Service() *Service { // otel (../../../../../daggerverse/otel/main.go:426:1)
+func (r *OtelCoreCollector) Service() *Service { // otel (../../../../../daggerverse/otel/main.go:581:1)
 	q := r.query.Select("service")
 
 	return &Service{
@@ -1012,7 +1097,7 @@ func (r *OtelCoreCollector) Service() *Service { // otel (../../../../../daggerv
 	}
 }
 
-func (r *OtelCoreCollector) Tag(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:365:2)
+func (r *OtelCoreCollector) Tag(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:493:2)
 	if r.tag != nil {
 		return *r.tag, nil
 	}
@@ -1027,7 +1112,7 @@ func (r *OtelCoreCollector) Tag(ctx context.Context) (string, error) { // otel (
 // WithConfigFile fully replaces the rendered pipeline YAML with the
 // supplied file. Pipelines added via WithPipeline are ignored when an
 // override is set.
-func (r *OtelCoreCollector) WithConfigFile(f *File) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:409:1)
+func (r *OtelCoreCollector) WithConfigFile(f *File) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:543:1)
 	assertNotNil("f", f)
 	q := r.query.Select("withConfigFile")
 	q = q.Arg("f", f)
@@ -1037,10 +1122,23 @@ func (r *OtelCoreCollector) WithConfigFile(f *File) *OtelCoreCollector { // otel
 	}
 }
 
+// WithMtls requires client certificates signed by clientCa (PEM-encoded)
+// on every incoming OTLP connection. Must be combined with WithTls;
+// Service returns an error otherwise.
+func (r *OtelCoreCollector) WithMtls(clientCa *File) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:564:1)
+	assertNotNil("clientCa", clientCa)
+	q := r.query.Select("withMtls")
+	q = q.Arg("clientCa", clientCa)
+
+	return &OtelCoreCollector{
+		query: q,
+	}
+}
+
 // WithPipeline appends a pipeline to the collector. The collector
 // dedupes shared components into one top-level entry per kind/name
 // at YAML-render time.
-func (r *OtelCoreCollector) WithPipeline(p *OtelPipeline) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:400:1)
+func (r *OtelCoreCollector) WithPipeline(p *OtelPipeline) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:534:1)
 	assertNotNil("p", p)
 	q := r.query.Select("withPipeline")
 	q = q.Arg("p", p)
@@ -1053,11 +1151,28 @@ func (r *OtelCoreCollector) WithPipeline(p *OtelPipeline) *OtelCoreCollector { /
 // WithServiceBinding binds a backend service into the collector's
 // network so exporter endpoints can reach it by hostname. Repeated
 // calls accumulate.
-func (r *OtelCoreCollector) WithServiceBinding(host string, svc *Service) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:390:1)
+func (r *OtelCoreCollector) WithServiceBinding(host string, svc *Service) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:524:1)
 	assertNotNil("svc", svc)
 	q := r.query.Select("withServiceBinding")
 	q = q.Arg("host", host)
 	q = q.Arg("svc", svc)
+
+	return &OtelCoreCollector{
+		query: q,
+	}
+}
+
+// WithTls enables TLS on both OTLP receivers (gRPC :4317 and HTTP :4318).
+// serverCert is the PEM-encoded server certificate and serverKey its
+// PEM-encoded PKCS#8 private key; both are mounted into the collector and
+// wired into every otlp receiver at render time. After this call
+// OtlpHttpEndpoint returns an https:// URL.
+func (r *OtelCoreCollector) WithTLS(serverCert *File, serverKey *Secret) *OtelCoreCollector { // otel (../../../../../daggerverse/otel/main.go:554:1)
+	assertNotNil("serverCert", serverCert)
+	assertNotNil("serverKey", serverKey)
+	q := r.query.Select("withTls")
+	q = q.Arg("serverCert", serverCert)
+	q = q.Arg("serverKey", serverKey)
 
 	return &OtelCoreCollector{
 		query: q,
@@ -1072,8 +1187,11 @@ func (r *OtelCoreCollector) AsNode() Node {
 	}
 }
 
-// Exporter is a single OpenTelemetry Collector exporter component.
-type OtelExporter struct { // otel (../../../../../daggerverse/otel/main.go:107:6)
+// Exporter is a single OpenTelemetry Collector exporter component. When
+// TLS options are supplied to the factory, the cert/key material is
+// carried here so the collector can mount it at the paths already baked
+// into Body (see exporterCertDir).
+type OtelExporter struct { // otel (../../../../../daggerverse/otel/main.go:173:6)
 	query *querybuilder.Selection
 
 	body *string
@@ -1088,7 +1206,7 @@ func (r *OtelExporter) WithGraphQLQuery(q *querybuilder.Selection) *OtelExporter
 	}
 }
 
-func (r *OtelExporter) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:110:2)
+func (r *OtelExporter) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:176:2)
 	if r.body != nil {
 		return *r.body, nil
 	}
@@ -1149,7 +1267,7 @@ func (r *OtelExporter) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *OtelExporter) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:108:2)
+func (r *OtelExporter) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:174:2)
 	if r.kind != nil {
 		return *r.kind, nil
 	}
@@ -1161,7 +1279,7 @@ func (r *OtelExporter) Kind(ctx context.Context) (string, error) { // otel (../.
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelExporter) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:109:2)
+func (r *OtelExporter) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:175:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1186,7 +1304,7 @@ func (r *OtelExporter) AsNode() Node {
 // exporters. Components are held by reference; the collector
 // deduplicates shared components into one top-level entry per
 // kind/name when the YAML is rendered.
-type OtelPipeline struct { // otel (../../../../../daggerverse/otel/main.go:279:6)
+type OtelPipeline struct { // otel (../../../../../daggerverse/otel/main.go:407:6)
 	query *querybuilder.Selection
 
 	id     *ID
@@ -1208,7 +1326,7 @@ func (r *OtelPipeline) WithGraphQLQuery(q *querybuilder.Selection) *OtelPipeline
 	}
 }
 
-func (r *OtelPipeline) Exporters(ctx context.Context) ([]OtelExporter, error) { // otel (../../../../../daggerverse/otel/main.go:284:2)
+func (r *OtelPipeline) Exporters(ctx context.Context) ([]OtelExporter, error) { // otel (../../../../../daggerverse/otel/main.go:412:2)
 	q := r.query.Select("exporters")
 
 	q = q.Select("id")
@@ -1289,7 +1407,7 @@ func (r *OtelPipeline) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *OtelPipeline) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:281:2)
+func (r *OtelPipeline) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:409:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1301,7 +1419,7 @@ func (r *OtelPipeline) Name(ctx context.Context) (string, error) { // otel (../.
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelPipeline) Processors(ctx context.Context) ([]OtelProcessor, error) { // otel (../../../../../daggerverse/otel/main.go:283:2)
+func (r *OtelPipeline) Processors(ctx context.Context) ([]OtelProcessor, error) { // otel (../../../../../daggerverse/otel/main.go:411:2)
 	q := r.query.Select("processors")
 
 	q = q.Select("id")
@@ -1333,7 +1451,7 @@ func (r *OtelPipeline) Processors(ctx context.Context) ([]OtelProcessor, error) 
 	return convert(response), nil
 }
 
-func (r *OtelPipeline) Receivers(ctx context.Context) ([]OtelReceiver, error) { // otel (../../../../../daggerverse/otel/main.go:282:2)
+func (r *OtelPipeline) Receivers(ctx context.Context) ([]OtelReceiver, error) { // otel (../../../../../daggerverse/otel/main.go:410:2)
 	q := r.query.Select("receivers")
 
 	q = q.Select("id")
@@ -1365,7 +1483,7 @@ func (r *OtelPipeline) Receivers(ctx context.Context) ([]OtelReceiver, error) { 
 	return convert(response), nil
 }
 
-func (r *OtelPipeline) Signal(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:280:2)
+func (r *OtelPipeline) Signal(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:408:2)
 	if r.signal != nil {
 		return *r.signal, nil
 	}
@@ -1378,7 +1496,7 @@ func (r *OtelPipeline) Signal(ctx context.Context) (string, error) { // otel (..
 }
 
 // WithExporter — see WithReceiver.
-func (r *OtelPipeline) WithExporter(exp *OtelExporter) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:353:1)
+func (r *OtelPipeline) WithExporter(exp *OtelExporter) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:481:1)
 	assertNotNil("exp", exp)
 	q := r.query.Select("withExporter")
 	q = q.Arg("exp", exp)
@@ -1389,7 +1507,7 @@ func (r *OtelPipeline) WithExporter(exp *OtelExporter) *OtelPipeline { // otel (
 }
 
 // WithProcessor — see WithReceiver.
-func (r *OtelPipeline) WithProcessor(proc *OtelProcessor) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:346:1)
+func (r *OtelPipeline) WithProcessor(proc *OtelProcessor) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:474:1)
 	assertNotNil("proc", proc)
 	q := r.query.Select("withProcessor")
 	q = q.Arg("proc", proc)
@@ -1402,7 +1520,7 @@ func (r *OtelPipeline) WithProcessor(proc *OtelProcessor) *OtelPipeline { // ote
 // WithReceiver appends a receiver to the pipeline and returns a new
 // pipeline; the receiver is held by reference so it can be deduped
 // across pipelines at render time.
-func (r *OtelPipeline) WithReceiver(recv *OtelReceiver) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:339:1)
+func (r *OtelPipeline) WithReceiver(recv *OtelReceiver) *OtelPipeline { // otel (../../../../../daggerverse/otel/main.go:467:1)
 	assertNotNil("recv", recv)
 	q := r.query.Select("withReceiver")
 	q = q.Arg("recv", recv)
@@ -1421,7 +1539,7 @@ func (r *OtelPipeline) AsNode() Node {
 }
 
 // Processor is a single OpenTelemetry Collector processor component.
-type OtelProcessor struct { // otel (../../../../../daggerverse/otel/main.go:100:6)
+type OtelProcessor struct { // otel (../../../../../daggerverse/otel/main.go:163:6)
 	query *querybuilder.Selection
 
 	body *string
@@ -1436,7 +1554,7 @@ func (r *OtelProcessor) WithGraphQLQuery(q *querybuilder.Selection) *OtelProcess
 	}
 }
 
-func (r *OtelProcessor) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:103:2)
+func (r *OtelProcessor) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:166:2)
 	if r.body != nil {
 		return *r.body, nil
 	}
@@ -1497,7 +1615,7 @@ func (r *OtelProcessor) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *OtelProcessor) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:101:2)
+func (r *OtelProcessor) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:164:2)
 	if r.kind != nil {
 		return *r.kind, nil
 	}
@@ -1509,7 +1627,7 @@ func (r *OtelProcessor) Kind(ctx context.Context) (string, error) { // otel (../
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelProcessor) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:102:2)
+func (r *OtelProcessor) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:165:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1532,7 +1650,7 @@ func (r *OtelProcessor) AsNode() Node {
 // Receiver is a single OpenTelemetry Collector receiver component.
 // Body is the YAML body for this component, spliced under
 // `receivers.<kind>/<name>` at render time.
-type OtelReceiver struct { // otel (../../../../../daggerverse/otel/main.go:93:6)
+type OtelReceiver struct { // otel (../../../../../daggerverse/otel/main.go:156:6)
 	query *querybuilder.Selection
 
 	body *string
@@ -1547,7 +1665,7 @@ func (r *OtelReceiver) WithGraphQLQuery(q *querybuilder.Selection) *OtelReceiver
 	}
 }
 
-func (r *OtelReceiver) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:96:2)
+func (r *OtelReceiver) Body(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:159:2)
 	if r.body != nil {
 		return *r.body, nil
 	}
@@ -1608,7 +1726,7 @@ func (r *OtelReceiver) UnmarshalJSON(bs []byte) error {
 	return nil
 }
 
-func (r *OtelReceiver) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:94:2)
+func (r *OtelReceiver) Kind(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:157:2)
 	if r.kind != nil {
 		return *r.kind, nil
 	}
@@ -1620,7 +1738,7 @@ func (r *OtelReceiver) Kind(ctx context.Context) (string, error) { // otel (../.
 	return response, q.Execute(ctx)
 }
 
-func (r *OtelReceiver) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:95:2)
+func (r *OtelReceiver) Name(ctx context.Context) (string, error) { // otel (../../../../../daggerverse/otel/main.go:158:2)
 	if r.name != nil {
 		return *r.name, nil
 	}
@@ -1644,7 +1762,7 @@ func (r *OtelReceiver) AsNode() Node {
 // Collector as a service for local development and testing, with a
 // component/pipeline builder API for composing receivers, processors,
 // and exporters without writing YAML by hand.
-func (r *Query) Otel() *Otel { // otel (../../../../../daggerverse/otel/main.go:88:6)
+func (r *Query) Otel() *Otel { // otel (../../../../../daggerverse/otel/main.go:151:6)
 	q := r.query.Select("otel")
 
 	return &Otel{

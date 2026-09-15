@@ -1,9 +1,12 @@
 {
   "name": "ci",
-  "engineVersion": "v0.21.7",
+  "engineVersion": "v0.21.8",
   "sdk": {
     "source": "go"
   },
+  "include": [
+    "!README.md"
+  ],
   "dependencies": [
     {
       "name": "z5labs",
