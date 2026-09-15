@@ -5,6 +5,7 @@ package dagger
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/dagger/querybuilder"
 )
@@ -19,7 +20,7 @@ func (r *Binding) AsGo() *Go { // go (../../../../../daggerverse/go/main.go:24:6
 }
 
 // Retrieve the binding value, as type GoCi
-func (r *Binding) AsGoCi() *GoCi { // go (../../../../../daggerverse/go/ci.go:27:6)
+func (r *Binding) AsGoCi() *GoCi { // go (../../../../../daggerverse/go/ci.go:44:6)
 	q := r.query.Select("asGoCi")
 
 	return &GoCi{
@@ -28,7 +29,7 @@ func (r *Binding) AsGoCi() *GoCi { // go (../../../../../daggerverse/go/ci.go:27
 }
 
 // Create or update a binding of type GoCi in the environment
-func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env { // go (../../../../../daggerverse/go/ci.go:27:6)
+func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env { // go (../../../../../daggerverse/go/ci.go:44:6)
 	assertNotNil("value", value)
 	q := r.query.Select("withGoCiInput")
 	q = q.Arg("name", name)
@@ -41,7 +42,7 @@ func (r *Env) WithGoCiInput(name string, value *GoCi, description string) *Env {
 }
 
 // Declare a desired GoCi output to be assigned in the environment
-func (r *Env) WithGoCiOutput(name string, description string) *Env { // go (../../../../../daggerverse/go/ci.go:27:6)
+func (r *Env) WithGoCiOutput(name string, description string) *Env { // go (../../../../../daggerverse/go/ci.go:44:6)
 	q := r.query.Select("withGoCiOutput")
 	q = q.Arg("name", name)
 	q = q.Arg("description", description)
@@ -102,20 +103,97 @@ func (r *Go) WithGraphQLQuery(q *querybuilder.Selection) *Go {
 
 // GoBuildOpts contains options for Go.Build
 type GoBuildOpts struct {
-
+	//
+	// Package(s) to build, in `go build` package-list syntax.
+	//
+	//
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:230:2)
-
-	Output string // go (../../../../../daggerverse/go/main.go:232:2)
-
-	Flags []string // go (../../../../../daggerverse/go/main.go:234:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:240:2)
+	//
+	// Name of the artifact written under /out. Empty means `-o /out/`, which
+	// lets go build name each binary after its main package.
+	//
+	// Named artifactName rather than output because the Dagger CLI reserves
+	// `--output/-o` for exporting a call's result: a function parameter
+	// called output collides with it, and `dagger call build` then fails to
+	// parse its own flags before it runs anything. Ci.WithBuild's
+	// binaryName dodges the same collision; this one is not always a binary,
+	// because buildmode can make it an archive or a shared library.
+	//
+	ArtifactName string // go (../../../../../daggerverse/go/main.go:252:2)
+	//
+	// Pass -trimpath: strip the build's local file system paths out of the
+	// binary, so the output does not depend on where it was compiled.
+	//
+	Trimpath bool // go (../../../../../daggerverse/go/main.go:257:2)
+	//
+	// Pass -ldflags "-s -w": drop the symbol table and the DWARF debug
+	// info. Smaller binary, no usable stack symbolization or debugger.
+	//
+	Strip bool // go (../../../../../daggerverse/go/main.go:262:2)
+	//
+	// Link-time variable assignments, each `importpath.Name=value`,
+	// rendered as `-ldflags "-X importpath.Name=value"`. This is how a
+	// binary learns its own version or commit. Only the first `=` splits
+	// name from value, so a value may itself contain `=`. An element with
+	// no `=`, or with an empty name, is rejected. The linker silently
+	// ignores a stamp naming a variable that does not exist, or one that
+	// is not a package-level string.
+	//
+	Stamps []string // go (../../../../../daggerverse/go/main.go:272:2)
+	//
+	// Build tags, passed as `-tags a,b,c`. Selects which `//go:build`
+	// files are compiled in.
+	//
+	Tags []string // go (../../../../../daggerverse/go/main.go:277:2)
+	//
+	// Target platform as `GOOS/GOARCH[/variant]`, e.g. "linux/arm64".
+	// Sets GOOS and GOARCH for a cross-compile; empty builds for the
+	// toolchain container's own platform. Any variant segment is ignored —
+	// GOARM/GOAMD64 are left unset.
+	//
+	Platform string // go (../../../../../daggerverse/go/main.go:284:2)
+	//
+	// Set CGO_ENABLED=0. Produces a statically linked binary with no libc
+	// dependency, which is what a scratch image needs, at the cost of the
+	// cgo-backed net and os/user implementations.
+	//
+	DisableCgo bool // go (../../../../../daggerverse/go/main.go:290:2)
+	//
+	// Pass -race: link Go's data-race detector into the output. The binary
+	// then reports racing accesses to stderr as it runs, at roughly 2-20x
+	// the CPU and 5-10x the memory of an ordinary build — so this is a
+	// binary for an integration test, not one to ship.
+	//
+	// -race requires cgo, so it cannot be combined with disableCgo (Build
+	// rejects that pairing) and it needs a C toolchain for the target: the
+	// golang image has one for its own platform, but a cross-compile via
+	// platform does not unless the toolchain image provides it.
+	//
+	Race bool // go (../../../../../daggerverse/go/main.go:302:2)
+	//
+	// Pass -buildmode=<mode>: what the linker emits, which for most modes is
+	// not an executable. Absent leaves the flag off entirely, so `go build`
+	// picks its own default for the target — an executable for a main
+	// package, an archive for the rest. See BuildMode for what each member
+	// produces.
+	//
+	Buildmode GoBuildMode // go (../../../../../daggerverse/go/main.go:310:2)
 }
 
-// Build runs `go build -o /out/[output] [flags] pkg` against the supplied
-// source and returns /out as a *dagger.Directory. pkg defaults to `./...`;
-// when output is empty, `-o /out/` is used so go build picks names per its
-// own rules (one binary per main package).
-func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:226:1)
+// Build runs `go build` against the supplied source and returns /out as a
+// *dagger.Directory. pkg defaults to `./...`; when output is empty, `-o
+// /out/` is used so go build picks names per its own rules (one binary per
+// main package).
+//
+// Every flag this function can pass is a named input with its own doc
+// comment, so `dagger functions` describes what each one does to the
+// output. There is deliberately no raw `flags []string` escape hatch: a bag
+// of strings cannot be validated, cannot be documented per flag, and makes
+// every caller re-learn the same spellings. Container() is the escape hatch
+// for anything not named here — it hands back the prepared container so a
+// caller can run whatever `go build` invocation it likes.
+func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (../../../../../daggerverse/go/main.go:234:1)
 	assertNotNil("source", source)
 	q := r.query.Select("build")
 	for i := len(opts) - 1; i >= 0; i-- {
@@ -123,13 +201,41 @@ func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (.
 		if !querybuilder.IsZeroValue(opts[i].Pkg) {
 			q = q.Arg("pkg", opts[i].Pkg)
 		}
-		// `output` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Output) {
-			q = q.Arg("output", opts[i].Output)
+		// `artifactName` optional argument
+		if !querybuilder.IsZeroValue(opts[i].ArtifactName) {
+			q = q.Arg("artifactName", opts[i].ArtifactName)
 		}
-		// `flags` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Flags) {
-			q = q.Arg("flags", opts[i].Flags)
+		// `trimpath` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Trimpath) {
+			q = q.Arg("trimpath", opts[i].Trimpath)
+		}
+		// `strip` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Strip) {
+			q = q.Arg("strip", opts[i].Strip)
+		}
+		// `stamps` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Stamps) {
+			q = q.Arg("stamps", opts[i].Stamps)
+		}
+		// `tags` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Tags) {
+			q = q.Arg("tags", opts[i].Tags)
+		}
+		// `platform` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Platform) {
+			q = q.Arg("platform", opts[i].Platform)
+		}
+		// `disableCgo` optional argument
+		if !querybuilder.IsZeroValue(opts[i].DisableCgo) {
+			q = q.Arg("disableCgo", opts[i].DisableCgo)
+		}
+		// `race` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Race) {
+			q = q.Arg("race", opts[i].Race)
+		}
+		// `buildmode` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Buildmode) {
+			q = q.Arg("buildmode", opts[i].Buildmode)
 		}
 	}
 	q = q.Arg("source", source)
@@ -140,7 +246,7 @@ func (r *Go) Build(source *Directory, opts ...GoBuildOpts) *Directory { // go (.
 }
 
 // Ci returns a new pipeline builder bound to the supplied source.
-func (r *Go) Ci(source *Directory) *GoCi { // go (../../../../../daggerverse/go/ci.go:55:1)
+func (r *Go) Ci(source *Directory) *GoCi { // go (../../../../../daggerverse/go/ci.go:72:1)
 	assertNotNil("source", source)
 	q := r.query.Select("ci")
 	q = q.Arg("source", source)
@@ -169,8 +275,33 @@ func (r *Go) Container(source *Directory) *Container { // go (../../../../../dag
 	}
 }
 
+// CycloneDx renders a CycloneDX 1.6 JSON document describing the module
+// graph compiled into binary.
+//
+// **Why 1.6.** 1.6 is the current release and the one Dependency-Track,
+// Grype and Trivy consume; it is also the first to model a component's
+// licence acknowledgement, which is what lets a low-confidence classifier
+// match be published as "declared" rather than silently asserted.
+//
+// The component set, the versions and the licences are identical to what
+// Spdx emits for the same inputs: both render from one resolution of the
+// graph, so the two documents cannot disagree about what shipped. See
+// Spdx for how the graph is resolved and how licence confidence is
+// handled.
+func (r *Go) CycloneDx(binary *File, source *Directory) *File { // go (../../../../../daggerverse/go/sbom.go:80:1)
+	assertNotNil("binary", binary)
+	assertNotNil("source", source)
+	q := r.query.Select("cycloneDx")
+	q = q.Arg("binary", binary)
+	q = q.Arg("source", source)
+
+	return &File{
+		query: q,
+	}
+}
+
 // Env runs `go env` in a source-less base container and returns its stdout.
-func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:319:1)
+func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:488:1)
 	if r.env != nil {
 		return *r.env, nil
 	}
@@ -185,7 +316,7 @@ func (r *Go) Env(ctx context.Context) (string, error) { // go (../../../../../da
 // Fmt runs `gofmt -l -d .` against the supplied source. Returns the diff
 // of any unformatted files; non-empty output is also returned as an error so
 // CI fails fast on formatting violations.
-func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:283:1)
+func (r *Go) Fmt(ctx context.Context, source *Directory) (string, error) { // go (../../../../../daggerverse/go/main.go:452:1)
 	assertNotNil("source", source)
 	if r.fmt != nil {
 		return *r.fmt, nil
@@ -356,21 +487,58 @@ func (r *Go) Run(ctx context.Context, source *Directory, pkg string, opts ...GoR
 	return response, q.Execute(ctx)
 }
 
+// Spdx renders an SPDX 2.3 JSON document describing the module graph
+// compiled into binary.
+//
+// **Why 2.3 and not 3.0.** The version is chosen for what consumers
+// ingest rather than left to whatever the library defaults to. SPDX 2.3
+// is the revision behind ISO/IEC 5962's successor line that GitHub's
+// dependency graph, Dependency-Track, Grype, Trivy and the CISA/NTIA
+// minimum-elements tooling all read today; 3.0 changes the serialization
+// wholesale and support for it is still thin. A document nothing can
+// parse is not an SBOM.
+//
+// **The subject is the binary, not the tree.** The component list is read
+// out of the compiled artifact with debug/buildinfo, so it names the
+// modules that were actually linked in — not everything go.mod happens to
+// require. source is an *input* and not the subject: a Go binary embeds
+// module paths, versions and hashes but no licence text, so the licences
+// have to be resolved from the module cache the source pins.
+//
+// **Licences are declared and concluded separately.** Licence
+// identification is a classifier, and a classifier reports coverage
+// rather than a verdict. The classifier's best match is always recorded
+// as the declared licence; it is only promoted to the concluded licence
+// when the match covers essentially the whole file. Anything less
+// concludes NOASSERTION, so a low-confidence match cannot be mistaken
+// downstream for an established one.
+func (r *Go) Spdx(binary *File, source *Directory) *File { // go (../../../../../daggerverse/go/sbom.go:46:1)
+	assertNotNil("binary", binary)
+	assertNotNil("source", source)
+	q := r.query.Select("spdx")
+	q = q.Arg("binary", binary)
+	q = q.Arg("source", source)
+
+	return &File{
+		query: q,
+	}
+}
+
 // GoTestOpts contains options for Go.Test
 type GoTestOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:259:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:428:2)
 
-	Race bool // go (../../../../../daggerverse/go/main.go:261:2)
+	Race bool // go (../../../../../daggerverse/go/main.go:430:2)
 
-	Flags []string // go (../../../../../daggerverse/go/main.go:263:2)
+	Flags []string // go (../../../../../daggerverse/go/main.go:432:2)
 }
 
 // Test runs `go test -count=1 [-race] [flags] pkg` against the supplied
 // source and returns the combined stdout. -count=1 is always passed to
 // bypass Go's internal test cache.
-func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:255:1)
+func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (string, error) { // go (../../../../../daggerverse/go/main.go:424:1)
 	assertNotNil("source", source)
 	if r.test != nil {
 		return *r.test, nil
@@ -400,7 +568,7 @@ func (r *Go) Test(ctx context.Context, source *Directory, opts ...GoTestOpts) (s
 
 // ToolVersion runs `go version` in a source-less base container and returns
 // the trimmed output (e.g. "go version go1.23.0 linux/amd64").
-func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:327:1)
+func (r *Go) ToolVersion(ctx context.Context) (string, error) { // go (../../../../../daggerverse/go/main.go:496:1)
 	if r.toolVersion != nil {
 		return *r.toolVersion, nil
 	}
@@ -431,12 +599,12 @@ func (r *Go) Version(ctx context.Context) (string, error) { // go (../../../../.
 type GoVetOpts struct {
 
 	// Default: "./..."
-	Pkg string // go (../../../../../daggerverse/go/main.go:306:2)
+	Pkg string // go (../../../../../daggerverse/go/main.go:475:2)
 }
 
 // Vet runs `go vet pkg` against the supplied source. pkg defaults to
 // `./...`. Returns a non-nil error when vet reports any issue.
-func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:302:1)
+func (r *Go) Vet(ctx context.Context, source *Directory, opts ...GoVetOpts) error { // go (../../../../../daggerverse/go/main.go:471:1)
 	assertNotNil("source", source)
 	if r.vet != nil {
 		return nil
@@ -498,7 +666,7 @@ func (r *Go) AsNode() Node {
 // errors are aggregated. Stage 2 builds the source and Run returns the
 // produced binary as a *dagger.File. Downstream consumers compose that file
 // into their own pipelines (package, sign, publish, ...).
-type GoCi struct { // go (../../../../../daggerverse/go/ci.go:27:6)
+type GoCi struct { // go (../../../../../daggerverse/go/ci.go:44:6)
 	query *querybuilder.Selection
 
 	check *Void
@@ -524,7 +692,7 @@ func (r *GoCi) WithGraphQLQuery(q *querybuilder.Selection) *GoCi {
 // aggregated error. Use when callers want to run the checks
 // independently of the build (for example multi-platform pipelines
 // that share one check run across N platform builds).
-func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../daggerverse/go/ci.go:124:1)
+func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../daggerverse/go/ci.go:148:1)
 	if r.check != nil {
 		return nil
 	}
@@ -585,7 +753,7 @@ func (r *GoCi) UnmarshalJSON(bs []byte) error {
 // Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns
 // the built binary as a *dagger.File. On stage-1 failure, returns the
 // aggregated error from Check and a nil file (stage 2 is skipped).
-func (r *GoCi) Run() *File { // go (../../../../../daggerverse/go/ci.go:149:1)
+func (r *GoCi) Run() *File { // go (../../../../../daggerverse/go/ci.go:173:1)
 	q := r.query.Select("run")
 
 	return &File{
@@ -595,9 +763,9 @@ func (r *GoCi) Run() *File { // go (../../../../../daggerverse/go/ci.go:149:1)
 
 // GoCiWithBuildOpts contains options for GoCi.WithBuild
 type GoCiWithBuildOpts struct {
-	Pkg string // go (../../../../../daggerverse/go/ci.go:107:2)
+	Pkg string // go (../../../../../daggerverse/go/ci.go:131:2)
 
-	BinaryName string // go (../../../../../daggerverse/go/ci.go:109:2)
+	BinaryName string // go (../../../../../daggerverse/go/ci.go:133:2)
 }
 
 // WithBuild configures the build stage parameters. pkg defaults to "."
@@ -607,7 +775,7 @@ type GoCiWithBuildOpts struct {
 //
 // Note: the binary-name flag is called binaryName (CLI: --binary-name) to
 // avoid colliding with Dagger CLI's top-level --output/-o flag.
-func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:105:1)
+func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:129:1)
 	q := r.query.Select("withBuild")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `pkg` optional argument
@@ -626,7 +794,7 @@ func (r *GoCi) WithBuild(opts ...GoCiWithBuildOpts) *GoCi { // go (../../../../.
 }
 
 // WithFmt enables the gofmt check stage.
-func (r *GoCi) WithFmt() *GoCi { // go (../../../../../daggerverse/go/ci.go:60:1)
+func (r *GoCi) WithFmt() *GoCi { // go (../../../../../daggerverse/go/ci.go:77:1)
 	q := r.query.Select("withFmt")
 
 	return &GoCi{
@@ -636,16 +804,23 @@ func (r *GoCi) WithFmt() *GoCi { // go (../../../../../daggerverse/go/ci.go:60:1
 
 // GoCiWithLintOpts contains options for GoCi.WithLint
 type GoCiWithLintOpts struct {
-	Version string // go (../../../../../daggerverse/go/ci.go:77:2)
+	Version string // go (../../../../../daggerverse/go/ci.go:101:2)
 
-	Config *File // go (../../../../../daggerverse/go/ci.go:79:2)
+	Config *File // go (../../../../../daggerverse/go/ci.go:103:2)
 }
 
 // WithLint enables the golangci-lint check stage. version pins the
 // installed golangci-lint version (defaults to defaultGolangciLintVersion
 // when empty). config, if non-nil, is mounted at golangciLintConfigMountPath
 // and passed to golangci-lint via --config.
-func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:75:1)
+//
+// The default is a golangci-lint **v2** release, so a config passed here
+// must be written in the v2 dialect — a file opening with `version: "2"`.
+// A v1 file is not tolerated by a v2 binary; it is rejected before any
+// linter runs. Pass a `v1.x` version to roll the whole stage back, config
+// dialect included; the module path installed follows the version's major,
+// so both majors are reachable without forking this pipeline.
+func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:99:1)
 	q := r.query.Select("withLint")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `version` optional argument
@@ -665,12 +840,12 @@ func (r *GoCi) WithLint(opts ...GoCiWithLintOpts) *GoCi { // go (../../../../../
 
 // GoCiWithTestOpts contains options for GoCi.WithTest
 type GoCiWithTestOpts struct {
-	Race bool // go (../../../../../daggerverse/go/ci.go:91:2)
+	Race bool // go (../../../../../daggerverse/go/ci.go:115:2)
 }
 
 // WithTest enables the `go test ./...` check stage. Pass race=true to
 // enable the data-race detector.
-func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:89:1)
+func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../daggerverse/go/ci.go:113:1)
 	q := r.query.Select("withTest")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `race` optional argument
@@ -685,7 +860,7 @@ func (r *GoCi) WithTest(opts ...GoCiWithTestOpts) *GoCi { // go (../../../../../
 }
 
 // WithVet enables the `go vet ./...` check stage.
-func (r *GoCi) WithVet() *GoCi { // go (../../../../../daggerverse/go/ci.go:66:1)
+func (r *GoCi) WithVet() *GoCi { // go (../../../../../daggerverse/go/ci.go:83:1)
 	q := r.query.Select("withVet")
 
 	return &GoCi{
@@ -723,3 +898,124 @@ func (r *Query) Go(opts ...GoOpts) *Go { // go (../../../../../daggerverse/go/ma
 		query: q,
 	}
 }
+
+// BuildMode is what `go build -buildmode` produces: the kind of artifact the
+// linker emits, which for most of these is not an executable at all. It is an
+// enum rather than a string because the set is closed and each member has a
+// different output shape a caller has to be ready for.
+//
+// Two of `go build`'s modes are deliberately absent. `default` is what
+// omitting this input already means, so a member for it would be a second
+// spelling of the same request. `shared` is only half a feature without a
+// `-linkshared` counterpart on the consuming build, which Build does not have
+// — use Container() if you are building a shared std.
+//
+// Note on rendered names: the Dagger Go SDK derives each GraphQL enum member
+// from the *constant identifier* in SCREAMING_SNAKE_CASE, so these surface as
+// `ARCHIVE`, `C_ARCHIVE`, `C_SHARED`, `EXE`, `PIE` and `PLUGIN`. That is why
+// the `go build` spelling (`c-archive`) lives in buildModeFlags below rather
+// than in the identifier: a hyphen cannot appear in a Go identifier, so the
+// mapping has to be explicit.
+type GoBuildMode string // go (../../../../../daggerverse/go/buildmode.go:31:6)
+
+func (GoBuildMode) IsEnum() {}
+
+func (v GoBuildMode) Name() string {
+	switch v {
+	case GoBuildModeArchive:
+		return "ARCHIVE"
+	case GoBuildModeCArchive:
+		return "C_ARCHIVE"
+	case GoBuildModeCShared:
+		return "C_SHARED"
+	case GoBuildModeExe:
+		return "EXE"
+	case GoBuildModePie:
+		return "PIE"
+	case GoBuildModePlugin:
+		return "PLUGIN"
+	default:
+		return ""
+	}
+}
+
+func (v GoBuildMode) Value() string {
+	return string(v)
+}
+
+func (v *GoBuildMode) MarshalJSON() ([]byte, error) {
+	if *v == "" {
+		return []byte(`""`), nil
+	}
+	name := v.Name()
+	if name == "" {
+		return nil, fmt.Errorf("invalid enum value %q", *v)
+	}
+	return json.Marshal(name)
+}
+
+func (v *GoBuildMode) UnmarshalJSON(dt []byte) error {
+	var s string
+	if err := json.Unmarshal(dt, &s); err != nil {
+		return err
+	}
+	switch s {
+	case "":
+		*v = ""
+	case "ARCHIVE":
+		*v = GoBuildModeArchive
+	case "C_ARCHIVE":
+		*v = GoBuildModeCArchive
+	case "C_SHARED":
+		*v = GoBuildModeCShared
+	case "EXE":
+		*v = GoBuildModeExe
+	case "PIE":
+		*v = GoBuildModePie
+	case "PLUGIN":
+		*v = GoBuildModePlugin
+	default:
+		return fmt.Errorf("invalid enum value %q", s)
+	}
+	return nil
+}
+
+const (
+	// BuildModeArchive builds the listed non-main packages into `.a` files
+	// (`archive`). Main packages are ignored, so pointing this at one
+	// produces nothing.
+	GoBuildModeArchive GoBuildMode = "ARCHIVE" // go (../../../../../daggerverse/go/buildmode.go:37:2)
+
+	// BuildModeCArchive builds the listed main package into a C archive
+	// (`c-archive`). Only the functions carrying a cgo `//export` comment are
+	// callable, and it is those exports rather than the mode that need cgo —
+	// so this is not rejected alongside disableCgo the way race is. With cgo
+	// off, a package whose exports live in cgo files fails to build at all
+	// (`build constraints exclude all Go files`), and a pure-Go main package
+	// still produces an archive, but one exporting nothing and carrying no
+	// generated header. The archive/header pair is a consequence of having
+	// cgo exports, not of asking for this mode.
+	GoBuildModeCArchive GoBuildMode = "C_ARCHIVE" // go (../../../../../daggerverse/go/buildmode.go:47:2)
+
+	// BuildModeCShared builds the listed main package into a C shared
+	// library (`c-shared`) — the same exported surface as C_ARCHIVE, linked
+	// dynamically instead, and with the same relationship to cgo.
+	GoBuildModeCShared GoBuildMode = "C_SHARED" // go (../../../../../daggerverse/go/buildmode.go:51:2)
+
+	// BuildModeExe builds the listed main packages into executables
+	// (`exe`), forcing a position-dependent executable on a toolchain whose
+	// default for the target is PIE.
+	GoBuildModeExe GoBuildMode = "EXE" // go (../../../../../daggerverse/go/buildmode.go:55:2)
+
+	// BuildModePie builds the listed main packages into position
+	// independent executables (`pie`), which is what a hardened runtime
+	// wanting ASLR requires.
+	GoBuildModePie GoBuildMode = "PIE" // go (../../../../../daggerverse/go/buildmode.go:59:2)
+
+	// BuildModePlugin builds the listed main packages into a shared library
+	// loadable at run time with `plugin.Open` (`plugin`). The plugin and
+	// its host have to be built by the same toolchain from the same
+	// dependency versions or the load fails.
+	GoBuildModePlugin GoBuildMode = "PLUGIN" // go (../../../../../daggerverse/go/buildmode.go:64:2)
+
+)

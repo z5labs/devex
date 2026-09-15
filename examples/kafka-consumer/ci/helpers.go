@@ -22,10 +22,20 @@ const (
 	lokiTag      = "3.4.1"
 )
 
-// gitFixture wraps a source directory in a throwaway git working tree so
-// GoApp.Ci's "must be a git working tree" guard passes. Verbatim from the
-// z5labs tests (daggerverse/z5labs/tests/main.go): git init/add/commit inside
-// dag.Go().Container(base), which mounts the source at /src.
+// appUser is the uid:gid the z5labs Go chain's App images run as — see appOwner
+// in daggerverse/z5labs/contribute.go:199, applied by build.go's WithUser. The
+// image is no longer root, so an inode's owner and mode are load-bearing for
+// anything layered onto it: the PKCS#12 material certificate-management emits
+// lands 0600 root-owned, which this uid's plain os.ReadFile cannot open.
+const appUser = "65532:65532"
+
+// gitFixture wraps a source directory in a throwaway git working tree so the
+// z5labs Go chain's App terminal can stamp main.commit from HEAD. App needs a
+// top-level .git entry and at least one commit reachable from HEAD — no tag,
+// branch name or origin remote required. Go.Ci itself touches no git. Verbatim
+// from the z5labs tests (daggerverse/z5labs/tests/main.go): git
+// init/add/commit inside dag.Go().Container(base), which mounts the source at
+// /src.
 func gitFixture(ctx context.Context, base *dagger.Directory, branch string) (*dagger.Directory, error) {
 	ctr := dag.Go().Container(base).
 		WithEnvVariable("GIT_AUTHOR_NAME", "CI").
@@ -160,10 +170,14 @@ func issueClientKeystore(ctx context.Context, ca *dagger.CertificateManagementCe
 // Cluster + Confluent SchemaRegistry and knows how to bind them (BindBrokers +
 // BindTo).
 type consumerRunnerConfig struct {
-	// base is the exact container GoApp CI builds and publishes — the app on its
-	// entrypoint — so we run what ships, not a bespoke image. Get it from
-	// dag.Z5Labs().GoApp(source).Builder().Container(). Run it with
-	// ContainerWithExecOpts{UseEntrypoint: true}.
+	// base is the exact image the z5labs Go chain's App terminal builds and
+	// publishes — the app on its entrypoint — so we run what ships, not a
+	// bespoke image. Get it from dag.Z5Labs().Go(src).App(version, opts).
+	// Container(platform), where src carries git metadata (see gitFixture) and
+	// the platform is one the app was built for. Run it with
+	// ContainerWithExecOpts{UseEntrypoint: true}. That image runs as appUser
+	// (65532:65532), not root, so anything layered onto it has to be readable
+	// by that uid.
 	base         *dagger.Container
 	brokers      []string
 	registryURL  string
@@ -179,19 +193,22 @@ type consumerRunnerConfig struct {
 	otelEndpoint string
 }
 
-// consumerRunner takes the GoApp-built application container (the same image
-// GoApp CI would publish, app on its entrypoint) and layers on the cert material
+// consumerRunner takes the App-built application image (the same image the Go
+// chain publishes, app on its entrypoint) and layers on the cert material
 // + every flag-backing env var the consumer reads (see the example's main.go
 // loadConfig: BROKERS, TOPIC, GROUP, REGISTRY_URL, TRUSTSTORE[_PASSWORD],
 // optional KEYSTORE[_PASSWORD] for mTLS, MAX_RECORDS, TIMEOUT, OTEL_*). The
 // image is scratch-based with no shell/system CA bundle — that's fine: the app
 // verifies TLS against the mounted PKCS#12 truststore, and the caller runs it via
-// its entrypoint. The caller then binds the broker/registry/collector services.
-// Shared by RunAgainst.Local and avroConsume so the two run configurations
-// cannot drift apart.
+// its entrypoint. It runs as appUser rather than root, so the PKCS#12 files are
+// re-owned and world-readable on the way in; the certificate-management module
+// writes them 0600 root-owned, which that uid could not read. The caller then
+// binds the broker/registry/collector services. Shared by RunAgainst.Local and
+// avroConsume so the two run configurations cannot drift apart.
 func consumerRunner(cfg consumerRunnerConfig) *dagger.Container {
 	runner := cfg.base.
-		WithFile("/certs/truststore.p12", cfg.trustStore).
+		WithFile("/certs/truststore.p12", cfg.trustStore,
+			dagger.ContainerWithFileOpts{Owner: appUser, Permissions: 0o444}).
 		WithSecretVariable("TRUSTSTORE_PASSWORD", cfg.trustStorePw).
 		WithEnvVariable("BROKERS", strings.Join(cfg.brokers, ",")).
 		WithEnvVariable("REGISTRY_URL", cfg.registryURL).
@@ -205,7 +222,8 @@ func consumerRunner(cfg consumerRunnerConfig) *dagger.Container {
 		WithEnvVariable("OTEL_SERVICE_NAME", cfg.serviceName)
 	if cfg.keyStore != nil {
 		runner = runner.
-			WithFile("/certs/keystore.p12", cfg.keyStore).
+			WithFile("/certs/keystore.p12", cfg.keyStore,
+				dagger.ContainerWithFileOpts{Owner: appUser, Permissions: 0o444}).
 			WithSecretVariable("KEYSTORE_PASSWORD", cfg.keyStorePw).
 			WithEnvVariable("KEYSTORE", "/certs/keystore.p12")
 	}

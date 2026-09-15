@@ -10,22 +10,33 @@
 //
 // It also exercises the runnable example under examples/kafka-consumer/ end to end:
 //
-//   - GoAppCi builds it through the z5labs GoApp archetype (fmt/vet/lint/test
-//     -race + multi-arch build).
+//   - GoCi runs it through the z5labs Go chain's standardized check stages:
+//     gofmt, go vet, golangci-lint, and `go test ./...` with the race detector.
 //   - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka
 //     cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired
 //     to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer
 //     against the stack, and assert it both decoded the records and exported
 //     telemetry.
 //
-// The end-to-end integration is BLOCKED by a known kafka-module bug — #147:
-// SchemaRegistry.BindTo's advertised alias is not resolvable from a WithExec
-// process (the service handle detaches when it rides on the cross-module
-// SchemaRegistry object). MtlsAvroConsume fails at exactly `KafkaSchemaRegistry.
-// bindTo`, where the error names the registry's own DNS alias (`lookup csr-… no
-// such host`). It is intentionally kept as a +check so CI carries a live red
-// signal that tracks #147 — the check turns green once #147 lands. GoAppCi (the
-// build check) stays green throughout. TlsAvroConsume and RunAgainst().Local()
+// The end-to-end integration is BLOCKED here by #147 — whose fix has landed
+// upstream, but not in the engine this repository pins. A service given a custom
+// hostname is namespaced into the DNS domain of whichever module first *starts*
+// it, while the consuming exec searches only its own module domain plus the
+// session domain, so the alias never resolves and the consumer dies at hosts-file
+// setup with `lookup <alias> … no such host`. Both hops are affected —
+// Cluster.BindBrokers as well as SchemaRegistry.BindTo — and which alias loses
+// the race is nondeterministic, so the error names `broker-…` on one run and
+// `csr-…` on the next.
+//
+// dagger/dagger#13751 fixes it (merged 2026-08-27) and ships in v1.0.0-beta.12
+// and later; no v0.21.x release carries it. This module is pinned to v0.21.8, so
+// MtlsAvroConsume is a +check that is RED here by design — tracking an engine
+// gap, not an open upstream bug. Verified by running this exact tree both ways:
+// on v0.21.8 it fails at hosts-file setup, on v1.0.0-beta.13 it decodes all three
+// records. Clearing #147 is necessary but not sufficient for this check, though:
+// on a fixed engine it gets past the bind and consumes every record, then fails
+// in assertTelemetry — which had never executed before, because #147 stopped
+// every run short of it (#441). GoCi (the build check) stays green throughout. TlsAvroConsume and RunAgainst().Local()
 // are the same reproduction in a server-TLS posture / run-configuration shape,
 // runnable on demand. See the example's README for details.
 //
@@ -50,13 +61,15 @@ const recordCount = 3
 // avroSchema is the Avro writer schema registered for the test subject.
 const avroSchema = `{"type":"record","name":"Event","namespace":"com.z5labs.devex.example","fields":[{"name":"message","type":"string"},{"name":"sequence","type":"long"}]}`
 
-// GoAppCi builds the example through the z5labs GoApp archetype: fmt, vet,
-// golangci-lint, `go test -race`, and a multi-arch build. GoApp.Ci requires a
-// git working tree, so the loaded source is wrapped with gitFixture first.
+// GoCi runs the example through the z5labs Go chain's standardized check
+// stages: gofmt, go vet, golangci-lint, and `go test ./...` with the race
+// detector. Go.Ci needs no git metadata — only the App terminal does — but the
+// loaded source still goes through gitFixture so this check and the
+// integration checks compile the identical tree.
 //
 // +check
 // +cache="never"
-func (c *Ci) GoAppCi(
+func (c *Ci) GoCi(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]
@@ -66,8 +79,8 @@ func (c *Ci) GoAppCi(
 	if err != nil {
 		return fmt.Errorf("gitFixture: %w", err)
 	}
-	if err := dag.Z5Labs().GoApp(src).Ci(ctx); err != nil {
-		return fmt.Errorf("GoApp.Ci: %w", err)
+	if err := dag.Z5Labs().Go(src).Ci(ctx); err != nil {
+		return fmt.Errorf("Go.Ci: %w", err)
 	}
 	return nil
 }
@@ -75,11 +88,14 @@ func (c *Ci) GoAppCi(
 // MtlsAvroConsume is the recommended-posture integration check: the whole stack
 // runs with mutual TLS on both the broker and the Schema Registry hops.
 //
-// It is a +check that is currently RED by design: it reproduces #147
-// (SchemaRegistry.BindTo alias unresolvable from WithExec) and fails at
-// `KafkaSchemaRegistry.bindTo` with `lookup csr-… no such host` — the Confluent
-// Schema Registry's own DNS alias. Keeping it a +check makes CI a live tracker
-// for #147; it turns green automatically once #147 lands.
+// It is a +check that is RED by design on the pinned engine: it reproduces #147
+// and dies at hosts-file setup with `lookup <alias> … no such host`, naming
+// either the broker or the registry alias depending on which loses the race.
+// dagger/dagger#13751 fixes this and ships in v1.0.0-beta.12 and later; v0.21.8,
+// which this repository pins, predates it. Keeping this a +check makes CI a live
+// tracker for that engine gap. It will not go green on the engine bump alone:
+// past the bind it consumes every record and then fails in assertTelemetry, an
+// assertion #147 had always masked (#441).
 //
 // +check
 // +cache="never"
@@ -110,7 +126,7 @@ func (c *Ci) TlsAvroConsume(
 	return avroConsume(ctx, source, kafkaImageTag, false)
 }
 
-// All runs the suite sequentially, for local `dagger call all`. In CI, GoAppCi
+// All runs the suite sequentially, for local `dagger call all`. In CI, GoCi
 // (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
 // is red until #147 lands.
 func (c *Ci) All(
@@ -121,7 +137,7 @@ func (c *Ci) All(
 	// +default="4.2.0"
 	kafkaImageTag string,
 ) error {
-	if err := c.GoAppCi(ctx, source); err != nil {
+	if err := c.GoCi(ctx, source); err != nil {
 		return err
 	}
 	return c.MtlsAvroConsume(ctx, source, kafkaImageTag)
@@ -243,9 +259,17 @@ func avroConsume(ctx context.Context, source *dagger.Directory, kafkaImageTag st
 		WithPipeline(o.Pipeline("metrics", "metrics").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("mimir", "http://mimir:9009/otlp"))).
 		WithPipeline(o.Pipeline("logs", "logs").WithReceiver(recv).WithExporter(o.OtlpHTTPExporter("loki", "http://loki:3100/otlp")))
 
-	// Run the SAME container GoApp CI builds and publishes (Builder needs no
-	// .git) against the bound services.
-	base := dag.Z5Labs().GoApp(source).Builder().Container()
+	// Run the SAME image the z5labs Go chain's App terminal builds and
+	// publishes, against the bound services. App stamps main.commit from HEAD,
+	// so its source must be a git working tree — hence gitFixture. Only one
+	// platform is built, and Container has to name that same platform.
+	src, err := gitFixture(ctx, source, "main")
+	if err != nil {
+		return fmt.Errorf("gitFixture: %w", err)
+	}
+	base := dag.Z5Labs().Go(src).
+		App("v0.0.0", dagger.Z5LabsGoChainAppOpts{Platforms: []dagger.Platform{"linux/amd64"}}).
+		Container("linux/amd64")
 	brokers, err := cluster.BootstrapServers(ctx)
 	if err != nil {
 		return fmt.Errorf("bootstrap servers: %w", err)

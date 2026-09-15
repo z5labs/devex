@@ -233,7 +233,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return nil, (*Ci).All(&parent, ctx, source, kafkaImageTag)
-		case "GoAppCi":
+		case "GoCi":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
@@ -246,7 +246,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
 				}
 			}
-			return nil, (*Ci).GoAppCi(&parent, ctx, source)
+			return nil, (*Ci).GoCi(&parent, ctx, source)
 		case "MtlsAvroConsume":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
