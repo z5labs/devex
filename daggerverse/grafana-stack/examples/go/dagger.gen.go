@@ -230,6 +230,41 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the grafana-stack-examples Dagger module: a runnable\ncookbook of grafana-stack recipes. Each recipe wires up one shape of the\nstack — a single backend, or Loki + Tempo + Mimir behind a provisioned\nGrafana — and returns the endpoint a client would point at, so a whole\nshape can be exercised with a single `dagger call`.\n\nRead them in order: the three single-backend recipes show what one signal\ncosts, FullStackWithGrafana shows how the datasource builders stitch the\nbackends into one Grafana, and GrafanaWithDashboard layers provisioned\ndashboard JSON on top.\n").
+			WithObject(
+				dag.TypeDef().WithObject("GrafanaStackExamples", dagger.TypeDefWithObjectOpts{Description: "GrafanaStackExamples is the module's main object: a namespace for the\ngrafana-stack usage recipes.", SourceMap: dag.SourceMap("main.go", 23, 6)}).
+					WithFunction(
+						dag.Function("FullStackWithGrafana",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("FullStackWithGrafana wires all three backends into one Grafana with a\nprovisioned datasource each and returns the Grafana UI endpoint (log in\nwith admin / admin). This is the recipe to copy for a local observability\nsandbox: the WithXDatasource builders bind each backend into Grafana's\nnetwork and register it, so no datasource has to be clicked together in the\nUI after startup.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 99, 1))).
+					WithFunction(
+						dag.Function("GrafanaWithDashboard",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("GrafanaWithDashboard is FullStackWithGrafana plus a sample dashboard\nregistered via WithDashboard, and returns the Grafana UI endpoint (log in\nwith admin / admin, then find \"OTel Overview\" in the dashboard list). It\nshows the contract dashboard provisioning relies on: every panel addresses\nits datasource by uid, and that uid is the name the datasource was\nregistered under — so a dashboard authored against \"loki\" / \"tempo\" /\n\"mimir\" resolves the moment Grafana starts.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 116, 1))).
+					WithFunction(
+						dag.Function("LokiOnly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("LokiOnly spins up a lone Loki on its defaults and returns the URL of its\nOTLP/HTTP logs receiver. This is the smallest useful stack: point an\nOpenTelemetry log exporter at the returned endpoint and records land in\nLoki, no Grafana required.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 55, 1))).
+					WithFunction(
+						dag.Function("MimirOnly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("MimirOnly spins up a lone Mimir in monolithic mode and returns the URL of\nits OTLP/HTTP metrics receiver. Multitenancy is off in the default config,\nso an exporter can push to the returned endpoint without an X-Scope-OrgID\nheader.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 83, 1))).
+					WithFunction(
+						dag.Function("TempoOnly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("TempoOnly spins up a lone Tempo and returns the address of its OTLP/gRPC\ntrace receiver. Note the shape difference from the Loki and Mimir recipes:\ngRPC callers want a bare host:port with no URL scheme, which is exactly\nwhat OtlpGrpcEndpoint hands back.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 69, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

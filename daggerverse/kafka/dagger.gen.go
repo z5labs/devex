@@ -1796,6 +1796,445 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Kafka provides Dagger functions for spinning up KRaft Kafka clusters from\none of four upstream images — apache/kafka-native (GraalVM), apache/kafka\n(JVM), confluentinc/cp-kafka (Confluent Platform), or\nredpandadata/redpanda (Redpanda) — and a pure-Go franz-go client that\ntargets either the local cluster or any reachable remote cluster.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - security.go        — *ServerSecurity / *ClientSecurity + the six\n                         Plaintext/Tls/Mtls constructors.\n  - cluster_kafka.go   — *Cluster + the three KAFKA_*-env-var-contract\n                         distros (ApacheNativeCluster, ApacheCluster,\n                         ConfluentCluster) + buildKafkaCluster.\n  - internal_ca.go     — per-cluster internal mTLS material, caller-CA\n                         external leaf signing, and the Kafka SSL env\n                         var helpers that mount them onto a broker\n                         container.\n  - cluster_redpanda.go — *RedpandaCluster / *RedpandaServerSecurity,\n                         single-node-only Redpanda constructor, rpk\n                         start args, and the redpanda.yaml renderer.\n  - client.go          — *Client + ConsumedRecord, franz-go wiring,\n                         PKCS#12 → *tls.Config, PropertiesFile, and the\n                         admin / produce / consume / list-topics\n                         method set.\n  - schema_registry.go — *SchemaRegistry / *SchemaRegistryClient /\n                         RegisteredSchema, the ConfluentSchemaRegistry\n                         and ApicurioSchemaRegistry constructors, and the\n                         pure-Go net/http admin client for the Schema\n                         Registry REST API.\n  - protobuf.go        — PROTOBUF serde: caller-supplied FileDescriptorSet\n                         loading via protodesc/protoregistry, JSON <->\n                         dynamicpb via protojson, and the Confluent\n                         message-index path that Protobuf framing carries.\n  - util.go            — shared helpers (writeWorkdirBytes,\n                         clusterHostSuffix, randSuffix, dagFileBytes).\n").
+			WithObject(
+				dag.TypeDef().WithObject("Kafka", dagger.TypeDefWithObjectOpts{Description: "Kafka is the root namespace for every exported function in this module.\nAll cluster constructors and security helpers hang off *Kafka so the\ngenerated Dagger SDK surfaces them under `dag.Kafka().<Func>(...)`.", SourceMap: dag.SourceMap("main.go", 41, 6)}).
+					WithFunction(
+						dag.Function("ApacheCluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("ApacheCluster spins up a KRaft Kafka cluster of the requested size with\ndedicated controller and broker containers, using the `apache/kafka`\nJVM image.\n\nIdentical in topology, caching, and security semantics to\nApacheNativeCluster — only the image differs. The JVM image runs the\nsame Scala wrapper but on HotSpot, so it does not share\n`apache/kafka-native`'s AOT-compiled `getpwuid` substitution\n(`Pwd.getpwuid` from `SystemPropertiesSupport.userHomeValue`) that has\nbeen observed to segfault during broker startup — see Dagger Cloud\ntrace `377f2e176c4f0e9844cb7f958c1e911b`. Prefer this constructor\nwhenever startup robustness matters more than cold-start latency.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 94, 1)).
+							WithArg("clusterId", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 96, 2)}).
+							WithArg("controllers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 98, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("brokers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 100, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 102, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 104, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 105, 2)})).
+					WithFunction(
+						dag.Function("ApacheNativeCluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("ApacheNativeCluster spins up a KRaft Kafka cluster of the requested\nsize with dedicated controller and broker containers, using the\n`apache/kafka-native` GraalVM-compiled image.\n\nTopology: controllers form a KRaft quorum (1 controller = a one-node\nquorum, 3 or 5 = an HA quorum); one or more brokers connect to it and\nevery node discovers every other over the engine's session-wide DNS — no\ncontroller-to-controller or broker-to-broker WithServiceBinding needed.\n\nMulti-controller HA works because controller hostnames are deterministic\n(controller-<n>-<suffix>, derived from clusterId), so the full\nquorum-voters string is computed before any container is built and pinned\nonto every controller and broker via WithHostname + session-wide DNS —\nsidestepping the WithServiceBinding cycle a true peer mesh would need.\n\ncontrollers must be odd (1, 3, 5, ...): a KRaft quorum tolerates\nfloor((N-1)/2) controller failures, so an even count buys no extra fault\ntolerance over the next-lower odd count while enlarging the majority a\ncommit must reach — even values are rejected with an error.\n\nSession-cached so that repeated chained method calls on the returned\ncluster (Client.Produce → Consume → ListTopics) all observe the SAME\nunderlying broker services. The internal CA + per-node leaves are\nminted with fresh random material that we can't make content-addressable,\nso a `(with a brand-new CA the previous invocation's franz-go client doesn't\ntrust) every time the test calls another method on the chain.\n\nThe GraalVM-compiled image has been observed to flake during the broker\n`setup` step under load — see Dagger Cloud trace\n`377f2e176c4f0e9844cb7f958c1e911b`. If you need the JVM image instead,\nuse `ApacheCluster()`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 63, 1)).
+							WithArg("clusterId", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 65, 2)}).
+							WithArg("controllers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 67, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("brokers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 69, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 71, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 73, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 74, 2)})).
+					WithFunction(
+						dag.Function("ApicurioSchemaRegistry",
+							dag.TypeDef().WithObject("SchemaRegistry")).
+							WithDescription("ApicurioSchemaRegistry spins up an Apicurio Registry service\n(`apicurio/apicurio-registry-kafkasql`) alongside the given Kafka cluster.\nApicurio stores its data in a Kafka topic of its own and exposes a\nConfluent-Schema-Registry-compatible REST API under `/apis/ccompat/v7`, so\nthe same *SchemaRegistryClient that drives ConfluentSchemaRegistry works\nagainst it unchanged — the CSR-compat prefix is folded into BasePath.\n\nApicurio is a more permissively licensed alternative to cp-schema-registry\nwith a broader native artifact-type catalogue (Avro, JSON Schema,\nProtobuf, OpenAPI, AsyncAPI, GraphQL, WSDL, XSD); over the CSR-compat\nsurface only the AVRO / JSON / PROTOBUF subset is reachable.\n\nsecurity must match the backing cluster's mode: a PLAINTEXT profile keeps\nthe REST endpoint on HTTP and the kafkasql connection unencrypted; a TLS /\nmTLS profile terminates HTTPS on the REST endpoint and secures the kafkasql\nconnection against a matching-mode cluster.\n\nSession-cached for the same reason ConfluentSchemaRegistry is — a\n`for every chained client call.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 396, 1)).
+							WithArg("cluster", dag.TypeDef().WithObject("Cluster"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 398, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 400, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 402, 2), DefaultValue: dagger.JSON("\"2.6.13.Final\"")}).
+							WithArg("security", dag.TypeDef().WithObject("SchemaRegistrySecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 403, 2)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client constructs a franz-go-backed Kafka client that targets the given\nbootstrap servers. No I/O happens at construction time.").
+							WithSourceMap(dag.SourceMap("client.go", 67, 1)).
+							WithArg("bootstrapServers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 67, 24)}).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 67, 51)})).
+					WithFunction(
+						dag.Function("ConfluentCluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("ConfluentCluster spins up a KRaft Kafka cluster of the requested size\nusing the `confluentinc/cp-kafka` image — the Confluent Platform\ndistribution. Confluent Platform 8.x bundles Apache Kafka 4.x (CP\n8.2.0 ships Kafka 4.2.0), and cp-kafka speaks the same Scala-wrapper\n`KAFKA_*` env-var contract that ApacheCluster does, so the returned\n`*Cluster` and `ServerSecurity` API are identical to the Apache\nconstructors — callers swap distros by changing the constructor\nname alone.\n\nThe constructor silently disables Confluent's phone-home telemetry\n(`KAFKA_CONFLUENT_SUPPORT_METRICS_ENABLE=false`) on every broker so\nthe cluster behaves the same way the Apache variants do at startup.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 125, 1)).
+							WithArg("clusterId", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 127, 2)}).
+							WithArg("controllers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 129, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("brokers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 131, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 133, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 135, 2), DefaultValue: dagger.JSON("\"8.2.0\"")}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 136, 2)})).
+					WithFunction(
+						dag.Function("ConfluentSchemaRegistry",
+							dag.TypeDef().WithObject("SchemaRegistry")).
+							WithDescription("ConfluentSchemaRegistry spins up a Confluent Schema Registry service\n(`confluentinc/cp-schema-registry`) alongside the given Kafka cluster.\nThe registry talks the Kafka wire protocol to the cluster's brokers for\nits `_schemas` topic and exposes its own REST API on top, so it composes\non any *Cluster regardless of distro — cp-schema-registry simply pairs\nmost naturally with a cp-kafka ConfluentCluster.\n\nOnly PLAINTEXT clusters are supported in this story: the constructor\nrejects TLS / mTLS clusters and points callers at the TLS follow-up.\n\nSession-cached for the same reason the cluster constructors are — a\n`for every chained client call.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 236, 1)).
+							WithArg("cluster", dag.TypeDef().WithObject("Cluster"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 238, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 240, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 242, 2), DefaultValue: dagger.JSON("\"8.2.0\"")}).
+							WithArg("security", dag.TypeDef().WithObject("SchemaRegistrySecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 243, 2)})).
+					WithFunction(
+						dag.Function("KarapaceSchemaRegistry",
+							dag.TypeDef().WithObject("SchemaRegistry")).
+							WithDescription("KarapaceSchemaRegistry spins up a Karapace service\n(`ghcr.io/aiven-open/karapace`) alongside the given Kafka cluster. Karapace\nis Aiven's drop-in Python reimplementation of the Confluent Schema Registry:\nit talks the Kafka wire protocol to the cluster's brokers for its `_schemas`\ntopic and serves a Confluent-Schema-Registry-compatible REST API at the\nroot, so the same *SchemaRegistryClient that drives ConfluentSchemaRegistry\nworks against it unchanged (BasePath stays empty).\n\nUnlike the other registry constructors, `registry` defaults to `ghcr.io`:\nKarapace publishes to GitHub Container Registry rather than Docker Hub,\nwhich also keeps CI clear of Docker Hub rate limits and Confluent's image\nlicensing.\n\nsecurity must match the backing cluster's mode. Karapace consumes PEM (not\nPKCS#12) for its own listener and aiokafka storage; the module extracts PEM\nfrom the supplied CA internally, so callers pass the same PKCS#12 profile\nshape as the other registries.\n\nSession-cached for the same reason ConfluentSchemaRegistry is — a\n`for every chained client call.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 532, 1)).
+							WithArg("cluster", dag.TypeDef().WithObject("Cluster"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 534, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 536, 2), DefaultValue: dagger.JSON("\"ghcr.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 538, 2), DefaultValue: dagger.JSON("\"6.1.4\"")}).
+							WithArg("security", dag.TypeDef().WithObject("SchemaRegistrySecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 539, 2)})).
+					WithFunction(
+						dag.Function("MtlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("MtlsClientSecurity returns a ClientSecurity profile that opens an mTLS\nconnection: the broker presents its server cert (verified against\ntrustStore) and the client presents its own leaf cert from keyStore\n(signed by a CA the broker trusts via its clientTrustStore).").
+							WithSourceMap(dag.SourceMap("security.go", 106, 1)).
+							WithArg("keyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 107, 2)}).
+							WithArg("keyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 108, 2)}).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 109, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 110, 2)})).
+					WithFunction(
+						dag.Function("MtlsSchemaRegistryClientSecurity",
+							dag.TypeDef().WithObject("SchemaRegistryClientSecurity")).
+							WithDescription("MtlsSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity\nprofile that opens an mTLS HTTPS connection: the registry presents its REST\nserver cert (verified against trustStore) and the client presents its own\nleaf cert from keyStore (signed by a CA the registry trusts via its\nclientTrustStore).").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 113, 1)).
+							WithArg("keyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 114, 2)}).
+							WithArg("keyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 115, 2)}).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 116, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 117, 2)})).
+					WithFunction(
+						dag.Function("MtlsSchemaRegistrySecurity",
+							dag.TypeDef().WithObject("SchemaRegistrySecurity")).
+							WithDescription("MtlsSchemaRegistrySecurity returns a SchemaRegistrySecurity profile that\nterminates mTLS on the registry REST endpoint. caKeyStore signs the\nregistry's server leaf (and the registry's own client leaf presented to the\nbroker over mTLS); clientTrustStore holds the CA(s) the registry accepts\nincoming REST client certs from. Pair with an MTLS cluster minted from the\nsame CA.").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 71, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 72, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 73, 2)}).
+							WithArg("clientTrustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 74, 2)}).
+							WithArg("clientTrustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 75, 2)})).
+					WithFunction(
+						dag.Function("MtlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("MtlsServerSecurity returns a ServerSecurity profile that terminates mTLS\non the external listener. caKeyStore signs per-broker server leaves;\nclientTrustStore holds the CA(s) the broker will accept incoming client\ncerts from (this can be the same CA as caKeyStore or an independent one\nfor asymmetric trust).").
+							WithSourceMap(dag.SourceMap("security.go", 65, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 66, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 67, 2)}).
+							WithArg("clientTrustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 68, 2)}).
+							WithArg("clientTrustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 69, 2)})).
+					WithFunction(
+						dag.Function("PlaintextClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("PlaintextClientSecurity returns a ClientSecurity profile configured for\nunencrypted, unauthenticated traffic.").
+							WithSourceMap(dag.SourceMap("security.go", 82, 1))).
+					WithFunction(
+						dag.Function("PlaintextSchemaRegistryClientSecurity",
+							dag.TypeDef().WithObject("SchemaRegistryClientSecurity")).
+							WithDescription("PlaintextSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity\nprofile configured for unencrypted HTTP traffic.").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 88, 1))).
+					WithFunction(
+						dag.Function("PlaintextSchemaRegistrySecurity",
+							dag.TypeDef().WithObject("SchemaRegistrySecurity")).
+							WithDescription("PlaintextSchemaRegistrySecurity returns a SchemaRegistrySecurity profile\nconfigured for unencrypted, unauthenticated traffic on the registry REST\nendpoint. It pairs with a PLAINTEXT cluster.").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 44, 1))).
+					WithFunction(
+						dag.Function("PlaintextServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("PlaintextServerSecurity returns a ServerSecurity profile configured for\nunencrypted, unauthenticated traffic on the external listener. Internal\nlisteners (inter-broker + controller-quorum) still use mTLS.").
+							WithSourceMap(dag.SourceMap("security.go", 39, 1))).
+					WithFunction(
+						dag.Function("RedpandaCluster",
+							dag.TypeDef().WithObject("RedpandaCluster")).
+							WithDescription("RedpandaCluster spins up a Redpanda cluster of `brokers` nodes using the\n`redpandadata/redpanda` image. Redpanda runs broker and Raft duties in the\nsame process, so there is no separate controller container — every node is\na full broker that also participates in the Raft group.\n\nTopology: node hostnames are deterministic (redpanda-<n>-<suffix>, node IDs\n0..N-1, suffix derived from clusterId), so the seed list is computed before\nany container is built and pinned onto every node via WithHostname +\nsession-wide DNS. For brokers > 1 the cluster uses Redpanda's seed-driven\nbootstrap: every node shares the identical seed_servers list (all N nodes)\nand empty_seed_starts_cluster=false, so the nodes deterministically form one\nRaft group over the internal RPC listener (:33145) with NO node-to-node\nWithServiceBinding — they are started concurrently and discover each other\nby hostname over session-wide DNS. A single-broker cluster keeps the legacy\nempty_seed_starts_cluster=true bootstrap (empty seed list).\n\ncontrollers must be 1: Redpanda has no separate controller role, so a\ncontroller count is not a meaningful concept and any other value is\nrejected (see the constructor's error). Size the cluster with `brokers`.\n\nInter-node RPC security: the internal RPC listener (:33145) that carries\nRaft traffic is PLAINTEXT and unauthenticated even when the external Kafka\nlistener is TLS. Redpanda's RPC-listener TLS would need its own internal\nCA + per-node leaves + mutual trust — a whole parallel PKI — for traffic\nthat never leaves the Dagger engine's isolated per-session network. This\ndeliberately differs from the Apache path (which always mTLS-encrypts its\ninternal + controller listeners) because Redpanda has no equivalent PKCS#12\nenv-var contract to reuse; TLS here is scoped to the client-facing Kafka\nlistener + bundled Schema Registry REST endpoint, which is what external\nclients actually verify.\n\nThe wire protocol matches Kafka, so RedpandaCluster.Client() returns the\nsame *Client type the Apache constructors return.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 115, 1)).
+							WithArg("clusterId", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 117, 2)}).
+							WithArg("controllers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 119, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("brokers", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 121, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 123, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 125, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("RedpandaServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 126, 2)})).
+					WithFunction(
+						dag.Function("RedpandaPlaintextServerSecurity",
+							dag.TypeDef().WithObject("RedpandaServerSecurity")).
+							WithDescription("RedpandaPlaintextServerSecurity returns a RedpandaServerSecurity profile\nconfigured for unencrypted, unauthenticated traffic on the external Kafka\nlistener.").
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 57, 1))).
+					WithFunction(
+						dag.Function("RedpandaTlsServerSecurity",
+							dag.TypeDef().WithObject("RedpandaServerSecurity")).
+							WithDescription("RedpandaTlsServerSecurity returns a RedpandaServerSecurity profile that\nterminates TLS on the external Kafka listener. caKeyStore is a PKCS#12\narchive of the CA cert + private key used to mint the per-node server\nleaves — same shape as Kafka.TlsServerSecurity, so callers don't have to\nconvert between formats even though Redpanda itself reads PEM internally.\nEach node's leaf carries that node's stable hostname as a DNS SAN so\nfranz-go clients dialing any broker in the bootstrap list can verify the\ncert against the matching truststore.").
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 69, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 70, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 71, 2)})).
+					WithFunction(
+						dag.Function("TlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("TlsClientSecurity returns a ClientSecurity profile that opens a TLS\nconnection to the broker. trustStore is a PKCS#12 archive of the CA(s)\nthe client uses to verify the broker's leaf certificate (typically the\ntruststore that pairs with the CA passed to TlsServerSecurity on the\nserver side).").
+							WithSourceMap(dag.SourceMap("security.go", 91, 1)).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 92, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 93, 2)})).
+					WithFunction(
+						dag.Function("TlsSchemaRegistryClientSecurity",
+							dag.TypeDef().WithObject("SchemaRegistryClientSecurity")).
+							WithDescription("TlsSchemaRegistryClientSecurity returns a SchemaRegistryClientSecurity\nprofile that opens an HTTPS connection to the registry. trustStore is a\nPKCS#12 archive of the CA(s) the client uses to verify the registry's REST\nleaf certificate (typically the truststore that pairs with the CA passed to\nTlsSchemaRegistrySecurity on the server side).").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 97, 1)).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 98, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 99, 2)})).
+					WithFunction(
+						dag.Function("TlsSchemaRegistrySecurity",
+							dag.TypeDef().WithObject("SchemaRegistrySecurity")).
+							WithDescription("TlsSchemaRegistrySecurity returns a SchemaRegistrySecurity profile that\nterminates TLS on the registry REST endpoint. caKeyStore is a PKCS#12\narchive containing the CA cert + private key the registry uses to mint its\nper-registry server leaf (bound to the registry's service hostname as a DNS\nSAN) and to derive the truststore its kafka-storage connection uses to\nverify the backing broker. Pair with a TLS cluster minted from the same CA.").
+							WithSourceMap(dag.SourceMap("security_schema_registry.go", 54, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 55, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security_schema_registry.go", 56, 2)})).
+					WithFunction(
+						dag.Function("TlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("TlsServerSecurity returns a ServerSecurity profile that terminates TLS on\nthe external listener. caKeyStore is a PKCS#12 archive containing the\nCA cert + private key the cluster uses to mint per-broker leaf certs;\neach broker leaf carries its stable hostname (e.g. \"broker-100\") as a\nDNS SAN so franz-go clients dialing the bootstrap address can verify\nthe broker against the same CA's truststore.").
+							WithSourceMap(dag.SourceMap("security.go", 49, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 50, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 51, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster represents a running KRaft Kafka cluster, holding references to\nevery broker service so callers can bind them into their own containers or\nopen a franz-go Client against them.", SourceMap: dag.SourceMap("cluster_kafka.go", 16, 6)}).
+					WithFunction(
+						dag.Function("BindBrokers",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindBrokers attaches every broker service to the given container under the\nsame hostname BootstrapServers reports, so the container can dial brokers\nusing the same address strings as a franz-go Client returned from\nCluster.Client.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 401, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 401, 31)})).
+					WithFunction(
+						dag.Function("BootstrapServers",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("BootstrapServers returns the host:port pairs each broker advertises on its\nclient-facing listener.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 387, 1))).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client starts every broker service in the cluster and returns a franz-go\nClient wired with their bootstrap addresses.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 412, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_kafka.go", 412, 47)})).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down every service container backing this cluster (every\ncontroller in the quorum plus every broker). Tests should call this in a\ndefer so each broker `Container.asService` span closes when the test work\nis done, rather than running out to the parent parallel group's lifetime.\n\nKill is set so Service.Stop skips graceful shutdown — Kafka's broker\nshutdown path waits on replica-drain timeouts that on a torn-down test\ncluster just run out the clock (~5 min observed in Dagger trace\n`972bc311bf374f817b7c88481229a10c`). SIGKILL returns immediately, which\nis all a test needs.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_kafka.go", 361, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("ServerSecurity", dagger.TypeDefWithObjectOpts{Description: "ServerSecurity describes how a Kafka cluster's external listener\nauthenticates and encrypts traffic from clients. Internal listeners\n(inter-broker + controller-quorum) are always mTLS, regardless of mode.", SourceMap: dag.SourceMap("security.go", 8, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("SchemaRegistry", dagger.TypeDefWithObjectOpts{Description: "SchemaRegistry is the module's shared Schema Registry abstraction, bound\nto a Kafka cluster's brokers. It stores schemas in the cluster's `_schemas`\ntopic and exposes a REST API for registering and looking up Avro / JSON\nSchema / Protobuf schemas by subject.\n\nThe same type is returned both by Kafka.ConfluentSchemaRegistry — a\nseparate `cp-schema-registry` container — and by\nRedpandaCluster.SchemaRegistry, which surfaces the Schema Registry bundled\ninside the Redpanda broker process. Callers treat the two uniformly; the\nBundled field records which kind this is so Stop behaves correctly.\n\nThe constructor is session-cached so chained calls\n(Client().RegisterSchema(...) → LookupSchemaByID(...)) all observe the\nsame underlying service.", SourceMap: dag.SourceMap("schema_registry.go", 63, 6)}).
+					WithFunction(
+						dag.Function("BindTo",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindTo attaches the Schema Registry service to the given container under\nthe same hostname Endpoint reports, so the container resolves the\nregistry at that address.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 636, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 636, 33)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("SchemaRegistryClient")).
+							WithDescription("Client returns a typed HTTP client targeting this registry's REST API. The\nURL scheme (http vs https) follows the registry's own security mode; the\nsupplied security profile must match it (a TLS/mTLS registry needs a TLS/mTLS\nclient profile, verified when the first request runs). No I/O happens at\nconstruction time.").
+							WithSourceMap(dag.SourceMap("schema_registry.go", 645, 1)).
+							WithArg("security", dag.TypeDef().WithObject("SchemaRegistryClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 645, 33)})).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the host:port other containers (and the module runtime)\ncan reach the Schema Registry REST API on.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 622, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down the Schema Registry service. Kill is set so the stop\nreturns immediately rather than waiting on graceful shutdown, mirroring\nCluster.Stop — tests should call this in a defer.\n\nFor a bundled registry (Bundled == true) the service is shared with the\nowning cluster, so Stop is a no-op: the cluster owns that lifecycle and\nstopping it here would tear the whole cluster down. Callers that uniformly\n`defer sr.Stop(ctx)` stay safe regardless of which registry they hold.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 675, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("SchemaRegistrySecurity", dagger.TypeDefWithObjectOpts{Description: "SchemaRegistrySecurity describes how a Schema Registry's REST endpoint\nauthenticates and encrypts traffic from clients, mirroring *ServerSecurity\non the broker side. The same profile also parameterises the registry's\nkafka-storage connection to the backing cluster: the CA it carries doubles\nas the trust anchor the registry uses to dial the cluster's TLS/mTLS client\nlistener (the single-CA convention — pass the same CA to the cluster and the\nregistry).", SourceMap: dag.SourceMap("security_schema_registry.go", 12, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a franz-go-backed Kafka client. Each method opens a fresh\nconnection so the function call is stateless from Dagger's perspective.", SourceMap: dag.SourceMap("client.go", 32, 6)}).
+					WithFunction(
+						dag.Function("Consume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Consume reads up to maxMessages records from the topic, starting at the\nearliest offset, returning when either maxMessages have been gathered or\nthe parsed timeout elapses. Each record's key and value are encoded into\nthe requested string forms before being returned. The records are returned\nas a JSON array string (a `[]ConsumedRecord` marshaled with encoding/json);\ncallers unmarshal it into their own struct — see ConsumedRecord for why.\n\nWhen group is non-empty, the consume runs as a member of that consumer\ngroup: the broker assigns partitions and the join itself writes group\nmetadata to __consumer_offsets. By default offsets are not committed, so\nthe function stays idempotent undertrue (and group is set), the consumed records' offsets are committed before\nreturning, so the group persists in the Empty state with committed offsets\nafterwards — enough for DescribeConsumerGroup to report non-zero lag. When\ngroup is empty (the default), partitions are consumed directly with no group\nstate and commitOffsets is ignored.\n\nWhen schemaRegistryAware is true, each record's key and value are\ninspected for the Confluent Schema Registry wire-format header\n(`0x00 || uint32be(schemaID) || payload`). When present, the 5-byte\nheader is stripped before encoding the payload and the extracted\nschema ID is surfaced on ConsumedRecord.KeySchemaID /\nConsumedRecord.ValueSchemaID. Unframed fields pass through with a\nzero schema ID. When false (the default), bytes are returned verbatim\nand the schema ID fields are always zero.\n\nkeyDeserializeAs / valueDeserializeAs, when set to \"JSON\", validate\neach consumed record's post-frame-strip payload bytes via\nencoding/json's json.Valid. The pipeline order is unframe →\ndeserialize → encode, so SchemaRegistryAware and a JSON deserializer\ncompose: framed bytes are stripped first and validation runs on the\npayload alone. Records whose payloads fail to parse cause Consume to\nerror out and abandon the remaining poll. Default \"\" is\npass-through; \"JSON\" validates.\n\nkeyDeserializeAs / valueDeserializeAs set to \"AVRO\" decode each\nrecord's post-frame-strip Avro binary payload (via\ngithub.com/z5labs/avro-go/generic) against the schema identified by the\nwire id and re-serialise it to JSON. This mode requires\nschemaRegistryAware=true (so the wire id is available) and a registry\n(so the schema text can be resolved by id); an unframed record errors\nout pointing at the missing wire header. Schema resolution is cached\nper id for the duration of the call. The JSON shape follows the Avro\nspec's JSON encoding; logical types, decimal, and fixed are not yet\nsupported.\n\nkeyDeserializeAs / valueDeserializeAs set to \"PROTOBUF\" strip the\nConfluent message-index array that follows the wire header, then decode\nthe remaining Protobuf wire bytes against a *caller-supplied* descriptor\nset and re-serialise them to JSON via protojson. keyDescriptorSet /\nvalueDescriptorSet (a precompiled FileDescriptorSet) and keyMessageName /\nvalueMessageName are required in this mode and are validated before any\nbroker I/O, as is schemaRegistryAware=true. registry is *not* required —\nthe descriptor set already carries the message definition, so no schema\ntext is ever fetched; the wire id is still surfaced on ConsumedRecord.\nThe descriptor set is exported and parsed at most once per call, not once\nper record. A record whose message-index names a different message than\nthe one requested is rejected rather than decoded into garbage.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 745, 1)).
+							WithArg("topic", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 747, 2)}).
+							WithArg("maxMessages", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 749, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("timeout", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 751, 2), DefaultValue: dagger.JSON("\"10s\"")}).
+							WithArg("keyEncoding", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 753, 2), DefaultValue: dagger.JSON("\"raw\"")}).
+							WithArg("valueEncoding", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 755, 2), DefaultValue: dagger.JSON("\"raw\"")}).
+							WithArg("group", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 757, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("commitOffsets", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "commitOffsets, when true and group is set, commits the consumed\nrecords' offsets before returning so the group persists with committed\noffsets (and thus reportable lag). Ignored when group is empty.", SourceMap: dag.SourceMap("client.go", 763, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("schemaRegistryAware", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 765, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("keyDeserializeAs", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 767, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("valueDeserializeAs", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 769, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithObject("SchemaRegistry").WithOptional(true), dagger.FunctionWithArgOpts{Description: "registry resolves the Avro schema text by id when keyDeserializeAs /\nvalueDeserializeAs is \"AVRO\". Required in that mode; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 774, 2)}).
+							WithArg("registrySecurity", dag.TypeDef().WithObject("SchemaRegistryClientSecurity").WithOptional(true), dagger.FunctionWithArgOpts{Description: "registrySecurity is the TLS/mTLS client profile used to resolve Avro\nschema text against a secured registry. Nil (the default) resolves over\nplaintext HTTP, reproducing today's behaviour.", SourceMap: dag.SourceMap("client.go", 780, 2)}).
+							WithArg("keyDescriptorSet", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering\nkeyMessageName. Required when keyDeserializeAs is \"PROTOBUF\"; ignored\notherwise.", SourceMap: dag.SourceMap("client.go", 786, 2)}).
+							WithArg("keyMessageName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "keyMessageName is the fully-qualified protobuf message name (e.g.\n\"my.pkg.MyMessage\") to resolve inside keyDescriptorSet. Required when\nkeyDeserializeAs is \"PROTOBUF\"; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 792, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("valueDescriptorSet", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering\nvalueMessageName. Required when valueDeserializeAs is \"PROTOBUF\";\nignored otherwise.", SourceMap: dag.SourceMap("client.go", 798, 2)}).
+							WithArg("valueMessageName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "valueMessageName is the fully-qualified protobuf message name (e.g.\n\"my.pkg.MyMessage\") to resolve inside valueDescriptorSet. Required when\nvalueDeserializeAs is \"PROTOBUF\"; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 804, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("CreateTopic",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CreateTopic creates a new topic with the given partition count and\nreplication factor. Errors out if the topic already exists.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 477, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 479, 2)}).
+							WithArg("partitions", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 481, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("replicationFactor", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 483, 2), DefaultValue: dagger.JSON("1")})).
+					WithFunction(
+						dag.Function("DeleteTopic",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DeleteTopic deletes the named topic.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 511, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 511, 51)})).
+					WithFunction(
+						dag.Function("DescribeConsumerGroup",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("DescribeConsumerGroup returns a consumer group's detail as JSON: its\ncoordinator, state, and assignment protocol; its live members with the\npartitions assigned to each; and the per-partition committed-offset lag\n(with the total). Lag is only reported for partitions the group has\ncommitted offsets for. The JSON is returned as a *dagger.File so it crosses\nthe module boundary as a core type.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("introspection.go", 193, 1)).
+							WithArg("group", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("introspection.go", 193, 61)})).
+					WithFunction(
+						dag.Function("DescribeTopic",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("DescribeTopic returns per-topic metadata as JSON: the partition layout\n(leader, replicas, ISR per partition), the derived partition count and\nreplication factor, and the topic-level configuration set (retention,\ncleanup policy, and so on). The JSON is returned as a *dagger.File so it\ncrosses the module boundary as a core type; callers export it and unmarshal\nthe bytes themselves.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("introspection.go", 104, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("introspection.go", 104, 53)})).
+					WithFunction(
+						dag.Function("ListConsumerGroups",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("ListConsumerGroups returns the names of every consumer group the cluster\nreports, sorted. A fresh cluster reports none; a group appears once a\nconsumer has joined it and persists (in the Empty state) while it retains\ncommitted offsets.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("introspection.go", 170, 1))).
+					WithFunction(
+						dag.Function("ListTopics",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("ListTopics returns the names of every topic the broker reports.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 967, 1))).
+					WithFunction(
+						dag.Function("Produce",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Produce synchronously writes one record to the topic. Key and value are\ndecoded from their named encodings into raw bytes before being sent.\n\nkeySchemaID / valueSchemaID, when positive, prepend the Confluent\nSchema Registry wire-format header to the corresponding field:\n`0x00 || uint32be(schemaID) || payload`. The header is laid down via\nfranz-go's sr.ConfluentHeader so the byte layout matches what\nSchema-Registry-aware consumers expect. Default 0 means no framing\n(the field is sent verbatim). Negative IDs are rejected.\n\nkeySerializeAs / valueSerializeAs, when set to \"JSON\", parse the\ncorresponding decoded bytes with encoding/json and re-marshal to the\ncanonical form before any framing is applied. The pipeline order is\ndecode → serialize → frame, so a single call can both canonicalise a\nJSON payload and prepend the Confluent header. Invalid JSON is\nrejected before any broker I/O. Default \"\" is pass-through; \"JSON\"\ncanonicalises.\n\nkeySerializeAs / valueSerializeAs set to \"AVRO\" interpret the decoded\nbytes as a JSON document and Avro-binary-encode it (via\ngithub.com/z5labs/avro-go/generic) against the schema identified by\nkeySchemaID / valueSchemaID before framing. The id is required in this\nmode — a zero / negative id errors out before any broker or registry\nI/O — and registry must be supplied so the schema text can be resolved\nby id. The JSON shape follows the Avro spec's JSON encoding; logical\ntypes, decimal, and fixed are not yet supported.\n\nkeySerializeAs / valueSerializeAs set to \"PROTOBUF\" interpret the decoded\nbytes as a protobuf-JSON document and marshal it to Protobuf wire bytes\nagainst a *caller-supplied* descriptor set. The module never runs protoc:\nkeyDescriptorSet / valueDescriptorSet must be a precompiled\nFileDescriptorSet (`protoc --descriptor_set_out=x.desc --include_imports\nx.proto`) and keyMessageName / valueMessageName the fully-qualified message\nname within it. Both are required in this mode and are checked before any\nbroker, registry, or file I/O. The id is required too, because framing a\nProtobuf payload also carries the Confluent message-index array that names\nwhich message in the .proto file the payload is — records produced this way\nare readable by stock Confluent Protobuf consumers. Unlike \"AVRO\", registry\nis not consulted: the descriptor set already carries the message definition.\nThe JSON shape is protojson's canonical protobuf JSON mapping.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 573, 1)).
+							WithArg("topic", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 575, 2)}).
+							WithArg("key", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 576, 2)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 577, 2)}).
+							WithArg("keyEncoding", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 579, 2), DefaultValue: dagger.JSON("\"raw\"")}).
+							WithArg("valueEncoding", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 581, 2), DefaultValue: dagger.JSON("\"raw\"")}).
+							WithArg("keySchemaID", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 583, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("valueSchemaID", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 585, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("keySerializeAs", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 587, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("valueSerializeAs", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 589, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithObject("SchemaRegistry").WithOptional(true), dagger.FunctionWithArgOpts{Description: "registry resolves the Avro schema text by id when keySerializeAs /\nvalueSerializeAs is \"AVRO\". Required in that mode; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 594, 2)}).
+							WithArg("registrySecurity", dag.TypeDef().WithObject("SchemaRegistryClientSecurity").WithOptional(true), dagger.FunctionWithArgOpts{Description: "registrySecurity is the TLS/mTLS client profile used to resolve Avro\nschema text against a secured registry. Nil (the default) resolves over\nplaintext HTTP, reproducing today's behaviour.", SourceMap: dag.SourceMap("client.go", 600, 2)}).
+							WithArg("keyDescriptorSet", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "keyDescriptorSet is a precompiled protobuf FileDescriptorSet covering\nkeyMessageName. Required when keySerializeAs is \"PROTOBUF\"; ignored\notherwise.", SourceMap: dag.SourceMap("client.go", 606, 2)}).
+							WithArg("keyMessageName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "keyMessageName is the fully-qualified protobuf message name (e.g.\n\"my.pkg.MyMessage\") to resolve inside keyDescriptorSet. Required when\nkeySerializeAs is \"PROTOBUF\"; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 612, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("valueDescriptorSet", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "valueDescriptorSet is a precompiled protobuf FileDescriptorSet covering\nvalueMessageName. Required when valueSerializeAs is \"PROTOBUF\"; ignored\notherwise.", SourceMap: dag.SourceMap("client.go", 618, 2)}).
+							WithArg("valueMessageName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "valueMessageName is the fully-qualified protobuf message name (e.g.\n\"my.pkg.MyMessage\") to resolve inside valueDescriptorSet. Required when\nvalueSerializeAs is \"PROTOBUF\"; ignored otherwise.", SourceMap: dag.SourceMap("client.go", 624, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("PropertiesFile",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("PropertiesFile renders this client's connection settings as a Java\n`client.properties` file so callers can hand it to the Apache Kafka\ncommand-line tools or to other JVM-based consumers.\n\nFor TLS / mTLS modes the properties reference PKCS#12 truststore (and\nkeystore for mTLS) by basename — the matching p12 files are written\nalongside `client.properties` in the same directory. Callers should\nexport the parent directory (`props.Directory()`) so the relative\nreferences resolve. Passwords appear plaintext, which is a Kafka CLI\nconstraint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 296, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("ClientSecurity", dagger.TypeDefWithObjectOpts{Description: "ClientSecurity describes how a franz-go client authenticates to a Kafka\nbroker.", SourceMap: dag.SourceMap("security.go", 23, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("SchemaRegistryClientSecurity", dagger.TypeDefWithObjectOpts{Description: "SchemaRegistryClientSecurity describes how a SchemaRegistryClient's HTTP\nclient authenticates to a Schema Registry's REST endpoint, mirroring\n*ClientSecurity on the broker side.", SourceMap: dag.SourceMap("security_schema_registry.go", 28, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("RedpandaCluster", dagger.TypeDefWithObjectOpts{Description: "RedpandaCluster is the Redpanda counterpart to *Cluster. Redpanda speaks\nthe Kafka wire protocol but is a from-scratch C++ implementation with a\ncompletely different configuration layer (`rpk redpanda start`, a YAML\nconfig file, PEM cert/key files instead of PKCS#12), so it gets its own\nreturn type to make the divergence visible at the API surface.\n\nSupports a genuine multi-broker Raft cluster: N brokers (node IDs 0..N-1)\nform a single Raft group over the internal RPC listener, discovering each\nother by deterministic hostname (redpanda-<n>-<suffix>) via the engine's\nsession-wide DNS. Redpanda runs broker and Raft duties in the SAME process,\nso there is no separate controller container.", SourceMap: dag.SourceMap("cluster_redpanda.go", 28, 6)}).
+					WithFunction(
+						dag.Function("BindBrokers",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindBrokers binds every Redpanda broker service into the given container so\nthe container can reach them by the same hostnames BootstrapServers reports.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 602, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 602, 39)})).
+					WithFunction(
+						dag.Function("BootstrapServers",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("BootstrapServers returns the host:port bootstrap addresses for every broker\nin this Redpanda cluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 542, 1))).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client starts every Redpanda broker service — bringing the whole Raft group\nonline — and returns a franz-go-backed *Client targeting them. The Kafka\nwire protocol matches Apache Kafka, so the existing *Client(PKCS#12) are reused unchanged.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 615, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 615, 55)})).
+					WithFunction(
+						dag.Function("SchemaRegistry",
+							dag.TypeDef().WithObject("SchemaRegistry")).
+							WithDescription("SchemaRegistry exposes Redpanda's bundled Schema Registry as the same\n*SchemaRegistry type Kafka.ConfluentSchemaRegistry returns, so callers can\ntreat the bundled and separate-container registries uniformly.\n\n`rpk redpanda start` runs a Schema Registry inside every broker process on\n:8081 — no extra container. The returned *SchemaRegistry points at the first\nbroker (node 0); because the registry client only starts that one service,\nthis method brings the whole cluster online (startAll) before returning, so\nthe registry is backed by a formed Raft group. Redpanda's SR speaks the\nConfluent Schema Registry REST API, so the *SchemaRegistryClient from\nClient() works unchanged.\n\nsecurity must match the cluster's mode (PLAINTEXT or TLS — Redpanda has no\nmTLS): on a TLS cluster the bundled SR REST endpoint terminates HTTPS\nreusing the broker's server leaf (configured at cluster-build time in\nrenderRedpandaYaml), so the caller must pass a TLS profile to get an HTTPS\nclient. The profile's CA keystore is unused here (the leaf is already\nminted); it is required only for API uniformity with the other registries.\n\nThe returned registry is Bundled: its service is a broker itself, so Stop is\na no-op on it — call cluster.Stop to tear the registry down with the\ncluster. A caller that uniformly `defer sr.Stop(ctx)` over the shared\n*SchemaRegistry type therefore can't accidentally kill the cluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 575, 1)).
+							WithArg("security", dag.TypeDef().WithObject("SchemaRegistrySecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster_redpanda.go", 575, 63)})).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down every broker container backing this Redpanda cluster.\nTests should call this in a defer so each broker `Container.asService`\nspan closes when the test work is done. Kill is set so Service.Stop\nskips graceful shutdown — see Cluster.Stop for the rationale.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster_redpanda.go", 631, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("RedpandaServerSecurity", dagger.TypeDefWithObjectOpts{Description: "RedpandaServerSecurity carries the external-listener security profile for\na Redpanda cluster. Same shape as *ServerSecurity (PKCS#12 CAso callers don't have to convert; the constructor extracts PEM from the\nissued leaf internally for redpanda.yaml. Separate type from\n*ServerSecurity so a caller can't accidentally hand an Apache profile\n(e.g. MtlsServerSecurity, not supported here yet) to RedpandaCluster.", SourceMap: dag.SourceMap("cluster_redpanda.go", 45, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("SchemaRegistryClient", dagger.TypeDefWithObjectOpts{Description: "SchemaRegistryClient is a pure-Go net/http client for a Schema Registry's\nadmin REST API. Each method opens a fresh request so the function call is\nstateless from Dagger's perspective.", SourceMap: dag.SourceMap("schema_registry.go", 98, 6)}).
+					WithFunction(
+						dag.Function("DeleteSubject",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind))).
+							WithDescription("DeleteSubject deletes every version of the given subject and returns the\nversion numbers that were deleted.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 1015, 1)).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 1015, 67)})).
+					WithFunction(
+						dag.Function("GetCompatibility",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("GetCompatibility returns the compatibility level configured for the given\nsubject, falling back to the registry-wide default when the subject has\nno explicit configuration.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 1055, 1)).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 1055, 70)})).
+					WithFunction(
+						dag.Function("ListSubjects",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("ListSubjects returns the names of every subject registered.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 999, 1))).
+					WithFunction(
+						dag.Function("LookupLatestBySubject",
+							dag.TypeDef().WithObject("RegisteredSchema")).
+							WithDescription("LookupLatestBySubject returns the latest registered schema version for\nthe given subject.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 969, 1)).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 969, 75)})).
+					WithFunction(
+						dag.Function("LookupSchemaByID",
+							dag.TypeDef().WithObject("RegisteredSchema")).
+							WithDescription("LookupSchemaByID returns the schema registered under the given global id.\n\nThe registry's GET /schemas/ids/{id} endpoint reports only the schema\ntext and type, so a second call to GET /schemas/ids/{id}/versions\nresolves the subject and version. When an id maps to more than one\nsubject/version pair, the first association is returned.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 928, 1)).
+							WithArg("id", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 928, 70)})).
+					WithFunction(
+						dag.Function("RegisterSchema",
+							dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).
+							WithDescription("RegisterSchema registers schema under subject and returns the globally\nunique schema id the registry assigned. schemaType must be one of AVRO,\nJSON, or PROTOBUF.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 893, 1)).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 895, 2)}).
+							WithArg("schema", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 896, 2)}).
+							WithArg("schemaType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 898, 2), DefaultValue: dagger.JSON("\"AVRO\"")})).
+					WithFunction(
+						dag.Function("SetCompatibility",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SetCompatibility sets the compatibility level for the given subject.\nlevel must be one of NONE, BACKWARD, BACKWARD_TRANSITIVE, FORWARD,\nFORWARD_TRANSITIVE, FULL, or FULL_TRANSITIVE.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("schema_registry.go", 1035, 1)).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 1035, 70)}).
+							WithArg("level", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("schema_registry.go", 1035, 86)}))).
+			WithObject(
+				dag.TypeDef().WithObject("RegisteredSchema", dagger.TypeDefWithObjectOpts{Description: "RegisteredSchema is one schema version as the Confluent Schema Registry\nreports it.\n\nThe field names deliberately diverge from the REST API's JSON keys\n(`id`, `schema`): an exported `ID` field collides with the synthetic\nDagger object `id`, and `Schema` is a GraphQL keyword that breaks\nconsumer-module codegen — see daggerverse/CLAUDE.md.", SourceMap: dag.SourceMap("schema_registry.go", 122, 6)}).
+					WithField("Subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "registry subject the schema is registered under", SourceMap: dag.SourceMap("schema_registry.go", 123, 2)}).
+					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "monotonic version within the subject", SourceMap: dag.SourceMap("schema_registry.go", 124, 2)}).
+					WithField("SchemaID", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "globally-unique registry schema id", SourceMap: dag.SourceMap("schema_registry.go", 125, 2)}).
+					WithField("Definition", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "the schema text itself (Avro / JSON Schema / Protobuf)", SourceMap: dag.SourceMap("schema_registry.go", 126, 2)}).
+					WithField("SchemaType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "AVRO | JSON | PROTOBUF", SourceMap: dag.SourceMap("schema_registry.go", 127, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

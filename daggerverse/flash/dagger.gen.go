@@ -513,6 +513,93 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Flash provides Dagger functions that codeify firmware flashing — replacing the\nusual pile of shell/Make recipes with composable `dagger call`s. v1 wraps\nprobe-rs: the physical write is driven from inside Dagger over USB/IP (a probe\nexported from the host with usbipd) or probe-rs's remote websocket endpoint,\nso flashing composes with the zig (#108) build/objcopy and qemu (#107)\noff-device test stages.\n\nThe one seam that cannot be a hermetic function is presenting the physical USB\nprobe to the engine — that is a one-time host-side usbipd bridge (USB/IP),\nrunner setup rather than a per-project script. Everything downstream of the\nbus is Dagger; BridgeCommand codeifies even that setup as emitted output.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - enums.go    — Backend / ImageFormat enums plus the format token table.\n  - probers.go  — Flash.ProbeRs factory: input validation, the probe-rs base\n                  container, chip-registry validation, and the argv builder.\n  - flasher.go  — *Flasher + its drive methods (Plan / Run / Verify / Reset /\n                  GdbServer), FlashResult, and the run-to-completion exec\n                  helper that captures output + exit code.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Flash", dagger.TypeDefWithObjectOpts{Description: "Flash is the root namespace for every exported function in this module. The\nProbeRs factory hangs off *Flash so the generated SDK surfaces it under\n`dag.Flash().ProbeRs(...)`.", SourceMap: dag.SourceMap("main.go", 28, 6)}).
+					WithFunction(
+						dag.Function("BridgeCommand",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("BridgeCommand emits — it does NOT run — the host-side USB/IP command that\nexports a probe to the engine, codeifying the one-time runner setup as output.\nThis runs on the machine physically holding the probe, OUTSIDE Dagger: it\nbinds `busid` to the USB/IP host driver and starts usbipd listening on\n`port`, after which a Flasher built with `usbip=<host>:<port>` and the same\n`busid` can attach the probe.\n\n127.0.0.1 inside a container is the container's own loopback, not the host —\npoint the Flasher's `usbip` at the host's engine-routable address, and run\nthis command on the host.\n\nThe rendered form is the Linux usbip/usbipd toolchain. On Windows the\nequivalent is `usbipd bind --busid <busid>` followed by `usbipd attach`\nfrom the engine side (usbipd-win); see the module README.\n\n`port` and `busid` are shell-quoted in the output so a value carrying spaces\nor shell metacharacters (`;`, `$()`) can't inject into the emitted command\nwhen it's run via command substitution.").
+							WithSourceMap(dag.SourceMap("main.go", 48, 1)).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 49, 2)}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 51, 2), DefaultValue: dagger.JSON("\"3240\"")})).
+					WithFunction(
+						dag.Function("ChipInfo",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("ChipInfo resolves a chip against probe-rs's registry and returns the\nhuman-readable info block, erroring on an unknown chip. It builds the\nmodule-pinned probe-rs container; no probe or hardware is involved.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("probers.go", 210, 1)).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 212, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 214, 2), DefaultValue: dagger.JSON("\"docker.io\"")})).
+					WithFunction(
+						dag.Function("ProbeRs",
+							dag.TypeDef().WithObject("Flasher")).
+							WithDescription("ProbeRs prepares a verified probe-rs flash, reaching the probe over exactly\none of two transports: USB/IP (`usbip` host:port + `busid`) or a remote\nprobe-rs server (`remote` host:port). It validates the inputs, builds the\nprobe-rs container, and confirms `chip` against probe-rs's built-in target\nregistry, returning a *Flasher whose Run/Verify/Reset/Plan/GdbServer methods\ndrive the hardware.\n\nThere is intentionally NO *dagger.Socket transport. probe-rs speaks raw USB\n(CMSIS-DAP HID, ST-Link, J-Link), not a byte stream, so a physical probe\ncannot be carried over a unix socket — USB/IP is the only in-container path,\nand the probe is presented to the engine by a host-side usbipd bridge (see\nBridgeCommand). A socket transport will arrive with the serial backends\n(esptool, dfu-util); if you came here hunting for a `--socket` flag, that is\nwhy there isn't one.\n\nNote on addresses: 127.0.0.1 inside the container is the container's own\nloopback, NOT the host. To reach a host-side usbipd, point `usbip` at the\nhost's engine-routable address, never 127.0.0.1.\n\nSession-cached on `name` so parallel callers get independent Flashers; every\n*Flasher method is never-cached so each Run / Verify / Reset re-executes.\nPass a unique `name` per parallel test for isolation.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("probers.go", 61, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 63, 2)}).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 64, 2)}).
+							WithArg("format", dag.TypeDef().WithEnum("ImageFormat"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 66, 2), DefaultValue: dagger.JSON("\"Elf\"")}).
+							WithArg("baseAddress", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 68, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("usbip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 70, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 72, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("remote", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 74, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("probeSelector", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 76, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("chipDescription", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 78, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 80, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("probers.go", 82, 2), DefaultValue: dagger.JSON("\"\"")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Flasher", dagger.TypeDefWithObjectOpts{Description: "Flasher is a prepared-but-not-yet-run probe-rs flash. It carries the\nprobe-rs container (with the firmware mounted) and the argv split into the\npieces each subcommand needs, so Plan can render deterministically without\nhardware while Run / Verify / Reset / GdbServer swap in their verb and exec.", SourceMap: dag.SourceMap("flasher.go", 23, 6)}).
+					WithFunction(
+						dag.Function("GdbServer",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("GdbServer exposes probe-rs's GDB stub as a Service so a debugger (or the gdb\nbridge, #106) can attach over the network. Requires a reachable probe to\nserve a live target; HIL-only at runtime. For the USB/IP transport the\nattach runs first inside the service command.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("flasher.go", 131, 1)).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("flasher.go", 133, 2), DefaultValue: dagger.JSON("1337")})).
+					WithFunction(
+						dag.Function("Plan",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Plan renders the exact probe-rs command the flash (download) path will run —\ndeterministic, hardware-free. For the USB/IP transport it includes the\n`usbip attach` prefix; for BIN it includes `--base-address`; for the remote\ntransport it has no attach and carries `--host`.").
+							WithSourceMap(dag.SourceMap("flasher.go", 75, 1))).
+					WithFunction(
+						dag.Function("Reset",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Reset resets the target (`probe-rs reset`). Requires a reachable probe; a\nnon-zero probe-rs exit becomes an error here (Reset has no FlashResult).\nReset takes no timeout argument (its v1 surface is Reset(ctx) error) and\nalways runs under defaultTimeoutSeconds.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("flasher.go", 114, 1))).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("FlashResult")).
+							WithDescription("Run flashes the firmware (`probe-rs download`) and returns the combined\noutput and exit code. Requires a reachable probe; in CI (no hardware) it\nreturns a non-zero ExitCode with the probe-rs error in Output.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("flasher.go", 88, 1)).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("flasher.go", 91, 2), DefaultValue: dagger.JSON("120")})).
+					WithFunction(
+						dag.Function("Verify",
+							dag.TypeDef().WithObject("FlashResult")).
+							WithDescription("Verify checks that the on-target flash matches the firmware\n(`probe-rs verify`) without rewriting it. Requires a reachable probe.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("flasher.go", 100, 1)).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("flasher.go", 103, 2), DefaultValue: dagger.JSON("120")})).
+					WithFunction(
+						dag.Function("WithServiceBinding",
+							dag.TypeDef().WithObject("Flasher")).
+							WithDescription("WithServiceBinding binds a service into the Flasher's container under\n`host`, so a usbip or remote transport pointed at that hostname resolves to\nit. This is the seam for reaching an in-Dagger probe relay (e.g. a usbip\nservice) — and how the test suite points a Flasher at a fake-usbipd service\nwithout real hardware. Returns a new Flasher; the original is unchanged.").
+							WithSourceMap(dag.SourceMap("flasher.go", 52, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("flasher.go", 52, 39)}).
+							WithArg("svc", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("flasher.go", 52, 52)}))).
+			WithEnum(
+				dag.TypeDef().WithEnum("ImageFormat", dagger.TypeDefWithEnumOpts{Description: "ImageFormat is how the firmware payload is encoded (pairs with zig #108's\nObjCopy output). ELF carries its own load addresses and is the default;\nBIN is headerless and REQUIRES a baseAddress; HEX is Intel HEX and, like\nELF, carries addresses.", SourceMap: dag.SourceMap("enums.go", 27, 6)}).
+					WithEnumMember("Bin", dagger.TypeDefWithEnumMemberOpts{Value: "BIN", Description: "raw; requires baseAddress", SourceMap: dag.SourceMap("enums.go", 31, 2)}).
+					WithEnumMember("Elf", dagger.TypeDefWithEnumMemberOpts{Value: "ELF", Description: "default; probe-rs reads sections directly", SourceMap: dag.SourceMap("enums.go", 30, 2)}).
+					WithEnumMember("Hex", dagger.TypeDefWithEnumMemberOpts{Value: "HEX", Description: "Intel HEX", SourceMap: dag.SourceMap("enums.go", 32, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("FlashResult", dagger.TypeDefWithObjectOpts{Description: "FlashResult pairs probe-rs's combined output with its exit code. A clean\nprobe-rs failure (e.g. no probe attached) is reported as a non-zero ExitCode\nwith a nil Go error, so the captured Output is never lost to the error path.", SourceMap: dag.SourceMap("flasher.go", 39, 6)}).
+					WithField("Output", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Output is probe-rs's combined stdout", SourceMap: dag.SourceMap("flasher.go", 41, 2)}).
+					WithField("ExitCode", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "ExitCode is probe-rs's process exit code (0 = success). A run that\nexceeds the deadline is killed and yields the timeout code (124).", SourceMap: dag.SourceMap("flasher.go", 44, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -925,6 +925,227 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the grafana-stack Dagger module: spins up Loki, Tempo, and\nMimir as Dagger services for local development and testing. Each backend\nruns in single-binary / monolithic mode with optional caller-supplied\npersistence and exposes both its native ingest API and an OTLP/HTTP\nreceiver.\n\nEvery listener defaults to plaintext. WithTls enables TLS — and WithMtls\noptional mutual TLS — on every listener a backend exposes (the native HTTP\nAPI plus the OTLP receivers), and on the Grafana UI's :3000 listener.\nDatasource provisioning is TLS-aware: WithLokiDatasource / WithTempoDatasource\n/ WithMimirDatasource detect a TLS-enabled backend and render the datasource\nYAML with an https:// URL and the CA (plus client cert for an mTLS backend)\nso the Grafana proxy chain still works end-to-end.\n").
+			WithObject(
+				dag.TypeDef().WithObject("GrafanaStack", dagger.TypeDefWithObjectOpts{Description: "GrafanaStack is the module entry point. Use the per-backend constructor\nfunctions (Loki, Tempo, Mimir) to obtain a service handle.", SourceMap: dag.SourceMap("main.go", 34, 6)}).
+					WithFunction(
+						dag.Function("Grafana",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("Grafana configures a grafana/grafana service with file-based datasource\nand dashboard provisioning. Listens on :3000 plaintext.\n\nregistry defaults to docker.io. tag defaults to a known-good upstream\nversion. configFile fully replaces the embedded default when supplied.\nadminPassword is required and is mounted into the container at a fixed\npath; Grafana reads it via GF_SECURITY_ADMIN_PASSWORD__FILE so the\nplaintext never enters generated bindings. storage, when non-nil, is\nmounted at /var/lib/grafana for persistence; when nil, an ephemeral\nempty Directory is mounted instead.").
+							WithSourceMap(dag.SourceMap("main.go", 640, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the grafana/grafana image.", SourceMap: dag.SourceMap("main.go", 643, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for grafana/grafana.", SourceMap: dag.SourceMap("main.go", 646, 2), DefaultValue: dagger.JSON("\"12.0.0\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "grafana.ini config; replaces the embedded default when supplied.", SourceMap: dag.SourceMap("main.go", 649, 2)}).
+							WithArg("adminPassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "Admin password supplied to GF_SECURITY_ADMIN_PASSWORD__FILE.", SourceMap: dag.SourceMap("main.go", 651, 2)}).
+							WithArg("storage", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Persistence volume mounted at /var/lib/grafana. When nil the data\ndir is ephemeral.", SourceMap: dag.SourceMap("main.go", 655, 2)})).
+					WithFunction(
+						dag.Function("Loki",
+							dag.TypeDef().WithObject("Loki")).
+							WithDescription("Loki configures a grafana/loki service running in monolithic mode with\nthe OTLP HTTP ingester enabled and filesystem chunk/index storage rooted\nat the mounted data dir. Listens on :3100 plaintext.\n\nregistry defaults to docker.io. tag defaults to a known-good upstream\nversion. configFile fully replaces the embedded default when supplied.\nstorage, when non-nil, is mounted at /var/lib/loki for persistence;\nwhen nil, an ephemeral empty Directory is mounted instead.").
+							WithSourceMap(dag.SourceMap("main.go", 129, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the grafana/loki image.", SourceMap: dag.SourceMap("main.go", 132, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for grafana/loki.", SourceMap: dag.SourceMap("main.go", 135, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Loki YAML config; replaces the embedded default when supplied.", SourceMap: dag.SourceMap("main.go", 138, 2)}).
+							WithArg("storage", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Persistence volume mounted at /var/lib/loki. When nil the data\ndir is ephemeral.", SourceMap: dag.SourceMap("main.go", 142, 2)})).
+					WithFunction(
+						dag.Function("Mimir",
+							dag.TypeDef().WithObject("Mimir")).
+							WithDescription("Mimir configures a grafana/mimir service in monolithic mode (the binary\nis invoked with -target=all). Multitenancy is disabled so callers can\npush and query without an X-Scope-OrgID header. Listens on :9009 plain\nHTTP, exposing both the Prometheus-compatible API and the OTLP HTTP\nmetrics ingester at /otlp/v1/metrics.\n\nregistry defaults to docker.io. tag defaults to a known-good upstream\nversion. configFile fully replaces the embedded default when supplied.\nstorage, when non-nil, is mounted at /var/lib/mimir for persistence;\nwhen nil, an ephemeral empty Directory is mounted instead.").
+							WithSourceMap(dag.SourceMap("main.go", 432, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the grafana/mimir image.", SourceMap: dag.SourceMap("main.go", 435, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for grafana/mimir.", SourceMap: dag.SourceMap("main.go", 438, 2), DefaultValue: dagger.JSON("\"2.15.1\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Mimir YAML config; replaces the embedded default when supplied.", SourceMap: dag.SourceMap("main.go", 441, 2)}).
+							WithArg("storage", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Persistence volume mounted at /var/lib/mimir. When nil the data\ndir is ephemeral.", SourceMap: dag.SourceMap("main.go", 445, 2)})).
+					WithFunction(
+						dag.Function("Tempo",
+							dag.TypeDef().WithObject("Tempo")).
+							WithDescription("Tempo configures a grafana/tempo service running in monolithic mode\nwith both OTLP receivers (gRPC :4317, HTTP :4318) enabled and local\nfilesystem trace storage. Tempo's HTTP query API listens on :3200.\n\nregistry defaults to docker.io. tag defaults to a known-good upstream\nversion. configFile fully replaces the embedded default when supplied.\nstorage, when non-nil, is mounted at /var/lib/tempo for persistence;\nwhen nil, an ephemeral empty Directory is mounted instead.").
+							WithSourceMap(dag.SourceMap("main.go", 271, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the grafana/tempo image.", SourceMap: dag.SourceMap("main.go", 274, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for grafana/tempo.", SourceMap: dag.SourceMap("main.go", 277, 2), DefaultValue: dagger.JSON("\"2.7.1\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Tempo YAML config; replaces the embedded default when supplied.", SourceMap: dag.SourceMap("main.go", 280, 2)}).
+							WithArg("storage", dag.TypeDef().WithObject("CacheVolume").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Persistence volume mounted at /var/lib/tempo. When nil the data\ndir is ephemeral.", SourceMap: dag.SourceMap("main.go", 284, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Grafana", dagger.TypeDefWithObjectOpts{Description: "Grafana wraps a configured grafana/grafana container with file-based\ndatasource and dashboard provisioning. Datasources and dashboards are\naccumulated via the WithX builder methods and rendered into the\ncontainer's /etc/grafana/provisioning tree at Service() time.", SourceMap: dag.SourceMap("main.go", 543, 6)}).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the Grafana HTTP base URL, e.g. http://<host>:3000, or\nhttps://<host>:3000 once WithTls has been called.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 887, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the Grafana Dagger service. The container is run as\nroot (see Loki.Service for the rationale). The accumulated datasource\nand dashboard state is rendered into the container's provisioning\ntree at this point — subsequent WithX calls on the same *Grafana\nreceiver are not visible to the returned service.").
+							WithSourceMap(dag.SourceMap("main.go", 804, 1))).
+					WithFunction(
+						dag.Function("WithDashboard",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithDashboard adds a single dashboard JSON file to the provisioned\ndashboards directory under the supplied name. `.json` is appended if\nthe supplied name does not already end with it.").
+							WithSourceMap(dag.SourceMap("main.go", 780, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 780, 33)}).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 780, 46)})).
+					WithFunction(
+						dag.Function("WithDashboards",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithDashboards adds every *.json entry in dir to the provisioned\ndashboards directory, preserving filenames.").
+							WithSourceMap(dag.SourceMap("main.go", 791, 1)).
+							WithArg("dir", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 791, 34)})).
+					WithFunction(
+						dag.Function("WithLokiDatasource",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithLokiDatasource binds loki into Grafana's network at hostname `name`\nand accumulates a Loki datasource entry under the same name (which is\nalso used as the datasource uid, so callers can hit\n/api/datasources/proxy/uid/<name>/...).\n\n`name` must be a valid DNS label: it is used as the in-network\nhostname (enforced by Dagger's WithServiceBinding), as the Grafana\ndatasource uid, and is interpolated into provisioning YAML.\n\nTLS is derived from the loki builder: when loki has WithTls, the datasource\nURL becomes https:// and the entry pins the backend's CA. Supply caCert (the\nPEM CA that signed loki's server certificate) so Grafana can verify the\nbackend; when omitted, loki's own server certificate is pinned instead\n(correct only for a self-signed server cert). When loki has WithMtls, also\nsupply clientCert / clientKey (the PEM certificate + key Grafana presents to\nthe backend); Service returns an error if they are missing.").
+							WithSourceMap(dag.SourceMap("main.go", 704, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 705, 2)}).
+							WithArg("loki", dag.TypeDef().WithObject("Loki"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 706, 2)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM CA that signed the backend's server certificate.", SourceMap: dag.SourceMap("main.go", 709, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM client certificate Grafana presents to an mTLS backend.", SourceMap: dag.SourceMap("main.go", 712, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM client private key paired with clientCert.", SourceMap: dag.SourceMap("main.go", 715, 2)})).
+					WithFunction(
+						dag.Function("WithMimirDatasource",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithMimirDatasource binds mimir into Grafana's network at hostname `name`\nand accumulates a Prometheus-type datasource entry pointing at\nMimir's Prometheus-compatible API endpoint. See WithLokiDatasource\nfor the constraints on `name` and the TLS args.").
+							WithSourceMap(dag.SourceMap("main.go", 756, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 757, 2)}).
+							WithArg("mimir", dag.TypeDef().WithObject("Mimir"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 758, 2)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 760, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 762, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 764, 2)})).
+					WithFunction(
+						dag.Function("WithTempoDatasource",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithTempoDatasource binds tempo into Grafana's network at hostname\n`name` and accumulates a Tempo datasource entry under the same name.\nSee WithLokiDatasource for the constraints on `name` and the TLS args.").
+							WithSourceMap(dag.SourceMap("main.go", 731, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 732, 2)}).
+							WithArg("tempo", dag.TypeDef().WithObject("Tempo"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 733, 2)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 735, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 737, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 739, 2)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("Grafana")).
+							WithDescription("WithTls switches the Grafana UI's :3000 listener from HTTP to HTTPS by\nsetting [server] protocol = https plus cert_file / cert_key in grafana.ini.\nserverCert is the PEM server certificate and serverKey its PEM private key.\nAfter this call Endpoint returns an https:// URL.\n\nNote: Grafana core does not support requiring client certificates on its\nown listener, so there is no Grafana.WithMtls. To reach an mTLS-required\nbackend, supply the client certificate to the datasource instead (see\nWithLokiDatasource). Ignored when a custom config file was supplied to\nGrafana().").
+							WithSourceMap(dag.SourceMap("main.go", 681, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 681, 27)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 681, 52)})).
+					WithField("Image", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Image is the resolved <registry>/grafana/grafana:<tag> reference.", SourceMap: dag.SourceMap("main.go", 545, 2)}).
+					WithField("ConfigFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "ConfigFile is the grafana.ini config: caller-supplied override or\nthe embedded default.", SourceMap: dag.SourceMap("main.go", 548, 2)}).
+					WithField("AdminPassword", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{Description: "AdminPassword is mounted into the container as a file and pointed\nat via GF_SECURITY_ADMIN_PASSWORD__FILE so plaintext never enters\ngenerated bindings.", SourceMap: dag.SourceMap("main.go", 552, 2)}).
+					WithField("Storage", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Storage is the optional persistence volume for /var/lib/grafana.", SourceMap: dag.SourceMap("main.go", 554, 2)}).
+					WithField("Dashboards", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "Dashboards is the accumulated set of dashboard JSON files, mounted\nat /var/lib/grafana/dashboards on the Grafana container at\nService() time. Starts empty.", SourceMap: dag.SourceMap("main.go", 582, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Loki", dagger.TypeDefWithObjectOpts{Description: "Loki wraps a configured grafana/loki container. Use Service() to obtain\nthe *dagger.Service for binding into other containers, and Endpoint() /\nOtlpHttpEndpoint() to derive client URLs.", SourceMap: dag.SourceMap("main.go", 96, 6)}).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the Loki HTTP base URL, e.g. http://<host>:3100, or\nhttps://<host>:3100 once WithTls has been called.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 214, 1))).
+					WithFunction(
+						dag.Function("OtlpHttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpHttpEndpoint returns the Loki OTLP/HTTP logs receiver URL, suitable\nas the `endpoint` for an OpenTelemetry exporter posting log data. The\nscheme is https once WithTls has been called.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 230, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the Loki Dagger service. Bind it via WithServiceBinding\nor call .Start(ctx) to launch ahead-of-time.\n\nThe container is run as root so it can write to the mounted data dir\nwithout us having to second-guess the upstream image's USER. This is\nsafe for ephemeral dev/test services and avoids per-image UID drift\nacross Loki / Tempo / Mimir.").
+							WithSourceMap(dag.SourceMap("main.go", 186, 1))).
+					WithFunction(
+						dag.Function("WithMtls",
+							dag.TypeDef().WithObject("Loki")).
+							WithDescription("WithMtls additionally requires every client to present a certificate signed\nby clientCa (PEM). Must be combined with WithTls; Service returns an error\notherwise.").
+							WithSourceMap(dag.SourceMap("main.go", 173, 1)).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 173, 25)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("Loki")).
+							WithDescription("WithTls enables TLS on Loki's HTTP listener (:3100) — which serves both the\nnative LogQL/ingest API and the OTLP/HTTP logs receiver — by rendering\nserver.http_tls_config into the config. serverCert is the PEM server\ncertificate (its SAN must cover the hostname clients dial) and serverKey its\nPEM private key. After this call Endpoint / OtlpHttpEndpoint return https://\nURLs. Ignored when a custom config file was supplied to Loki(); that config\nowns its own TLS.").
+							WithSourceMap(dag.SourceMap("main.go", 163, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 163, 24)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 163, 49)})).
+					WithField("Image", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Image is the resolved <registry>/grafana/loki:<tag> reference.", SourceMap: dag.SourceMap("main.go", 98, 2)}).
+					WithField("ConfigFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "ConfigFile is the Loki YAML config: either the caller-supplied\noverride or the embedded default staged into the module workdir.", SourceMap: dag.SourceMap("main.go", 101, 2)}).
+					WithField("Storage", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Storage is the optional persistence volume for /var/lib/loki.\nWhen nil the data dir is mounted as an empty Directory (ephemeral).", SourceMap: dag.SourceMap("main.go", 104, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Mimir", dagger.TypeDefWithObjectOpts{Description: "Mimir wraps a configured grafana/mimir container running in monolithic\n(single-binary, target=all) mode with the OTLP HTTP ingester enabled,\nanonymous tenant, and filesystem block storage.", SourceMap: dag.SourceMap("main.go", 400, 6)}).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the Mimir HTTP base URL, e.g. http://<host>:9009, or\nhttps://<host>:9009 once WithTls has been called. This endpoint serves\nboth the Prometheus-compatible query API and the OTLP HTTP metrics\ningester.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 515, 1))).
+					WithFunction(
+						dag.Function("OtlpHttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpHttpEndpoint returns the Mimir OTLP/HTTP metrics receiver URL,\nsuitable as the `endpoint` for an OpenTelemetry exporter posting\nmetric data. The scheme is https once WithTls has been called.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 531, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the Mimir Dagger service. The args explicitly include\n`-target=all` so the binary runs in monolithic mode regardless of the\nupstream image's default CMD. See Loki.Service for notes on the\nWithUser(\"0:0\") choice.").
+							WithSourceMap(dag.SourceMap("main.go", 485, 1))).
+					WithFunction(
+						dag.Function("WithMtls",
+							dag.TypeDef().WithObject("Mimir")).
+							WithDescription("WithMtls additionally requires every client to present a certificate signed\nby clientCa (PEM). Must be combined with WithTls; Service returns an error\notherwise.").
+							WithSourceMap(dag.SourceMap("main.go", 475, 1)).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 475, 26)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("Mimir")).
+							WithDescription("WithTls enables TLS on Mimir's HTTP listener (:9009) — which serves both the\nPrometheus-compatible API and the OTLP/HTTP metrics receiver — by rendering\nserver.http_tls_config into the config. serverCert is the PEM server\ncertificate and serverKey its PEM private key. After this call Endpoint /\nOtlpHttpEndpoint return https:// URLs. Ignored when a custom config file was\nsupplied to Mimir().").
+							WithSourceMap(dag.SourceMap("main.go", 465, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 465, 25)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 465, 50)})).
+					WithField("Image", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Image is the resolved <registry>/grafana/mimir:<tag> reference.", SourceMap: dag.SourceMap("main.go", 402, 2)}).
+					WithField("ConfigFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "ConfigFile is the Mimir YAML config: either the caller-supplied\noverride or the embedded default.", SourceMap: dag.SourceMap("main.go", 405, 2)}).
+					WithField("Storage", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Storage is the optional persistence volume for /var/lib/mimir.", SourceMap: dag.SourceMap("main.go", 407, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Tempo", dagger.TypeDefWithObjectOpts{Description: "Tempo wraps a configured grafana/tempo container running in monolithic\nmode with the OTLP gRPC and HTTP receivers enabled and local filesystem\ntrace storage.", SourceMap: dag.SourceMap("main.go", 241, 6)}).
+					WithFunction(
+						dag.Function("HttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("HttpEndpoint returns the Tempo HTTP query/push base URL,\ne.g. http://<host>:3200, or https://<host>:3200 once WithTls has been\ncalled.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 354, 1))).
+					WithFunction(
+						dag.Function("OtlpGrpcEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpGrpcEndpoint returns the Tempo OTLP/gRPC receiver address,\ne.g. <host>:4317. No URL scheme — gRPC clients want host:port and must\nconfigure TLS themselves (the receiver enforces it once WithTls is set).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 370, 1))).
+					WithFunction(
+						dag.Function("OtlpHttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpHttpEndpoint returns the Tempo OTLP/HTTP receiver base URL,\ne.g. http://<host>:4318, or https://<host>:4318 once WithTls has been\ncalled. The OpenTelemetry HTTP exporter appends the per-signal path\nitself (e.g. /v1/traces).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 386, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the Tempo Dagger service. See Loki.Service for notes\non the WithUser(\"0:0\") choice.").
+							WithSourceMap(dag.SourceMap("main.go", 323, 1))).
+					WithFunction(
+						dag.Function("WithMtls",
+							dag.TypeDef().WithObject("Tempo")).
+							WithDescription("WithMtls additionally requires every client to present a certificate signed\nby clientCa (PEM) on every listener. Must be combined with WithTls; Service\nreturns an error otherwise.").
+							WithSourceMap(dag.SourceMap("main.go", 315, 1)).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 315, 26)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("Tempo")).
+							WithDescription("WithTls enables TLS on every Tempo listener: the native HTTP query API\n(:3200, via server.http_tls_config) and both OTLP receivers (gRPC :4317 and\nHTTP :4318, via distributor.receivers.otlp.protocols.{grpc,http}.tls).\nserverCert is the PEM server certificate and serverKey its PEM private key.\nAfter this call HttpEndpoint / OtlpHttpEndpoint return https:// URLs;\nOtlpGrpcEndpoint stays scheme-less (gRPC callers configure TLS themselves).\nIgnored when a custom config file was supplied to Tempo().").
+							WithSourceMap(dag.SourceMap("main.go", 305, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 305, 25)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 305, 50)})).
+					WithField("Image", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Image is the resolved <registry>/grafana/tempo:<tag> reference.", SourceMap: dag.SourceMap("main.go", 243, 2)}).
+					WithField("ConfigFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "ConfigFile is the Tempo YAML config: either the caller-supplied\noverride or the embedded default.", SourceMap: dag.SourceMap("main.go", 246, 2)}).
+					WithField("Storage", dag.TypeDef().WithObject("CacheVolume"), dagger.TypeDefWithFieldOpts{Description: "Storage is the optional persistence volume for /var/lib/tempo.", SourceMap: dag.SourceMap("main.go", 248, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

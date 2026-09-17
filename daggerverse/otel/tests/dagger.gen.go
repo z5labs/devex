@@ -622,6 +622,173 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the otel-tests Dagger module: round-trip and unit\nchecks for the otel daggerverse module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 15, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every otel test inside this suite as a convenience for local\n`dagger call all` invocations. CI does NOT call All: each of the three\nsub-aggregators below (Validation, Core, Contrib) carries its own\n`+check` directive, so GH Actions schedules each onto its own runner\nin parallel — running All on top would double-bill the same work.\n\ncollectorTag picks the otel/opentelemetry-collector{,-contrib} tag\nevery spawned collector runs against; lokiTag/tempoTag/mimirTag pick\nthe grafana/{loki,tempo,mimir} tags for the round-trip backends.\n\nparallel caps how many tests run concurrently. Defaults to 0 (unbounded).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 30, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 33, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 35, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("tempoTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 37, 2), DefaultValue: dagger.JSON("\"2.7.1\"")}).
+							WithArg("mimirTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 39, 2), DefaultValue: dagger.JSON("\"2.15.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 41, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BindsCollectorIntoFreshContainer",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BindsCollectorIntoFreshContainer asserts that a collector configured\nwith the DebugPipeline can be reached on :4317 and :4318 from a\nvanilla alpine container via WithServiceBinding.").
+							WithSourceMap(dag.SourceMap("main.go", 274, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 277, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("ConflictingComponentBodiesAreRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConflictingComponentBodiesAreRejected asserts that wiring two\ndistinct *CustomExporter instances sharing the same <kind>/<name>\nbut with different bodies into the pipeline graph surfaces a\nnon-nil error from the rendered-config path, rather than silently\nkeeping whichever was registered first.").
+							WithSourceMap(dag.SourceMap("main.go", 343, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 346, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("Contrib",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Contrib runs the otel-collector-contrib-image round-trip tests.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 143, 1)).
+							WithCheck().
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 146, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 148, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 150, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ContribForwardsLogsToLoki",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContribForwardsLogsToLoki — smoke check on the contrib distribution.").
+							WithSourceMap(dag.SourceMap("main.go", 601, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 604, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 606, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("Core",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Core runs the otel-collector core-image round-trip tests. Each test\nboots one Loki/Tempo/Mimir alongside the collector, so this group's\nper-runner footprint is the heaviest in the suite.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 105, 1)).
+							WithCheck().
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 108, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 110, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("tempoTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 112, 2), DefaultValue: dagger.JSON("\"2.7.1\"")}).
+							WithArg("mimirTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 114, 2), DefaultValue: dagger.JSON("\"2.15.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 116, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("CoreForwardsLogsToLoki",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CoreForwardsLogsToLoki asserts a Core collector forwards an OTLP/HTTP\nlog push through to the grafana-stack Loki backend, where it is\nqueryable via LogQL.").
+							WithSourceMap(dag.SourceMap("main.go", 577, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 580, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 582, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("CoreForwardsMetricsToMimir",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CoreForwardsMetricsToMimir asserts an OTLP/HTTP metric pushed to the\ncollector lands in Mimir via the OTLP/HTTP exporter and is\nqueryable via the Prometheus API.").
+							WithSourceMap(dag.SourceMap("main.go", 728, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 731, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("mimirTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 733, 2), DefaultValue: dagger.JSON("\"2.15.1\"")})).
+					WithFunction(
+						dag.Function("CoreForwardsTracesToTempo",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CoreForwardsTracesToTempo asserts an OTLP/HTTP trace pushed to the\ncollector lands in Tempo via the OTLP/gRPC exporter.").
+							WithSourceMap(dag.SourceMap("main.go", 626, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 629, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("tempoTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 631, 2), DefaultValue: dagger.JSON("\"2.7.1\"")})).
+					WithFunction(
+						dag.Function("CustomComponentBodyIsSpliced",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CustomComponentBodyIsSpliced asserts that a Custom* component's\ncaller-supplied YAML body lands structurally under the rendered\nconfig (not as a quoted scalar).").
+							WithSourceMap(dag.SourceMap("main.go", 366, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 369, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("DebugPipelineAcceptsOtlpPush",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DebugPipelineAcceptsOtlpPush asserts a collector configured with\nDebugPipeline(\"logs\") accepts an OTLP/HTTP log push without\nerroring (HTTP 200/204).").
+							WithSourceMap(dag.SourceMap("main.go", 183, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 186, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("OtlpExporterRejectsClientCertWithoutKey",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("OtlpExporterRejectsClientCertWithoutKey asserts the factories reject a\nclient cert supplied without its key (and vice versa), since an mTLS\nidentity needs both halves.").
+							WithSourceMap(dag.SourceMap("tls.go", 153, 1))).
+					WithFunction(
+						dag.Function("OtlpExporterTlsRendersCaFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("OtlpExporterTlsRendersCaFile asserts that supplying CaCert to\nOtlpHttpExporter renders a tls.ca_file pointing at the per-component\nmount path and drops the plaintext insecure flag.").
+							WithSourceMap(dag.SourceMap("tls.go", 112, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 115, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("RejectsInvalidComponentName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsInvalidComponentName asserts every component factory and the\nCustom* escape hatches reject empty / non-conforming names (and\nnon-conforming kinds, where applicable) with a non-nil error.").
+							WithSourceMap(dag.SourceMap("main.go", 423, 1))).
+					WithFunction(
+						dag.Function("RejectsUnknownPipelineSignal",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsUnknownPipelineSignal asserts Otel.Pipeline rejects signals\noutside {logs, traces, metrics}, and Otel.DebugPipeline does the same.").
+							WithSourceMap(dag.SourceMap("main.go", 400, 1))).
+					WithFunction(
+						dag.Function("ServiceWithoutPipelinesOrConfigFails",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ServiceWithoutPipelinesOrConfigFails asserts that calling Service()\non a collector with no pipelines and no override produces a\ncontainer whose exec exits non-zero — the collector binary refuses\nto start without --config.").
+							WithSourceMap(dag.SourceMap("main.go", 291, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 294, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("SharedReceiverIsDedupedInRenderedYaml",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SharedReceiverIsDedupedInRenderedYaml asserts that wiring one\nreceiver into three pipelines emits a single top-level\nreceivers.otlp/primary entry rather than three.").
+							WithSourceMap(dag.SourceMap("main.go", 306, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 309, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("Tls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Tls runs the otel TLS/mTLS suite: receiver-side TLS enforcement,\nexporter-side TLS rendering, and an end-to-end TLS pipeline hop that\nlands in Loki. Carries its own +check so CI schedules it on its own\nrunner alongside Validation/Core/Contrib.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("tls.go", 25, 1)).
+							WithCheck().
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 28, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 30, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 32, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("TlsPipelineForwardsToLoki",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsPipelineForwardsToLoki is the end-to-end TLS pipeline test: a\nplaintext edge collector forwards over a TLS hop (its OtlpHttpExporter\npins the downstream CA) to a WithTls receiver collector, which relays\nthe logs to Loki where they are queryable. Exercises exporter-side TLS\n(criterion 3) and a full TLS pipeline (criterion 4) with an observable\nsink.").
+							WithSourceMap(dag.SourceMap("tls.go", 308, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 311, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 313, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("Validation",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Validation runs the otel validation + rendering tests that don't need\na backend service stood up. Pure-unit + collector-only spin-ups.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 66, 1)).
+							WithCheck().
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 69, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 71, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("WithMtlsRejectsWithoutClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithMtlsRejectsWithoutClientCert asserts a WithTls+WithMtls collector\naccepts a push presenting a client cert signed by the trusted CA and\nrejects one that presents none.").
+							WithSourceMap(dag.SourceMap("tls.go", 236, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 239, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("WithTlsAcceptsTlsRejectsPlaintext",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithTlsAcceptsTlsRejectsPlaintext asserts a WithTls collector accepts an\nOTLP/HTTP push over TLS (client verifying against the issuing CA) and\nrejects a plaintext push on the same port.").
+							WithSourceMap(dag.SourceMap("tls.go", 171, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 174, 2), DefaultValue: dagger.JSON("\"0.130.1\"")})).
+					WithFunction(
+						dag.Function("WithTlsInjectsReceiverTls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithTlsInjectsReceiverTls asserts WithTls (and WithMtls) splice a `tls:`\nblock referencing the fixed server cert/key (and client CA) mount paths\ninto both the grpc and http protocols of every otlp receiver in the\nrendered config. Render-only: no service is stood up, so dummy material\nsuffices.").
+							WithSourceMap(dag.SourceMap("tls.go", 64, 1)).
+							WithArg("collectorTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 67, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

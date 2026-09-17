@@ -797,6 +797,209 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the go Dagger module: a thin wrapper around the\nGo CLI surface (build, test, vet, fmt, run, generate, install, mod*, work,\nenv, version) so downstream pipelines can compose Go workflows without\nre-inventing toolchain pinning, cache mounts, and container plumbing.\n\nToolchain version is pinned via New(version) or inferred from the source's\ngo.mod `go` directive; falls back to \"latest\" when no go directive is\nfound. Every container mounts the shared `go-mod-cache` and\n`go-build-cache` Dagger cache volumes.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Go", dagger.TypeDefWithObjectOpts{Description: "Go wraps the Go CLI as Dagger functions. Construct via New(); call\nContainer() for the prepared base container, or use the per-CLI helpers\n(Build, Test, Vet, ...) which reuse the same backing container.", SourceMap: dag.SourceMap("main.go", 24, 6)}).
+					WithFunction(
+						dag.Function("Build",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Build runs `go build` against the supplied source and returns /out as a\n*dagger.Directory. pkg defaults to `./...`; when output is empty, `-o\n/out/` is used so go build picks names per its own rules (one binary per\nmain package).\n\nEvery flag this function can pass is a named input with its own doc\ncomment, so `dagger functions` describes what each one does to the\noutput. There is deliberately no raw `flags []string` escape hatch: a bag\nof strings cannot be validated, cannot be documented per flag, and makes\nevery caller re-learn the same spellings. Container() is the escape hatch\nfor anything not named here — it hands back the prepared container so a\ncaller can run whatever `go build` invocation it likes.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 234, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 236, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Package(s) to build, in `go build` package-list syntax.", SourceMap: dag.SourceMap("main.go", 240, 2), DefaultValue: dagger.JSON("\"./...\"")}).
+							WithArg("artifactName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Name of the artifact written under /out. Empty means `-o /out/`, which\nlets go build name each binary after its main package.\n\nNamed artifactName rather than output because the Dagger CLI reserves\n`--output/-o` for exporting a call's result: a function parameter\ncalled output collides with it, and `dagger call build` then fails to\nparse its own flags before it runs anything. Ci.WithBuild's\nbinaryName dodges the same collision; this one is not always a binary,\nbecause buildmode can make it an archive or a shared library.", SourceMap: dag.SourceMap("main.go", 252, 2)}).
+							WithArg("trimpath", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Pass -trimpath: strip the build's local file system paths out of the\nbinary, so the output does not depend on where it was compiled.", SourceMap: dag.SourceMap("main.go", 257, 2)}).
+							WithArg("strip", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Pass -ldflags \"-s -w\": drop the symbol table and the DWARF debug\ninfo. Smaller binary, no usable stack symbolization or debugger.", SourceMap: dag.SourceMap("main.go", 262, 2)}).
+							WithArg("stamps", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Link-time variable assignments, each `importpath.Name=value`,\nrendered as `-ldflags \"-X importpath.Name=value\"`. This is how a\nbinary learns its own version or commit. Only the first `=` splits\nname from value, so a value may itself contain `=`. An element with\nno `=`, or with an empty name, is rejected. The linker silently\nignores a stamp naming a variable that does not exist, or one that\nis not a package-level string.", SourceMap: dag.SourceMap("main.go", 272, 2)}).
+							WithArg("tags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Build tags, passed as `-tags a,b,c`. Selects which `//go:build`\nfiles are compiled in.", SourceMap: dag.SourceMap("main.go", 277, 2)}).
+							WithArg("platform", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Target platform as `GOOS/GOARCH[/variant]`, e.g. \"linux/arm64\".\nSets GOOS and GOARCH for a cross-compile; empty builds for the\ntoolchain container's own platform. Any variant segment is ignored —\nGOARM/GOAMD64 are left unset.", SourceMap: dag.SourceMap("main.go", 284, 2)}).
+							WithArg("disableCgo", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Set CGO_ENABLED=0. Produces a statically linked binary with no libc\ndependency, which is what a scratch image needs, at the cost of the\ncgo-backed net and os/user implementations.", SourceMap: dag.SourceMap("main.go", 290, 2)}).
+							WithArg("race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Pass -race: link Go's data-race detector into the output. The binary\nthen reports racing accesses to stderr as it runs, at roughly 2-20x\nthe CPU and 5-10x the memory of an ordinary build — so this is a\nbinary for an integration test, not one to ship.\n\n-race requires cgo, so it cannot be combined with disableCgo (Build\nrejects that pairing) and it needs a C toolchain for the target: the\ngolang image has one for its own platform, but a cross-compile via\nplatform does not unless the toolchain image provides it.", SourceMap: dag.SourceMap("main.go", 302, 2)}).
+							WithArg("buildmode", dag.TypeDef().WithEnum("BuildMode").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Pass -buildmode=<mode>: what the linker emits, which for most modes is\nnot an executable. Absent leaves the flag off entirely, so `go build`\npicks its own default for the target — an executable for a main\npackage, an archive for the rest. See BuildMode for what each member\nproduces.", SourceMap: dag.SourceMap("main.go", 310, 2)})).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("Ci returns a new pipeline builder bound to the supplied source.").
+							WithSourceMap(dag.SourceMap("ci.go", 72, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 72, 17)})).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the prepared base container with go-mod-cache mounted at\n/go/pkg/mod, go-build-cache mounted at /root/.cache/go-build, source\nmounted at /src, and the working directory set to /src. Use this as an\nescape hatch when a Go command isn't covered by the typed helpers.\n\nThe toolchain image is golang:<version> where version comes from New() or,\nwhen New(\"\") was used, from source/go.mod's `go` directive (fallback\n\"latest\"). The signature takes ctx + returns error because go.mod\ninspection requires async I/O.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 53, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 55, 2)})).
+					WithFunction(
+						dag.Function("CycloneDx",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("CycloneDx renders a CycloneDX 1.6 JSON document describing the module\ngraph compiled into binary.\n\n**Why 1.6.** 1.6 is the current release and the one Dependency-Track,\nGrype and Trivy consume; it is also the first to model a component's\nlicence acknowledgement, which is what lets a low-confidence classifier\nmatch be published as \"declared\" rather than silently asserted.\n\nThe component set, the versions and the licences are identical to what\nSpdx emits for the same inputs: both render from one resolution of the\ngraph, so the two documents cannot disagree about what shipped. See\nSpdx for how the graph is resolved and how licence confidence is\nhandled.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sbom.go", 80, 1)).
+							WithArg("binary", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The compiled Go binary the document describes.", SourceMap: dag.SourceMap("sbom.go", 83, 2)}).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "The source tree the binary was built from. Used to resolve the\nlicence of each linked module; never used to enumerate components.", SourceMap: dag.SourceMap("sbom.go", 86, 2)})).
+					WithFunction(
+						dag.Function("Env",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Env runs `go env` in a source-less base container and returns its stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 488, 1))).
+					WithFunction(
+						dag.Function("Fmt",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Fmt runs `gofmt -l -d .` against the supplied source. Returns the diff\nof any unformatted files; non-empty output is also returned as an error so\nCI fails fast on formatting violations.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 452, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 452, 39)})).
+					WithFunction(
+						dag.Function("Generate",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Generate runs `go generate pkg` against the supplied source and returns\n/src after generation. pkg defaults to `./...`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 187, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 189, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 191, 2), DefaultValue: dagger.JSON("\"./...\"")})).
+					WithFunction(
+						dag.Function("Install",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Install runs `go install pkg` in a source-less base container with\nGOBIN=/out and returns the resulting binary as a *dagger.File. The\nreturned filename is the basename of pkg (with any @version suffix\nstripped), matching `go install`'s naming rules.\n\npkg MUST be pinned to an explicit version (e.g. `pkg@v1.2.3` or a\ncommit-hash pseudo-version); `@latest` and bare paths are rejected.\nThe pin is what makes the result safe to cache across calls within a\nsession — without it, the proxy could resolve different versions on\nsuccessive invocations.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 84, 1)).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 84, 22)})).
+					WithFunction(
+						dag.Function("ModDownload",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ModDownload runs `go mod download` against the supplied source.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 162, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 162, 47)})).
+					WithFunction(
+						dag.Function("ModTidy",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("ModTidy runs `go mod tidy` against the supplied source and returns the\nupdated /src directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 148, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 150, 2)})).
+					WithFunction(
+						dag.Function("ModVerify",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ModVerify runs `go mod verify` against the supplied source.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 174, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 174, 45)})).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Run runs `go run pkg [args...]` against the supplied source and returns\nthe program's stdout. pkg is required (a single runnable main package).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 204, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 206, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 207, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 209, 2)})).
+					WithFunction(
+						dag.Function("Spdx",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Spdx renders an SPDX 2.3 JSON document describing the module graph\ncompiled into binary.\n\n**Why 2.3 and not 3.0.** The version is chosen for what consumers\ningest rather than left to whatever the library defaults to. SPDX 2.3\nis the revision behind ISO/IEC 5962's successor line that GitHub's\ndependency graph, Dependency-Track, Grype, Trivy and the CISA/NTIA\nminimum-elements tooling all read today; 3.0 changes the serialization\nwholesale and support for it is still thin. A document nothing can\nparse is not an SBOM.\n\n**The subject is the binary, not the tree.** The component list is read\nout of the compiled artifact with debug/buildinfo, so it names the\nmodules that were actually linked in — not everything go.mod happens to\nrequire. source is an *input* and not the subject: a Go binary embeds\nmodule paths, versions and hashes but no licence text, so the licences\nhave to be resolved from the module cache the source pins.\n\n**Licences are declared and concluded separately.** Licence\nidentification is a classifier, and a classifier reports coverage\nrather than a verdict. The classifier's best match is always recorded\nas the declared licence; it is only promoted to the concluded licence\nwhen the match covers essentially the whole file. Anything less\nconcludes NOASSERTION, so a low-confidence match cannot be mistaken\ndownstream for an established one.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sbom.go", 46, 1)).
+							WithArg("binary", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The compiled Go binary the document describes.", SourceMap: dag.SourceMap("sbom.go", 49, 2)}).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "The source tree the binary was built from. Used to resolve the\nlicence of each linked module; never used to enumerate components.", SourceMap: dag.SourceMap("sbom.go", 52, 2)})).
+					WithFunction(
+						dag.Function("Test",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Test runs `go test -count=1 [-race] [flags] pkg` against the supplied\nsource and returns the combined stdout. -count=1 is always passed to\nbypass Go's internal test cache.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 424, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 426, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 428, 2), DefaultValue: dagger.JSON("\"./...\"")}).
+							WithArg("race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 430, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("flags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 432, 2)})).
+					WithFunction(
+						dag.Function("ToolVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("ToolVersion runs `go version` in a source-less base container and returns\nthe trimmed output (e.g. \"go version go1.23.0 linux/amd64\").").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 496, 1))).
+					WithFunction(
+						dag.Function("Vet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Vet runs `go vet pkg` against the supplied source. pkg defaults to\n`./...`. Returns a non-nil error when vet reports any issue.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 471, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 473, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 475, 2), DefaultValue: dagger.JSON("\"./...\"")})).
+					WithFunction(
+						dag.Function("Work",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Work runs `go work <subcommand> [args...]` against the supplied source\nand returns stdout. subcommand is required (e.g. \"init\", \"use\", \"sync\",\n\"version\").").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 128, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 130, 2)}).
+							WithArg("subcommand", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 131, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 133, 2)})).
+					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Version is the pinned Go toolchain version (e.g. \"1.23\"). Empty\nmeans infer from the supplied source's go.mod `go` directive;\nfalls back to \"latest\" when no go directive is found.", SourceMap: dag.SourceMap("main.go", 28, 2)}).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Go")).
+							WithDescription("New returns a Go module configured for the given toolchain version.\nversion is optional: empty means the version is inferred from the source's\ngo.mod for source-bearing CLI funcs, and \"latest\" is used for source-less\nfuncs (Env, ToolVersion, Install).").
+							WithSourceMap(dag.SourceMap("main.go", 35, 1)).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 37, 2)}))).
+			WithEnum(
+				dag.TypeDef().WithEnum("BuildMode", dagger.TypeDefWithEnumOpts{Description: "BuildMode is what `go build -buildmode` produces: the kind of artifact the\nlinker emits, which for most of these is not an executable at all. It is an\nenum rather than a string because the set is closed and each member has a\ndifferent output shape a caller has to be ready for.\n\nTwo of `go build`'s modes are deliberately absent. `default` is what\nomitting this input already means, so a member for it would be a second\nspelling of the same request. `shared` is only half a feature without a\n`-linkshared` counterpart on the consuming build, which Build does not have\n— use Container() if you are building a shared std.\n\nNote on rendered names: the Dagger Go SDK derives each GraphQL enum member\nfrom the *constant identifier* in SCREAMING_SNAKE_CASE, so these surface as\n`ARCHIVE`, `C_ARCHIVE`, `C_SHARED`, `EXE`, `PIE` and `PLUGIN`. That is why\nthe `go build` spelling (`c-archive`) lives in buildModeFlags below rather\nthan in the identifier: a hyphen cannot appear in a Go identifier, so the\nmapping has to be explicit.", SourceMap: dag.SourceMap("buildmode.go", 31, 6)}).
+					WithEnumMember("Archive", dagger.TypeDefWithEnumMemberOpts{Value: "ARCHIVE", Description: "BuildModeArchive builds the listed non-main packages into `.a` files\n(`archive`). Main packages are ignored, so pointing this at one\nproduces nothing.", SourceMap: dag.SourceMap("buildmode.go", 37, 2)}).
+					WithEnumMember("CArchive", dagger.TypeDefWithEnumMemberOpts{Value: "C_ARCHIVE", Description: "BuildModeCArchive builds the listed main package into a C archive\n(`c-archive`). Only the functions carrying a cgo `//export` comment are\ncallable, and it is those exports rather than the mode that need cgo —\nso this is not rejected alongside disableCgo the way race is. With cgo\noff, a package whose exports live in cgo files fails to build at all\n(`build constraints exclude all Go files`), and a pure-Go main package\nstill produces an archive, but one exporting nothing and carrying no\ngenerated header. The archive/header pair is a consequence of having\ncgo exports, not of asking for this mode.", SourceMap: dag.SourceMap("buildmode.go", 47, 2)}).
+					WithEnumMember("CShared", dagger.TypeDefWithEnumMemberOpts{Value: "C_SHARED", Description: "BuildModeCShared builds the listed main package into a C shared\nlibrary (`c-shared`) — the same exported surface as C_ARCHIVE, linked\ndynamically instead, and with the same relationship to cgo.", SourceMap: dag.SourceMap("buildmode.go", 51, 2)}).
+					WithEnumMember("Exe", dagger.TypeDefWithEnumMemberOpts{Value: "EXE", Description: "BuildModeExe builds the listed main packages into executables\n(`exe`), forcing a position-dependent executable on a toolchain whose\ndefault for the target is PIE.", SourceMap: dag.SourceMap("buildmode.go", 55, 2)}).
+					WithEnumMember("Pie", dagger.TypeDefWithEnumMemberOpts{Value: "PIE", Description: "BuildModePie builds the listed main packages into position\nindependent executables (`pie`), which is what a hardened runtime\nwanting ASLR requires.", SourceMap: dag.SourceMap("buildmode.go", 59, 2)}).
+					WithEnumMember("Plugin", dagger.TypeDefWithEnumMemberOpts{Value: "PLUGIN", Description: "BuildModePlugin builds the listed main packages into a shared library\nloadable at run time with `plugin.Open` (`plugin`). The plugin and\nits host have to be built by the same toolchain from the same\ndependency versions or the load fails.", SourceMap: dag.SourceMap("buildmode.go", 64, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci is a chained builder for a standardized Go CI pipeline. Construct via\nGo.Ci(source); enable stages via the With* methods; call Run to execute\nchecks-then-build, or Check to run only the parallel checks.\n\nStage 1 runs the enabled static checks in parallel (Fmt, Vet, Lint, Test);\nerrors are aggregated. Stage 2 builds the source and Run returns the\nproduced binary as a *dagger.File. Downstream consumers compose that file\ninto their own pipelines (package, sign, publish, ...).", SourceMap: dag.SourceMap("ci.go", 44, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the enabled check stages (Fmt, Vet, Lint, Test) in\nparallel via github.com/dagger/dagger/util/parallel and returns the\naggregated error. Use when callers want to run the checks\nindependently of the build (for example multi-platform pipelines\nthat share one check run across N platform builds).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 148, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns\nthe built binary as a *dagger.File. On stage-1 failure, returns the\naggregated error from Check and a nil file (stage 2 is skipped).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 173, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("WithBuild",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithBuild configures the build stage parameters. pkg defaults to \".\"\nwhen empty; binaryName defaults to the basename of the `module` directive\nin go.mod when empty. Build is always executed by Run regardless of\nwhether this method is called.\n\nNote: the binary-name flag is called binaryName (CLI: --binary-name) to\navoid colliding with Dagger CLI's top-level --output/-o flag.").
+							WithSourceMap(dag.SourceMap("ci.go", 129, 1)).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 131, 2)}).
+							WithArg("binaryName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 133, 2)})).
+					WithFunction(
+						dag.Function("WithFmt",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithFmt enables the gofmt check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 77, 1))).
+					WithFunction(
+						dag.Function("WithLint",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithLint enables the golangci-lint check stage. version pins the\ninstalled golangci-lint version (defaults to defaultGolangciLintVersion\nwhen empty). config, if non-nil, is mounted at golangciLintConfigMountPath\nand passed to golangci-lint via --config.\n\nThe default is a golangci-lint **v2** release, so a config passed here\nmust be written in the v2 dialect — a file opening with `version: \"2\"`.\nA v1 file is not tolerated by a v2 binary; it is rejected before any\nlinter runs. Pass a `v1.x` version to roll the whole stage back, config\ndialect included; the module path installed follows the version's major,\nso both majors are reachable without forking this pipeline.").
+							WithSourceMap(dag.SourceMap("ci.go", 99, 1)).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 101, 2)}).
+							WithArg("config", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 103, 2)})).
+					WithFunction(
+						dag.Function("WithTest",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithTest enables the `go test ./...` check stage. Pass race=true to\nenable the data-race detector.").
+							WithSourceMap(dag.SourceMap("ci.go", 113, 1)).
+							WithArg("race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 115, 2)})).
+					WithFunction(
+						dag.Function("WithVet",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithVet enables the `go vet ./...` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 83, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

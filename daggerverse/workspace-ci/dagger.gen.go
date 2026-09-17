@@ -350,6 +350,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg head", err))
 				}
 			}
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
+			}
 			var repo *dagger.Directory
 			if inputArgs["repo"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["repo"]), &repo)
@@ -357,26 +364,33 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repo", err))
 				}
 			}
-			var workspace *dagger.Workspace
-			if inputArgs["workspace"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["workspace"]), &workspace)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg workspace", err))
-				}
-			}
-			return (*WorkspaceCi).AffectedModules(&parent, ctx, base, head, repo, workspace)
+			return (*WorkspaceCi).AffectedModules(&parent, ctx, base, head, callingWorkspace, repo)
 		case "Generated":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*WorkspaceCi).Generated(&parent, ctx)
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
+			}
+			return nil, (*WorkspaceCi).Generated(&parent, ctx, callingWorkspace)
 		case "GeneratedSelfTest":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
 			}
 			var probeModule string
 			if inputArgs["probeModule"] != nil {
@@ -385,7 +399,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg probeModule", err))
 				}
 			}
-			return nil, (*WorkspaceCi).GeneratedSelfTest(&parent, ctx, probeModule)
+			return nil, (*WorkspaceCi).GeneratedSelfTest(&parent, ctx, callingWorkspace, probeModule)
 		case "MemoStoreSelfTest":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
@@ -420,18 +434,18 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg format", err))
 				}
 			}
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
+			}
 			var repo *dagger.Directory
 			if inputArgs["repo"] != nil {
 				err = json.Unmarshal([]byte(inputArgs["repo"]), &repo)
 				if err != nil {
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg repo", err))
-				}
-			}
-			var workspace *dagger.Workspace
-			if inputArgs["workspace"] != nil {
-				err = json.Unmarshal([]byte(inputArgs["workspace"]), &workspace)
-				if err != nil {
-					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg workspace", err))
 				}
 			}
 			var knownGood string
@@ -455,7 +469,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg diagnostics", err))
 				}
 			}
-			return (*WorkspaceCi).Plan(&parent, ctx, base, head, format, repo, workspace, knownGood, recordCommand, diagnostics)
+			return (*WorkspaceCi).Plan(&parent, ctx, base, head, format, callingWorkspace, repo, knownGood, recordCommand, diagnostics)
 		case "RecordPass":
 			var parent WorkspaceCi
 			err = json.Unmarshal(parentJSON, &parent)
@@ -571,6 +585,97 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("A change-aware, memoized CI planner for a workspace of Dagger modules.\n\nAnyone maintaining a repository of modules ends up writing the same CI by\nhand: enumerate the checks, work out which ones a change could affect, route\neach to the module that owns it, and avoid re-running what a previous run\nalready proved good. This module is that engine. It reads the workspace it is\ninvoked from, diffs a commit range, and returns the checks to run — already\nrouted, with timeouts and memoization hashes applied — so a CI system needs one\ncall and at most a format shim.\n\nNothing here loads a module the plan does not need. Checks are enumerated per\nmodule (Module.checks), never through a root aggregator that installs every\nsuite as a toolchain, and the run-everything path emits one leg per module so\nit loads none at all. See README.md for what counts as a change, what is never\nmemoized, and how base-image drift is bounded.\n").
+			WithObject(
+				dag.TypeDef().WithObject("WorkspaceCi", dagger.TypeDefWithObjectOpts{Description: "WorkspaceCi plans CI for the workspace it is invoked from.", SourceMap: dag.SourceMap("main.go", 32, 6)}).
+					WithFunction(
+						dag.Function("AffectedModules",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("AffectedModules returns, as a JSON array of repo-relative directories, the\nmodules whose checks a change could affect. It is the same attribution Plan\napplies, stopping before any module is loaded, and answers \"what did this change\nreach\" without paying for check enumeration.\n\nThe arguments mean what they mean on Plan.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 318, 1)).
+							WithArg("base", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The revision the change is measured from: a commit SHA, a branch or tag\nname, HEAD, or any of those with git's ~ and ^ suffixes.", SourceMap: dag.SourceMap("main.go", 322, 2)}).
+							WithArg("head", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The revision the change is measured to, in the same forms as base.", SourceMap: dag.SourceMap("main.go", 324, 2)}).
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{Description: "The workspace to plan for, which a Dagger CLI fills in.", SourceMap: dag.SourceMap("main.go", 326, 2)}).
+							WithArg("repo", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The repository to plan for, overriding the workspace's own root.", SourceMap: dag.SourceMap("main.go", 330, 2)})).
+					WithFunction(
+						dag.Function("Generated",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Generated verifies that every committed dagger.gen.go and\ninternal/dagger/*.gen.go in the calling workspace matches what codegen\nproduces at each module's pinned engineVersion.\n\nEvery module in the workspace is checked, including the root one and every\ntests or examples module.\n\nThis check is why generated files need not be global inputs to the memoization\nhash: it proves they are derived from inputs that are, it belongs to the root\nmodule so a plan always runs it, and it is never memoized. The result is\ndeliberately never cached either — the workspace handle the CLI fills in is a\nlive view of the tree rather than a snapshot argument the cache key can\ndescribe, so a cached pass would be a pass for a tree the check never looked\nat.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("generated.go", 45, 1)).
+							WithCheck().
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{Description: "The workspace to check. A Dagger CLI fills this in from the workspace the\ncall was made in; a module calling this one has to pass on the workspace the\nCLI handed it, or make one out of a directory with Directory.asWorkspace.\nIt is not called \"workspace\" because --workspace is one of the CLI's own\nglobal flags, and a function argument cannot take a name it has claimed.", SourceMap: dag.SourceMap("generated.go", 52, 2)})).
+					WithFunction(
+						dag.Function("GeneratedSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratedSelfTest pins that Generated can actually fail.\n\nThe check this repo extracted it from silently verified nothing for months (it\nrouted through Workspace.Generators, which is empty unless a module declares a\n+generator function), so a green Generated is only worth as much as the proof\nthat a stale module turns it red (#184).\n\nIt runs the same codegen comparison against a single module, first pristine\n(expecting no drift) and then with that module's committed bindings deliberately\nmade stale (expecting drift naming the file).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("generated.go", 94, 1)).
+							WithCheck().
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{Description: "The workspace to check. A Dagger CLI fills this in from the workspace the\ncall was made in; a module calling this one has to pass on the workspace the\nCLI handed it, or make one out of a directory with Directory.asWorkspace.\nIt is not called \"workspace\" because --workspace is one of the CLI's own\nglobal flags, and a function argument cannot take a name it has claimed.", SourceMap: dag.SourceMap("generated.go", 101, 2)}).
+							WithArg("probeModule", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The module to make stale, repo-relative. Defaults to the first\ndependency-free module in the workspace, which is the cheapest one to\nregenerate.", SourceMap: dag.SourceMap("generated.go", 107, 2)})).
+					WithFunction(
+						dag.Function("MemoStoreSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MemoStoreSelfTest verifies the store this module owns both sides of — that a\npass is recorded under its own ref's scope, that recording the same hash twice\nwrites nothing and refreshes no TTL, that entries read back, that one older\nthan the TTL does not, and that one ref's scope stays out of another's — against\nan in-process stub of GitHub's API.\n\nIt is a check rather than only a Go test because this is the half of\nmemoization that fails silently: a store that quietly takes nothing costs every\nlater run its full time and looks exactly like a workspace nobody has recorded\nagainst yet, and a scope that leaks costs correctness. Like SelectionSelfTest it\nruns in-process and needs no network, no credential and no services.").
+							WithSourceMap(dag.SourceMap("main.go", 523, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Plan",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Plan returns the legs of CI to run for a change, each already routed to the\nmodule that owns it and bounded by a timeout.\n\nEach leg is a {name, module, filter, hash, timeout, jobTimeout} object: the\ndisplay name, the repo-relative module to invoke with `-m`, the check pattern to\npass to `dagger check` (empty to run every check the module has), the input hash\na pass may be recorded under (empty means never memoize), and the step and job\nbudgets in minutes.\n\nbase and head are the revisions to diff, three-dot (merge-base) like a PR's\nchange set. Either may be written in any form git's rev-parse takes — a full or\nabbreviated commit SHA, a branch or tag name, HEAD, or those with ~ and ^\nsuffixes — so CI can pass the SHAs its event payload carries and a person can\npass `--base=main --head=HEAD`. Either side empty or all-zeros — a new branch,\na missing base — means \"run everything\", and so does a revision this repository\ncannot resolve.\n\nA plan that cannot read the workspace is an error, never an empty plan: an empty\nmatrix skips the run job and passes the gate having run nothing. Everything else\nfails safe towards running too much — an unusable diff range, an unreadable\nsource context, a module whose checks cannot be enumerated.\n\nThe repository read from is repo, or the workspace's own root when repo is\nomitted. Everything comes out of it: module discovery is a dagger.json walk,\nsource contexts and check enumeration resolve against it, and the change set\ncomes from its .git.\n\nA Dagger CLI fills callingWorkspace in from the workspace the call was made\nin, so a person types neither argument. A module calling this one must pass\none — an omitted workspace argument is an error rather than a default, because\nthe engine resolves that default to the current workspace and a module runtime\ncall has none — and Directory.asWorkspace is how a module with only a\ndirectory makes one.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 234, 1)).
+							WithArg("base", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The revision the change is measured from: a commit SHA, a branch or tag\nname, HEAD, or any of those with git's ~ and ^ suffixes.", SourceMap: dag.SourceMap("main.go", 238, 2)}).
+							WithArg("head", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The revision the change is measured to, in the same forms as base.", SourceMap: dag.SourceMap("main.go", 240, 2)}).
+							WithArg("format", dag.TypeDef().WithEnum("Format").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 243, 2), DefaultValue: dagger.JSON("\"JSON\"")}).
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{Description: "The workspace to plan for. A Dagger CLI fills this in from the workspace\nthe call was made in, so nobody types it there -- which is just as well,\nsince the CLI's own --workspace is a global flag and a function argument by\nthat name cannot be spelled. It is required rather than optional because a\nworkspace argument a module leaves out is fatal, not empty: the engine\nresolves its default to the current workspace, and a module runtime call\nhas none. A module that holds only a directory makes one with\nDirectory.asWorkspace.", SourceMap: dag.SourceMap("main.go", 252, 2)}).
+							WithArg("repo", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The repository to plan for, overriding the workspace's own root. It is the\nescape hatch for a caller whose .git is a file rather than a directory (a\ngit worktree), which would otherwise degrade to running everything.", SourceMap: dag.SourceMap("main.go", 258, 2)}).
+							WithArg("knownGood", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Input hashes a previous run already proved good, as a JSON array. They are\nhonoured on the same terms as the ones read from the memoization store, and\nare how a CI system that reads its own store — or a test — supplies them\nwithout one. Anything unparseable is treated as empty: a store that cannot be\nread must cost speed, never correctness.", SourceMap: dag.SourceMap("main.go", 267, 2), DefaultValue: dagger.JSON("\"[]\"")}).
+							WithArg("recordCommand", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The command a JENKINS branch runs to record its own pass, with\n`--hash=<that leg's hash>` appended — conventionally a `record-pass` call\ncomplete but for the hash:\n\n\tdagger -m <this module> --memo-store=GIT_REFS --memo-repo=<repo>\n\t  --memo-token=env:GH_TOKEN --memo-refs=refs/heads/main\n\t  call record-pass --ref=\"$GIT_REF\" --commit=\"$GIT_COMMIT\"\n\nIt is a whole command rather than a set of fields because the credential is\nin it: rendering a token into a plan a pipeline writes to disk and `load`s is\nnot something this module should ever do, and the pipeline already knows how\nto name its own. Nothing is rendered for a leg with no hash, and nothing runs\nfor a branch whose check failed — see README.md.\n\nOnly the JENKINS form takes one; every other format carries each leg's hash\nas data for the surrounding job to record, so passing it with those is an\nerror rather than a silent no-op.", SourceMap: dag.SourceMap("main.go", 287, 2)}).
+							WithArg("diagnostics", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Emit a diagnostics object — the plan plus which modules had to be loaded to\nproduce it, whether everything was selected, which legs a recorded pass\nretired, and whether recorded passes were honoured at all — instead of the\nbare plan. Intended for tests and for explaining a plan, not for CI.", SourceMap: dag.SourceMap("main.go", 294, 2)})).
+					WithFunction(
+						dag.Function("RecordPass",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("RecordPass records that the leg whose inputs hashed to hash passed, so a later\nrun that computes the same hash can skip it. It is the write half of what Plan\nreads, for the stores this module owns both sides of.\n\nIt reports what it did, as one word, and **never fails a check that passed**.\nRecording happens after the work is already green, so a store that will not\ntake the entry has to cost a later run its time and nothing else. A caller who\nwants a store problem to be loud should compare the returned word:\n\n\tRECORDED         a new entry now names this hash\n\tALREADY_RECORDED an earlier run got there; nothing was written or refreshed\n\tREFUSED          ref is not one of memoRefs, so this scope is not writable\n\tSKIPPED          nothing to record: an empty hash, or no store configured\n\tUNSUPPORTED      the configured store cannot be written from this module\n\tFAILED           the store would not take the entry; stderr says why\n\nThe error return is not how a store problem is reported. It carries exactly one\nthing: a call that named no ref, because with no ref there is no scope to judge\nand refusing silently would be indistinguishable from a scope that was judged\nand rejected.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 368, 1)).
+							WithArg("hash", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The leg's input hash, exactly as Plan emitted it. An empty hash is a leg\nthat may never be memoized, and recording one is a no-op.", SourceMap: dag.SourceMap("main.go", 372, 2)}).
+							WithArg("ref", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The git ref the run that passed is on, spelled the way memoRefs spells it —\nrefs/heads/main, refs/pull/12/merge. Nothing is written unless it is one of\nthem.", SourceMap: dag.SourceMap("main.go", 376, 2)}).
+							WithArg("commit", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The commit whose checks passed. The entry points at it, so `git log` on a\nrecorded ref shows what proved the hash.", SourceMap: dag.SourceMap("main.go", 379, 2)})).
+					WithFunction(
+						dag.Function("SelectionSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SelectionSelfTest verifies the change -> modules -> legs mapping, the properties\na recorded pass depends on, and the shape each format renders a plan in, against\nfixed fixtures — so a regression in any of them fails CI rather than silently\nunder-running a consumer's checks or handing their CI system something it cannot\nparse. It runs in-process and needs no services, so it is cheap enough to run on\nevery leg set.").
+							WithSourceMap(dag.SourceMap("main.go", 500, 1)).
+							WithCheck()).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("WorkspaceCi")).
+							WithDescription("New configures a planner.").
+							WithSourceMap(dag.SourceMap("main.go", 78, 1)).
+							WithArg("globalPaths", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Repo-relative path prefixes that govern how CI runs rather than what any\ncheck computes; a change to one runs everything. They belong to no module's\nsource context, so nothing else would attribute them. Defaults to\n.github/workflows/, which costs nothing in a workspace that has none.", SourceMap: dag.SourceMap("main.go", 85, 2)}).
+							WithArg("splitModules", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Repo-relative directories of modules whose checks must each get their own leg\neven when everything runs. The run-everything path otherwise emits one leg per\nmodule, which is right when a module's checks share their containers and wrong\nwhen each one boots a stack of its own: those land in a single engine on a\nsingle runner. Splitting a module costs loading it — the one thing that path\nexists to avoid — so name only the modules that need it.", SourceMap: dag.SourceMap("main.go", 94, 2)}).
+							WithArg("timeouts", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's\ndisplay name, by a module directory (which covers every leg of that module),\nor by \"<module-dir>:*\" (which covers that module's coarse run-everything leg\nand none of its per-check legs, since a coarse leg's display name *is* its\nmodule directory). It is JSON because Dagger function parameters cannot be Go\nmaps.", SourceMap: dag.SourceMap("main.go", 104, 2), DefaultValue: dagger.JSON("\"{}\"")}).
+							WithArg("defaultTimeout", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The check-step budget in minutes for a leg with no override.", SourceMap: dag.SourceMap("main.go", 109, 2), DefaultValue: dagger.JSON("6")}).
+							WithArg("memoStore", dag.TypeDef().WithEnum("MemoStore").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Where recorded passes live. ACTIONS_CACHE is read-only from this module and\nleaves recording to an actions/cache/save step; GIT_REFS is a store the\nmodule owns both sides of, so RecordPass can write it from anywhere a token\nreaches. See README.md — the two have different trust arguments.", SourceMap: dag.SourceMap("main.go", 117, 2), DefaultValue: dagger.JSON("\"ActionsCache\"")}).
+							WithArg("memoToken", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A credential for the memoization store: a GitHub token on memoRepo with\nactions:read for ACTIONS_CACHE, or contents:read for GIT_REFS — plus\ncontents:write if this run is to record anything.", SourceMap: dag.SourceMap("main.go", 123, 2)}).
+							WithArg("memoRepo", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The owner/name whose Actions cache, or whose git refs, hold the memoization\nstore.", SourceMap: dag.SourceMap("main.go", 128, 2)}).
+							WithArg("memoAPI", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The GitHub API root the store is reached through. Defaults to\nhttps://api.github.com; set it for GitHub Enterprise Server.", SourceMap: dag.SourceMap("main.go", 133, 2)}).
+							WithArg("memoRefs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "The git refs whose scopes may be trusted to hold recorded passes, spelled in\nfull (refs/heads/main, refs/pull/12/merge). They are the refs a plan reads,\nand the only refs RecordPass will write from. Defaults to none, which reads\nnothing and records nothing: a scope a run can write is a scope that must be\nchosen deliberately.", SourceMap: dag.SourceMap("main.go", 141, 2)}).
+							WithArg("memoTTL", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "How long, in seconds, a recorded pass may be honoured. This is the answer to\nbase-image drift, which a source-derived hash cannot see.", SourceMap: dag.SourceMap("main.go", 147, 2), DefaultValue: dagger.JSON("86400")}))).
+			WithEnum(
+				dag.TypeDef().WithEnum("Format", dagger.TypeDefWithEnumOpts{Description: "Format is how a plan is serialized.\n\nNote on rendered names: the Dagger Go SDK derives each GraphQL enum member from\nthe *constant identifier* in SCREAMING_SNAKE_CASE, and the CLI takes that member\nname rather than the value — hence `--format=GITHUB_ACTIONS`. The values here are\nspelled to match, so there is only ever one spelling to remember.", SourceMap: dag.SourceMap("main.go", 185, 6)}).
+					WithEnumMember("GithubActions", dagger.TypeDefWithEnumMemberOpts{Value: "GITHUB_ACTIONS", Description: "FormatGithubActions is a single-line JSON array, ready to write to\nGITHUB_OUTPUT and expand with fromJSON as a matrix.", SourceMap: dag.SourceMap("main.go", 192, 2)}).
+					WithEnumMember("JSON", dagger.TypeDefWithEnumMemberOpts{Value: "JSON", Description: "FormatJSON is the canonical form: an indented JSON array of legs.", SourceMap: dag.SourceMap("main.go", 189, 2)}).
+					WithEnumMember("Jenkins", dagger.TypeDefWithEnumMemberOpts{Value: "JENKINS", Description: "FormatJenkins is Groovy: a map of leg name to closure, which is what a\ndeclarative pipeline's parallel step takes. Write it to a file, `load` it,\nand hand the result straight to `parallel`.", SourceMap: dag.SourceMap("main.go", 196, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("MemoStore", dagger.TypeDefWithEnumOpts{Description: "MemoStore is where recorded passes live, and decides whether this module can\nrecord one at all.\n\nNote on rendered names: as with Format, the CLI takes the enum member the SDK\nderives from the constant identifier, so the values are spelled to match.", SourceMap: dag.SourceMap("main.go", 60, 6)}).
+					WithEnumMember("ActionsCache", dagger.TypeDefWithEnumMemberOpts{Value: "ACTIONS_CACHE", Description: "MemoStoreActionsCache is GitHub's Actions cache, an entry being the key\nworkspace-ci-memo-v1-<hash> and nothing else. This module reads it and can\nnever write it: a cache write needs ACTIONS_RUNTIME_TOKEN, which only a\nrunning workflow holds, so recording stays an actions/cache/save step and\nRecordPass reports UNSUPPORTED.", SourceMap: dag.SourceMap("main.go", 68, 2)}).
+					WithEnumMember("GitRefs", dagger.TypeDefWithEnumMemberOpts{Value: "GIT_REFS", Description: "MemoStoreGitRefs is a namespace of git refs in memoRepo, which an ordinary\nrepository token both reads and writes — so RecordPass works, and a CI\nsystem with no equivalent of actions/cache/save can memoize. Its trust\nargument is not the Actions cache's and is spelled out in README.md: GitHub\nisolates cache scopes for you, and it does not isolate refs.", SourceMap: dag.SourceMap("main.go", 74, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

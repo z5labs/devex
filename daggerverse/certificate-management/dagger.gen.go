@@ -666,6 +666,139 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the certificate-management Dagger module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("CertificateManagement", dagger.TypeDefWithObjectOpts{Description: "CertificateManagement provides functions for creating and managing X.509\ncertificate authorities, issuing server / client / mutual-TLS certificates,\nand packaging them as PKCS#12 keystores and truststores. The module is a\npure signer: callers supply the private key material as a PEM-encoded\nPKCS#8 *dagger.Secret (RSA, ECDSA, or Ed25519). Pair with\n`daggerverse/crypto`'s key generators for fresh per-call keys.", SourceMap: dag.SourceMap("main.go", 31, 6)}).
+					WithFunction(
+						dag.Function("CreateCertificateAuthority",
+							dag.TypeDef().WithObject("CertificateAuthority")).
+							WithDescription("CreateCertificateAuthority self-signs a root CA over the caller-supplied\nprivate key. The key must be PEM-encoded PKCS#8 (RSA, ECDSA, or Ed25519).\nThe supplied password is bound to the resulting CA's KeyStore() and\nTrustStore() output.\n\nEvery field of the certificate template is fully determined by the\nfunction's inputs (commonName, validityDays, notBefore, serial, key); the\npassword binds to the CA's KeyStore/TrustStore output but does not\ninfluence the certificate contents or signature. Vary notBefore and\nserial per call to bust Dagger's default cache when fresh certs are\nwanted; reuse them to hit the cache and re-use the previously signed\nbytes.").
+							WithSourceMap(dag.SourceMap("main.go", 89, 1)).
+							WithArg("commonName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Subject common name for the CA certificate.", SourceMap: dag.SourceMap("main.go", 93, 2), DefaultValue: dagger.JSON("\"Devex Root CA\"")}).
+							WithArg("validityDays", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Number of days the CA certificate is valid for.", SourceMap: dag.SourceMap("main.go", 96, 2), DefaultValue: dagger.JSON("3650")}).
+							WithArg("notBefore", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "RFC3339 timestamp the CA becomes valid at. The CA's NotAfter is\nnotBefore + validityDays. Pass time.Now().UTC().Format(time.RFC3339)\nfor a fresh CA per call.", SourceMap: dag.SourceMap("main.go", 100, 2)}).
+							WithArg("serial", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hex-encoded certificate serial number (typically 32 hex chars =\n128 bits). Must be a positive integer.", SourceMap: dag.SourceMap("main.go", 103, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PKCS#12 password used by the CA's KeyStore and TrustStore.", SourceMap: dag.SourceMap("main.go", 105, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM-encoded PKCS#8 private key the CA will sign with and embed.", SourceMap: dag.SourceMap("main.go", 107, 2)})).
+					WithFunction(
+						dag.Function("LoadCertificateAuthority",
+							dag.TypeDef().WithObject("CertificateAuthority")).
+							WithDescription("LoadCertificateAuthority restores a CA from a PKCS#12 archive that contains\nthe CA certificate and its private key. The supplied password is also bound\nto the returned CA's KeyStore() and TrustStore() output.").
+							WithSourceMap(dag.SourceMap("main.go", 147, 1)).
+							WithArg("pkcs12File", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "PKCS#12 archive containing the CA certificate and private key.", SourceMap: dag.SourceMap("main.go", 150, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "Password used to decrypt the archive.", SourceMap: dag.SourceMap("main.go", 152, 2)})).
+					WithFunction(
+						dag.Function("LoadKeyStoreFromPkcs12",
+							dag.TypeDef().WithObject("KeyStore")).
+							WithDescription("LoadKeyStoreFromPkcs12 wraps an existing PKCS#12 archive and its password\nas a KeyStore.").
+							WithSourceMap(dag.SourceMap("main.go", 197, 1)).
+							WithArg("pkcs12File", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 198, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 199, 2)})).
+					WithFunction(
+						dag.Function("LoadTrustStoreFromPkcs12",
+							dag.TypeDef().WithObject("TrustStore")).
+							WithDescription("LoadTrustStoreFromPkcs12 wraps an existing PKCS#12 archive and its password\nas a TrustStore.").
+							WithSourceMap(dag.SourceMap("main.go", 206, 1)).
+							WithArg("pkcs12File", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 207, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 208, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("CertificateAuthority", dagger.TypeDefWithObjectOpts{Description: "CertificateAuthority is a self-signed X.509 root capable of issuing leaf\ncertificates. It carries its own PKCS#12 password used by KeyStore() and\nTrustStore().", SourceMap: dag.SourceMap("main.go", 36, 6)}).
+					WithFunction(
+						dag.Function("IssueClientCertificate",
+							dag.TypeDef().WithObject("IssuedCertificate")).
+							WithDescription("IssueClientCertificate signs a leaf TLS client certificate from the\ncaller-supplied private key (PEM PKCS#8) using this CA.\n\nPure given its inputs; vary notBefore and serial per call to bust caching.").
+							WithSourceMap(dag.SourceMap("main.go", 287, 1)).
+							WithArg("commonName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 289, 2)}).
+							WithArg("validityDays", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 291, 2), DefaultValue: dagger.JSON("365")}).
+							WithArg("notBefore", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "RFC3339 timestamp the certificate becomes valid at.", SourceMap: dag.SourceMap("main.go", 293, 2)}).
+							WithArg("serial", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hex-encoded certificate serial number (typically 32 hex chars =\n128 bits). Must be a positive integer.", SourceMap: dag.SourceMap("main.go", 296, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 297, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM-encoded PKCS#8 private key for the leaf certificate.", SourceMap: dag.SourceMap("main.go", 299, 2)})).
+					WithFunction(
+						dag.Function("IssueMutualTlsCertificate",
+							dag.TypeDef().WithObject("IssuedCertificate")).
+							WithDescription("IssueMutualTlsCertificate signs a leaf certificate that is valid for both\nserver and client authentication, suitable for mutual-TLS use, from the\ncaller-supplied private key (PEM PKCS#8).\n\nPure given its inputs; vary notBefore and serial per call to bust caching.").
+							WithSourceMap(dag.SourceMap("main.go", 310, 1)).
+							WithArg("commonName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 312, 2)}).
+							WithArg("dnsSans", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 314, 2)}).
+							WithArg("ipSans", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 316, 2)}).
+							WithArg("validityDays", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 318, 2), DefaultValue: dagger.JSON("365")}).
+							WithArg("notBefore", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "RFC3339 timestamp the certificate becomes valid at.", SourceMap: dag.SourceMap("main.go", 320, 2)}).
+							WithArg("serial", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hex-encoded certificate serial number (typically 32 hex chars =\n128 bits). Must be a positive integer.", SourceMap: dag.SourceMap("main.go", 323, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 324, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM-encoded PKCS#8 private key for the leaf certificate.", SourceMap: dag.SourceMap("main.go", 326, 2)})).
+					WithFunction(
+						dag.Function("IssueServerCertificate",
+							dag.TypeDef().WithObject("IssuedCertificate")).
+							WithDescription("IssueServerCertificate signs a leaf TLS server certificate from the\ncaller-supplied private key (PEM PKCS#8) using this CA. The leaf is\nembedded with the given DNS and IP Subject Alternative Names.\n\nPure given its inputs; vary notBefore and serial per call to bust caching.").
+							WithSourceMap(dag.SourceMap("main.go", 255, 1)).
+							WithArg("commonName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Subject common name for the server certificate.", SourceMap: dag.SourceMap("main.go", 258, 2)}).
+							WithArg("dnsSans", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "DNS names to embed as Subject Alternative Names.", SourceMap: dag.SourceMap("main.go", 261, 2)}).
+							WithArg("ipSans", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "IP addresses to embed as Subject Alternative Names.", SourceMap: dag.SourceMap("main.go", 264, 2)}).
+							WithArg("validityDays", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Number of days the certificate is valid for.", SourceMap: dag.SourceMap("main.go", 267, 2), DefaultValue: dagger.JSON("365")}).
+							WithArg("notBefore", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "RFC3339 timestamp the certificate becomes valid at.", SourceMap: dag.SourceMap("main.go", 269, 2)}).
+							WithArg("serial", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hex-encoded certificate serial number (typically 32 hex chars =\n128 bits). Must be a positive integer.", SourceMap: dag.SourceMap("main.go", 272, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PKCS#12 password used by the issued certificate's KeyStore and\nTrustStore.", SourceMap: dag.SourceMap("main.go", 275, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM-encoded PKCS#8 private key for the leaf certificate.", SourceMap: dag.SourceMap("main.go", 277, 2)})).
+					WithFunction(
+						dag.Function("KeyStore",
+							dag.TypeDef().WithObject("KeyStore")).
+							WithDescription("KeyStore returns a PKCS#12 archive containing the CA certificate and its\nprivate key, encrypted with the password bound at creation time.").
+							WithSourceMap(dag.SourceMap("main.go", 215, 1))).
+					WithFunction(
+						dag.Function("TrustStore",
+							dag.TypeDef().WithObject("TrustStore")).
+							WithDescription("TrustStore returns a PKCS#12 archive containing the CA certificate, suitable\nfor distribution to clients that need to trust certificates issued by this\nCA.").
+							WithSourceMap(dag.SourceMap("main.go", 234, 1))).
+					WithField("CertPemFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "PEM-encoded CA certificate (public).", SourceMap: dag.SourceMap("main.go", 37, 2)}).
+					WithField("PrivateKeyPem", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{Description: "PEM-encoded PKCS#8 CA private key.", SourceMap: dag.SourceMap("main.go", 38, 2)}).
+					WithField("Pwd", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{Description: "PKCS#12 password bound at creation/load time.", SourceMap: dag.SourceMap("main.go", 39, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("KeyStore", dagger.TypeDefWithObjectOpts{Description: "KeyStore is a PKCS#12 archive containing a certificate and its private key,\nprotected by a password.", SourceMap: dag.SourceMap("main.go", 53, 6)}).
+					WithFunction(
+						dag.Function("Password",
+							dag.TypeDef().WithObject("Secret")).
+							WithDescription("Password returns the secret used to encrypt the PKCS#12 archive.").
+							WithSourceMap(dag.SourceMap("main.go", 62, 1))).
+					WithFunction(
+						dag.Function("Pkcs12",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pkcs12 returns the PKCS#12-encoded archive as a Dagger file.").
+							WithSourceMap(dag.SourceMap("main.go", 59, 1))).
+					WithField("File", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 54, 2)}).
+					WithField("Pwd", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 55, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("TrustStore", dagger.TypeDefWithObjectOpts{Description: "TrustStore is a PKCS#12 archive containing one or more trusted certificates,\nprotected by a password.", SourceMap: dag.SourceMap("main.go", 66, 6)}).
+					WithFunction(
+						dag.Function("Password",
+							dag.TypeDef().WithObject("Secret")).
+							WithDescription("Password returns the secret used to encrypt the PKCS#12 archive.").
+							WithSourceMap(dag.SourceMap("main.go", 75, 1))).
+					WithFunction(
+						dag.Function("Pkcs12",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pkcs12 returns the PKCS#12-encoded archive as a Dagger file.").
+							WithSourceMap(dag.SourceMap("main.go", 72, 1))).
+					WithField("File", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 67, 2)}).
+					WithField("Pwd", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 68, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("IssuedCertificate", dagger.TypeDefWithObjectOpts{Description: "IssuedCertificate is a leaf certificate signed by a CA, together with the\nissuing CA's certificate (used to build trust bundles).", SourceMap: dag.SourceMap("main.go", 44, 6)}).
+					WithFunction(
+						dag.Function("KeyStore",
+							dag.TypeDef().WithObject("KeyStore")).
+							WithDescription("KeyStore returns a PKCS#12 archive containing the leaf certificate, its\nprivate key, and the issuing CA certificate as a chain entry.").
+							WithSourceMap(dag.SourceMap("main.go", 335, 1))).
+					WithFunction(
+						dag.Function("TrustStore",
+							dag.TypeDef().WithObject("TrustStore")).
+							WithDescription("TrustStore returns a PKCS#12 archive containing the issuing CA certificate.").
+							WithSourceMap(dag.SourceMap("main.go", 353, 1))).
+					WithField("CertPemFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "PEM-encoded leaf certificate.", SourceMap: dag.SourceMap("main.go", 45, 2)}).
+					WithField("PrivateKeyPem", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{Description: "PEM-encoded PKCS#8 leaf private key.", SourceMap: dag.SourceMap("main.go", 46, 2)}).
+					WithField("IssuerCertFile", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{Description: "PEM-encoded issuing CA certificate.", SourceMap: dag.SourceMap("main.go", 47, 2)}).
+					WithField("Pwd", dag.TypeDef().WithObject("Secret"), dagger.TypeDefWithFieldOpts{Description: "PKCS#12 password.", SourceMap: dag.SourceMap("main.go", 48, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

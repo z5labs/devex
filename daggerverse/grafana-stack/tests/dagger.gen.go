@@ -440,6 +440,129 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the grafana-stack-tests Dagger module: round-trip checks\nfor each backend exposed by the grafana-stack module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 19, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every grafana-stack round-trip test in parallel.\n\nEach tag flag is forwarded to the matching per-backend test so a fresh\nupstream release can be qualified at the CLI without editing any\nmodule:\n\n\tdagger -m daggerverse/grafana-stack/tests call all --grafana-tag=12.1.0\n\tdagger -m daggerverse/grafana-stack/tests call all --loki-tag=3.5.0\n\nDefaults match the parent module's pinned defaults so the bare\n`call all` keeps working.\n\nparallel caps how many tests run concurrently inside this suite. Defaults\nto 0 (unbounded fan-out).\n\nAll exists as a convenience for local `dagger call all` invocations.\nCI does NOT call All: each of the four round-trips below carries its\nown `+check` directive, so GH Actions schedules each onto its own\nrunner in parallel.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 42, 1)).
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "grafana/loki image tag.", SourceMap: dag.SourceMap("main.go", 46, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("tempoTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "grafana/tempo image tag.", SourceMap: dag.SourceMap("main.go", 49, 2), DefaultValue: dagger.JSON("\"2.7.1\"")}).
+							WithArg("mimirTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "grafana/mimir image tag.", SourceMap: dag.SourceMap("main.go", 52, 2), DefaultValue: dagger.JSON("\"2.15.1\"")}).
+							WithArg("grafanaTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "grafana/grafana image tag.", SourceMap: dag.SourceMap("main.go", 55, 2), DefaultValue: dagger.JSON("\"12.0.0\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 57, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("GrafanaProxiesLokiQuery",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GrafanaProxiesLokiQuery starts a Loki backend and a Grafana UI wired\nto it via WithLokiDatasource, posts a single OTLP log carrying a\nunique marker UUID directly to Loki, then issues an authenticated\nLogQL query *through* Grafana's datasource proxy\n(/api/datasources/proxy/uid/<name>/loki/api/v1/query_range) until the\nmarker reappears in the response. Verifies admin-password file\nmounting, datasources.yaml provisioning, the in-network service\nbinding hostname, and Grafana's proxy plumbing all work end-to-end.\n\nlokiTag and grafanaTag override their respective image tags at the\nCLI; both default to the parent module's pinned defaults.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 535, 1)).
+							WithCheck().
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 538, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("grafanaTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 540, 2), DefaultValue: dagger.JSON("\"12.0.0\"")})).
+					WithFunction(
+						dag.Function("GrafanaProxiesLokiQueryOverMtls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GrafanaProxiesLokiQueryOverMtls wires a TLS Grafana to an mTLS-required Loki\ndatasource: Grafana presents a client cert to reach Loki. It asserts the\nproxied query succeeds with the right client cert, and that a Grafana whose\ndatasource presents a client cert from an untrusted CA fails.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 653, 1)).
+							WithCheck().
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 656, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("grafanaTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 658, 2), DefaultValue: dagger.JSON("\"12.0.0\"")})).
+					WithFunction(
+						dag.Function("GrafanaProxiesLokiQueryOverTls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GrafanaProxiesLokiQueryOverTls wires a TLS Grafana to a TLS Loki datasource\n(Grafana verifies Loki via the pinned CA), pushes a marker to Loki over\nhttps, and asserts an authenticated LogQL query *through* Grafana's\ndatasource proxy (itself served over https) returns the marker.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 590, 1)).
+							WithCheck().
+							WithArg("lokiTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 593, 2), DefaultValue: dagger.JSON("\"3.4.1\"")}).
+							WithArg("grafanaTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 595, 2), DefaultValue: dagger.JSON("\"12.0.0\"")})).
+					WithFunction(
+						dag.Function("GrafanaTlsRejectsPlaintext",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GrafanaTlsRejectsPlaintext stands up a TLS-enabled Grafana and asserts its\n:3000 listener answers over https and refuses a plaintext client.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 541, 1)).
+							WithCheck().
+							WithArg("grafanaTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 544, 2), DefaultValue: dagger.JSON("\"12.0.0\"")})).
+					WithFunction(
+						dag.Function("LokiAcceptsOtlpLogs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LokiAcceptsOtlpLogs starts a Loki service, posts a single log record via\nthe OTLP/HTTP receiver carrying a unique marker UUID, then queries Loki\nLogQL until the marker reappears in the query response. Verifies the\ndefault config wires up the OTLP HTTP ingester end-to-end.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 112, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 115, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("LokiMtlsRequiresClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LokiMtlsRequiresClientCert stands up an mTLS-required Loki and asserts a\npush presenting a valid client cert is accepted while one without any client\ncert is refused.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 252, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 255, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("LokiTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LokiTlsRoundTrip stands up a TLS-enabled Loki, pushes an OTLP log over\nhttps, reads the marker back over https, and asserts a plaintext client is\nrefused.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 175, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 178, 2), DefaultValue: dagger.JSON("\"3.4.1\"")})).
+					WithFunction(
+						dag.Function("MimirAcceptsOtlpMetrics",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MimirAcceptsOtlpMetrics starts a Mimir service, posts a single gauge\nsample via the OTLP/HTTP receiver under a uniquely-named metric, then\nqueries Mimir's Prometheus-compatible API until that metric appears.\nVerifies the default config wires up the OTLP HTTP ingester and the\nfilesystem block store end-to-end.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 394, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 397, 2), DefaultValue: dagger.JSON("\"2.15.1\"")})).
+					WithFunction(
+						dag.Function("MimirMtlsRequiresClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MimirMtlsRequiresClientCert asserts an mTLS-required Mimir accepts an OTLP\nmetric push presenting a valid client cert and refuses one without.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 493, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 496, 2), DefaultValue: dagger.JSON("\"2.15.1\"")})).
+					WithFunction(
+						dag.Function("MimirTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MimirTlsRoundTrip stands up a TLS-enabled Mimir, pushes an OTLP metric over\nhttps, queries it back over https, and asserts a plaintext client is\nrefused.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 424, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 427, 2), DefaultValue: dagger.JSON("\"2.15.1\"")})).
+					WithFunction(
+						dag.Function("TempoAcceptsOtlpTraces",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TempoAcceptsOtlpTraces starts a Tempo service, posts a single span via\nthe OTLP/HTTP receiver carrying a unique 16-byte trace ID, then polls\n/api/traces/<trace_id> until Tempo returns the trace. Verifies the\ndefault config wires up the OTLP HTTP receiver and the local trace\nstore end-to-end.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 254, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 257, 2), DefaultValue: dagger.JSON("\"2.7.1\"")})).
+					WithFunction(
+						dag.Function("TempoMtlsRequiresClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TempoMtlsRequiresClientCert asserts an mTLS-required Tempo accepts an OTLP\nspan push presenting a valid client cert and refuses one without.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 375, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 378, 2), DefaultValue: dagger.JSON("\"2.7.1\"")})).
+					WithFunction(
+						dag.Function("TempoTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TempoTlsRoundTrip stands up a TLS-enabled Tempo, pushes a span over the\nhttps OTLP receiver, reads it back over the https query API, and asserts a\nplaintext client is refused.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tls.go", 299, 1)).
+							WithCheck().
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 302, 2), DefaultValue: dagger.JSON("\"2.7.1\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

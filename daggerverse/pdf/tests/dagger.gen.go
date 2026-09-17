@@ -615,6 +615,308 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the pdf Dagger module. Each test\nis exposed as a standalone dagger function so it can be invoked individually\nduring TDD; All wires them up for parallel execution under `dagger call all`.\n\nThe fixtures under fixtures/ are hand-authored and committed. Their content\nstreams are uncompressed, so the text a page is supposed to render is readable\nin the fixture itself and an assertion about it can be checked against the\nPDF rather than against another tool's opinion of the PDF.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 295, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every pdf-module test in parallel.\n\nThe fan-out is unbounded by default. Unlike the tesseract suite, which had to\nbe capped because an unbounded tesseract sizes its OpenMP teams by CPU count\nand multiplied the concurrency rather than sharing it (#226), poppler's tools\nare single-threaded: twenty of them contend for cores the way any other\noversubscribed workload does. The cap stays available for a host that wants a\nnarrower slice.").
+							WithSourceMap(dag.SourceMap("main.go", 307, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Maximum number of tests to run concurrently. Zero fans out unbounded.", SourceMap: dag.SourceMap("main.go", 311, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ApkAuthInstallsFromAuthenticatedRepository",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApkAuthInstallsFromAuthenticatedRepository asserts credentials reach the\nfetch, and that they reach it without becoming part of the image.\n\nThe second half is the reason the option takes a Secret. A mirror password\nspelled into a repository URL would land in /etc/apk/repositories, in every\napk message quoting it, and in the layer a caller exports — so all three\nplaces are searched for it here, and the message is checked to be one that\nnames the repository at all, or its silence about the password would prove\nnothing.").
+							WithSourceMap(dag.SourceMap("apk.go", 352, 1))).
+					WithFunction(
+						dag.Function("ApkRepositoryAssemblesWorkingToolchainFromMirror",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApkRepositoryAssemblesWorkingToolchainFromMirror asserts the image can be built\nentirely out of a caller-supplied repository and that what comes out of it\nworks, which is the whole point of the option.\n\nThree things are checked rather than one, because this module's packages fail\nin three different ways. A missing poppler fails the build outright, so\nVersion covers it. A poppler that installed but cannot run fails the\nconversion, so the text of the ledger covers that. And a missing font fails\nnothing at all — poppler substitutes what fontconfig offers, which with no\nfamily installed is nothing, and the page renders blank and exits 0. Only the\npixels say so.").
+							WithSourceMap(dag.SourceMap("apk.go", 252, 1))).
+					WithFunction(
+						dag.Function("ApkRepositoryReplacesImageDefaults",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApkRepositoryReplacesImageDefaults asserts the first WithApkRepository\nreplaces the image's repository list rather than appending to it, which is\nwhat makes every other test here mean what it says: with the CDN still in the\nfile, an install that quietly came from dl-cdn.alpinelinux.org is\nindistinguishable from one that came from the mirror.\n\nIt is also the assertion the air-gapped network needs on its own terms. A\nsurviving default there is not a harmless second choice — it is a repository\napk consults and waits on until it times out. So the assertion is on the\nfile, and it is that the CDN is *gone*.").
+							WithSourceMap(dag.SourceMap("apk.go", 296, 1))).
+					WithFunction(
+						dag.Function("AttachmentsReportsPopplersRefusalOfPathBearingNames",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AttachmentsReportsPopplersRefusalOfPathBearingNames asserts what happens to a\ndocument that names an attachment with a path in it, and asserts the failure\ncarries what a caller needs to get the rest of the attachments anyway.\n\nThe behaviour is poppler's and it is coarse: one such name makes `-saveall`\nrefuse the *whole* extraction with `Preventing directory traversal`, so the\nperfectly ordinary second attachment in this fixture comes back not at all. The\nmodule cannot fix that — the name is the document's — so what it can do is say\nwhich document did it, list the names, and point at the tool that fetches them\none at a time. The names are asserted for that reason: they are the argument\n`pdfdetach -savefile` needs, and without them the message is a dead end.").
+							WithSourceMap(dag.SourceMap("main.go", 748, 1))).
+					WithFunction(
+						dag.Function("AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AttachmentsReturnsEveryEmbeddedFileOrSaysThereAreNone asserts both halves of\nwhat the function promises: every file the document attached, under the name\nthe document gave it, and an answer a caller can act on for a document that\nattached nothing.\n\nTwo attachments is the minimum that tests \"every\" — one would be satisfied by\nan implementation that saved the first and stopped — and their contents are\nread rather than their names counted, because a name is not evidence the right\nbytes landed under it.\n\nThe names are the fixture's own and are deliberately *not* the page-style\ncontract the rest of this module's directories honour. An attachment's name is\ndata: it is what the producer called the file and what a consumer looks for, so\n`invoice.xml` staying `invoice.xml` is the assertion, not a defect in the\nnaming discipline.\n\nThe empty case is refused rather than returned as an empty directory. pdfdetach\nexits 0 for a document with no attachments, so the directory would say nothing\nabout which of the two happened, and the message names `pdfdetach -list` as the\nway to ask without failing.").
+							WithSourceMap(dag.SourceMap("main.go", 679, 1))).
+					WithFunction(
+						dag.Function("AuthenticatedRepositoryIsRejectedWithoutApkAuth",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AuthenticatedRepositoryIsRejectedWithoutApkAuth asserts the authenticated\nmirror really is authenticated — that the test above passes because the\ncredentials were supplied and used, and not because the server never asked\nfor any. Both installs run against the one mirror, so WithApkAuth is the\nonly difference between them.").
+							WithSourceMap(dag.SourceMap("apk.go", 431, 1))).
+					WithFunction(
+						dag.Function("BboxCarriesOneBoxPerWord",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BboxCarriesOneBoxPerWord asserts Bbox reports the page's size and one box per\nword, at the coordinates the document itself draws the words at.\n\nThe coordinates are the whole point of the function, so they are checked and\nnot merely counted. ledgerPdf sets its pages with `/F1 24 Tf`, `72 680 Td` and\n`40 TL`, so every number poppler can print here is derivable from the fixture:\nthe first word of a line starts at x=72, and a line's box runs from the\nbaseline less Helvetica's ascender to the baseline plus its descender, measured\ndown from the top of the 792-point page. A test that asserted the boxes were\nnon-empty would pass just as well on boxes that were all the same.\n\nThe absence of layout boxes is asserted too, because that is what `withLayout`\nis the difference between: a plain -bbox report carries words directly under\nthe page, with no flow, block or line around them.").
+							WithSourceMap(dag.SourceMap("main.go", 1989, 1))).
+					WithFunction(
+						dag.Function("BboxWithLayoutAddsBlockAndLineBoxes",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BboxWithLayoutAddsBlockAndLineBoxes asserts withLayout wraps the same word\nboxes in the block and line boxes poppler groups them into.\n\nBoth halves matter. The words have to be the same words at the same\ncoordinates, because the layout report is meant to be the plain one with more\nstructure and not a differently measured one — so the two reports' words are\ncompared box for box. And the boxes that were added have to mean something:\neach line's box is asserted to be exactly the union of the words under it, and\neach block's the union of its lines. A test that only counted `block` elements\nwould pass on boxes that were all the page.\n\nledgerPdf is the fixture for it because its two lines land in two blocks: the\n40-point leading against a 22.2-point line is a gap poppler reads as a\nparagraph break, so the block grouping is observable rather than degenerate.").
+							WithSourceMap(dag.SourceMap("main.go", 2045, 1))).
+					WithFunction(
+						dag.Function("ColorModesProduceDifferentPixels",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ColorModesProduceDifferentPixels asserts the three colour modes render three\ndifferent images.\n\nIt measures pixels rather than the PNG header, because the header does not\nmove: poppler's PNG writer emits 8-bit RGB for all three modes, so a grayscale\nrender is an RGB image whose channels happen to be equal and a monochrome one\nan RGB image whose pixels happen to be pure black or white. Asserting on bit\ndepth would pass identically for all three and prove nothing.\n\nThe three properties are mutually exclusive by construction: colour keeps\nchroma, grey drops chroma but keeps mid-tones, and mono drops both — flat tones\nare dithered into black and white rather than averaged into grey.").
+							WithSourceMap(dag.SourceMap("main.go", 2809, 1))).
+					WithFunction(
+						dag.Function("ContainerCarriesEveryPopplerBinaryAndTheFont",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerCarriesEveryPopplerBinaryAndTheFont asserts the assembled image is\nthe escape hatch it claims to be: all thirteen poppler binaries on PATH, and\nthe substitute font family installed.\n\nThe font half is not a packaging detail. Without a font installed poppler has\nnothing to substitute for a PDF that names a base-14 face without embedding\nit, and renders the page blank while exiting 0 — a silent wrong answer, which\nis the failure mode this assertion exists to keep out.").
+							WithSourceMap(dag.SourceMap("main.go", 1342, 1))).
+					WithFunction(
+						dag.Function("DefaultApkConfigurationIsUntouched",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultApkConfigurationIsUntouched asserts an image built without any of\nthese options is the image this module built before they existed: the stock\nrepository list, and no credential plumbing at all.\n\nIt is the guard against the cheap implementation of all of the above —\nwriting a repositories file, or setting the credential variable,\nunconditionally — which would work for the mirror and rebuild the world for\nevery existing caller.").
+							WithSourceMap(dag.SourceMap("apk.go", 453, 1))).
+					WithFunction(
+						dag.Function("DisablePageBreaksControlsFormFeeds",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DisablePageBreaksControlsFormFeeds asserts the page break is there by default\nand gone when asked for.\n\nThe option is spelled as a disable rather than as a `pageBreaks bool`\ndefaulting to true because a `Go SDK — the zero value is dropped before it reaches the API — so the\naffirmative spelling would have produced an option no caller could turn off.\nThat makes the second half of this test the one that would have caught it.").
+							WithSourceMap(dag.SourceMap("main.go", 1877, 1))).
+					WithFunction(
+						dag.Function("DpiDefaultsToOneFiftyAndScalesWithTheSetting",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DpiDefaultsToOneFiftyAndScalesWithTheSetting asserts the default resolution is\nthe documented 150 and that WithDpi multiplies the pixels accordingly.\n\nThe default is asserted against the page's own geometry rather than against a\nremembered pixel count, so the assertion says \"150 dpi of a US Letter page\"\nrather than \"1275 by 1650\" — which is the claim the documentation actually\nmakes.").
+							WithSourceMap(dag.SourceMap("main.go", 2708, 1))).
+					WithFunction(
+						dag.Function("EmbeddedImagesKeepsTheOriginalEncoding",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EmbeddedImagesKeepsTheOriginalEncoding asserts what each ImageFormat member\ndoes to an image that already has an encoding, and asserts the one that keeps\nit does so byte for byte.\n\nByte equality is the only assertion that actually says \"kept\". A `.jpg` that\ndecodes to the right dimensions would also come out of a re-encode, and a\nre-encode is precisely what ORIGINAL exists to avoid — so the expectation here\nis read out of the fixture itself: gallery.pdf's photograph is JPEG bytes\nhex-armored inside the file, and hex-decoding them gives exactly what poppler\nshould have written.\n\nThe extensions carry the rest of the claim. ORIGINAL falls back to netpbm for\nthe two unencoded strips, which is the part of that member most likely to\nsurprise a caller and therefore the part most worth pinning; ALL is the same\nmember with PNG as the fallback instead, which is the whole difference between\nthe two; and PNG and TIFF re-encode everything, the photograph included.").
+							WithSourceMap(dag.SourceMap("main.go", 461, 1))).
+					WithFunction(
+						dag.Function("EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EmbeddedImagesNamesEveryImageAndNarrowsToThePageRange asserts both numbers in\nan extracted image's name mean what the contract says, and asserts a document\nwith nothing to extract is told so rather than handed an empty directory.\n\nThe names are checked against the images' *dimensions*, not merely counted.\ngallery.pdf's three images are three different sizes on purpose, so decoding\neach one says which image landed under which name — an assertion a numbering\nthat shuffled or off-by-oned the files would fail and an entry-count assertion\nwould not.\n\nThe page range is where the two numbers part company. The page number is the\nsource document's, like everywhere else in this module, so page two's image\nstays `page-0002` when page two is all that was asked for. The image index is\nnot: it is poppler's count for the run, so it restarts at zero. That is\nasserted rather than worked around because it is the surprising half of the\ncontract, and a caller cross-referencing `pdfimages -list` needs to know which\nnumber moved.").
+							WithSourceMap(dag.SourceMap("main.go", 556, 1))).
+					WithFunction(
+						dag.Function("EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EmbeddedImagesReturnsTheStoredImageNotTheRenderedPage asserts the distinction the\nfunction is named for: what comes back is the image object the document\ncarries, not a rasterization of the page it sits on.\n\nThe proof is the pixel dimensions, and it is only a proof because the two\nnumbers cannot be confused. scanPdf's image is 16x16; the US Letter page it is\ndrawn across covers 1275x1650 at the module's default resolution. A function\nthat quietly rasterized the page would return an image 79 times wider, and a\ndimension assertion catches that where an entry-count assertion would not — one\npage carrying one image produces one file either way.\n\nThe render is fetched here rather than hardcoded so the comparison is against\nwhat this module actually produces, which is the thing a caller would otherwise\nmistake this for.").
+							WithSourceMap(dag.SourceMap("main.go", 408, 1))).
+					WithFunction(
+						dag.Function("EncryptedDocumentNeedsThePassword",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EncryptedDocumentNeedsThePassword asserts an encrypted document opens with the\npassword it was encrypted under, fails without one, and says so by naming the\nencryption.\n\nThe message matters as much as the failure. poppler reports every wrong\npassword identically — `Incorrect password`, whether one was supplied or not,\nbecause it tries the empty password when given none — so passing that through\nwould tell a caller who supplied nothing that what they supplied was wrong.\nBoth branches are asserted here for that reason.\n\nThe passwords are generated per run with dag.Random().Sha256 rather than\nwritten down, so no password literal ever enters git, and reach qpdf and\npoppler alike through the environment rather than argv: a password in argv is\nvisible in every Dagger trace, which is exactly what the module's own posture\navoids.").
+							WithSourceMap(dag.SourceMap("main.go", 3456, 1))).
+					WithFunction(
+						dag.Function("EpsWritesEveryPageOfTheDocument",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EpsWritesEveryPageOfTheDocument asserts Eps turns a twelve-page\ndocument into twelve EPS files rather than into a failure.\n\nThis is the criterion that a multi-page source never silently loses pages, and\nfor EPS the failure it guards is not silent at all: `pdftocairo -eps` handed a\nmulti-page document writes nothing and exits 99 with `EPS files can only\ncontain one page.` A single invocation would make Eps unusable for every\ndocument with a second page in it, so the page count here is the assertion\nthat the per-page loop is what runs.\n\nEach file is then checked to be an EPS in its own right — the EPSF version\nheader, and exactly one page in it — because a loop that wrote twelve copies\nof page one would satisfy the names alone.").
+							WithSourceMap(dag.SourceMap("main.go", 993, 1))).
+					WithFunction(
+						dag.Function("ExtractionsOpenAnEncryptedDocumentWithThePassword",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ExtractionsOpenAnEncryptedDocumentWithThePassword asserts the passwords reach\nboth extractions, which is the property that separates them from Split and\nMerge.\n\nIt is worth an assertion of its own precisely because the module already has\ntwo functions where it is false. pdfseparate and pdfunite take no password at\nall, so `WithUserPassword(...).Split()` is a call that cannot be made to work\nand says so; pdfimages and pdfdetach both take `-upw` and `-opw`, so the same\ndocument that Split refuses these two open. Nothing about the two families\nlooks different from the outside, and only a test says which is which.\n\nBoth branches are asserted for each: refused by naming the encryption when no\npassword was supplied — poppler says `Incorrect password` whether one was given\nor not — and the full result when it was.").
+							WithSourceMap(dag.SourceMap("main.go", 781, 1))).
+					WithFunction(
+						dag.Function("FontsNarrowsToThePageRange",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FontsNarrowsToThePageRange asserts WithPageRange reaches pdffonts, and that a\nrange it cannot honour is refused the way every other one is.\n\nWhich faces a document needs is a question about pages, so this is not a\ncosmetic option: a report of pages 1 through 3 that listed a face used only on\npage 40 would say the render depends on a font it does not, and one that\ndropped a face used on page 2 would say the opposite. fontsPdf is built for\nit, its two pages naming different faces, because narrowing a report of\nledgerPdf — every page of which names the same Helvetica — changes nothing at\nall and would pass against a module that ignored the bounds entirely.").
+							WithSourceMap(dag.SourceMap("main.go", 1502, 1))).
+					WithFunction(
+						dag.Function("FontsReportsWhetherEachFaceIsEmbedded",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FontsReportsWhetherEachFaceIsEmbedded asserts Fonts surfaces pdffonts' table\nand that the `emb` column in it says what it is supposed to say.\n\nledgerPdf is the shape the module's font install exists for: its pages name\nHelvetica without embedding it, so poppler has to ask fontconfig for a\nsubstitute, and with no font installed there is nothing to substitute — the\npage renders blank and the command exits 0. `Helvetica … no` is what that\nsilent failure looks like before it happens, which is the whole reason a\npipeline asks for this report.\n\nfontsPdf carries the other half of the column. Its Type 3 font is embedded by\nconstruction, so the report has to read `yes` for it; without that contrast\nthe assertion would pass just as well on a report that said `no` about\neverything, including one produced by a module that had hardcoded the answer.").
+							WithSourceMap(dag.SourceMap("main.go", 1447, 1))).
+					WithFunction(
+						dag.Function("GeometryOfAnImageOnlyPdfReportsPagesWithoutWords",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeometryOfAnImageOnlyPdfReportsPagesWithoutWords asserts a PDF with no text\nlayer produces a well-formed report of a page with nothing on it, and does not\nfail.\n\nIt is the same boundary with the tesseract module that TextOnImageOnlyPdfReturnsNothing\ndraws, and it needs its own assertion because the failure mode here is louder:\npoppler writes `no word list` to *stderr* for such a page and exits 0, having\nwritten a perfectly good report to the output file. A module that read stderr as\na diagnostic, or that treated the absence of words as a document it could not\nopen, would turn the signal to go and rasterize this document into an error.\n\nThe page element still has to be there and still has to state its size, because\nthat is what distinguishes a page carrying no text from a document that was\nnever read.").
+							WithSourceMap(dag.SourceMap("main.go", 2501, 1))).
+					WithFunction(
+						dag.Function("HtmlCarriesPageMarkupAndItsImages",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HtmlCarriesPageMarkupAndItsImages asserts both halves of what Html promises:\nthe page's text as markup, and the images the page carries extracted beside it\nand referenced by a path that resolves.\n\nThe relative reference is the half that is easy to get wrong and impossible to\nnotice. pdftohtml writes the output name it was given straight into every `img\nsrc`, so an absolute output base — the obvious way to write into a staging\ndirectory — produces markup whose images resolve only on the machine that\nrendered them, and which still passes every assertion about entry names. The\nconversion runs with the output directory as its working directory for exactly\nthis reason, and the `src` check here is what holds it there.\n\nTwo fixtures are needed because no one page is both: ledger.pdf is text and no\nimages, scan.pdf is one image and no text.").
+							WithSourceMap(dag.SourceMap("main.go", 1110, 1))).
+					WithFunction(
+						dag.Function("InfoReportsPageCountAndSize",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InfoReportsPageCountAndSize asserts Info surfaces what pdfinfo knows, and\nPageCount reads the page count back out of it.\n\nThey are asserted together because the second is defined in terms of the\nfirst: PageCount parses Info's `Pages:` line, so a change to how Info is\ncaptured that broke the parse would otherwise show up only in whatever used\nPageCount next.").
+							WithSourceMap(dag.SourceMap("main.go", 1406, 1))).
+					WithFunction(
+						dag.Function("JpegAndTiffFollowTheSameContract",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("JpegAndTiffFollowTheSameContract asserts the other two raster formats honour\nthe naming contract and the geometry PNG does, differing only in the extension\npoppler chose for them.\n\n`-jpeg` writes `.jpg` and `-tiff` writes `.tif`, which are poppler's spellings\nand not this module's: a caller building a path from the function's name would\nget them wrong, so they are part of the documented contract.").
+							WithSourceMap(dag.SourceMap("main.go", 2884, 1))).
+					WithFunction(
+						dag.Function("LayoutModesProduceDifferentOrderings",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LayoutModesProduceDifferentOrderings asserts the three layout modes are three\ndifferent answers rather than degrees of one, on a page where they have to\ndisagree.\n\ncolumns.pdf is built so they cannot coincide: two columns of prose, with the\ncontent stream written row-major — left cell, right cell, next row — while the\npage reads column-major. So reading order visits the whole left column first,\ncontent-stream order alternates between the columns from the first line, and\nphysical layout puts the two columns side by side on one output line. A fixture\nwhose stream order matched its reading order would let two of these three pass\non the same output.").
+							WithSourceMap(dag.SourceMap("main.go", 1914, 1))).
+					WithFunction(
+						dag.Function("MergePreservesTheOrderOfItsSources",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MergePreservesTheOrderOfItsSources asserts the merged document's pages come\nout in the order the slice named them, which is the whole reason Merge takes\nan ordered slice rather than a directory.\n\nThe sources are deliberately handed over out of page order — 3, 1, 2 — because\nany order-preserving implementation and any order-losing one agree on a slice\nthat was already sorted. Reading the text back is what says the pages landed\nwhere they were put: the page count alone would pass on a merge that shuffled\nthem.").
+							WithSourceMap(dag.SourceMap("main.go", 3243, 1))).
+					WithFunction(
+						dag.Function("MergeRejectsWhatItCannotMerge",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MergeRejectsWhatItCannotMerge asserts the two ways a merge goes wrong are\nreported by naming the argument that was wrong.\n\nThe empty slice is a caller error with no useful answer — there is no document\nto return and no empty PDF worth inventing — and pdfunite's own answer to it is\nits usage text, which describes a command line the caller never wrote. The\nmodule refuses it before the container starts, for that reason.\n\nThe unreadable source is the case the mount legend exists for. pdfunite names\nthe file it could not read, and the name it uses is this module's mount path,\nso without the legend the one piece of information identifying which argument\nwas at fault is a path the caller has never seen.").
+							WithSourceMap(dag.SourceMap("main.go", 3295, 1))).
+					WithFunction(
+						dag.Function("MetadataReturnsTheXmpPacketOrSaysThereIsNone",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MetadataReturnsTheXmpPacketOrSaysThereIsNone asserts both halves of what\nMetadata answers, because the interesting one is the absence.\n\nThe packet is asserted to be the packet and not pdfinfo's ordinary report of\nthe same document: `pdfinfo -meta` prints the XMP alone, so a module that\ndropped the flag would return a report that still mentions a title and still\nlooks like metadata. metadataPdf's Info dictionary carries a deliberately\ndifferent title for exactly that reason — the wrong one showing up is what\nmakes the substitution visible.\n\nThe absence is the half that needs a decision. poppler prints nothing at all\nand exits 0 for a document with no XMP, and an empty string is\nindistinguishable from a function that did not run, so the module answers with\na line naming the absence and pointing at the report that does carry the\ndocument's metadata.").
+							WithSourceMap(dag.SourceMap("main.go", 1564, 1))).
+					WithFunction(
+						dag.Function("PageRangeNarrowsEveryPerPageFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PageRangeNarrowsEveryPerPageFormat asserts the page bounds reach Svg, Eps and\nHtml, in all three of the shapes a range comes in.\n\nThe per-page loop resolves the bounds itself rather than handing poppler `-f`\nand `-l`, so none of this follows from the raster path already honouring them.\nThe open-ended case is the one that exercises the resolution: a zero last is\nthe document's page count read inside the same exec that renders, and a loop\nthat mishandled it would render nothing at all and return an empty directory\nrather than fail.\n\nThe numbers are the source document's page numbers and not positions within\nthe range, which is why pages 4 through 6 come out `page-0004` through\n`page-0006` — the same promise the raster contract makes, so a page stays\ntraceable to the page it came from whichever format it was rendered to.").
+							WithSourceMap(dag.SourceMap("main.go", 1187, 1))).
+					WithFunction(
+						dag.Function("PageRangeNarrowsText",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PageRangeNarrowsText asserts WithPageRange narrows extraction to the pages it\nnames, and that the bounds are the 1-based inclusive ones poppler uses rather\nthan an offset and a length.").
+							WithSourceMap(dag.SourceMap("main.go", 1799, 1))).
+					WithFunction(
+						dag.Function("PageRangeNarrowsTheGeometryOutputs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PageRangeNarrowsTheGeometryOutputs asserts WithPageRange narrows Bbox and Tsv\nto the pages it names, in all three shapes the two functions come in.\n\nThe two formats answer \"which page is this\" differently, and that difference is\nthe reason this test checks the narrowing on both rather than trusting one. A\n`-bbox` page element carries a width and a height and no number at all, so the\nonly thing that ties a narrowed report back to the document is the order of its\npages and the words on them — which is what the marker words are checked for\nhere. A TSV row names its page outright, and names it with the page's number in\nthe *whole* document rather than its position in the range: pages 4 through 6\ncome back as 4, 5 and 6, not as 1, 2 and 3.").
+							WithSourceMap(dag.SourceMap("main.go", 2416, 1))).
+					WithFunction(
+						dag.Function("PageRangeOpenEndedRunsToTheLastPage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PageRangeOpenEndedRunsToTheLastPage asserts a zero last means \"to the end\",\nwhich is the only way to name an open-ended range without first asking how\nmany pages the document has.").
+							WithSourceMap(dag.SourceMap("main.go", 1818, 1))).
+					WithFunction(
+						dag.Function("PageRangeRejectsInvalidBounds",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PageRangeRejectsInvalidBounds asserts every way of getting a range wrong is\nreported by naming the bound that was wrong.\n\nThe out-of-document cases are the ones that justify checking at all: poppler\nrenders nothing for them and exits 0, so a caller who asked for page 20 of a\n12-page document would otherwise get an empty result indistinguishable from a\ndocument with no text in it.").
+							WithSourceMap(dag.SourceMap("main.go", 1841, 1))).
+					WithFunction(
+						dag.Function("PngNamesEveryPageWithFourDigits",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PngNamesEveryPageWithFourDigits asserts the page-naming contract on a\ndocument long enough for pdftoppm to disagree with it.\n\npdftoppm pads a page number to the width of the document's page count, so a\ntwelve-page document is named `page-01.png` through `page-12.png` and a\none-page one `page-1.png`. Neither shape is the contract, and the widths are\nwhat make a bare sort across two documents' output wrong while a sort within\neither one is right — the tesseract module's Batch sorts what it is handed and\nhas no way to know which width it is holding. Asserting the full ordered list\ncovers both halves of the promise: the names, and that lexicographic order is\npage order.").
+							WithSourceMap(dag.SourceMap("main.go", 2635, 1))).
+					WithFunction(
+						dag.Function("PngNarrowedRangeKeepsFourDigitNames",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PngNarrowedRangeKeepsFourDigitNames asserts a page range narrows the render\nand leaves the naming alone.\n\nNine pages is the interesting count: pdftoppm would name a nine-page\n*document* `page-1.png`, and the same nine pages taken out of this twelve-page\none `page-01.png`, so the width it chose depends on the document rather than on\nwhat was rendered. Both normalize to the same four digits.\n\nThe numbers are the source document's page numbers and not positions within\nthe range, which is why the second case starts at `page-0004.png`. That keeps a\nrendered page traceable back to the page it came from.").
+							WithSourceMap(dag.SourceMap("main.go", 2654, 1))).
+					WithFunction(
+						dag.Function("PngSinglePageIsStillNumbered",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PngSinglePageIsStillNumbered asserts a render of one page is `page-0001.png`\nand not `page.png`.\n\nBoth routes to a single page are checked, because pdftoppm treats them\ndifferently: a one-page document is where it drops to a single-digit number,\nand historically to no number at all, while a one-page range of a longer\ndocument keeps the longer document's width. A consumer globbing for\n`page-*.png` finds nothing in the first case and a caller indexing by name\nfinds the wrong file in the second.").
+							WithSourceMap(dag.SourceMap("main.go", 2681, 1))).
+					WithFunction(
+						dag.Function("PsHoldsEveryPageInOneFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PsHoldsEveryPageInOneFile asserts Ps returns one PostScript document carrying\nevery page, and that the page range narrows it.\n\nThe return type is the claim under test. PostScript is a multi-page format\nwith a document-level `%%Pages:` count and a `%%Page:` marker per page, so a\ndirectory of one-page fragments would be the wrong answer even though it would\nlook tidier beside Svg and Eps. Counting the markers is what says the pages\nreached the file rather than only the header saying they did.").
+							WithSourceMap(dag.SourceMap("main.go", 1042, 1))).
+					WithFunction(
+						dag.Function("RenderConcurrencyAppliesToEveryPerPageFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RenderConcurrencyAppliesToEveryPerPageFormat asserts the bound reaches the\nvector family too, and that the pages those formats write are assembled the\nsame way whatever the scheduling did.\n\nHtml is the one worth checking rather than assuming. Its pages are not the\nonly thing in the directory — a page carrying images gets them beside its\nmarkup under pdftohtml's own names — so it is the format whose assembly takes\nthe whole of each render's output rather than one named file, and the format\nwhere a fan-out could plausibly lose or collide a file.\n\nEps is compared file by file rather than by digest, and that is not a weaker\nassertion — it is the only one that has ever meant anything here. **Cairo\nstamps a wall clock into every EPS and PS it writes**, as a `%%CreationDate`\nDSC comment on line three, and it honours neither `SOURCE_DATE_EPOCH` nor any\npdftocairo flag (measured against the pinned cairo 1.18.4). Until #370 the two\nbounds produced *literally the same* Dagger query — one exec per page at every\nbound — so the digests matched because they were one cache entry, and this case\nasserted nothing about scheduling at all. Now that the bound decides the\nslicing, the two renders are different execs at different wall-clock instants,\nand the digests cannot match however deterministic the rendering is. Comparing\nthe bytes with that one line held aside is what actually tests the claim: same\nnames, same rendered content, one field that is a timestamp by construction.\n\nSvg and Html keep the digest comparison, cairo's SVG surface and pdftohtml\nwriting no date.").
+							WithSourceMap(dag.SourceMap("main.go", 3025, 1))).
+					WithFunction(
+						dag.Function("RenderConcurrencyMatchesSerialOutput",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RenderConcurrencyMatchesSerialOutput asserts a document rendered several pages\nat a time produces exactly what the same document produces one page at a time,\nand that a bound that would render nothing is refused.\n\nByte equality is the whole promise of the knob: concurrency is allowed to\nchange how long a render takes and nothing else. What it pins now that the\nbound also decides how the pages are *sliced* into execs is that the slicing\nis invisible in the answer — the same twelve pages come back whether they were\nrendered by one exec, four, five or twelve, assembled from directories that\nfinished in whatever order they finished in. The digest covers the names and\nthe bytes together.\n\nFive is in the list because twelve does not divide by it: the slices come out\n3, 3, 2, 2, 2, which is the shape an off-by-one in the partition drops a page\nfrom. A bound wider than the document is there because it is the ordinary case\nfor a short document on a large machine — the default is one page per CPU, and\nmost documents are shorter than the core count — and it is the shape that must\nnot produce empty execs.").
+							WithSourceMap(dag.SourceMap("main.go", 2937, 1))).
+					WithFunction(
+						dag.Function("RenderSettingsRejectNonPositiveValues",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RenderSettingsRejectNonPositiveValues asserts a resolution or a pixel bound\nthat cannot mean anything is refused by naming the argument.\n\nLeft to poppler these arrive much later as a complaint about `-r` or\n`-scale-to`, which names a flag the caller never wrote.").
+							WithSourceMap(dag.SourceMap("main.go", 2771, 1))).
+					WithFunction(
+						dag.Function("ReportsOpenAnEncryptedDocumentWithThePassword",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportsOpenAnEncryptedDocumentWithThePassword asserts the document's password\nreaches all three reporting tools, and that each says the same thing without\none.\n\nEach tool opens the document itself, so none of this follows from extraction\nor rendering already working: a password threaded into pdftotext's invocation\nand not into pdffonts' produces a module where a report on an encrypted\ndocument fails while everything else about it succeeds. Both branches are\nasserted for each, because the refusal is the half a caller reads — poppler\nreports every wrong password as `Incorrect password` whether one was supplied\nor not, so the message has to distinguish what the module knows and poppler\ndoes not.").
+							WithSourceMap(dag.SourceMap("main.go", 1640, 1))).
+					WithFunction(
+						dag.Function("ScaleToOverridesDpi",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ScaleToOverridesDpi asserts WithScaleTo fixes the output's pixel size and wins\nover a resolution set alongside it.\n\nBoth are set here on purpose: the override is implemented by leaving the\nresolution flag off the command line rather than by relying on poppler's own\nprecedence, so this is the assertion that would catch the two being emitted\ntogether and whichever poppler happened to prefer winning silently.").
+							WithSourceMap(dag.SourceMap("main.go", 2740, 1))).
+					WithFunction(
+						dag.Function("SignaturesReportsAnUnsignedDocumentInsteadOfFailing",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SignaturesReportsAnUnsignedDocumentInsteadOfFailing asserts the case almost\nevery document is: no signatures, reported as a result.\n\nIt is the assertion the function's exit-code handling exists for. pdfsig exits\n2 for a document carrying no signatures, having printed exactly what it found,\nand the module's usual treatment of a non-zero exit — an error naming the\nfailure — would turn the ordinary answer to an ordinary question into a broken\npipeline. Reserving failure for the runs that failed is what makes this\ncallable on documents whose signing status is what the caller is asking about.\n\nThe NSS check is the other half. pdfsig writes `NSS_Init failed` to stderr in\nan image carrying no certificate database, which is every image this module\nbuilds, and a report assembled from both streams would carry that line into\nevery caller's output as though it were something the document said.").
+							WithSourceMap(dag.SourceMap("main.go", 1614, 1))).
+					WithFunction(
+						dag.Function("SplitAndMergeCannotOpenAnEncryptedDocument",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SplitAndMergeCannotOpenAnEncryptedDocument asserts the limitation these two\ncarry that nothing else in the module does, and asserts it is reported as that\nrather than as a wrong password.\n\npdfseparate and pdfunite take no `-upw` and no `-opw` — passing one is a usage\nerror, not a wrong password — so an encrypted document is one they cannot be\nmade to open. What poppler says about it is `Incorrect password`, the same\nsentence every other tool in the suite produces for a password that did not\nwork, and the module's usual reading of that line names WithUserPassword. Here\nthat would send a caller to a builder that changes nothing, which is why the\npassword case is asserted alongside the passwordless one: both have to arrive\nat the same message.").
+							WithSourceMap(dag.SourceMap("main.go", 3393, 1))).
+					WithFunction(
+						dag.Function("SplitNarrowsToThePageRange",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SplitNarrowsToThePageRange asserts the page bounds reach pdfseparate in all\nthree of the shapes a range comes in, and that a range it cannot honour is\nrefused before it runs.\n\nThe refusal is the half worth asserting. Left to pdfseparate, a last bound past\nthe end of the document is not caught up front at all: it separates every page\nit can and *then* fails with `Internal Error: Illegal pageNo: 13(12)`, so the\ncaller gets a message about poppler's internals attached to a directory that\nwas half written. Checking the bounds against the document first is what turns\nthat into a sentence naming the builder and the page count.").
+							WithSourceMap(dag.SourceMap("main.go", 3198, 1))).
+					WithFunction(
+						dag.Function("SplitThenMergeRoundTripsTheDocument",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SplitThenMergeRoundTripsTheDocument asserts the two halves of this pair\ncompose back into the document they started from.\n\nIt is the assertion that says these are structural operations rather than\nconversions. Each one alone could pass its own tests while quietly dropping\nwhat it does not understand — a page's annotations, its size, the text layer\nunder it — and the round trip is where that shows up: twelve separated pages\nput back together have to extract to the same text, in the same order, on\npages of the same size.\n\nThe names the split wrote are what the merge is driven by, in page order, which\nis also the practical shape of the pair: split, do something to the pages,\nmerge the ones that survived.").
+							WithSourceMap(dag.SourceMap("main.go", 3339, 1))).
+					WithFunction(
+						dag.Function("SplitWritesOnePdfPerPage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SplitWritesOnePdfPerPage asserts Split turns a twelve-page document into\ntwelve one-page PDFs named to the same contract every render family member\nhonours.\n\nThe names alone would pass against a splitter that wrote twelve copies of page\none, so each file is opened and read: one page in it, and that page's own\nmarker in the text. ledgerPdf's markers are what make that check possible —\ntwelve pages of identical text would extract the same however they were\nshuffled.\n\npdfseparate numbers with the width the caller's pattern asks for rather than\nwith the document's page count, so the four-digit contract here is this\nmodule's and not a coincidence of the fixture's length.").
+							WithSourceMap(dag.SourceMap("main.go", 3154, 1))).
+					WithFunction(
+						dag.Function("SvgWritesOneVectorFilePerPage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SvgWritesOneVectorFilePerPage asserts Svg renders a multi-page document to one\nSVG per page, named to the page contract, carrying vector geometry.\n\nThe per-page invocation is the whole point. `pdftocairo -svg` run once over a\ntwelve-page document writes a single file — no page is dropped, but they are\nwrapped in the SVG 1.2 `<pageSet>`/`<page>` elements that essentially no\nrenderer implements, so a browser, Inkscape or librsvg shows page one and\nsilently discards the other eleven. The `<pageSet>` assertion is what would\ncatch a return to the single invocation: it passes an entry-count check and\nfails here.\n\nVectorness is asserted as drawing operators present and no raster image\nanywhere. Poppler converts text to glyph outlines rather than to `<text>`, so\nthe marker words are not in the file at all — a Contains check for one would\nfail on a perfectly good SVG.").
+							WithSourceMap(dag.SourceMap("main.go", 950, 1))).
+					WithFunction(
+						dag.Function("TextOnImageOnlyPdfReturnsNothing",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TextOnImageOnlyPdfReturnsNothing asserts the boundary with the tesseract\nmodule: a PDF carrying an image and no text layer extracts to nothing, and\ndoes not fail.\n\nThis is the whole reason both modules exist. From poppler's point of view a\npage with no text is not an error — there is nothing wrong with the document\nand nothing wrong with the extraction — so the empty result is the only signal\na caller gets that this document needs rasterizing and handing to OCR. A\nmodule that failed here instead would make the two paths impossible to choose\nbetween programmatically.").
+							WithSourceMap(dag.SourceMap("main.go", 1749, 1))).
+					WithFunction(
+						dag.Function("TextReproducesTextLayerExactly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TextReproducesTextLayerExactly asserts Text returns the document's text\nlayer byte for byte, in page order, with a form feed between pages.\n\nThe comparison is against the whole string rather than a per-page Contains\nsweep on purpose. Extraction has no tolerance to spend: the text is already in\nthe file, and anything this module does to it — a lost page break, a stray\nleading newline, pages in the wrong order — is a defect and not a recognition\nerror. A fixture whose content streams are readable is what makes an exact\nexpectation writable at all.").
+							WithSourceMap(dag.SourceMap("main.go", 1728, 1))).
+					WithFunction(
+						dag.Function("TsvRowsCarryPageNumbersAndWordGeometry",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TsvRowsCarryPageNumbersAndWordGeometry asserts Tsv reports one row per layout\nelement, each naming the page it came from and the box it occupies.\n\nThe page number is the half that makes the format worth having next to Bbox: a\n`-bbox` page element carries a size and no number, so a report of a multi-page\ndocument is traceable back to its pages only positionally, while every TSV row\nnames its page outright. This asserts the numbers run 1..12 in order on the page\nrows, and that each page's word rows carry that page's marker word — so a row\nattributed to the wrong page fails here.\n\nThe geometry is the other half, and is checked against the fixture's own\ncontent stream rather than asserted non-empty: a word row's `left` is the text\norigin for the first word of a line, its `top` is the baseline measured down\nfrom the top of the page less the font's ascender, and its `height` is the\nascender-to-descender span — 22.2 points at 24pt Helvetica, the same for a\none-glyph word as for a seven-glyph one.").
+							WithSourceMap(dag.SourceMap("main.go", 2299, 1))).
+					WithFunction(
+						dag.Function("TxtMatchesText",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TxtMatchesText asserts the file Txt returns carries exactly the bytes Text\nreturns, so choosing between them is a plumbing decision and nothing more.\n\nThe file is round-tripped through the module's own workdir rather than read\nstraight off the handle: the point of Txt is that the bytes reach a filesystem\nintact, and File.Contents would confirm the engine's copy while saying nothing\nabout the export a real consumer performs.").
+							WithSourceMap(dag.SourceMap("main.go", 1772, 1))).
+					WithFunction(
+						dag.Function("UntrustedIndexIsRejectedWithoutApkKey",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UntrustedIndexIsRejectedWithoutApkKey asserts a repository whose index is\nsigned by a key the image does not trust is refused rather than installed\nfrom, so WithApkKey is doing verification and not decoration. It is also what\nsays `--allow-untrusted` is genuinely not on offer: a module that quietly\ninstalled from an unverifiable index would make the air-gapped path the least\ntrustworthy one.\n\nThe failing half is the suite's proof that nothing falls back to the CDN\neither. The two installs differ only in the key, so if a rejected index sent\napk to dl-cdn.alpinelinux.org for the same packages the build would succeed\nand this test would fail.\n\nAsserting on apk's own wording (it says `UNTRUSTED signature`) is not\navailable: an exec failure crosses the module boundary as its exit status,\nwith the output left in the logs.").
+							WithSourceMap(dag.SourceMap("apk.go", 329, 1))).
+					WithFunction(
+						dag.Function("VectorFormatsIgnoreRasterOnlySettings",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VectorFormatsIgnoreRasterOnlySettings asserts a conversion configured for the\nraster outputs still converts when it is asked for a vector one.\n\nForwarding those flags is not a no-op, which is what makes this worth an\nassertion of its own: pdftocairo rejects both of the ones it recognises —\n`-mono may only be used with the -png, -jpeg, or -tiff output options` — and\nexits 99 having written nothing, and `-hide-annotations` is not a pdftocairo\noption at all. So the natural shape of \"render this document as PNG for OCR\nand as SVG for the web view\" would fail on its second half unless the module\ndrops what it cannot honour.\n\nWithDpi is the one setting that does reach pdftocairo, and it is set here too\nso this is not accidentally asserting that no flags are passed at all.").
+							WithSourceMap(dag.SourceMap("main.go", 1237, 1))).
+					WithFunction(
+						dag.Function("VersionReportsPopplerRelease",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VersionReportsPopplerRelease asserts Version reports the poppler release the\npinned Alpine tag ships, as a bare version number.\n\npoppler's tools print their banner on stderr and still exit 0, so a module\nreading stdout would return the empty string here for every image it ever\nbuilt. The assertion is on the shape and the major release rather than the\nexact patch: Alpine may rebuild poppler-utils within the v3.24 branch, and a\ntest that pins the patch level would fail on a change this module has no\nopinion about.").
+							WithSourceMap(dag.SourceMap("main.go", 1316, 1))).
+					WithFunction(
+						dag.Function("WithFontsPutsFaceWhereFontconfigFindsIt",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithFontsPutsFaceWhereFontconfigFindsIt asserts a supplied face is one\nfontconfig reports, which is the only thing that matters: poppler asks\nfontconfig for a substitute and draws nothing at all when the answer is\nnothing.\n\nDejaVu is the face because Alpine packages it separately from the family this\nmodule installs, so the negative control is real — the plain image genuinely\ncannot see it, and the assertion is not passing on something the base image\nalready had.").
+							WithSourceMap(dag.SourceMap("main.go", 1376, 1))).
+					WithFunction(
+						dag.Function("WithoutAnnotationsRemovesTheAnnotationLayer",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithoutAnnotationsRemovesTheAnnotationLayer asserts the annotation layer is\ndrawn by default and gone when asked for.\n\nannotated.pdf's page draws nothing but black text, so every chromatic pixel in\na render of it is the annotation's appearance stream and nothing else. Without\nthat separation the assertion could not tell an annotation that was not drawn\nfrom one that was drawn somewhere else on the page.").
+							WithSourceMap(dag.SourceMap("main.go", 2851, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

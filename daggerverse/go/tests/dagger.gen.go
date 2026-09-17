@@ -867,6 +867,301 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the go Dagger module. Each test\nis exposed as a standalone dagger function so it can be invoked individually\nduring TDD; All wires them up for parallel execution under `dagger call all`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 16, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every go-module test in parallel. goImageTag is forwarded to\neach per-test as the Go toolchain image tag passed to dag.Go(); an empty\nstring preserves the module's default behavior (infer from each fixture's\ngo.mod for source-bearing tests, fall back to \"latest\" otherwise).\n\nNote: ContainerInfersVersionFromGoMod intentionally ignores goImageTag —\nit asserts the empty-version inference path against a 1.23 fixture, so a\ncaller-supplied override would defeat what the test is verifying.\nCiWithLintBuildsUnderOlderGoToolchain takes no goImageTag at all for the\nsame reason: the toolchain it pins is the subject of the assertion.\n\nparallel caps how many tests run concurrently inside this suite. Defaults\nto 0 (unbounded fan-out) — each `dagger check` job runs on its own GH\nActions runner, so in-runner parallelism is bounded by the VM's\nCPU/memory, not by the scheduler. Pass any positive integer to opt into\na specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 37, 1)).
+							WithCheck().
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 40, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 42, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BuildBuildmodeCArchiveProducesArchiveAndHeader",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildBuildmodeCArchiveProducesArchiveAndHeader asserts C_ARCHIVE reaches\n`go build -buildmode=c-archive`: the output is the ar archive plus the\ngenerated C header, and specifically not an executable — which is what the\nsame fixture and the same -o would produce with the buildmode left off.").
+							WithSourceMap(dag.SourceMap("main.go", 731, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 731, 85)})).
+					WithFunction(
+						dag.Function("BuildBuildmodeMembersAllProduceOutput",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildBuildmodeMembersAllProduceOutput calls Build once per BuildMode member\nwith a fixture and an output name that mode can actually satisfy, asserting\neach produces a non-empty artifact. That is what makes every member of the\nenum reachable rather than merely declared: a member the module failed to\nmap onto a `-buildmode=` value would fail here.").
+							WithSourceMap(dag.SourceMap("main.go", 772, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 772, 76)})).
+					WithFunction(
+						dag.Function("BuildHelloWritesBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildHelloWritesBinary builds the hello fixture into /out and asserts the\nproduced \"hello\" binary is non-empty.").
+							WithSourceMap(dag.SourceMap("main.go", 1032, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1032, 61)})).
+					WithFunction(
+						dag.Function("BuildMultipkgDotSlashEllipsis",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildMultipkgDotSlashEllipsis builds the multipkg fixture with the default\npkg=./... and asserts the produced multipkg binary is non-empty. Only the\nroot main package contributes a binary; pkg/foo is a library.").
+							WithSourceMap(dag.SourceMap("main.go", 913, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 913, 68)})).
+					WithFunction(
+						dag.Function("BuildPlatformCrossCompiles",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildPlatformCrossCompiles asserts platform reaches GOOS/GOARCH: the\nbinary built for linux/arm64 carries the aarch64 machine type in its ELF\nheader (e_machine == 0xb7 at offset 18), which an amd64 build does not.").
+							WithSourceMap(dag.SourceMap("main.go", 860, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 860, 65)})).
+					WithFunction(
+						dag.Function("BuildRaceLinksTheDetector",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildRaceLinksTheDetector asserts race reaches `go build -race`: the racy\nfixture reports race=on only when the detector is linked in, because\n-race implies the `race` build tag. The binary is run to prove the\ndetector is present in the artifact and not merely on the command line.").
+							WithSourceMap(dag.SourceMap("main.go", 810, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 810, 64)})).
+					WithFunction(
+						dag.Function("BuildRejectsMalformedStamps",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildRejectsMalformedStamps asserts Build rejects a stamp with no \"=\" and\na stamp whose importpath.Name is empty, and that each message names the\noffending element rather than reporting a generic parse failure.").
+							WithSourceMap(dag.SourceMap("main.go", 615, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 615, 66)})).
+					WithFunction(
+						dag.Function("BuildRejectsRaceWithDisableCgo",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildRejectsRaceWithDisableCgo asserts Build refuses the racepairing up front rather than letting `go build` fail on it, and that the\nmessage names both inputs so the caller knows which two are in conflict.").
+							WithSourceMap(dag.SourceMap("main.go", 837, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 837, 69)})).
+					WithFunction(
+						dag.Function("BuildStampsReachTheBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildStampsReachTheBinary asserts -X stamps are applied and that a stamp\nvalue containing \"=\" arrives unmangled: only the first \"=\" separates the\nvariable name from its value.").
+							WithSourceMap(dag.SourceMap("main.go", 637, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 637, 64)})).
+					WithFunction(
+						dag.Function("BuildStripShrinksTheBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildStripShrinksTheBinary asserts strip reaches `go build -ldflags \"-s\n-w\"`: dropping the symbol table and DWARF info makes the output smaller.").
+							WithSourceMap(dag.SourceMap("main.go", 706, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 706, 65)})).
+					WithFunction(
+						dag.Function("BuildTagsSelectTaggedFiles",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildTagsSelectTaggedFiles asserts tags reaches `go build -tags`: the\nstamped fixture reports flavor=fancy only when the `fancy` tag is set.").
+							WithSourceMap(dag.SourceMap("main.go", 659, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 659, 65)})).
+					WithFunction(
+						dag.Function("BuildTrimpathRemovesSourcePaths",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildTrimpathRemovesSourcePaths asserts trimpath reaches `go build\n-trimpath`: the build's own /src mount point is recorded in an untrimmed\nbinary and absent from a trimmed one.").
+							WithSourceMap(dag.SourceMap("main.go", 679, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 679, 70)})).
+					WithFunction(
+						dag.Function("CiCheckRunsEnabledChecksAndSkipsBuild",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckRunsEnabledChecksAndSkipsBuild configures every With* stage\nagainst the clean hello fixture and calls Check (not Run), asserting\nno error. To actively prove Check does not invoke the build stage\ninternally, WithBuild is configured with a non-existent package path:\nif Check were to call runBuild, `go build ./does-not-exist` would\nfail and surface here as an error. A nil return therefore proves\nboth (a) the checks passed and (b) the build was skipped.").
+							WithSourceMap(dag.SourceMap("main.go", 285, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 285, 76)})).
+					WithFunction(
+						dag.Function("CiRunHelloAllStages",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunHelloAllStages runs Ci with every stage enabled against the hello\nfixture and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 323, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 323, 58)})).
+					WithFunction(
+						dag.Function("CiRunHelloDefaultsProduceModuleNameBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunHelloDefaultsProduceModuleNameBinary asserts that Ci.Run with no\nbuilders configured still produces a binary named after the go.mod\nmodule path (example.com/hello → \"hello\").").
+							WithSourceMap(dag.SourceMap("main.go", 542, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 542, 80)})).
+					WithFunction(
+						dag.Function("CiRunVetBadAggregates",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunVetBadAggregates runs Ci against the vet-bad fixture with both Vet\nand Lint enabled and asserts that stage-1 aggregated BOTH job failures\nrather than short-circuiting on the first. parallel.New concatenates each\njob's raw error (job names appear in trace spans, not the Go-level\nstring), so each underlying `withExec` failure surfaces as a separate\n\"exit code: 1\" line. Counting those occurrences confirms both vet and\nlint ran and both errors were propagated through Run.").
+							WithSourceMap(dag.SourceMap("main.go", 306, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 306, 60)})).
+					WithFunction(
+						dag.Function("CiWithBuildCustomBinaryName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithBuildCustomBinaryName configures a custom binary name via WithBuild\nand asserts the produced File carries that name.").
+							WithSourceMap(dag.SourceMap("main.go", 464, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 464, 66)})).
+					WithFunction(
+						dag.Function("CiWithFmtPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithFmtPasses runs Ci with the Fmt stage enabled against the\ngofmt-clean hello fixture and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 528, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 528, 54)})).
+					WithFunction(
+						dag.Function("CiWithLintAcceptsV2Config",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintAcceptsV2Config runs the lint stage with a golangci-lint **v2**\nconfiguration and asserts it passes.\n\nThis is the assertion that the default pin is a v2 release. A v1 binary\ndoes not ignore a v2 config file, it refuses it before running any\nlinter — \"you are using a configuration file for golangci-lint v2 with\ngolangci-lint v1\" — so this test fails outright the moment the pin slips\nback across the major boundary, which is the failure adopters hit.").
+							WithSourceMap(dag.SourceMap("main.go", 368, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 368, 64)})).
+					WithFunction(
+						dag.Function("CiWithLintBuildsUnderOlderGoToolchain",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintBuildsUnderOlderGoToolchain pins the Go toolchain below what\ngolangci-lint v2's own go.mod requires and asserts the lint stage still\nruns.\n\ngolangci-lint tracks the newest Go release, and the official golang\nimages set GOTOOLCHAIN=local, so building the linter inside a project's\npinned toolchain fails for any project a release or two behind — exactly\nthe repository most likely to be adopting the standard pipeline. The\nstage therefore builds the linter with an unpinned toolchain and only\n*runs* it under the project's. Pinning 1.23 here rather than honouring\ngoImageTag is the point of the test; a caller-supplied override would\ndefeat it.").
+							WithSourceMap(dag.SourceMap("main.go", 452, 1))).
+					WithFunction(
+						dag.Function("CiWithLintPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintPasses runs Ci with the Lint stage enabled against the\nclean hello fixture and asserts a non-empty binary is produced.\nUses the pinned default golangci-lint version.").
+							WithSourceMap(dag.SourceMap("main.go", 343, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 343, 55)})).
+					WithFunction(
+						dag.Function("CiWithLintRejectsUnreadableVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintRejectsUnreadableVersion asserts a version the module cannot\nread a major out of is refused with a message naming it, rather than\nbeing guessed at and surfacing later as an unresolvable package.").
+							WithSourceMap(dag.SourceMap("main.go", 427, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 427, 73)})).
+					WithFunction(
+						dag.Function("CiWithLintRejectsV1Config",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintRejectsV1Config is the other half of CiWithLintAcceptsV2Config:\na v1-dialect config must now fail. Without it, \"accepts a v2 config\" is\nalso satisfied by a binary that accepts everything, and the dialect the\nstage actually requires would stay unpinned.\n\nThe assertion is on *how* it fails, not merely that it does. The\nmodule boundary drops golangci-lint's stderr from the Go error — what\nsurvives is the exec's exit code — and golangci-lint distinguishes the\ntwo outcomes there: 3 is \"could not load the config\", 1 is \"the config\nloaded and linters reported issues\". Accepting any failure would let a\nv2 binary that merely dislikes the fixture pass for a v1 binary that\nhappily loaded a v1 file.").
+							WithSourceMap(dag.SourceMap("main.go", 390, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 390, 64)})).
+					WithFunction(
+						dag.Function("CiWithLintRollsBackToV1",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithLintRollsBackToV1 pins a golangci-lint v1 release together with a\nv1-dialect config and asserts the stage passes.\n\nRolling back is not merely a different `@version`: Go's semantic import\nversioning put v2 on a `/v2` module path, so the package installed has\nto follow the pinned major. This is the test that the derivation works\non the other side of that boundary — without it, everything below v2 is\na path nothing exercises.").
+							WithSourceMap(dag.SourceMap("main.go", 411, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 411, 62)})).
+					WithFunction(
+						dag.Function("CiWithTestPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithTestPasses runs Ci with the Test stage enabled (no race) against\nhello and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 487, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 487, 55)})).
+					WithFunction(
+						dag.Function("CiWithTestRacePasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithTestRacePasses runs Ci with the Test stage enabled with -race and\nasserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 500, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 500, 59)})).
+					WithFunction(
+						dag.Function("CiWithVetPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithVetPasses runs Ci with the Vet stage enabled against the vet-clean\nhello fixture and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 515, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 515, 54)})).
+					WithFunction(
+						dag.Function("ContainerHasGoToolchain",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasGoToolchain proves the base container is reachable, the source\nis mounted at /src, and the golang image's `go` binary runs. This is the\ncanary for every other test — if it fails, the rest can't possibly pass.").
+							WithSourceMap(dag.SourceMap("main.go", 1136, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1136, 62)})).
+					WithFunction(
+						dag.Function("ContainerInfersVersionFromGoMod",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerInfersVersionFromGoMod asserts that constructing the module with\nNew(\"\") and a fixture whose go.mod declares `go 1.23` actually pulls the\nmatching golang:1.23 image — i.e. resolveVersion + go.mod parsing wire\nthrough to the toolchain selection. Catches regressions in go.mod parsing\nor in the fallback path silently using `latest`.\n\ngoImageTag is accepted for signature uniformity (All forwards it to\nevery test) but deliberately ignored: this test exercises the\nempty-version inference path, so a caller-supplied override would\ndefeat what's being verified.").
+							WithSourceMap(dag.SourceMap("main.go", 1118, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1118, 70)})).
+					WithFunction(
+						dag.Function("CycloneDxDocumentIsCompliant",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CycloneDxDocumentIsCompliant asserts the CycloneDX document is at the\npinned spec version and carries the same required elements.").
+							WithSourceMap(dag.SourceMap("sbom.go", 199, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sbom.go", 199, 67)})).
+					WithFunction(
+						dag.Function("EnvContainsGoroot",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EnvContainsGoroot calls dag.Go(dagger.GoOpts{Version: goImageTag}).Env and asserts the output mentions GOROOT\n— the canonical signal that `go env` ran inside the prepared container.").
+							WithSourceMap(dag.SourceMap("main.go", 1084, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1084, 56)})).
+					WithFunction(
+						dag.Function("FmtHelloIsClean",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FmtHelloIsClean runs Fmt against the gofmt-clean hello fixture and asserts\nthe diff is empty.").
+							WithSourceMap(dag.SourceMap("main.go", 1062, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1062, 54)})).
+					WithFunction(
+						dag.Function("GenerateHelloProducesFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GenerateHelloProducesFile runs go generate against the hello fixture and\nasserts the //go:generate directive produced out.txt with the expected\ncontent.").
+							WithSourceMap(dag.SourceMap("main.go", 1005, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1005, 64)})).
+					WithFunction(
+						dag.Function("InstallSmallToolReturnsBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InstallSmallToolReturnsBinary installs a small public tool (stringer) and\nasserts the returned binary is non-empty. The version is pinned so CI\ndoesn't drift with upstream releases. Requires network egress for the\ninitial fetch; subsequent runs hit the go-mod-cache.").
+							WithSourceMap(dag.SourceMap("main.go", 944, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 944, 68)})).
+					WithFunction(
+						dag.Function("ModDownloadHelloPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ModDownloadHelloPasses runs ModDownload against the hello fixture and\nasserts no error.").
+							WithSourceMap(dag.SourceMap("main.go", 986, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 986, 61)})).
+					WithFunction(
+						dag.Function("ModTidyHelloIsIdempotent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ModTidyHelloIsIdempotent runs `go mod tidy` against the stdlib-only hello\nfixture and asserts the resulting go.mod is unchanged.").
+							WithSourceMap(dag.SourceMap("main.go", 969, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 969, 63)})).
+					WithFunction(
+						dag.Function("ModVerifyHelloPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ModVerifyHelloPasses runs ModVerify against the hello fixture and asserts\nno error.").
+							WithSourceMap(dag.SourceMap("main.go", 995, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 995, 59)})).
+					WithFunction(
+						dag.Function("RunHelloPrintsHello",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunHelloPrintsHello runs the hello fixture's main and asserts stdout is\n\"hello\\n\".").
+							WithSourceMap(dag.SourceMap("main.go", 1019, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1019, 58)})).
+					WithFunction(
+						dag.Function("SbomDescribesTheBinaryNotTheSourceTree",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SbomDescribesTheBinaryNotTheSourceTree asserts the component list is\nwhat was linked in rather than what go.mod happens to require.\n\nThe distinction is the reason the graph is read out of the compiled\nartifact: a source tree's requirement list includes modules no code\nimports, and a document built from it over-reports. The fixture's\ngo.mod requires exactly one module and its binary links exactly that\none, so the check is that the document holds the linked module and no\ntooling-only entries beside it.").
+							WithSourceMap(dag.SourceMap("sbom.go", 356, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sbom.go", 356, 77)})).
+					WithFunction(
+						dag.Function("SbomFormatsAgreeOnComponents",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SbomFormatsAgreeOnComponents asserts the two documents describe the\nsame component set.\n\nThis is the property that a single resolution buys and that two\nindependent tools cannot offer at any price: two documents about one\nbinary that disagree about a component or a licence are an audit\nfinding, and nothing downstream can adjudicate which is right. The\nlicences are compared as well as the coordinates, because a component\nset that matches while the licences differ is the same failure wearing\na different hat.").
+							WithSourceMap(dag.SourceMap("sbom.go", 255, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sbom.go", 255, 67)})).
+					WithFunction(
+						dag.Function("SbomResolvesDependencyLicences",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SbomResolvesDependencyLicences asserts a licence is actually resolved\nand that the declared/concluded distinction is populated rather than\nleft at NOASSERTION for everything.\n\nA Go binary carries no licence text, so this is the half of the\ndocument that can only come from the source: if licence resolution\nsilently did nothing, every field below would still be present and\nevery one would say NOASSERTION. That is why the assertion is on a\nspecific dependency with a known licence rather than on the shape.").
+							WithSourceMap(dag.SourceMap("sbom.go", 323, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sbom.go", 323, 69)})).
+					WithFunction(
+						dag.Function("SpdxDocumentIsCompliant",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SpdxDocumentIsCompliant asserts the SPDX document carries the elements\na consumer requires, not merely that it parses.\n\nThe library guarantees the syntax; nothing guarantees the fields are\npopulated, and an SBOM missing a supplier or a unique identifier fails\nthe minimum-elements check every regulated consumer runs even though\nit is perfectly well-formed JSON. So this walks the NTIA minimum\nelements one at a time: supplier, component name, version, unique\nidentifier, dependency relationship, author of the SBOM data, and\ntimestamp.").
+							WithSourceMap(dag.SourceMap("sbom.go", 116, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sbom.go", 116, 62)})).
+					WithFunction(
+						dag.Function("TestHelloPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestHelloPasses runs `go test ./...` against the hello fixture and asserts\nthe canonical \"PASS\" marker appears in stdout.").
+							WithSourceMap(dag.SourceMap("main.go", 1049, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1049, 54)})).
+					WithFunction(
+						dag.Function("TestMultipkgPkgArgVariants",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestMultipkgPkgArgVariants runs `go test` against the multipkg fixture\ntwice — once with pkg=./... (covers the whole module) and once with\npkg=./pkg/foo (sub-package only) — to confirm the pkg arg shape.").
+							WithSourceMap(dag.SourceMap("main.go", 928, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 928, 65)})).
+					WithFunction(
+						dag.Function("ToolVersionContainsGoVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ToolVersionContainsGoVersion calls dag.Go(dagger.GoOpts{Version: goImageTag}).ToolVersion and asserts the\noutput starts with the canonical \"go version\" prefix.").
+							WithSourceMap(dag.SourceMap("main.go", 1097, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1097, 67)})).
+					WithFunction(
+						dag.Function("VetHelloPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VetHelloPasses runs Vet against the hello fixture, which is vet-clean,\nso the call must succeed.").
+							WithSourceMap(dag.SourceMap("main.go", 1075, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 1075, 53)})).
+					WithFunction(
+						dag.Function("WorkInitSucceeds",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WorkInitSucceeds runs `go work init .` against the hello fixture and\nasserts no error. `go work init` is a side-effecting subcommand that\nreturns empty stdout on success — the assertion is the absence of error.").
+							WithSourceMap(dag.SourceMap("main.go", 958, 1)).
+							WithArg("goImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 958, 55)}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -179,7 +179,7 @@ These are non-negotiable. Every proposal in steps 3, 5, 7 must respect them; if 
 - **Render YAML with `gopkg.in/yaml.v3`.** Any function that produces YAML (config files, compose-style fragments) uses `yaml.v3`'s `Marshal` or `Encoder` — never `fmt.Fprintf` or string concatenation. Hand-rolled YAML mishandles quoting and escaping of caller-supplied strings.
 - **`+cache=` directives go on their own line in the doc comment block above the function.** Place above the signature; do not inline.
 - **Function name mangling is real.** Go method `Sha256ShouldNotBeCached` becomes `sha-256-should-not-be-cached` on the CLI; `UuidV4` becomes `UUIDV4(ctx)` on the dag client (acronyms uppercase in generated bindings). Account for this when discussing CLI invocation in the issue body.
-- **`dagger develop` regenerates bindings.** After signature changes, both the module *and* any module that depends on it (`tests/` depends on `..`) need `dagger develop` re-run. Mention this in acceptance criteria when the module has a `tests/` subpackage.
+- **`hack/regen.sh` regenerates bindings.** Dagger v1 removed `dagger develop`; this repository regenerates through the API underneath it instead. After signature changes, both the module *and* any module that depends on it (`tests/` depends on `..`) need regenerating, dependencies first — which is the order the script uses. Mention this in acceptance criteria when the module has a `tests/` subpackage.
 
 When asked about external traces or runs, use `dagger trace <id> --progress=plain` — never `curl` against `dagger.cloud`.
 

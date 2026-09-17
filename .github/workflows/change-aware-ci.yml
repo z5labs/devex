@@ -65,8 +65,10 @@ on:
           The Dagger CLI and engine version. This is the single pin for both: the
           engine image is cached and docker-loaded under it, and the CLI installed at
           it, so the run legs provision from the local image rather than the registry.
+          A prerelease is spelled the way the release is (1.0.0-beta.13), with no
+          leading v.
         type: string
-        default: "0.21.8"
+        default: "1.0.0-beta.13"
       runs-on:
         description: The runner label for every job here.
         type: string
@@ -333,10 +335,31 @@ jobs:
             docker image inspect "$IMAGE" >/dev/null
           fi
 
+      - name: Install Dagger CLI
+        # The same install the list job does, and for the same reason: the engine
+        # image is already docker-loaded above, so this provisions from the local
+        # image rather than pulling.
+        #
+        # This used to be dagger/checks, which cannot run a v1 engine: its only
+        # action is `dagger checks`, a command v1 dropped in favour of `dagger
+        # check`, and its newest release (v1.1.0) predates v1. Inlining it costs two
+        # steps and removes a pinned third-party action from the run path.
+        env:
+          DAGGER_VERSION: ${{ inputs.dagger-version }}
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       # Each leg loads only the module that owns its check, never the workspace. An
       # empty filter means "every check this module has", which is what the
       # run-everything path emits (one coarse leg per module, so that path loads no
-      # module while planning); the action spells that '**'.
+      # module while planning); `dagger check` spells that '**', and exits 0 on a
+      # module that has no checks at all.
+      #
+      # A pattern that matches nothing is an error rather than a pass ("no checks
+      # matched pattern"), which is what keeps a leg from going green over a check
+      # that has been renamed out from under the plan.
       #
       # The step is bounded separately from the job to fail fast on the Dagger Cloud
       # telemetry-drain hang. The check itself runs in ~1-4m; a leg still going past
@@ -347,13 +370,14 @@ jobs:
       # reliably clears a transient/sustained Cloud stall (an in-process retry can't:
       # it reuses the same stuck engine and re-hits the ongoing stall). Telemetry stays
       # on (cloud-token set); we only bound how long a stuck drain may hang.
-      - uses: dagger/checks@64525befa1c36dd55577dae083df5c8968d9325a # v1.1.0
+      - name: Run the leg's checks
         timeout-minutes: ${{ matrix.job.timeout }}
-        with:
-          version: ${{ inputs.dagger-version }}
-          module: ${{ matrix.job.module }}
-          filter: ${{ matrix.job.filter || '**' }}
-          cloud-token: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+        env:
+          DAGGER_MODULE: ${{ matrix.job.module }}
+          DAGGER_PROGRESS: dots
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+          FILTER: ${{ matrix.job.filter || '**' }}
+        run: dagger check "$FILTER"
 
       # Record the pass. The entry's whole meaning is its key: the input hash the
       # planner computed for this leg. A later run that computes the same hash skips

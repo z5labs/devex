@@ -1287,6 +1287,489 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the kafka daggerverse module. Each test is exposed as a standalone\ndagger function so it can be invoked individually during TDD; All wires them\nup for grouped, parallel execution under `dagger call all`.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - main.go            — Tests struct, the All() orchestrator, and the four\n                         per-distro group functions (nativeTests,\n                         apacheJVMTests, confluentTests, redpandaTests).\n  - helpers.go         — cross-cutting scaffolding shared across distros:\n                         newClusterId, freshCa, randHex, randomTopicName,\n                         contains.\n  - tests_native.go    — ApacheNativeCluster (apache/kafka-native) cluster\n                         helpers (freshCluster / freshTlsCluster /\n                         freshMtlsCluster) + every test that drives the\n                         GraalVM image (the bulk of the suite, including\n                         shared roundTripBinaryOn).\n  - tests_apache.go    — ApacheCluster (apache/kafka JVM) cluster helpers\n                         + the three Apache-JVM round-trip tests.\n  - tests_confluent.go — ConfluentCluster (confluentinc/cp-kafka) cluster\n                         helpers + the three cp-kafka round-trip tests.\n  - tests_redpanda.go  — RedpandaCluster (redpandadata/redpanda) cluster\n                         helpers + the two Redpanda Kafka-wire round-trip\n                         tests, the PLAINTEXT + TLS bundled-Schema-\n                         Registry round-trips, and the bundled-registry\n                         Stop-is-a-no-op lifecycle test.\n  - tests_schema_registry.go — ConfluentSchemaRegistry tests: the\n                         register/lookup/delete round-trip and the\n                         non-PLAINTEXT-cluster rejection.\n  - tests_protobuf.go  — PROTOBUF serde tests: the descriptor-set /\n                         message-name / schema-id validation guards, the\n                         framed produce->consume round-trips (value, key,\n                         and non-zero message index), and the unframed +\n                         index-mismatch negative paths.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 44, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every kafka round-trip test as a convenience for local\n`dagger call all` invocations that want the entire suite in one shot.\nCI does NOT call All: each per-distro group below carries its own\n`+check` directive, so GH Actions schedules each onto its own runner\nin parallel — running All on top would double-bill the same work.\n\nkafkaImageTag picks the tag every spawned Apache cluster runs against —\napplied to both the apache/kafka-native image (ApacheNativeCluster) and\nthe apache/kafka JVM image (ApacheCluster). confluentImageTag is the\nindependent knob for the cp-kafka tests (Confluent Platform versioning\nis not aligned with Apache's release numbering). redpandaImageTag is\nthe independent knob for the redpandadata/redpanda tests.\n\nparallel is the concurrency cap applied at both levels — how many\ngroups run at once and how many tests run at once within each group.\nDefaults to 0 (unbounded). Pass any positive integer for a specific\ncap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 65, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 68, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("confluentImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 70, 2), DefaultValue: dagger.JSON("\"8.2.0\"")}).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 72, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 74, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ApacheClusterMtlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApacheClusterMtlsRoundTrip is the MTLS happy-path round-trip for\nKafka.ApacheCluster. Mirrors MtlsRoundTrip but on the JVM image to\nrule out image-specific differences in how client-cert challenge is\nhandled.").
+							WithSourceMap(dag.SourceMap("tests_apache.go", 234, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_apache.go", 237, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ApacheClusterProduceListTopicsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApacheClusterProduceListTopicsRoundTrip is the PLAINTEXT happy-path\nsmoke test for Kafka.ApacheCluster (the JVM image variant): produce a\nsingle raw record, then call ListTopics and assert the freshly-created\ntopic shows up. Together these prove the JVM image's data plane and\ncontrol plane both work; the env-var contract matches\nApacheNativeCluster so this single test pins down \"JVM image actually\nserves traffic\".").
+							WithSourceMap(dag.SourceMap("tests_apache.go", 116, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_apache.go", 119, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ApacheClusterTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApacheClusterTlsRoundTrip is the TLS happy-path round-trip for\nKafka.ApacheCluster. Mirrors TlsRoundTrip but on the JVM image to\nrule out image-specific differences in keystore mounts, hostname\nverification, and SSL listener bring-up.").
+							WithSourceMap(dag.SourceMap("tests_apache.go", 164, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_apache.go", 167, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ApacheJVM",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApacheJVM runs the three apache/kafka JVM-image round-trip tests.\nEach test owns a fresh ApacheCluster, so the group holds no shared\nclusters of its own.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 343, 1)).
+							WithCheck().
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 346, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 348, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ApicurioSchemaRegistryRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApicurioSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path\ntest for Kafka.ApicurioSchemaRegistry: stand an\napicurio-registry-kafkasql up next to a fresh cluster, then exercise\nregister → lookup-by-id → lookup-latest-by-subject → list-subjects →\nset/get-compatibility → delete against its Confluent-compatible REST\nsurface — mirroring SchemaRegistryRegisterLookupRoundTrip to prove the\nshared *SchemaRegistryClient drives Apicurio unchanged.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 153, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 156, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ApicurioSchemaRegistryTlsRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApicurioSchemaRegistryTlsRegisterLookupRoundTrip drives the Apicurio TLS\npath (Quarkus HTTPS REST + kafkasql SSL storage) end-to-end.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 1383, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 1386, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AutoCreateTopicsDisabled",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AutoCreateTopicsDisabled produces to a topic that was never created and\nasserts the call errors out. With KAFKA_AUTO_CREATE_TOPICS_ENABLE=false on\nthe broker, the produce path must surface a topic-not-found error rather\nthan silently auto-creating, so producer typos can't pass tests.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 1171, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 1174, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AvroBytesFieldRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroBytesFieldRoundTrip pins the Avro-spec JSON encoding of a bytes field.\nPer the Avro specification, the JSON encoding of bytes (and fixed) is a\nstring whose characters are the byte values as Unicode code points 0-255 —\none character per byte, NOT base64. The input value here contains byte 0xFF\n(code point U+00FF), which is outside the base64 alphabet, so a round-trip\nthat preserves it byte-for-byte proves the one-char-per-byte mapping and\nwould be impossible under a base64 interpretation.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 1064, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 1067, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AvroConsumeUnframedErrors",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroConsumeUnframedErrors pins the negative consume path: a record produced\nwithout a Confluent wire header, consumed with valueDeserializeAs=\"AVRO\" +\nschemaRegistryAware=true, must error out pointing at the missing header. The\nheader check fires before any schema lookup, so the registry service never\nhas to start.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 758, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 761, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AvroFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroFramedProduceConsumeRoundTrip is the happy-path data round-trip for AVRO\nserde: register an Avro record schema to get an id, Produce a JSON document\nwith valueSerializeAs=\"AVRO\"then framed), and Consume it back with valueDeserializeAs=\"AVRO\" +\nschemaRegistryAware=true. The asserted invariant is byte-equality of the\nconsumed value to the canonical JSON form of the original input, proving the\nJSON->Avro-binary->JSON pipeline preserves the datum.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 817, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 820, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AvroMtlsFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroMtlsFramedProduceConsumeRoundTrip is the mTLS counterpart: the same\nround-trip where the kafka-wire client and the REST schema-resolution client\neach present their own leaf (both signed by the single CA). It proves the\nthreaded RegistrySecurity profile also carries a client key store through to\nthe avro path, not just a trust store.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 941, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 944, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("AvroSerializeRequiresSchemaID",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroSerializeRequiresSchemaID pins the up-front validation contract of\nvalueSerializeAs=\"AVRO\": Produce must reject a zero schema id before any\nbroker or registry I/O. dag.Kafka().Client(...) builds without I/O, so no\ncluster boots — the failure is purely the missing-id guard on the AVRO\nserializer.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 731, 1))).
+					WithFunction(
+						dag.Function("AvroTlsFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AvroTlsFramedProduceConsumeRoundTrip is the TLS counterpart of\nAvroFramedProduceConsumeRoundTrip: it stands up a TLS cluster and a TLS\ncp-schema-registry rooted at one CA and drives the same JSON->Avro-binary->\nJSON round-trip, but every hop is encrypted — the kafka-wire client speaks\nTLS to the brokers and the Produce/Consume avro path resolves the schema\nover HTTPS via the threaded RegistrySecurity profile (#141). Without that\nprofile the resolution would fail with \"serves HTTPS but client is\nPLAINTEXT\", so a green round-trip proves the profile reaches Client(...).").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 919, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 922, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("BindBrokersExposesBothListeners",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BindBrokersExposesBothListeners binds the cluster's brokers into a\nvanilla alpine container and asserts that both the host-facing client\nport (9092) and the inter-broker port (19092) are reachable from inside\nthat container — together they cover the dual-listener contract\n(PLAINTEXT_HOST:9092 for clients, PLAINTEXT:19092 for inter-broker).").
+							WithSourceMap(dag.SourceMap("tests_native.go", 1127, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 1130, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ClusterClientCanListTopicsOnFreshCluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterClientCanListTopicsOnFreshCluster opens a franz-go-backed Client\nagainst a fresh cluster and asserts that ListTopics returns without error.\nA fresh KRaft cluster has no user topics, so the result may be empty —\nbut the call itself must succeed, which proves module-runtime networking\ncan reach the started broker service.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 669, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 672, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("Confluent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Confluent runs the three confluentinc/cp-kafka round-trip tests.\nEach test owns a fresh ConfluentCluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 375, 1)).
+							WithCheck().
+							WithArg("confluentImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 378, 2), DefaultValue: dagger.JSON("\"8.2.0\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 380, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ConfluentClusterMtlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfluentClusterMtlsRoundTrip is the MTLS happy-path round-trip for\nKafka.ConfluentCluster. Mirrors MtlsRoundTrip but on cp-kafka to rule\nout distro-specific differences in how client-cert challenge is\nhandled.").
+							WithSourceMap(dag.SourceMap("tests_confluent.go", 233, 1)).
+							WithArg("confluentImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_confluent.go", 236, 2), DefaultValue: dagger.JSON("\"8.2.0\"")})).
+					WithFunction(
+						dag.Function("ConfluentClusterProduceListTopicsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfluentClusterProduceListTopicsRoundTrip is the PLAINTEXT happy-path\nsmoke test for Kafka.ConfluentCluster (the cp-kafka image variant):\nproduce a single raw record, then call ListTopics and assert the\nfreshly-created topic shows up. Confluent Platform's cp-kafka image\nuses the same `KAFKA_*` Scala-wrapper contract as Apache, so this\nsingle test pins down \"cp-kafka actually serves traffic\".").
+							WithSourceMap(dag.SourceMap("tests_confluent.go", 115, 1)).
+							WithArg("confluentImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_confluent.go", 118, 2), DefaultValue: dagger.JSON("\"8.2.0\"")})).
+					WithFunction(
+						dag.Function("ConfluentClusterTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfluentClusterTlsRoundTrip is the TLS happy-path round-trip for\nKafka.ConfluentCluster. Mirrors TlsRoundTrip but on cp-kafka to rule\nout distro-specific differences in keystore mounts, hostname\nverification, and SSL listener bring-up.").
+							WithSourceMap(dag.SourceMap("tests_confluent.go", 163, 1)).
+							WithArg("confluentImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_confluent.go", 166, 2), DefaultValue: dagger.JSON("\"8.2.0\"")})).
+					WithFunction(
+						dag.Function("ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfluentSchemaRegistryMtlsRegisterLookupRoundTrip is the mTLS counterpart:\nthe REST endpoint requires a client certificate and the registry presents\nits own leaf to the mTLS broker for the kafkastore connection, all rooted at\none CA.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 1364, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 1367, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ConfluentSchemaRegistryTlsRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfluentSchemaRegistryTlsRegisterLookupRoundTrip is the canonical TLS test:\na TLS cp-schema-registry terminates HTTPS on its REST endpoint and talks SSL\nto a TLS cluster's brokers for the `_schemas` topic, and the round-trip\nsucceeds over an HTTPS client verifying the registry cert against the\nshared CA.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 1343, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 1346, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ConsumerGroupOnSingleBrokerWorks",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConsumerGroupOnSingleBrokerWorks produces one record then consumes it back\nthrough a consumer group on a 1-broker cluster. A successful round-trip\nproves __consumer_offsets was created at the broker's configured\nreplication factor (1, after the system-topic env vars take effect).\nWithout KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 the broker would refuse\nto create __consumer_offsets at the upstream default RF=3 and the group\njoin would hang or error.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 1209, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 1212, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("CreateAndDeleteTopicRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CreateAndDeleteTopicRoundTrip exercises the create/list/delete cycle to\nconfirm kadm wiring. The topic name is randomized so the test is\nrepeatable against the same cluster and never collides with leftovers.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 697, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 700, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("DedicatedControllerAndBrokerProduceConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DedicatedControllerAndBrokerProduceConsume verifies that the split\ncontroller+broker topology (introduced this increment) still supports a\nfull produce/consume round-trip — i.e. the broker correctly joined the\ncontroller quorum over its WithServiceBinding alias.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 1109, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 1112, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("DescribeConsumerGroupReportsLag",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DescribeConsumerGroupReportsLag produces five records, consumes three of\nthem through a committing consumer group, and asserts DescribeConsumerGroup\nreports the group in the Empty state with committed-offset lag of 2 (end\noffset 5 minus committed offset 3) on the single partition.").
+							WithSourceMap(dag.SourceMap("tests_introspection.go", 222, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_introspection.go", 225, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("DescribeTopicReportsPartitionsAndConfigs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DescribeTopicReportsPartitionsAndConfigs creates a 3-partition RF=1 topic\nand asserts DescribeTopic reports the derived partition count / replication\nfactor, one partition entry per partition, and a non-empty topic-level\nconfig set (proving the configs path is wired).").
+							WithSourceMap(dag.SourceMap("tests_introspection.go", 97, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_introspection.go", 100, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("FiveControllerQuorumAccepted",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FiveControllerQuorumAccepted proves the constructor accepts a five-voter\nquorum (odd, > 3) and returns a *Cluster: resolving BootstrapServers forces\nthe server-side constructor — validation, internal-CA minting of a leaf per\ncontroller, and the full container graph — to run without booting the\ncontainers, so the accept path is exercised cheaply. The 3-controller\nend-to-end quorum is covered by ThreeControllerQuorumProduceConsume.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 958, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 961, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("InternalListenersAreEncrypted",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InternalListenersAreEncrypted spins up a 1+2 cluster with TLS on the\nexternal listener and creates an RF=2 topic. A successful produce →\nconsume round-trip proves replication traffic flowed over the (always\nmTLS) INTERNAL inter-broker listener: without working internal mTLS,\nthe second broker would never become an in-sync replica and the produce\n(with default acks=all-isr) would stall.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 445, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 448, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("InvalidControllerCountIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InvalidControllerCountIsRejected pins the voter-count policy: a KRaft\nquorum wants an odd voter count for a clean majority, so even controller\ncounts are rejected, and a sub-1 count is nonsensical. Both must fail at\nconstruction time with a clear error rather than spinning up a broken\ntopology. (Controllers=0 can't be exercised from the Go SDK — Dagger drops\nthe zero value and applies the").
+							WithSourceMap(dag.SourceMap("tests_native.go", 929, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 932, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("KarapaceSchemaRegistryRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("KarapaceSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path\ntest for Kafka.KarapaceSchemaRegistry: stand a Karapace service up next to\na fresh cluster, then exercise register → lookup-by-id →\nlookup-latest-by-subject → list-subjects → set/get-compatibility → delete\nagainst its Confluent-compatible REST surface — mirroring\nSchemaRegistryRegisterLookupRoundTrip to prove the shared\n*SchemaRegistryClient drives Karapace unchanged.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 281, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 284, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("KarapaceSchemaRegistryTlsRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("KarapaceSchemaRegistryTlsRegisterLookupRoundTrip drives the Karapace TLS\npath (PEM REST listener + aiokafka SSL storage) end-to-end.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 1402, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 1405, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ListConsumerGroupsReportsCommittedGroup",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ListConsumerGroupsReportsCommittedGroup produces a record, consumes it back\nthrough a committing consumer group, and asserts the group then appears in\nListConsumerGroups. A fresh cluster reports no groups, so the group's\npresence proves the join + commit reached __consumer_offsets.").
+							WithSourceMap(dag.SourceMap("tests_introspection.go", 160, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_introspection.go", 163, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("MtlsRequiresClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsRequiresClientCert points a TLS-only client (no keystore) at an\nMTLS broker and asserts the handshake fails. Confirms the broker's\nclient.auth=required setting is actually being honoured.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 311, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 314, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("MtlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsRoundTrip produces and consumes a single record over a mutual-TLS\nexternal listener. The broker presents its cert (signed by the server\nCA) and demands a client cert in return; the test client presents one\nsigned by an independent client CA the broker is configured to trust.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 341, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 344, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("Native",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Native runs every apache/kafka-native test as one group. It boots\nthe three shared ApacheNativeClusters up front, fans the shared-cluster\nand fresh-cluster native tests across a par pool capped at parallel,\nand tears the shared clusters down on return.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 219, 1)).
+							WithCheck().
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 222, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 224, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("OneControllerTwoBrokersReplicationFactorTwo",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("OneControllerTwoBrokersReplicationFactorTwo spins up a 1+2 cluster and\ncreates a replication-factor-2 topic so the produce path forces inter-\nbroker replication. A successful round-trip proves brokers can reach\neach other over the engine network without explicit peer bindings.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 1025, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 1028, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("PlaintextSecurityProfilesAreNonNil",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("tests_native.go", 618, 1))).
+					WithFunction(
+						dag.Function("ProduceConsumeRoundTripBase64",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProduceConsumeRoundTripBase64 round-trips the same kind of binary payload\nthrough standard base64 (with padding).").
+							WithSourceMap(dag.SourceMap("tests_native.go", 833, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 836, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProduceConsumeRoundTripHex",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProduceConsumeRoundTripHex round-trips a binary payload through hex\nencoding. The non-UTF-8 bytes (including 0x00) verify that hex transports\narbitrary binary safely.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 818, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 821, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProduceConsumeRoundTripRaw",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProduceConsumeRoundTripRaw produces a single record with raw-encoded key\nand value, then consumes it back and asserts byte equality. The raw\nencoding round-trips Go strings verbatim, so the assertion is direct\nstring equality.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 751, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 754, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProduceRejectsUnknownEncoding",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProduceRejectsUnknownEncoding verifies that a Produce call with a bogus\nencoding name fails fast rather than silently misbehaving.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 848, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 851, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("PropertiesFileContainsBootstrapAndSecurityProtocol",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PropertiesFileContainsBootstrapAndSecurityProtocol verifies that the\nrendered Java client.properties file carries the bootstrap.servers list\nand a plaintext security.protocol entry — enough for the Apache Kafka\nCLI tools to pick up the connection settings.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 889, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 892, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("PropertiesFileContainsMtlsSettings",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PropertiesFileContainsMtlsSettings verifies that mTLS mode also renders\nthe ssl.keystore.* triple referencing a keystore.p12 sidecar.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 267, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 270, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("PropertiesFileContainsTlsSettings",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PropertiesFileContainsTlsSettings verifies the rendered Java\nclient.properties carries security.protocol=SSL plus an ssl.truststore.*\ntriple referencing a sidecar PKCS#12 file by basename.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 228, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 231, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufConsumeMessageIndexMismatchErrors",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufConsumeMessageIndexMismatchErrors pins the guard that makes the\nmessage-index array load-bearing rather than decorative. A record produced\nas devex.kafka.test.User (index [0]) but consumed as devex.kafka.test.Event\n(index [1]) must be rejected: protobuf wire bytes are not self-describing,\nso decoding one message type's bytes against another's descriptor would\notherwise succeed and hand back silent garbage.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 420, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_protobuf.go", 423, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufConsumeUnframedErrors",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufConsumeUnframedErrors pins the negative consume path: a record\nproduced without a Confluent wire header, consumed with\nvalueDeserializeAs=\"PROTOBUF\"pointing at the missing header rather than trying to parse arbitrary bytes\nas a protobuf message. No registry is started — PROTOBUF decoding never\nneeds one, and the header check fires before the descriptor set is even\nread.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 364, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_protobuf.go", 367, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufDeserializeRequiresDescriptorSet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufDeserializeRequiresDescriptorSet mirrors the produce-side guard on\nthe consume path. It must fail before a broker connection is opened, which\nthe unroutable bootstrap address proves: a missing guard would surface as a\ndial timeout rather than a validation error.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 133, 1))).
+					WithFunction(
+						dag.Function("ProtobufDeserializeRequiresSchemaRegistryAware",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufDeserializeRequiresSchemaRegistryAware pins that PROTOBUF consume\nneeds schemaRegistryAware=true: without it the 5-byte header is never\nstripped, so neither the wire id nor the message-index array that follows it\nis reachable.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 162, 1))).
+					WithFunction(
+						dag.Function("ProtobufFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufFramedProduceConsumeRoundTrip is the happy-path data round-trip for\nPROTOBUF serde: register user.proto to get a schema id, Produce a JSON\ndocument with valueSerializeAs=\"PROTOBUF\" + the descriptor set + the message\nname (so it is protobuf-encoded, then framed with the header *and* the\nmessage-index array), and Consume it back with valueDeserializeAs=\"PROTOBUF\"\n\nThe asserted invariant is byte-equality of the consumed value to the\ncanonical JSON form of the original input, proving the\nJSON->protobuf-binary->JSON pipeline preserves the datum. devex.kafka.test.User\nis the first message in the file, so this exercises the single-zero-byte\nshortcut form of the message-index array.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 200, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_protobuf.go", 203, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufKeyFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufKeyFramedProduceConsumeRoundTrip drives PROTOBUF serde on the *key*\nrather than the value. Key and value are plumbed through independent\nprotoMessages instances, independent validation calls, and independent\nframing branches, so the value round-trip alone would not catch a\ncopy-paste slip on the key side. Both fields are encoded here — with\ndifferent message types, so a crossed wire between them fails rather than\ncoincidentally passing.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 243, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_protobuf.go", 246, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufNonZeroMessageIndexRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufNonZeroMessageIndexRoundTrip drives the same pipeline against\ndevex.kafka.test.Event, the *second* top-level message in user.proto. Its\nConfluent message-index path is [1] rather than [0], so the frame carries\nthe length-prefixed varint form of the index array instead of the\nsingle-zero-byte shortcut. Without a correctly written and re-read index the\nconsume side would either mis-parse the payload or reject the record, so a\ngreen round-trip here is what proves the index round-trips rather than being\naccidentally skipped.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 225, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_protobuf.go", 228, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ProtobufSerializeRequiresDescriptorSet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufSerializeRequiresDescriptorSet pins the up-front validation contract\nof valueSerializeAs=\"PROTOBUF\": Produce must reject a missing descriptor set\nbefore any broker, registry, or file I/O. dag.Kafka().Client(...) builds\nwithout I/O and the bootstrap address is unroutable, so a nil error here\nwould mean the guard never fired.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 51, 1))).
+					WithFunction(
+						dag.Function("ProtobufSerializeRequiresMessageName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufSerializeRequiresMessageName is the sibling guard: a descriptor set\nalone is not enough, because a FileDescriptorSet can hold many message types\nand nothing in it says which one the payload is.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 77, 1))).
+					WithFunction(
+						dag.Function("ProtobufSerializeRequiresSchemaID",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProtobufSerializeRequiresSchemaID pins that PROTOBUF mode also demands a\npositive schema id. The id is not optional the way it arguably is for a bare\nJSON payload: the Confluent message-index array lives inside the frame, so\nan unframed Protobuf record has nowhere to record which message type it\nholds and no consumer could decode it.").
+							WithSourceMap(dag.SourceMap("tests_protobuf.go", 105, 1))).
+					WithFunction(
+						dag.Function("Redpanda",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Redpanda runs the redpandadata/redpanda round-trip tests — the two\nKafka-wire round-trips, the PLAINTEXT and TLS bundled-Schema-Registry\nround-trips, and the bundled-registry Stop-is-a-no-op lifecycle test.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 408, 1)).
+							WithCheck().
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 411, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 413, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("RedpandaClusterProduceListTopicsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaClusterProduceListTopicsRoundTrip is the PLAINTEXT happy-path\nround-trip for Kafka.RedpandaCluster: spin up a single-node Redpanda,\ncreate a topic, produce one record, then assert the freshly-created\ntopic shows up in ListTopics. Pins down \"redpanda actually serves\nKafka-wire traffic on the external listener\".").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 291, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 294, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaClusterTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaClusterTlsRoundTrip is the TLS happy-path round-trip for\nKafka.RedpandaCluster: spin up Redpanda with kafka_api_tls.enabled=true\nusing PEM cert/key/CA mounted into /etc/redpanda/certs, then produce\nand consume one record over the TLS listener with the franz-go client\nverifying the broker leaf against the matching truststore.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 340, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 343, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaMultiBrokerBootstrapServersListsEveryNode",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaMultiBrokerBootstrapServersListsEveryNode proves the constructor\naccepts brokers=3 and returns a cluster advertising all three broker\nbootstrap addresses. Resolving BootstrapServers forces the server-side\nconstructor (validation + the full container graph, including the per-node\nseed list) to run without booting the containers, so the accept path is\nexercised cheaply — the real three-node Raft round-trip is covered by\nRedpandaThreeBrokerReplicationFactorThreeProduceConsume.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 151, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 154, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaMultiBrokerControllerPolicyRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaMultiBrokerControllerPolicyRejected pins the two construction-time\npolicies Redpanda enforces: `controllers != 1` is rejected (Redpanda has no\nseparate controller role) and `brokers < 1` is rejected. Resolving\nBootstrapServers forces the server-side constructor to run its validation\nwithout booting any container, so both rejections are exercised cheaply.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 105, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 108, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaMultiBrokerSchemaRegistryRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaMultiBrokerSchemaRegistryRoundTrip proves Redpanda's bundled Schema\nRegistry still works against a multi-node cluster: it stands up a three-node\ncluster, registers a schema against cluster.SchemaRegistry() (which points\nat node 0, whose service cascades the whole cluster online), and asserts the\nlookup-by-id round-trip. The `_schemas` topic itself is replicated across the\ncluster, so a successful round-trip proves the registry reaches a formed\nmulti-node Raft group.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 270, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 273, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaSchemaRegistryBundledStopIsNoOp",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaSchemaRegistryBundledStopIsNoOp pins the bundled-registry lifecycle\ncontract: a bundled *SchemaRegistry shares the broker service, so sr.Stop\nmust be a no-op — the cluster owns teardown via cluster.Stop. This runs a\nregister/lookup round-trip, calls sr.Stop, then exercises the registry\nagain through the same handle. If sr.Stop had torn down the shared broker\nservice, that follow-up call would fail.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 512, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 515, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaSchemaRegistryRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaSchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path\ntest for RedpandaCluster.SchemaRegistry: `rpk redpanda start` runs a Schema\nRegistry inside the broker process on :8081, so this registers a schema\nagainst cluster.SchemaRegistry() and asserts the lookup-by-id round-trip —\nproving the bundled SR is reachable and interchangeable with the\nseparate-container ConfluentSchemaRegistry. The SR service is the broker\nitself, so cluster.Stop tears it down — sr.Stop is a no-op for a bundled\nregistry.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 463, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 466, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaSchemaRegistryTlsRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaSchemaRegistryTlsRegisterLookupRoundTrip is the TLS-cluster\ncounterpart of RedpandaSchemaRegistryRegisterLookupRoundTrip. A TLS\nRedpanda cluster terminates HTTPS on its bundled Schema Registry REST\nendpoint, reusing the broker's server leaf (configured through the\nseparately-rendered redpanda.yaml schema_registry_api_tls block), so this\nexercises that YAML path end-to-end and drives register/lookup over HTTPS,\nverifying the SR cert against the cluster CA truststore.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 486, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 489, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaThreeBrokerReplicationFactorThreeProduceConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaThreeBrokerReplicationFactorThreeProduceConsume stands up a real\nthree-node Redpanda cluster and drives a produce → consume round-trip over\nan RF=3 topic. A successful round-trip proves the three nodes formed a\nsingle Raft group over the internal RPC listener (seed-driven bootstrap) and\nthat inter-node replication is actually exercised — an RF=3 topic can only be\ncreated and written if all three brokers reach each other.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 176, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 179, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RedpandaThreeBrokerTlsReplicationFactorThreeProduceConsume is the TLS\ncounterpart: a three-node Redpanda cluster with TLS on every node's external\nKafka listener, driving a produce → consume round-trip over an RF=3 topic.\nThe franz-go client verifies whichever node it is routed to against the\ncluster truststore, proving every node's leaf is SAN'd to its own hostname.").
+							WithSourceMap(dag.SourceMap("tests_redpanda.go", 194, 1)).
+							WithArg("redpandaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_redpanda.go", 197, 2), DefaultValue: dagger.JSON("\"v26.1.7\"")})).
+					WithFunction(
+						dag.Function("SchemaRegistry",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistry runs the Schema Registry tests — ConfluentSchemaRegistry,\nApicurioSchemaRegistry, and KarapaceSchemaRegistry — as one group. Each test\nowns the cluster (and, for the round-trips, the registry service) it boots,\nso the group's only lifetime guarantee is that both are torn down once it\nreturns.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 110, 1)).
+							WithCheck().
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 113, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 115, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("SchemaRegistryFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryFramedProduceConsumeRoundTrip exercises the data path of the\nClient with Confluent wire-format framing: register a schema to get an ID,\nproduce a record whose value is framed with that ID, then consume with\nschemaRegistryAware=true and assert the parsed ID matches and the value\nbytes are stripped back to the original payload.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 407, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 410, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("SchemaRegistryJSONFramedProduceConsumeRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryJSONFramedProduceConsumeRoundTrip composes the framing\nprimitive (valueSchemaID) with the JSON serde (valueSerializeAs /\nvalueDeserializeAs). A JSON document is registered as a JSON-schema-typed\nsubject, produced with both opts on, then consumed with both opts on; the\nasserted invariant is byte-equality of the consumed value to the canonical\nJSON form of the original input — proving frame strip and JSON validation\ncompose without corrupting the payload.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 632, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 635, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("SchemaRegistryJSONSerializeRejectsMalformedInput",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryJSONSerializeRejectsMalformedInput pins the up-front\nvalidation contract of valueSerializeAs=\"JSON\": Produce must reject a\nmalformed JSON payload before any broker I/O. dag.Kafka().Client(...)\nbuilds without I/O, so no cluster boots — the failure is purely a\npayload-validation failure on the canonicalising serializer.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 604, 1))).
+					WithFunction(
+						dag.Function("SchemaRegistryPlaintextConsumeUnframed",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryPlaintextConsumeUnframed verifies the negative path: a record\nproduced without framing, consumed with schemaRegistryAware=true, must\nsurface ValueSchemaID=0 and pass the value bytes through unchanged.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 502, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 505, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("SchemaRegistryRegisterLookupRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryRegisterLookupRoundTrip is the PLAINTEXT happy-path test\nfor Kafka.ConfluentSchemaRegistry: stand a cp-schema-registry up next to\na fresh cluster, then exercise register → lookup-by-id →\nlookup-latest-by-subject → list-subjects → set/get-compatibility →\ndelete against it — covering every SchemaRegistryClient operation.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 25, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 28, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("SchemaRegistryRejectsClusterModeMismatch",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchemaRegistryRejectsClusterModeMismatch pins the mode-match contract: a\nregistry's security profile must match its backing cluster's client-listener\nmode, so the registry's kafka-storage connection authenticates against the\nbroker. Here a PLAINTEXT registry security is paired with a TLS cluster and\nmust be rejected with an error naming both modes. The constructor errors\nbefore any service boots, so the TLS cluster never has to start.").
+							WithSourceMap(dag.SourceMap("tests_schema_registry.go", 577, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_schema_registry.go", 580, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("SingleNodeClusterStarts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SingleNodeClusterStarts spins up the smallest split-role cluster (one\ncontroller + one broker) and forces the server-side Cluster constructor\nto run by resolving BootstrapServers, asserting only that the broker\nhostname is non-empty. End-to-end reachability is covered by sibling\ntests that exercise ListTopics / produce / consume.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 635, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 638, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("ThreeControllerQuorumProduceConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ThreeControllerQuorumProduceConsume stands up a real three-node KRaft\ncontroller quorum (plus one broker) and drives a produce → consume\nround-trip through it, mirroring the single-controller round-trip. A\nsuccessful round-trip proves the three controllers formed a quorum and\nelected a leader over their (always-mTLS) CONTROLLER listeners — which in\nturn proves the internal CA minted a verifying leaf for every controller\nhost and that all three discovered each other over session-wide DNS with\nno controller-to-controller WithServiceBinding. Cluster.Stop then tears\ndown all three controller services plus the broker.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 992, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 995, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("TlsClientWithWrongCaFails",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsClientWithWrongCaFails verifies that pointing the client at a\ntruststore for an unrelated CA fails the handshake — i.e. the broker is\ngenuinely presenting a cert chained to its own CA, not skipping\nverification.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 413, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 416, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("TlsClusterStarts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsClusterStarts forces the lazy Cluster construction to run under\nTlsServerSecurity and confirms BootstrapServers reports a non-empty,\nnon-zero-port broker address. No client connection attempted — this\nproves caller's CA loads, leaf signing succeeds, the keystore mounts,\nand the broker doesn't crash on startup.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 589, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 592, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("TlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsRoundTrip produces and consumes a single record over a TLS-only\nexternal listener with TlsClientSecurity holding the CA's truststore.\nExercises: SAN matching the bootstrap address, kgo dialer + TLS, broker\nSSL listener, end-to-end encryption.").
+							WithSourceMap(dag.SourceMap("tests_native.go", 515, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tests_native.go", 518, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

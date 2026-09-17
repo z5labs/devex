@@ -26,8 +26,8 @@ type drift struct {
 }
 
 // Generated verifies that every committed dagger.gen.go and
-// internal/dagger/*.gen.go in the calling workspace matches what `dagger develop`
-// would produce at each module's pinned engineVersion.
+// internal/dagger/*.gen.go in the calling workspace matches what codegen
+// produces at each module's pinned engineVersion.
 //
 // Every module in the workspace is checked, including the root one and every
 // tests or examples module.
@@ -35,14 +35,23 @@ type drift struct {
 // This check is why generated files need not be global inputs to the memoization
 // hash: it proves they are derived from inputs that are, it belongs to the root
 // module so a plan always runs it, and it is never memoized. The result is
-// deliberately never cached either — the workspace is read at call time rather
-// than passed as an argument, so a cached pass would be a pass for a tree the
-// check never looked at.
+// deliberately never cached either — the workspace handle the CLI fills in is a
+// live view of the tree rather than a snapshot argument the cache key can
+// describe, so a cached pass would be a pass for a tree the check never looked
+// at.
 //
 // +check
 // +cache="never"
-func (m *WorkspaceCi) Generated(ctx context.Context) error {
-	root, cleanup, err := materializeWorkspace(ctx)
+func (m *WorkspaceCi) Generated(
+	ctx context.Context,
+	// The workspace to check. A Dagger CLI fills this in from the workspace the
+	// call was made in; a module calling this one has to pass on the workspace the
+	// CLI handed it, or make one out of a directory with Directory.asWorkspace.
+	// It is not called "workspace" because --workspace is one of the CLI's own
+	// global flags, and a function argument cannot take a name it has claimed.
+	callingWorkspace *dagger.Workspace,
+) error {
+	root, _, dir, cleanup, err := materializeWorkspace(ctx, callingWorkspace)
 	if err != nil {
 		return err
 	}
@@ -53,7 +62,7 @@ func (m *WorkspaceCi) Generated(ctx context.Context) error {
 		return err
 	}
 
-	drifted, err := codegenDrift(ctx, root, modules)
+	drifted, err := codegenDrift(ctx, dir, modules)
 	if err != nil {
 		return err
 	}
@@ -66,7 +75,7 @@ func (m *WorkspaceCi) Generated(ctx context.Context) error {
 		fmt.Fprintf(os.Stderr, "==> %s is not up-to-date:\n%s\n", d.module, d.patch)
 		names = append(names, d.module)
 	}
-	return fmt.Errorf("generated files are not up-to-date; run `dagger develop` in: %s", strings.Join(names, ", "))
+	return fmt.Errorf("generated files are not up-to-date; regenerate: %s", strings.Join(names, ", "))
 }
 
 // GeneratedSelfTest pins that Generated can actually fail.
@@ -84,6 +93,12 @@ func (m *WorkspaceCi) Generated(ctx context.Context) error {
 // +cache="never"
 func (m *WorkspaceCi) GeneratedSelfTest(
 	ctx context.Context,
+	// The workspace to check. A Dagger CLI fills this in from the workspace the
+	// call was made in; a module calling this one has to pass on the workspace the
+	// CLI handed it, or make one out of a directory with Directory.asWorkspace.
+	// It is not called "workspace" because --workspace is one of the CLI's own
+	// global flags, and a function argument cannot take a name it has claimed.
+	callingWorkspace *dagger.Workspace,
 	// The module to make stale, repo-relative. Defaults to the first
 	// dependency-free module in the workspace, which is the cheapest one to
 	// regenerate.
@@ -91,7 +106,7 @@ func (m *WorkspaceCi) GeneratedSelfTest(
 	// +optional
 	probeModule string,
 ) error {
-	pristine, cleanPristine, err := materializeWorkspace(ctx)
+	pristine, _, pristineDir, cleanPristine, err := materializeWorkspace(ctx, callingWorkspace)
 	if err != nil {
 		return err
 	}
@@ -104,7 +119,7 @@ func (m *WorkspaceCi) GeneratedSelfTest(
 	}
 	probeFile := filepath.Join(probeModule, "internal", "dagger", "dagger.gen.go")
 
-	clean, err := codegenDrift(ctx, pristine, []string{probeModule})
+	clean, err := codegenDrift(ctx, pristineDir, []string{probeModule})
 	if err != nil {
 		return err
 	}
@@ -114,7 +129,7 @@ func (m *WorkspaceCi) GeneratedSelfTest(
 
 	// A second export, rather than mutating the first, so the engine cannot serve
 	// the tampered tree from its snapshot of the pristine path.
-	tampered, cleanTampered, err := materializeWorkspace(ctx)
+	tampered, tamperedRel, _, cleanTampered, err := materializeWorkspace(ctx, callingWorkspace)
 	if err != nil {
 		return err
 	}
@@ -124,7 +139,9 @@ func (m *WorkspaceCi) GeneratedSelfTest(
 		return fmt.Errorf("self-test: cannot make %s stale: %w", probeFile, err)
 	}
 
-	stale, err := codegenDrift(ctx, tampered, []string{probeModule})
+	// Read the tampered tree back off this container's own disk rather than reusing
+	// the Directory it was exported from, which still describes the pristine tree.
+	stale, err := codegenDrift(ctx, dag.CurrentModule().Workdir(tamperedRel), []string{probeModule})
 	if err != nil {
 		return err
 	}
@@ -178,21 +195,16 @@ func defaultProbeModule(root string) (string, error) {
 }
 
 // codegenDrift runs codegen for each module source root (repo-relative, "." for
-// the root module) against the workspace copy at root, and returns those whose
+// the root module) against the workspace directory, and returns those whose
 // committed files differ from the generated output, ordered like modules.
-//
-// The module sources are loaded from root -- a copy of the workspace exported into
-// this container -- rather than from the live Workspace, because loading a
-// module's toolchains resolves their default-path context against a host path the
-// module runtime cannot see. Everything under root is visible to it.
-func codegenDrift(ctx context.Context, root string, modules []string) ([]drift, error) {
+func codegenDrift(ctx context.Context, dir *dagger.Directory, modules []string) ([]drift, error) {
 	found := make([]*drift, len(modules))
 
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(codegenParallelism)
 	for i, mod := range modules {
 		g.Go(func() error {
-			changes := dag.ModuleSource(filepath.Join(root, mod)).GeneratedContextChangeset()
+			changes := moduleSource(dir, mod).GeneratedContextChangeset()
 			empty, err := changes.IsEmpty(ctx)
 			if err != nil {
 				return fmt.Errorf("codegen %s: %w", mod, err)
@@ -221,28 +233,29 @@ func codegenDrift(ctx context.Context, root string, modules []string) ([]drift, 
 	return drifted, nil
 }
 
-// materializeWorkspace exports the calling workspace into a scratch directory and
-// returns its absolute path. Codegen reads module sources as local paths, which
-// resolve inside this container, so the tree has to exist on disk -- a lazy
-// Directory handle is not enough.
-func materializeWorkspace(ctx context.Context) (string, func(), error) {
-	// .git is excluded because it is dead weight for codegen, but an empty one is
-	// put back: a module's context directory is found by walking up to the
-	// repository root, and without that marker every module would take its own
-	// source root as the context and a dependency like "../../crypto" would escape
-	// it.
-	ws := dag.CurrentWorkspace().Directory("/", dagger.WorkspaceDirectoryOpts{
+// materializeWorkspace exports the given workspace into a scratch directory and
+// returns that directory both as a path in this container and as the Directory
+// codegen runs against, plus the name to read the path back under.
+//
+// The export exists because moduleRoots walks an os filesystem, and because the
+// self-test has to edit a file before regenerating it. Codegen itself runs off
+// the Directory: a module runtime cannot load a local module source, so the path
+// is never what a module is resolved from.
+//
+// .git is excluded: it is dead weight for codegen, and with the module's context
+// given explicitly nothing has to walk up to a repository root to find one.
+func materializeWorkspace(ctx context.Context, callingWorkspace *dagger.Workspace) (root, rel string, dir *dagger.Directory, cleanup func(), err error) {
+	if callingWorkspace == nil {
+		return "", "", nil, nil, fmt.Errorf("no workspace to check: a Dagger CLI fills one in from the caller's own, but a module calling this one has to pass the workspace the CLI handed it")
+	}
+	dir = callingWorkspace.Directory("/", dagger.WorkspaceDirectoryOpts{
 		Exclude: []string{".git"},
 	})
-	root, cleanup, err := exportDir(ctx, ws)
+	root, rel, cleanup, err = exportDir(ctx, dir)
 	if err != nil {
-		return "", nil, err
+		return "", "", nil, nil, err
 	}
-	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	return root, cleanup, nil
+	return root, rel, dir, cleanup, nil
 }
 
 // appendLine appends line, newline-terminated, to an existing file.

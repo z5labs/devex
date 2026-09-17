@@ -223,6 +223,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the random-examples Dagger module: a runnable cookbook of\nrandom recipes. Each recipe shows one realistic use for a fresh value --\na per-run test secret, a certificate serial, a sortable event id -- and,\nbecause random exists precisely to defeat the function cache, every recipe\nre-runs on every invocation instead of replaying a cached result.\n").
+			WithObject(
+				dag.TypeDef().WithObject("RandomExamples", dagger.TypeDefWithObjectOpts{Description: "RandomExamples is the module's main object: a namespace for the random\nusage recipes.", SourceMap: dag.SourceMap("main.go", 17, 6)}).
+					WithFunction(
+						dag.Function("MintCertificateSerial",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("MintCertificateSerial returns a random 64-bit (8-byte, 16 hex character)\nX.509 serial number. Serial forces the low bit, so the value is always a\npositive integer a CA can issue against.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 34, 1))).
+					WithFunction(
+						dag.Function("MintSha256Token",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("MintSha256Token returns a 64-character hex token derived from 32 fresh\nrandom bytes, the shape you want for a per-run test password or API token.\nFeed it to dag.SetSecret to hand it to a service without it ever landing in\nsource.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 25, 1))).
+					WithFunction(
+						dag.Function("MintSortableEventId",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("MintSortableEventId returns a UUID version 7. Unlike a v4, a v7 leads with a\nmillisecond timestamp, so ids minted over time sort lexicographically in the\norder they were created -- handy as a primary key or an event id.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 43, 1))).
+					WithFunction(
+						dag.Function("ShowNonCachingContract",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("ShowNonCachingContract calls the same generator twice in one invocation and\nreturns both values, which always differ. This is the module's whole point:\nrandom's functions carryinstead of replaying the first result for the identical second call.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 53, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

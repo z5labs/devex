@@ -620,6 +620,191 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the java Dagger module: a thin wrapper around the\nJVM toolchain (the JDK plus the Maven and Gradle build tools) so downstream\npipelines can compile, test, and package Java projects without re-inventing\nJDK pinning, build-tool selection, and cache plumbing.\n\nThe JDK version is pinned via New(version) or inferred from the source's\n.java-version, then pom.xml, then build.gradle(.kts); it falls back to the\nmodule-pinned LTS default. Maven and Gradle are surfaced as cooperating\nobjects via Java.Maven / Java.Gradle. The build-tool version is not taken\nfrom New(): an in-repo wrapper (mvnw/gradlew) is used when present, pinning\nthe tool per-repo; disableWrapper forces the image's system tool.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Java", dagger.TypeDefWithObjectOpts{Description: "Java wraps the JVM toolchain as Dagger functions. Construct via New(); call\nContainer() for the prepared JDK container, ToolVersion() for the pinned\nJDK banner, Run() to run a jar, or Maven()/Gradle() for the build-tool\nobjects.", SourceMap: dag.SourceMap("main.go", 41, 6)}).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the prepared JDK container with source mounted at /work\nand the working directory set to /work. Use this as an escape hatch when a\nJVM command isn't covered by the typed helpers.\n\nThe base image is eclipse-temurin:<jdk>-jdk where jdk comes from New() or,\nwhen New(\"\") was used, from source (.java-version, then pom.xml, then\nbuild.gradle(.kts)), falling back to the module-pinned LTS default. The\nsignature takes ctx + returns error because source inspection requires\nasync I/O.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 69, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 71, 2)})).
+					WithFunction(
+						dag.Function("Gradle",
+							dag.TypeDef().WithObject("Gradle")).
+							WithDescription("Gradle returns a Gradle build-tool object bound to source. The JDK pin from\nNew() (if any) is propagated; an unpinned Java infers the JDK from source.\ndisableWrapper forces the image's system `gradle` even when an in-repo\n`gradlew` is present.").
+							WithSourceMap(dag.SourceMap("main.go", 138, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 139, 2)}).
+							WithArg("disableWrapper", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 141, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Maven",
+							dag.TypeDef().WithObject("Maven")).
+							WithDescription("Maven returns a Maven build-tool object bound to source. The JDK pin from\nNew() (if any) is propagated; an unpinned Java infers the JDK from source.\ndisableWrapper forces the image's system `mvn` even when an in-repo `mvnw`\nis present.").
+							WithSourceMap(dag.SourceMap("main.go", 122, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 123, 2)}).
+							WithArg("disableWrapper", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 125, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Run runs `java -jar <jar> [args...]` against the supplied source and returns\nthe program's stdout. jar is the path to the runnable jar within source.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 102, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 104, 2)}).
+							WithArg("jar", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 105, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 107, 2)})).
+					WithFunction(
+						dag.Function("ToolVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("ToolVersion returns the JDK version banner (`java -version`) for the pinned\nJDK. It is source-less: the version comes from New() or the module-pinned\nLTS default.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 88, 1))).
+					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Version is the pinned JDK major version (e.g. \"21\"). Empty means infer\nfrom source (.java-version, then pom.xml / build.gradle); falls back to\nthe module-pinned LTS default.", SourceMap: dag.SourceMap("main.go", 45, 2)}).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Java")).
+							WithDescription("New returns a Java module configured for the given JDK version.\nversion is optional: empty means the version is inferred from the source for\nsource-bearing funcs, and the module-pinned LTS default is used otherwise.").
+							WithSourceMap(dag.SourceMap("main.go", 51, 1)).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 53, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Gradle", dagger.TypeDefWithObjectOpts{Description: "Gradle wraps the Gradle build lifecycle as Dagger functions. Construct via\nJava.Gradle(). The container is gradle:<ver>-jdk<jdk> with ~/.gradle/caches\nmounted as a shared cache volume; an in-repo `gradlew` is used unless\nDisableWrapper forces the image's system `gradle`. Every invocation passes\n--no-daemon for reproducibility.", SourceMap: dag.SourceMap("gradle.go", 14, 6)}).
+					WithFunction(
+						dag.Function("Assemble",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Assemble runs `gradle assemble` and returns the build/libs directory (the\nbuilt jar lands there).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("gradle.go", 105, 1))).
+					WithFunction(
+						dag.Function("Build",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Build runs `gradle build` and returns the build directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("gradle.go", 74, 1))).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("GradleCi")).
+							WithDescription("Ci returns a new pipeline builder bound to this Gradle tool object.").
+							WithSourceMap(dag.SourceMap("ci.go", 115, 1))).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the prepared Gradle container with source mounted at /work,\nthe shared gradle-caches-cache mounted at ~/.gradle/caches (owned by the\ngradle user), GRADLE_USER_HOME set, and the working directory set to /work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("gradle.go", 32, 1))).
+					WithFunction(
+						dag.Function("Tasks",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Tasks runs the given Gradle tasks (plus any extra args) against the source\nand returns stdout. It dispatches to the in-repo `gradlew` when present\nunless DisableWrapper is set, and always passes --no-daemon.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("gradle.go", 54, 1)).
+							WithArg("tasks", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("gradle.go", 56, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("gradle.go", 58, 2)})).
+					WithFunction(
+						dag.Function("Test",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Test runs `gradle test` and returns stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("gradle.go", 89, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Maven", dagger.TypeDefWithObjectOpts{Description: "Maven wraps the Maven build lifecycle as Dagger functions. Construct via\nJava.Maven(). The container is maven:<ver>-eclipse-temurin-<jdk> with\n~/.m2/repository mounted as a shared cache volume; an in-repo `mvnw` is used\nunless DisableWrapper forces the image's system `mvn`.", SourceMap: dag.SourceMap("maven.go", 14, 6)}).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("MavenCi")).
+							WithDescription("Ci returns a new pipeline builder bound to this Maven tool object.").
+							WithSourceMap(dag.SourceMap("ci.go", 32, 1))).
+					WithFunction(
+						dag.Function("Compile",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Compile runs `mvn compile` and returns the target directory (compiled\nclasses land under target/classes).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 66, 1))).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the prepared Maven container with source mounted at /work,\nthe shared maven-repository-cache mounted at /root/.m2/repository, and the\nworking directory set to /work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 28, 1))).
+					WithFunction(
+						dag.Function("Goals",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Goals runs the given Maven goals (plus any extra args) against the source\nand returns stdout. It dispatches to the in-repo `mvnw` when present unless\nDisableWrapper is set.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 45, 1)).
+							WithArg("goals", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("maven.go", 47, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("maven.go", 49, 2)})).
+					WithFunction(
+						dag.Function("Package",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Package runs `mvn package` and returns the target directory (the built jar\nlands under target/). Tests run by default; skipTests passes -DskipTests so\ntest sources still compile but are not executed.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 98, 1)).
+							WithArg("skipTests", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("maven.go", 101, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Test",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Test runs `mvn test` and returns stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 81, 1))).
+					WithFunction(
+						dag.Function("Verify",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Verify runs `mvn verify` and returns stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("maven.go", 121, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("GradleCi", dagger.TypeDefWithObjectOpts{Description: "GradleCi is a chained builder for a standardized Gradle CI pipeline.\nConstruct via Gradle.Ci(); enable check stages via the With* methods; call\nRun to execute checks-then-assemble, or Check to run only the parallel\nchecks.\n\nStage 1 runs the enabled checks (Test, Check) in parallel via\ngithub.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs\n`gradle assemble` (which never runs tests) and Run returns the produced\nbuild/libs directory for downstream pipelines to compose.\n\nThe builder reuses the parent Gradle lifecycle helpers, so wrapper handling,\nJDK inference, and cache mounts are inherited.", SourceMap: dag.SourceMap("ci.go", 105, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the enabled check stages (Test, Check) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of the build.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 137, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (`gradle assemble`).\nReturns the produced build/libs directory. On stage-1 failure, returns the\naggregated error from Check and a nil directory (the build is skipped).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 156, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("WithCheck",
+							dag.TypeDef().WithObject("GradleCi")).
+							WithDescription("WithCheck enables the `gradle check` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 126, 1))).
+					WithFunction(
+						dag.Function("WithTest",
+							dag.TypeDef().WithObject("GradleCi")).
+							WithDescription("WithTest enables the `gradle test` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 120, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("MavenCi", dagger.TypeDefWithObjectOpts{Description: "MavenCi is a chained builder for a standardized Maven CI pipeline. Construct\nvia Maven.Ci(); enable check stages via the With* methods; call Run to\nexecute checks-then-package, or Check to run only the parallel checks.\n\nStage 1 runs the enabled checks (Test, Verify) in parallel via\ngithub.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs\n`mvn package -DskipTests` (the checks already covered testing) and Run\nreturns the produced target/ directory for downstream pipelines to compose.\n\nThe builder reuses the parent Maven lifecycle helpers, so wrapper handling,\nJDK inference, and cache mounts are inherited.", SourceMap: dag.SourceMap("ci.go", 22, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the enabled check stages (Test, Verify) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of packaging.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 54, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (`mvn package\n-DskipTests`). Returns the produced target/ directory. On stage-1 failure,\nreturns the aggregated error from Check and a nil directory (packaging is\nskipped).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 74, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("WithTest",
+							dag.TypeDef().WithObject("MavenCi")).
+							WithDescription("WithTest enables the `mvn test` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 37, 1))).
+					WithFunction(
+						dag.Function("WithVerify",
+							dag.TypeDef().WithObject("MavenCi")).
+							WithDescription("WithVerify enables the `mvn verify` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 43, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

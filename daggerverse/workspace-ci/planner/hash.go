@@ -104,7 +104,7 @@ func NewHasher(
 //     module's hash go blind to that module's sources — recording a pass on good
 //     content and then matching it against bad. What forecloses that is not the
 //     digest but Generated: it proves every committed generated file equals what
-//     `dagger develop` produces, it belongs to the root module so it always runs,
+//     codegen produces, it belongs to the root module so it always runs,
 //     and it is never memoized (and GeneratedSelfTest guards it, after #184). A
 //     tampered binding is therefore red at the gate on the very push that would
 //     act on it, and reverting to go green restores the honest hash, which the

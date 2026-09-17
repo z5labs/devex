@@ -9,39 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type RandomExamples
-func (r *Binding) AsRandomExamples() *RandomExamples { // random-examples (../../../../../daggerverse/random/examples/go/main.go:17:6)
-	q := r.query.Select("asRandomExamples")
-
-	return &RandomExamples{
-		query: q,
-	}
-}
-
-// Create or update a binding of type RandomExamples in the environment
-func (r *Env) WithRandomExamplesInput(name string, value *RandomExamples, description string) *Env { // random-examples (../../../../../daggerverse/random/examples/go/main.go:17:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withRandomExamplesInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired RandomExamples output to be assigned in the environment
-func (r *Env) WithRandomExamplesOutput(name string, description string) *Env { // random-examples (../../../../../daggerverse/random/examples/go/main.go:17:6)
-	q := r.query.Select("withRandomExamplesOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // RandomExamples is the module's main object: a namespace for the random
 // usage recipes.
 func (r *Query) RandomExamples() *RandomExamples { // random-examples (../../../../../daggerverse/random/examples/go/main.go:17:6)

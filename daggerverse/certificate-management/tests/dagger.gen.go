@@ -272,6 +272,61 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the certificate-management-tests Dagger module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 20, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every certificate-management round-trip test inside this suite.\n\nparallel caps how many tests run concurrently. Defaults to 0 (unbounded\nfan-out) — each `dagger check` job runs on its own GH Actions runner, so\nin-runner parallelism is bounded by the VM's CPU/memory, not by the\nscheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 31, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 34, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("CreateCaProducesUsableKeyStore",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CreateCaProducesUsableKeyStore checks that a freshly created CA's keystore\ndecodes successfully under its bound password and yields a CA-flagged\ncertificate.").
+							WithSourceMap(dag.SourceMap("main.go", 60, 1))).
+					WithFunction(
+						dag.Function("IssueClientCertificateChainsToCa",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 163, 1))).
+					WithFunction(
+						dag.Function("IssueMutualTlsCertificateChainsToCa",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 171, 1))).
+					WithFunction(
+						dag.Function("IssueServerCertificateChainsToCa",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 152, 1))).
+					WithFunction(
+						dag.Function("IssueServerCertificateWithEcdsaKey",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("IssueServerCertificateWithEcdsaKey exercises the caller-chosen-algorithm\ncapability by signing the CA and leaf with ECDSA P-256 keys.").
+							WithSourceMap(dag.SourceMap("main.go", 184, 1))).
+					WithFunction(
+						dag.Function("IssueServerCertificateWithEd25519Key",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("IssueServerCertificateWithEd25519Key exercises the caller-chosen-algorithm\ncapability by signing the CA and leaf with Ed25519 keys.").
+							WithSourceMap(dag.SourceMap("main.go", 197, 1))).
+					WithFunction(
+						dag.Function("LoadCertificateAuthorityRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LoadCertificateAuthorityRoundTrip creates a CA, exports its keystore as a\nfile, reloads it via LoadCertificateAuthority, then issues a server cert\nfrom the reloaded CA and verifies it chains to the original.").
+							WithSourceMap(dag.SourceMap("main.go", 92, 1))).
+					WithFunction(
+						dag.Function("LoadKeyStoreFromPkcs12RoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LoadKeyStoreFromPkcs12RoundTrip exercises LoadKeyStoreFromPkcs12 by\nre-wrapping an issued cert's keystore and asserting its PKCS#12 still\ndecodes with the original password.").
+							WithSourceMap(dag.SourceMap("main.go", 211, 1))).
+					WithFunction(
+						dag.Function("LoadTrustStoreFromPkcs12RoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LoadTrustStoreFromPkcs12RoundTrip exercises LoadTrustStoreFromPkcs12 by\nre-wrapping a CA's truststore.").
+							WithSourceMap(dag.SourceMap("main.go", 257, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

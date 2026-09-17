@@ -223,6 +223,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the certificate-management-examples Dagger module: a runnable\ncookbook of certificate-management recipes. Each recipe wires the pure-signer\ncertificate-management module to fresh key material (crypto) and fresh\npasswords/serials (random), and returns a PKCS#12 keystore you can export.\n").
+			WithObject(
+				dag.TypeDef().WithObject("CertificateManagementExamples", dagger.TypeDefWithObjectOpts{Description: "CertificateManagementExamples is the module's main object: a namespace for\nthe certificate-management usage recipes.", SourceMap: dag.SourceMap("main.go", 19, 6)}).
+					WithFunction(
+						dag.Function("IssueClientCertificate",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("IssueClientCertificate creates a fresh root CA and signs a TLS client leaf\nfor \"client.example.com\", returning the leaf's PKCS#12 keystore. Client\ncerts carry no SANs, so the issue call takes no opts.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 69, 1))).
+					WithFunction(
+						dag.Function("IssueMutualTlsCertificate",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("IssueMutualTlsCertificate creates a fresh root CA and signs a dual-EKU\n(serverAuth + clientAuth) leaf for \"service.example.com\", suitable for mTLS,\nreturning the leaf's PKCS#12 keystore.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 109, 1))).
+					WithFunction(
+						dag.Function("IssueServerCertificate",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("IssueServerCertificate creates a fresh root CA and signs a TLS server leaf\nfor \"server.example.com\" (with a DNS SAN), returning the leaf's PKCS#12\nkeystore. This is the create-CA -> issue-server -> export path.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 26, 1))).
+					WithFunction(
+						dag.Function("RoundTripCaThroughPkcs12",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("RoundTripCaThroughPkcs12 creates a CA, exports its keystore, reloads the CA\nfrom that PKCS#12 with the SAME password, then issues a fresh server leaf\nfrom the reloaded CA and returns the leaf keystore. Demonstrates that a CA\nsurvives a serialize/deserialize round-trip and can still sign.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 155, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -707,6 +707,177 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the zig Dagger module: a wrapper around the Zig\ntoolchain (build, build-exe, run, test, fmt, version, env, targets) so\ndownstream pipelines can build, test, format, and cross-compile Zig without\nre-inventing toolchain pinning and container plumbing.\n\nToolchain version is pinned via New(version) or inferred from the source's\nbuild.zig.zon `minimum_zig_version`; falls back to a module-pinned default.\n\nThere is no canonical official Zig image, so the base container downloads\nthe official release tarball from ziglang.org (via dag.HTTP, SHA256-verified\nagainst download/index.json) and unpacks it onto a minimal alpine base with\n`zig` on PATH and a shared zig-cache cache volume mounted.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Zig", dagger.TypeDefWithObjectOpts{Description: "Zig wraps the Zig toolchain as Dagger functions. Construct via New(); call\nContainer() for the prepared base container, or use the per-CLI helpers\n(Build, BuildExe, Run, Test, Fmt, ...) which reuse the same backing\ncontainer.", SourceMap: dag.SourceMap("main.go", 50, 6)}).
+					WithFunction(
+						dag.Function("Build",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Build runs `zig build [-Doptimize=<optimize>] [-Dtarget=<target>] [steps...]\n[args...]` against the supplied source and returns the `zig-out` install\ndirectory.\n\noptimize, when non-empty, must be one of Debug, ReleaseSafe, ReleaseFast,\nReleaseSmall and is rejected otherwise. Empty optimize and empty target\nbuild for the host.\n\nsteps and args are both appended to the `zig build` command line and are\ninterpreted by the build system (steps name build steps; args are additional\nbuild-system arguments/options) — neither is forwarded to a built program. To\npass arguments to the program itself, use Run, which inserts the `--`\nseparator `zig build run` expects.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 111, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 113, 2)}).
+							WithArg("optimize", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 115, 2)}).
+							WithArg("target", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 117, 2)}).
+							WithArg("steps", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 119, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 121, 2)})).
+					WithFunction(
+						dag.Function("BuildExe",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("BuildExe runs `zig build-exe <root> [-O <optimize>] [-target <target>]\n--name <name> [args...]` for a single entry file and returns the produced\nexecutable.\n\nroot is required (the single entry .zig file). optimize, when non-empty,\nmust be one of Debug, ReleaseSafe, ReleaseFast, ReleaseSmall. name defaults\nto the basename of root with any trailing \".zig\" stripped.\n\nNote the flag spelling differs from Build: build-exe uses -O / -target /\n--name (compiler flags), not the -Doptimize= / -Dtarget= build-system\noptions.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 155, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 157, 2)}).
+							WithArg("root", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 158, 2)}).
+							WithArg("optimize", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 160, 2)}).
+							WithArg("target", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 162, 2)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 164, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 166, 2)})).
+					WithFunction(
+						dag.Function("Cc",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Cc cross-compiles C source with `zig cc`, a clang frontend that bundles libc\nand headers for every supported target, so cross-compilation needs no sysroot\nsetup. files is required (the C source files, relative to source). target,\nwhen non-empty, sets clang's -target triple (e.g. \"x86_64-windows-gnu\").\noutputName names the produced artifact (default \"a.out\"); extra clang flags\npass through via args. Returns the artifact as a *dagger.File.\n\noutputName (CLI: --output-name) is named so to avoid colliding with the\nDagger CLI's top-level --output/-o flag — same precedent as go's Ci.WithBuild.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 205, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 207, 2)}).
+							WithArg("files", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 208, 2)}).
+							WithArg("target", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 210, 2)}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 212, 2), DefaultValue: dagger.JSON("\"a.out\"")}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 214, 2)})).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("Ci returns a new pipeline builder bound to the supplied source.").
+							WithSourceMap(dag.SourceMap("ci.go", 49, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 49, 18)})).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the prepared base container with the zig toolchain on\nPATH, the shared zig-cache cache volume mounted, source mounted at /src, and\nthe working directory set to /src. Use this as an escape hatch when a Zig\ncommand isn't covered by the typed helpers.\n\nThe toolchain is downloaded from ziglang.org at the version from New() or,\nwhen New(\"\") was used, from source/build.zig.zon's `minimum_zig_version`\n(falling back to the module-pinned default). The signature takes ctx +\nreturns error because version inference and the tarball download require\nasync I/O.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 80, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 82, 2)})).
+					WithFunction(
+						dag.Function("Cxx",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Cxx cross-compiles C++ source with `zig c++` (the C++ frontend; bundles\nlibc++). Same parameters and semantics as Cc.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 223, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 225, 2)}).
+							WithArg("files", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 226, 2)}).
+							WithArg("target", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 228, 2)}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 230, 2), DefaultValue: dagger.JSON("\"a.out\"")}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 232, 2)})).
+					WithFunction(
+						dag.Function("Env",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Env runs `zig env` in a source-less base container and returns its stdout\n(JSON).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 504, 1))).
+					WithFunction(
+						dag.Function("Fmt",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Fmt runs `zig fmt --check .` against the supplied source, returning a non-nil\nerror that lists the offending files when any are unformatted, and nil when\nthe tree is clean — so CI fails fast on formatting violations.\n\n`zig fmt --check` exits non-zero and prints the offending paths to stdout, so\nthe exec is run allowing any exit code and the paths are surfaced in the\nreturned error. Fmt returns only error (not the file list as a string)\nbecause a Dagger function's non-error return value is dropped at the GraphQL\nboundary whenever it also returns a non-nil error: a (string, error)\nsignature would leave the file list unreachable on exactly the failure path\nthat needs it.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 461, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 461, 40)})).
+					WithFunction(
+						dag.Function("ObjCopy",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ObjCopy runs `zig objcopy -O <format> <input> <output>` in the toolchain\ncontainer, converting an ELF (e.g. from BuildExe) into a flashable artifact,\nand returns the result as a *dagger.File. This is the post-build step every\nembedded flow needs before flashing.\n\nformat selects the output target: \"binary\" (a raw .bin image) or \"hex\" (Intel\nHEX). Any other value is rejected with a clear error — notably UF2 is out of\nscope here, since `zig objcopy` can't emit it.\n\noutputName names the produced artifact and defaults to the input's basename\nwith its extension replaced by the format's (.bin or .hex). Extra flags (e.g.\n--only-section, --pad-to) pass through via args.\n\noutputName (CLI: --output-name) is named so to avoid colliding with the Dagger\nCLI's top-level --output/-o flag — same precedent as Cc/Cxx.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 292, 1)).
+							WithArg("input", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 294, 2)}).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 296, 2), DefaultValue: dagger.JSON("\"binary\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 298, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 300, 2)})).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Run runs `zig build run [-- args...]` against the supplied source and\nreturns the program's stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 404, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 406, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 408, 2)})).
+					WithFunction(
+						dag.Function("Size",
+							dag.TypeDef().WithObject("SectionSizes")).
+							WithDescription("Size reports the per-section byte totals of an ELF input (e.g. a freestanding\nBuildExe output) so CI can gate Flash/Ram against a target's budget.\n\nZig ships no `size` subcommand, so this is computed in pure Go via debug/elf:\nthe input is exported and its section headers are read directly — no helper\ncontainer (per the established runtime-I/O pattern). A non-ELF input returns a\nclear error.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 358, 1)).
+							WithArg("input", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 358, 41)})).
+					WithFunction(
+						dag.Function("Targets",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Targets runs `zig targets` in a source-less base container and returns its\nstdout (the supported architecture/OS/ABI matrix).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 516, 1))).
+					WithFunction(
+						dag.Function("Test",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Test runs `zig build test` when root is empty, else `zig test <root>`,\nagainst the supplied source and returns the combined stdout.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 426, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 428, 2)}).
+							WithArg("root", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 430, 2)}).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 432, 2)})).
+					WithFunction(
+						dag.Function("ToolVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("ToolVersion runs `zig version` in a source-less base container and returns\nthe trimmed output (e.g. \"0.14.1\").").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 488, 1))).
+					WithField("Version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Version is the pinned Zig toolchain version (e.g. \"0.14.1\"). Empty\nmeans infer from the supplied source's build.zig.zon\n`minimum_zig_version`; falls back to a module-pinned default.", SourceMap: dag.SourceMap("main.go", 54, 2)}).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Zig")).
+							WithDescription("New returns a Zig module configured for the given toolchain version.\nversion is optional: empty means the version is inferred from the source's\nbuild.zig.zon for source-bearing funcs, and the module-pinned default is\nused for source-less funcs (ToolVersion, Env, Targets).").
+							WithSourceMap(dag.SourceMap("main.go", 61, 1)).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 63, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci is a chained builder for a standardized Zig CI pipeline. Construct via\nZig.Ci(source); enable check stages via the With* methods; call Run to\nexecute checks-then-build, or Check to run only the parallel checks.\n\nStage 1 runs the enabled checks in parallel (Fmt, Test, and — when WithBuild\nwas called — a Build check that compiles the source); errors are aggregated.\nStage 2 builds the source and Run returns the produced zig-out directory.\nDownstream consumers compose that directory into their own pipelines\n(package, sign, publish, ...).\n\nThe Build check exists because fmt and test alone do not gate compilation:\nfmt checks syntax, not types, and many projects (firmware especially) have no\ntest step, so a build-free Check reports a false green on code that does not\ncompile. See issue #161.", SourceMap: dag.SourceMap("ci.go", 25, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the enabled check stages in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. The\nenabled stages are Fmt (WithFmt), Test (WithTest), and Build (WithBuild).\n\nThe Build stage compiles the source (`zig build`) and discards the artifact —\nit exists so Check gates on \"does it compile?\", the fundamental correctness\ncheck for a compiled language. Without it, a project whose only failure is a\ncompile error passes Check on the strength of fmt alone (a false green): fmt\nchecks syntax, not types, and firmware projects frequently have no test step.\nSee issue #161.\n\nBuild is opt-in via WithBuild so callers can still run a build-free Check —\nfor example multi-target pipelines that share one target-independent check\nrun (fmt, test) across N target builds.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 117, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns the\nproduced zig-out directory. On stage-1 failure, returns the aggregated error\nfrom Check and a nil directory (stage 2 is skipped).\n\nRun always builds regardless of WithBuild — it must produce the directory it\nreturns. When WithBuild was called, Check also builds (stage 1); that build\nand stage 2 share inputs, so session caching makes stage 2 a cache hit rather\nthan a second compile.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 144, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("WithBuild",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithBuild enables the build check stage and configures its parameters\n(forwarded to Zig.Build). optimize, when non-empty, must be one of Debug,\nReleaseSafe, ReleaseFast, ReleaseSmall; target sets -Dtarget; steps names\nbuild steps.\n\nCalling WithBuild makes Check compile the source (`zig build`) as one of its\nparallel checks, so a project that does not type-check fails Check rather\nthan reporting a false green — the fmt and (optional) test checks alone do\nnot compile the code. Without WithBuild, Check runs only the enabled static\nchecks and never builds, preserving a build-free Check for multi-target\npipelines that share one check run across N target builds.\n\nRun always builds regardless of whether this method is called (it must\nproduce the zig-out directory it returns); WithBuild's optimize/target/steps\nconfigure that build too.").
+							WithSourceMap(dag.SourceMap("ci.go", 85, 1)).
+							WithArg("optimize", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 87, 2)}).
+							WithArg("target", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 89, 2)}).
+							WithArg("steps", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 91, 2)})).
+					WithFunction(
+						dag.Function("WithFmt",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithFmt enables the `zig fmt --check` check stage.").
+							WithSourceMap(dag.SourceMap("ci.go", 54, 1))).
+					WithFunction(
+						dag.Function("WithTest",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithTest enables the test check stage. root maps onto Zig.Test's optional\nroot: empty runs `zig build test`; non-empty runs `zig test <root>`.").
+							WithSourceMap(dag.SourceMap("ci.go", 61, 1)).
+							WithArg("root", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 63, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("SectionSizes", dagger.TypeDefWithObjectOpts{Description: "SectionSizes is the per-section footprint of an ELF, in bytes. Flash and Ram\nare the budget-relevant rollups: Flash is what the image occupies in flash,\nRam what it claims at runtime.", SourceMap: dag.SourceMap("main.go", 341, 6)}).
+					WithField("Text", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "SHF_ALLOC, read-only: code (.text) + constants (.rodata)", SourceMap: dag.SourceMap("main.go", 342, 2)}).
+					WithField("Data", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "SHF_ALLOC|SHF_WRITE, PROGBITS (initialized data)", SourceMap: dag.SourceMap("main.go", 343, 2)}).
+					WithField("Bss", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "SHF_ALLOC|SHF_WRITE, NOBITS (zero-init data)", SourceMap: dag.SourceMap("main.go", 344, 2)}).
+					WithField("Flash", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "Text + Data (consumes flash)", SourceMap: dag.SourceMap("main.go", 345, 2)}).
+					WithField("Ram", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "Data + Bss (consumes RAM)", SourceMap: dag.SourceMap("main.go", 346, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

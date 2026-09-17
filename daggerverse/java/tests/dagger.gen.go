@@ -412,6 +412,164 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the java Dagger module. Each\ntest is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 17, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every java-module test in parallel.\n\nparallel caps how many tests run concurrently inside this suite. Defaults to\n0 (unbounded fan-out) — each `dagger check` job runs on its own runner, so\nin-runner parallelism is bounded by the VM, not the scheduler.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 27, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 30, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ContainerHasJdk",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasJdk proves the base container is reachable, source is mounted,\nand the JDK's `java` runs. Canary for every other test.").
+							WithSourceMap(dag.SourceMap("main.go", 99, 1))).
+					WithFunction(
+						dag.Function("ContainerInfersJdkFromJavaVersionFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerInfersJdkFromJavaVersionFile asserts .java-version (17) wins over\nthe conflicting pom (21).").
+							WithSourceMap(dag.SourceMap("main.go", 153, 1))).
+					WithFunction(
+						dag.Function("ContainerUsesPinnedJdkVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerUsesPinnedJdkVersion asserts New(\"17\") overrides the pom's 21.").
+							WithSourceMap(dag.SourceMap("main.go", 140, 1))).
+					WithFunction(
+						dag.Function("GradleAssembleProducesJar",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleAssembleProducesJar asserts `gradle assemble` produces a jar.").
+							WithSourceMap(dag.SourceMap("main.go", 309, 1))).
+					WithFunction(
+						dag.Function("GradleBuildProducesArtifacts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleBuildProducesArtifacts asserts `gradle build` produces artifacts.").
+							WithSourceMap(dag.SourceMap("main.go", 284, 1))).
+					WithFunction(
+						dag.Function("GradleCiCheckRunsChecksAndSkipsBuild",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleCiCheckRunsChecksAndSkipsBuild exercises the checks-only path: it runs\nboth checks against the clean hello fixture via Check (not Run) and asserts\nno error. Check runs just the parallel check stages (Test, Check) and returns\ntheir aggregated result, so a nil return proves both enabled checks passed.\nThe build (assemble) is not part of Check's implementation, so there is no\nartifact to observe here.").
+							WithSourceMap(dag.SourceMap("main.go", 475, 1))).
+					WithFunction(
+						dag.Function("GradleCiRunAllStagesProducesJar",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleCiRunAllStagesProducesJar runs the Gradle Ci pipeline with both checks\nenabled against the clean hello fixture and asserts Run produces a jar under\nbuild/libs.").
+							WithSourceMap(dag.SourceMap("main.go", 457, 1))).
+					WithFunction(
+						dag.Function("GradleCiRunFailingTestAggregates",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleCiRunFailingTestAggregates runs the Gradle Ci pipeline against the\nfailtest fixture with both checks enabled and asserts Run fails at the check\nstage and that BOTH enabled checks (Test, Check) failed rather than\nshort-circuiting on the first. The parallel aggregator joins each job's raw\nerror (job names live in trace spans, not the Go-level string), so each\nfailing `gradle` exec surfaces as a separate \"exit code\" line. Counting those\noccurrences confirms both checks ran and both failures propagated through Run.").
+							WithSourceMap(dag.SourceMap("main.go", 489, 1))).
+					WithFunction(
+						dag.Function("GradleContainerHasGradle",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleContainerHasGradle proves the Gradle container has a working `gradle`.").
+							WithSourceMap(dag.SourceMap("main.go", 259, 1))).
+					WithFunction(
+						dag.Function("GradleDisableWrapperUsesSystemGradle",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleDisableWrapperUsesSystemGradle asserts disableWrapper bypasses gradlew.").
+							WithSourceMap(dag.SourceMap("main.go", 364, 1))).
+					WithFunction(
+						dag.Function("GradleInfersJdkFromBuildGradle",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleInfersJdkFromBuildGradle asserts the Gradle container's JDK is inferred\nfrom build.gradle.").
+							WithSourceMap(dag.SourceMap("main.go", 180, 1))).
+					WithFunction(
+						dag.Function("GradleTasksPassThrough",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleTasksPassThrough proves arbitrary tasks pass through to gradle.").
+							WithSourceMap(dag.SourceMap("main.go", 272, 1))).
+					WithFunction(
+						dag.Function("GradleTestPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleTestPasses asserts `gradle test` succeeds on the hello fixture.").
+							WithSourceMap(dag.SourceMap("main.go", 297, 1))).
+					WithFunction(
+						dag.Function("GradleUsesWrapperWhenPresent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GradleUsesWrapperWhenPresent asserts the in-repo gradlew is used by default.").
+							WithSourceMap(dag.SourceMap("main.go", 352, 1))).
+					WithFunction(
+						dag.Function("MavenCiCheckRunsChecksAndSkipsPackage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenCiCheckRunsChecksAndSkipsPackage exercises the checks-only path: it runs\nboth checks against the clean hello fixture via Check (not Run) and asserts\nno error. Check runs just the parallel check stages (Test, Verify) and\nreturns their aggregated result, so a nil return proves both enabled checks\npassed. Packaging is not part of Check's implementation, so there is no\nartifact to observe here.").
+							WithSourceMap(dag.SourceMap("main.go", 428, 1))).
+					WithFunction(
+						dag.Function("MavenCiRunAllStagesProducesJar",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenCiRunAllStagesProducesJar runs the Maven Ci pipeline with both checks\nenabled against the clean hello fixture and asserts Run produces a jar under\ntarget/.").
+							WithSourceMap(dag.SourceMap("main.go", 410, 1))).
+					WithFunction(
+						dag.Function("MavenCiRunFailingTestAggregates",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenCiRunFailingTestAggregates runs the Maven Ci pipeline against the\nfailtest fixture with both checks enabled and asserts Run fails at the check\nstage and that BOTH enabled checks (Test, Verify) failed rather than\nshort-circuiting on the first. The parallel aggregator joins each job's raw\nerror (job names live in trace spans, not the Go-level string), so each\nfailing `mvn` exec surfaces as a separate \"exit code\" line. Counting those\noccurrences confirms both checks ran and both failures propagated through Run.").
+							WithSourceMap(dag.SourceMap("main.go", 442, 1))).
+					WithFunction(
+						dag.Function("MavenCompileProducesClasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenCompileProducesClasses asserts `mvn compile` produces .class files.").
+							WithSourceMap(dag.SourceMap("main.go", 219, 1))).
+					WithFunction(
+						dag.Function("MavenContainerHasMaven",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenContainerHasMaven proves the Maven container has a working `mvn`.").
+							WithSourceMap(dag.SourceMap("main.go", 194, 1))).
+					WithFunction(
+						dag.Function("MavenDisableWrapperUsesSystemMaven",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenDisableWrapperUsesSystemMaven asserts disableWrapper bypasses mvnw.").
+							WithSourceMap(dag.SourceMap("main.go", 336, 1))).
+					WithFunction(
+						dag.Function("MavenGoalsPassThrough",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenGoalsPassThrough proves arbitrary goals/flags pass through to mvn.").
+							WithSourceMap(dag.SourceMap("main.go", 207, 1))).
+					WithFunction(
+						dag.Function("MavenInfersJdkFromPom",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenInfersJdkFromPom asserts the Maven container's JDK is inferred from pom.").
+							WithSourceMap(dag.SourceMap("main.go", 167, 1))).
+					WithFunction(
+						dag.Function("MavenPackageProducesJar",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenPackageProducesJar asserts `mvn package` produces a jar.").
+							WithSourceMap(dag.SourceMap("main.go", 244, 1))).
+					WithFunction(
+						dag.Function("MavenPackageRunsTestsByDefault",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenPackageRunsTestsByDefault asserts the failing test runs (package fails)\nwhen skipTests is not set.").
+							WithSourceMap(dag.SourceMap("main.go", 383, 1))).
+					WithFunction(
+						dag.Function("MavenPackageSkipTestsBypassesFailingTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenPackageSkipTestsBypassesFailingTest asserts skipTests produces a jar\ndespite the failing test.").
+							WithSourceMap(dag.SourceMap("main.go", 393, 1))).
+					WithFunction(
+						dag.Function("MavenTestPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenTestPasses asserts `mvn test` succeeds on the hello fixture.").
+							WithSourceMap(dag.SourceMap("main.go", 232, 1))).
+					WithFunction(
+						dag.Function("MavenUsesWrapperWhenPresent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MavenUsesWrapperWhenPresent asserts the in-repo mvnw is used by default.").
+							WithSourceMap(dag.SourceMap("main.go", 324, 1))).
+					WithFunction(
+						dag.Function("RunJarPrintsOutput",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunJarPrintsOutput builds a runnable jar from the run-jar fixture inside the\nJDK container, then runs it via Java.Run and checks its stdout.").
+							WithSourceMap(dag.SourceMap("main.go", 124, 1))).
+					WithFunction(
+						dag.Function("ToolVersionReportsJdk",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ToolVersionReportsJdk asserts ToolVersion reports the pinned JDK major.").
+							WithSourceMap(dag.SourceMap("main.go", 111, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

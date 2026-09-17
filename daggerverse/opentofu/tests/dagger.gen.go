@@ -699,6 +699,370 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the opentofu Dagger module.\nEach test is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hermetic: they use hashicorp/random and\nhashicorp/local only, so nothing needs a cloud credential. The random\nprovider's resources exist purely in state, which is what makes the\nstate round-trip assertions meaningful — there is no out-of-band object to\ndrift away underneath them.\n\nThe remote-state fixtures declare an s3 backend, and it too is hermetic: the\nS3 they write to is a MinIO service the suite stands up per test, with a\nroot credential minted at runtime. See backend.go.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 27, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every opentofu-module test in parallel.\n\nparallel caps how many tests run concurrently inside this suite. Defaults to\n0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions\nrunner, so in-runner parallelism is bounded by the VM's CPU/memory, not by\nthe scheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 38, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 41, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ApplyConsumesSavedPlan",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyConsumesSavedPlan asserts the plan.tfplan Plan emits is what Apply\ntakes, closing the two-step plan-then-apply loop a review gate needs.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 314, 1))).
+					WithFunction(
+						dag.Function("ApplyFailsOnProviderError",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyFailsOnProviderError asserts a failed apply is an error carrying\ntofu's own diagnostic, not a directory the caller has to remember to\ninspect.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 339, 1))).
+					WithFunction(
+						dag.Function("ApplyProducesStateAndOutputs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyProducesStateAndOutputs asserts an apply in file-carried mode returns\nthe three artifacts it documents, that the state tracks both resources, and\nthat the output values are the ones the configuration declares.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 262, 1))).
+					WithFunction(
+						dag.Function("ApplyRejectsTargetsWithSavedPlan",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyRejectsTargetsWithSavedPlan asserts the two ways of narrowing an apply\ncannot be combined: a saved plan already fixes what it changes, and tofu\nrejects -target alongside one.").
+							WithSourceMap(dag.SourceMap("validation.go", 67, 1))).
+					WithFunction(
+						dag.Function("ApplyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyShouldNotBeCached asserts two consecutive applies from an empty state\ngenuinely re-run tofu: the random provider mints a fresh pet name each\ntime, so an identical name would mean the second apply never happened.").
+							WithSourceMap(dag.SourceMap("vars.go", 208, 1))).
+					WithFunction(
+						dag.Function("BackendConfigFileMatchesBackendConfig",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BackendConfigFileMatchesBackendConfig asserts the file form of the backend\nsettings selects the same backend as the individual calls: state written\nthrough one is found by the other.\n\nA Plan reporting no changes is the assertion, because the only way this\nConfig can know there is nothing to do is by having read the state the\nflag-configured apply left behind.").
+							WithSourceMap(dag.SourceMap("backend.go", 109, 1))).
+					WithFunction(
+						dag.Function("CiCheckAggregatesStageFailures",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckAggregatesStageFailures asserts the stages run in parallel and their\nerrors are aggregated rather than short-circuiting on the first. The ci-bad\nfixture is unformatted *and* invalid, so both stages fail; requiring both\ndiagnostics in one message proves neither was skipped once the other had\nalready gone red.").
+							WithSourceMap(dag.SourceMap("ci.go", 75, 1))).
+					WithFunction(
+						dag.Function("CiCheckPassesOnCleanConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckPassesOnCleanConfiguration asserts a pipeline whose every stage\nsucceeds reports success. It is the positive half of the false-green pair:\nwithout it, a Check that failed unconditionally would satisfy every\nassertion below.").
+							WithSourceMap(dag.SourceMap("ci.go", 18, 1))).
+					WithFunction(
+						dag.Function("CiCheckReportsInvalidConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckReportsInvalidConfiguration is the false-green regression from #161\nin this module's terms: the invalid fixture is canonically formatted, so the\nfmt stage passes on it. A Check that reported success on the strength of\nthat one green stage would call an unusable configuration sound. Enabling\nthe validate stage must surface tofu's own diagnostic instead.").
+							WithSourceMap(dag.SourceMap("ci.go", 48, 1))).
+					WithFunction(
+						dag.Function("CiCheckReportsUnformattedConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckReportsUnformattedConfiguration asserts the fmt stage gates the\npipeline: a configuration that validates but is not formatted still fails.").
+							WithSourceMap(dag.SourceMap("ci.go", 33, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithPlanAllowsChangesByDefault",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithPlanAllowsChangesByDefault asserts the plan stage without\nfailOnChanges gates on the plan *succeeding*, not on it being empty — the\nshape a pull-request gate needs, where pending changes are the whole point\nof the change under review.").
+							WithSourceMap(dag.SourceMap("ci.go", 136, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithPlanDetectsDrift",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithPlanDetectsDrift asserts WithPlan(failOnChanges: true) turns the\npipeline into a drift detector: planning the basic fixture against an empty\nstate has two resources to create, and a non-empty plan fails the check.").
+							WithSourceMap(dag.SourceMap("ci.go", 98, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithPlanPassesOnAppliedState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithPlanPassesOnAppliedState is the other half of the drift gate:\nthe same pipeline against the state a previous apply produced has nothing\nleft to do, so the check is green.\n\nThe two together are what makes the gate meaningful — a drift detector that\nonly ever fails is indistinguishable from a broken one.").
+							WithSourceMap(dag.SourceMap("ci.go", 113, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithoutStagesIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithoutStagesIsRejected asserts an empty pipeline is an error rather\nthan a pass. A Check that inspects nothing and returns nil is a green that\nmeans nothing at all.").
+							WithSourceMap(dag.SourceMap("ci.go", 88, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithoutValidateSkipsIt",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithoutValidateSkipsIt is the counterpart to\nCiCheckReportsInvalidConfiguration and pins the opt-in semantics: a stage\nthat was never enabled never runs. The invalid fixture is fmt-clean, so an\nfmt-only Check passes on it — the pipeline reports on exactly what the\ncaller asked it to check, and nothing else.").
+							WithSourceMap(dag.SourceMap("ci.go", 63, 1))).
+					WithFunction(
+						dag.Function("CiRunFailsOnFailedCheck",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunFailsOnFailedCheck asserts a failing stage costs the caller the\nartifacts: Run returns the aggregated error and no directory, so a broken\nconfiguration cannot hand a plan to whatever consumes one downstream.").
+							WithSourceMap(dag.SourceMap("ci.go", 196, 1))).
+					WithFunction(
+						dag.Function("CiRunProducesPlanArtifacts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunProducesPlanArtifacts asserts Run hands back the plan artifacts for\ndownstream consumption — the same four files Config.Plan emits — after the\nenabled checks have passed.").
+							WithSourceMap(dag.SourceMap("ci.go", 154, 1))).
+					WithFunction(
+						dag.Function("ConcurrentAppliesDoNotCorruptState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConcurrentAppliesDoNotCorruptState asserts two applies racing for the same\nremote state either serialise or fail on the lock — never both go through as\nif the other had not happened.\n\nThe two accepted outcomes are asserted separately because which one occurs\nis a matter of timing, not of correctness:\n\n  - one apply fails with tofu's state-lock diagnostic, or\n  - both succeed, and exactly one of them created the resources while the\n    other found them already there.\n\nThe second half is what makes this more than a smoke test. A backend without\nworking locking also lets both applies succeed — but then both start from an\nempty state, both report resources added, and the loser's work is silently\ndropped when the winner writes its state.").
+							WithSourceMap(dag.SourceMap("backend.go", 220, 1))).
+					WithFunction(
+						dag.Function("ContainerHasGitAndCaCertificates",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasGitAndCaCertificates asserts the two things the -minimal image\nomits and every non-trivial configuration needs: git, for module sources,\nand a CA bundle, for the provider registry.").
+							WithSourceMap(dag.SourceMap("main.go", 155, 1))).
+					WithFunction(
+						dag.Function("ContainerHasTofu",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasTofu asserts the assembled container exposes the tofu binary on\nPATH, so the escape hatch documented on Container() actually works.").
+							WithSourceMap(dag.SourceMap("main.go", 139, 1))).
+					WithFunction(
+						dag.Function("DestroyEmptiesState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DestroyEmptiesState asserts a destroy against file-carried state tears down\neverything the state tracked and hands back the emptied state.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 348, 1))).
+					WithFunction(
+						dag.Function("DestroyWithoutStateOrBackendIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DestroyWithoutStateOrBackendIsRejected asserts a destroy with nothing to\ndestroy is an error. tofu itself would report \"0 destroyed\" and exit 0,\nwhich reads as a successful teardown while the real infrastructure — whose\nstate was never supplied — stays up.").
+							WithSourceMap(dag.SourceMap("validation.go", 44, 1))).
+					WithFunction(
+						dag.Function("FmtAcceptsFormattedConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FmtAcceptsFormattedConfiguration asserts a canonically formatted root\nmodule passes the check and reports no diff.").
+							WithSourceMap(dag.SourceMap("validation.go", 82, 1))).
+					WithFunction(
+						dag.Function("FmtReportsUnformattedConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FmtReportsUnformattedConfiguration asserts drift fails the check and that\nthe diff survives into the error — Dagger drops a function's value whenever\nits error is non-nil, so the error text is the only place it can live.").
+							WithSourceMap(dag.SourceMap("validation.go", 96, 1))).
+					WithFunction(
+						dag.Function("FormatDropsCarriedState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FormatDropsCarriedState asserts the returned tree is the configuration and\nnothing else: file-carried state is written into the container's copy of the\nroot module, and formatting is no reason to hand it back for the caller to\nexport over their working copy.").
+							WithSourceMap(dag.SourceMap("validation.go", 172, 1))).
+					WithFunction(
+						dag.Function("FormatLeavesFormattedConfigurationUnchanged",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FormatLeavesFormattedConfigurationUnchanged asserts Format is a no-op on a\ncanonically formatted root module — byte-identical in, byte-identical out.").
+							WithSourceMap(dag.SourceMap("validation.go", 129, 1))).
+					WithFunction(
+						dag.Function("FormatLeavesInputDirectoryUntouched",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FormatLeavesInputDirectoryUntouched asserts the rewrite lands in the\nreturned copy and nowhere else: the directory handed to Config still reads\nas it did before, so a caller decides for itself whether to export over its\nworking copy.").
+							WithSourceMap(dag.SourceMap("validation.go", 149, 1))).
+					WithFunction(
+						dag.Function("FormatRewritesUnformattedConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FormatRewritesUnformattedConfiguration asserts Format returns the corrected\ntree: the rewritten file differs from the input, and the result passes the\ncheck-only Fmt that the input fails.").
+							WithSourceMap(dag.SourceMap("validation.go", 106, 1))).
+					WithFunction(
+						dag.Function("GraphRendersDependencyGraph",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GraphRendersDependencyGraph asserts Graph returns DOT a reader could parse —\none balanced `digraph` — naming both resources the configuration declares\nand the variable one of them depends on.").
+							WithSourceMap(dag.SourceMap("state.go", 395, 1))).
+					WithFunction(
+						dag.Function("ImportBringsResourceUnderManagement",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ImportBringsResourceUnderManagement asserts an object named by id lands in\nstate under the declared address, and that a plan afterwards is empty —\nwhich it is only if the import recorded the object rather than something\napproximating it.").
+							WithSourceMap(dag.SourceMap("state.go", 224, 1))).
+					WithFunction(
+						dag.Function("ImportRejectsAddressAbsentFromConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ImportRejectsAddressAbsentFromConfiguration asserts import writes state and\nnot HCL: an address the configuration never declares fails, naming it.").
+							WithSourceMap(dag.SourceMap("state.go", 260, 1))).
+					WithFunction(
+						dag.Function("InitProducesLockFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InitProducesLockFile asserts Init emits the dependency lock file — the\nportable artifact of an init, and the one a repo commits — and that it does\nnot hand back the .terraform provider directory, whose entries are symlinks\ninto a cache volume that does not exist outside the container.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 19, 1))).
+					WithFunction(
+						dag.Function("LockCoversRequestedPlatforms",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LockCoversRequestedPlatforms asserts a multi-platform lock produces a lock\nfile that records the provider with a full set of hashes, and that it covers\nat least what a single-platform lock does.\n\nThe assertion is structural rather than per-platform because the lock file\nitself carries no platform labels: `hashes` is one flat list. What proves\neach requested platform is genuinely resolved is\nLockRejectsUnavailablePlatform, where naming a platform the provider does not\npublish fails the run.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 46, 1))).
+					WithFunction(
+						dag.Function("LockRejectsUnavailablePlatform",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LockRejectsUnavailablePlatform asserts every requested platform is actually\nfetched: one the provider does not publish fails the lock, naming it. This\nis what gives LockCoversRequestedPlatforms its teeth.\n\nopenbsd_s390x is a safe stand-in for \"will never exist\" — Go has no OpenBSD\nport for s390x, so no provider can publish a package for it.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 79, 1))).
+					WithFunction(
+						dag.Function("LockWithoutPlatformsProducesUsableLockFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LockWithoutPlatformsProducesUsableLockFile asserts the default — no\nplatforms named — still writes a lock file for the platform tofu runs on,\nand one tofu itself accepts: the returned tree initialises against it.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 92, 1))).
+					WithFunction(
+						dag.Function("OutputsReturnsJson",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("OutputsReturnsJson asserts Outputs reads the output values out of the\nsupplied state.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 381, 1))).
+					WithFunction(
+						dag.Function("PlanAgainstAppliedStateReportsNoChanges",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanAgainstAppliedStateReportsNoChanges asserts the state Apply emits is\nre-consumable: feeding it back to a fresh Config leaves nothing to do.\n\nThis is the round trip that makes file-carried state usable at all — the\ncaller persists terraform.tfstate between runs, and tofu has to recognise\nits own work in it.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 234, 1))).
+					WithFunction(
+						dag.Function("PlanDestroyReportsDeletions",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanDestroyReportsDeletions asserts -destroy plans the teardown of what the\nsupplied state tracks, rather than the creation of what the configuration\ndeclares.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 201, 1))).
+					WithFunction(
+						dag.Function("PlanReportsChanges",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanReportsChanges asserts a plan against an empty state emits all four\nartifacts, flags the run as having changes, and describes both resources\nthe fixture declares.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 121, 1))).
+					WithFunction(
+						dag.Function("PlanShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanShouldNotBeCached asserts two consecutive plans of the same\nconfiguration genuinely re-run tofu.\n\nare still content-addressed, which is why the module puts a per-call nonce\non the run. A cached second call would hand back the first call's plan\nbyte for byte, stamp included.\n\nThe stamp tofu records has one-second resolution and nothing else in a plan\nof this fixture varies between runs — HCL's uuid() is unknown at plan time,\nand the random provider's values are too. So the two plans are deliberately\nspaced past a second boundary: a differing stamp then means tofu ran twice,\nand an identical one means the second call never executed.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("vars.go", 189, 1))).
+					WithFunction(
+						dag.Function("PlanTargetsLimitScope",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanTargetsLimitScope asserts -target narrows the plan to the named\nresource, leaving the fixture's other resource untouched.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 180, 1))).
+					WithFunction(
+						dag.Function("RefreshUpdatesStateWithoutChanges",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RefreshUpdatesStateWithoutChanges asserts a refresh-only apply hands back\nstate that still tracks everything it was given and still matches the\nconfiguration. With hermetic fixtures there is no reality to drift, so what\nis proved is that the refresh round-trips state rather than rewriting it.").
+							WithSourceMap(dag.SourceMap("state.go", 274, 1))).
+					WithFunction(
+						dag.Function("RemoteBackendRoundTripsState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RemoteBackendRoundTripsState asserts the backend path end to end: an apply\nagainst a real S3 backend hands back no terraform.tfstate, the backend holds\nthe state instead, a second Config reads it back with nothing but the\nbackend settings to go on, and a destroy empties it.\n\nThe file-carried tests can only prove that WithBackendConfig reaches\n`tofu init`; this one proves the state actually goes somewhere else.").
+							WithSourceMap(dag.SourceMap("backend.go", 22, 1))).
+					WithFunction(
+						dag.Function("RemoteWorkspacesIsolateState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RemoteWorkspacesIsolateState asserts WithWorkspace partitions a remote\nbackend: an apply in one workspace is invisible to a plan in another, and\nthe two states are distinct objects in the bucket.\n\nThe local backend makes this awkward to see — each workspace's state comes\nback as the same terraform.tfstate file in a different directory — which is\nwhy the isolation is pinned here rather than alongside the file-carried\nworkspace test.").
+							WithSourceMap(dag.SourceMap("backend.go", 145, 1))).
+					WithFunction(
+						dag.Function("SecretVarReachesTofuWithoutLeaking",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SecretVarReachesTofuWithoutLeaking asserts WithSecretVar delivers the value\nto tofu and that the plaintext appears in none of the artifacts the module\nhands back.\n\nThe value is 64 hex characters of freshly generated randomness, so any\noccurrence anywhere in plan.txt, plan.json or apply.log is a real leak\nrather than a coincidence.").
+							WithSourceMap(dag.SourceMap("vars.go", 52, 1))).
+					WithFunction(
+						dag.Function("SecretVariableBindsEnvironmentSecret",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SecretVariableBindsEnvironmentSecret asserts the generic secret-environment\nmodifier — the one provider credentials travel on — reaches tofu. It is\nexercised through TF_VAR_ because that is the only environment variable a\nhermetic, credential-free fixture can observe.").
+							WithSourceMap(dag.SourceMap("vars.go", 92, 1))).
+					WithFunction(
+						dag.Function("ShowRendersState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ShowRendersState asserts Show renders the supplied state in tofu's\nhuman-readable form.").
+							WithSourceMap(dag.SourceMap("lifecycle.go", 404, 1))).
+					WithFunction(
+						dag.Function("StateAndBackendConfigAreRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateAndBackendConfigAreRejected asserts the two state strategies cannot be\ncombined, and that the rejection names both of them rather than leaving the\ncaller to guess which one silently won.").
+							WithSourceMap(dag.SourceMap("validation.go", 17, 1))).
+					WithFunction(
+						dag.Function("StateAndBackendConfigFileAreRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateAndBackendConfigFileAreRejected asserts the file form of the backend\nsettings is rejected alongside WithState too — the check is on the mode,\nnot on one particular modifier.").
+							WithSourceMap(dag.SourceMap("validation.go", 30, 1))).
+					WithFunction(
+						dag.Function("StateListOnEmptyStateIsEmpty",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateListOnEmptyStateIsEmpty asserts a configuration with no state yet lists\nnothing rather than failing. tofu refuses a wholly absent state file; the\nmodule answers the question that was actually asked, which has an empty\nanswer.").
+							WithSourceMap(dag.SourceMap("state.go", 44, 1))).
+					WithFunction(
+						dag.Function("StateListReportsAppliedAddresses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateListReportsAppliedAddresses asserts StateList names what an Apply put\nunder management, one address per line.").
+							WithSourceMap(dag.SourceMap("state.go", 24, 1))).
+					WithFunction(
+						dag.Function("StateMvRejectsUnknownAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateMvRejectsUnknownAddress asserts a source address absent from state\nfails, naming it.").
+							WithSourceMap(dag.SourceMap("state.go", 205, 1))).
+					WithFunction(
+						dag.Function("StateMvRenamesAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateMvRenamesAddress asserts a resource renamed in state stays the same\nresource: a plan against the configuration that renamed it to match reports\nno changes, where without the move tofu would destroy and recreate.").
+							WithSourceMap(dag.SourceMap("state.go", 164, 1))).
+					WithFunction(
+						dag.Function("StateRmDropsAddressFromState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateRmDropsAddressFromState asserts StateRm removes the address from state\nand nothing else: the resulting state omits it, still tracks its neighbour,\nand a plan afterwards proposes creating it again — which is exactly the\nhazard of dropping something whose object is still out there.").
+							WithSourceMap(dag.SourceMap("state.go", 106, 1))).
+					WithFunction(
+						dag.Function("StateRmRejectsUnknownAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateRmRejectsUnknownAddress asserts an address absent from state fails,\nnaming it.").
+							WithSourceMap(dag.SourceMap("state.go", 146, 1))).
+					WithFunction(
+						dag.Function("StateShowRejectsUnknownAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateShowRejectsUnknownAddress asserts an address absent from state is an\nerror naming it, rather than an empty document a caller could mistake for a\nresource with no attributes.").
+							WithSourceMap(dag.SourceMap("state.go", 91, 1))).
+					WithFunction(
+						dag.Function("StateShowReturnsResourceJson",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StateShowReturnsResourceJson asserts StateShow returns one parseable JSON\ndocument describing the requested resource — not the JSON *stream* tofu\nwrites, whose first line is a UI message about the version it ran.").
+							WithSourceMap(dag.SourceMap("state.go", 60, 1))).
+					WithFunction(
+						dag.Function("TaintProposesReplacement",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TaintProposesReplacement asserts a tainted resource is planned for\nreplacement — destroyed and created again — while its neighbour is left\nalone.").
+							WithSourceMap(dag.SourceMap("state.go", 322, 1))).
+					WithFunction(
+						dag.Function("UntaintClearsReplacement",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UntaintClearsReplacement asserts Untaint reverses Taint: the same state,\ntaken through both, plans no changes at all.").
+							WithSourceMap(dag.SourceMap("state.go", 353, 1))).
+					WithFunction(
+						dag.Function("ValidateAcceptsValidConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ValidateAcceptsValidConfiguration asserts a well-formed root module\nvalidates.").
+							WithSourceMap(dag.SourceMap("validation.go", 191, 1))).
+					WithFunction(
+						dag.Function("ValidateRejectsInvalidConfiguration",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ValidateRejectsInvalidConfiguration asserts a broken reference fails, and\nthat tofu's own diagnostic reaches the caller rather than a bare exit code.").
+							WithSourceMap(dag.SourceMap("validation.go", 200, 1))).
+					WithFunction(
+						dag.Function("ValidateWorksWithoutBackendCredentials",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ValidateWorksWithoutBackendCredentials asserts a configuration declaring a\nremote backend validates with no credentials and no reachable bucket:\nValidate initialises with -backend=false, so the backend is never contacted.").
+							WithSourceMap(dag.SourceMap("validation.go", 208, 1))).
+					WithFunction(
+						dag.Function("VersionAcceptsMinimalSuffix",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal\nsuffix lands on the same image as one who does not — the suffix is appended\nonly when absent.").
+							WithSourceMap(dag.SourceMap("main.go", 181, 1))).
+					WithFunction(
+						dag.Function("VersionReportsRelease",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VersionReportsRelease asserts Version reports the release New was asked for.").
+							WithSourceMap(dag.SourceMap("main.go", 167, 1))).
+					WithFunction(
+						dag.Function("WithEnvVariableIsVisibleToTofu",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithEnvVariableIsVisibleToTofu asserts the plain environment escape hatch\nreaches the tofu process — here through TF_VAR_, the mechanism the secret\nvariants ride on.").
+							WithSourceMap(dag.SourceMap("vars.go", 37, 1))).
+					WithFunction(
+						dag.Function("WithVarFileSuppliesVariables",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarFileSuppliesVariables asserts a .tfvars file supplies variables, and\nthat it is reachable from where the module stages it — outside the root\nmodule, so it cannot collide with a file the configuration owns.").
+							WithSourceMap(dag.SourceMap("vars.go", 26, 1))).
+					WithFunction(
+						dag.Function("WithVarOverridesDefault",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarOverridesDefault asserts a hoisted variable reaches tofu and beats\nthe declaration's own default.").
+							WithSourceMap(dag.SourceMap("vars.go", 17, 1))).
+					WithFunction(
+						dag.Function("WithVarRejectsNameContainingEquals",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarRejectsNameContainingEquals asserts the deferred validation on the\n`name=value` flags fires. `-var a=b=c` would set a different variable than\nthe caller asked for.").
+							WithSourceMap(dag.SourceMap("validation.go", 55, 1))).
+					WithFunction(
+						dag.Function("WithWorkspaceIsolatesState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithWorkspaceIsolatesState asserts a selected workspace round-trips: the\nstate Apply emits comes from the workspace's own state path, and feeding it\nback to a Config on the same workspace leaves nothing to do.").
+							WithSourceMap(dag.SourceMap("vars.go", 112, 1))).
+					WithFunction(
+						dag.Function("WithoutPluginCacheStillApplies",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithoutPluginCacheStillApplies asserts opting out of the shared provider\ncache leaves a working toolchain: init downloads its providers afresh and\nthe lifecycle is otherwise unchanged.").
+							WithSourceMap(dag.SourceMap("vars.go", 155, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

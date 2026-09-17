@@ -265,6 +265,26 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the skill-gen daggerverse module: deterministic,\ngen-AI-free generation of project-level Claude Code skills by introspecting\na source system. The first (and only, in this story) source is Postgres.\n\nAll determinism-critical logic — the introspection model, top-table\nranking, markdown rendering, and verification — lives in the pure-Go\n./skill subpackage (zero dagger import, go test -race-able with no engine).\nThis file owns only the Dagger I/O: delegating introspection to the\npostgres module's Client.QueryJSON and assembling the result Directory.\n").
+			WithObject(
+				dag.TypeDef().WithObject("SkillGen", dagger.TypeDefWithObjectOpts{Description: "SkillGen is the module's root object.", SourceMap: dag.SourceMap("main.go", 22, 6)}).
+					WithFunction(
+						dag.Function("Postgres",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Postgres introspects the PostgreSQL database at host:port and returns a\ngenerated `pg-<db>` Claude Code skill as a *dagger.Directory. The returned\ntree is the skill directory itself (SKILL.md at its root) with no enclosing\n`.claude/skills/` wrapper, so it can be dropped straight into Claude Code,\nCopilot, or any other gen-AI environment. The function never touches the\nhost filesystem — the caller exports the tree wherever they want (e.g.\n`export --path pg-<db>` for Copilot, or `export --path .claude/skills/pg-<db>`\nfor Claude Code).\n\nIntrospection is delegated to the postgres module's pgx-backed\nClient.QueryJSON; only core types cross this module's boundary\n(*dagger.Secret/*dagger.File in, *dagger.Directory out). `db` is validated\nagainst ^[A-Za-z0-9_-]+$ before any network I/O, because it flows into the\nskill's `name: pg-<db>` frontmatter and into filenames. Any introspection\nfailure aborts with a non-zero error and no partial output.\n\nThe transport security mode is inferred from the supplied cert params, so it\ncan never disagree with the material actually provided:\n\n  - none → plaintext (scram-sha-256 over an unencrypted TCP connection).\n  - serverCa only → one-way TLS (sslmode=verify-full against serverCa).\n  - serverCa + clientCert + clientKey → mTLS; the client presents its leaf\n    to satisfy the server's clientcert=verify-full. The client cert's CN\n    must equal `user`, or the server rejects it with a misleading 28P01.\n\nserverCa and clientCert are public PEM certs (*dagger.File); clientKey is the\nPEM PKCS#8 private key kept as a *dagger.Secret end-to-end.\n\npsqlImage overrides the psql container image baked into the generated\nscripts/query.sh and scripts/.env.example. The generated script already\nhonours a PSQL_IMAGE override at runtime, so this is purely a\ngeneration-time convenience: teams on a private or locked-down registry can\nbake their own default in so the skill works out of the box. It is\nsubstituted raw into the script and so is charset-validated up front.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 60, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 62, 2)}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 64, 2), DefaultValue: dagger.JSON("5432")}).
+							WithArg("user", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 65, 2)}).
+							WithArg("db", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 66, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 67, 2)}).
+							WithArg("serverCa", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "serverCa pins the server's CA (sslmode=verify-full). Required for TLS/mTLS; omit for plaintext.", SourceMap: dag.SourceMap("main.go", 70, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "clientCert is the PEM client leaf for mTLS; its CN must equal `user`. Provide with clientKey.", SourceMap: dag.SourceMap("main.go", 73, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "clientKey is the PEM PKCS#8 client private key for mTLS. Provide with clientCert.", SourceMap: dag.SourceMap("main.go", 76, 2)}).
+							WithArg("psqlImage", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "psqlImage is the container image the generated scripts/query.sh runs psql in.", SourceMap: dag.SourceMap("main.go", 79, 2), DefaultValue: dagger.JSON("\"docker.io/alpine/psql:17.7\"")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

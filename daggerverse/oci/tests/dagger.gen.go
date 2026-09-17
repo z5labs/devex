@@ -433,6 +433,179 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for daggerverse/oci. Each test is\nexposed as a standalone Dagger function so it can be invoked individually\nduring TDD; All wires them up for parallel execution under `dagger check`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 45, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every oci test. parallel caps concurrency; it defaults to 0\n(unbounded fan-out — GH Actions schedules each `dagger check` job onto its\nown runner, so in-runner parallelism is bounded by the VM).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 53, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 56, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("AnnotationsSurvivePush",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AnnotationsSurvivePush asserts that an annotation set on the container with\nWithAnnotation is readable through Manifest after the push. Annotations are\nhow provenance, source links and SBOM pointers travel with an image, and a\npush that quietly drops them is indistinguishable from one that works.").
+							WithSourceMap(dag.SourceMap("main.go", 946, 1))).
+					WithFunction(
+						dag.Function("AnonymousAccessNeedsNoCredentials",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AnonymousAccessNeedsNoCredentials asserts the bottom of the order still\nworks, in the two shapes it comes in: no credentials at all, and a docker\nconfig that simply says nothing about this host.\n\nThe second shape is the one that breaks by accident. A developer's config\ncarries a credsStore for Docker Desktop and entries for two or three\nregistries; reading it as \"this file governs every host\" would make every\npublic pull fail with an unrunnable-helper error. It has to mean \"nothing\nhere is about that registry\", and fall through to anonymous.").
+							WithSourceMap(dag.SourceMap("auth.go", 330, 1))).
+					WithFunction(
+						dag.Function("AttachFailsForUnknownSubject",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AttachFailsForUnknownSubject asserts that attaching to a manifest that is\nnot in the repository fails, and that the error names the subject digest.\nWithout the up-front resolve the registry would accept the referrer and\nleave it dangling, which nothing downstream can detect.").
+							WithSourceMap(dag.SourceMap("main.go", 402, 1))).
+					WithFunction(
+						dag.Function("AttachSucceedsWhereManifestDeleteIsUnsupported",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AttachSucceedsWhereManifestDeleteIsUnsupported asserts that attaching a\nsecond referrer to one subject works on a registry that serves no\nreferrers API and refuses to delete a manifest — which is GHCR.\n\nBoth halves are needed to reproduce it, and the test checks it is really\ngetting both before it attaches anything. Without the referrers API oras\nfalls back to the referrers tag schema, where the second attachment\nreplaces the index the first one wrote; oras then deletes the index it\nreplaced, the registry answers 405, and the whole push fails after the\nreferrer and the updated index have already landed. The module skips that\ncollection, so this is one dangling index and no error.\n\nThe rest of the referrer tests run against zot and are evidence about the\nnative path. This is the only one that exercises the path GHCR takes.").
+							WithSourceMap(dag.SourceMap("main.go", 445, 1))).
+					WithFunction(
+						dag.Function("AttachThenFetchRoundTripsContent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AttachThenFetchRoundTripsContent asserts an attached file's bytes survive\nthe round trip through the referrers API.").
+							WithSourceMap(dag.SourceMap("main.go", 601, 1))).
+					WithFunction(
+						dag.Function("AuthenticatesFromDockerConfig",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AuthenticatesFromDockerConfig asserts a caller can hand over a\n~/.docker/config.json and have this module find the host's credentials in\nit — no username, no password, just the file a `docker login` already\nwrote.\n\nBoth client libraries are exercised: PushImage goes through\ngo-containerregistry and Resolve through oras, and the credential\nresolution feeding them is shared. A test using only one would leave the\nother silently anonymous.").
+							WithSourceMap(dag.SourceMap("auth.go", 23, 1))).
+					WithFunction(
+						dag.Function("AuthenticatesWithBearerToken",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AuthenticatesWithBearerToken asserts a token supplied on its own reaches\nthe registry as an Authorization: Bearer header, and that a wrong one is\nrefused without either token appearing in the error.\n\nThe registry behind the gate is anonymous, so nothing here can pass by\naccident on some other credential: the only thing separating the two halves\nof this test is the token.").
+							WithSourceMap(dag.SourceMap("auth.go", 177, 1))).
+					WithFunction(
+						dag.Function("AuthenticatesWithClientCertificate",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AuthenticatesWithClientCertificate asserts that a client certificate and its\nkey reach a registry that demands mutual TLS, and that one signed by another\nauthority is refused with an error that names the failure and carries no key\nmaterial.\n\nThe registry has no password authentication at all, so nothing here can pass\non some other credential: the certificate is the only thing separating the\ntwo halves of this test.").
+							WithSourceMap(dag.SourceMap("tls.go", 93, 1))).
+					WithFunction(
+						dag.Function("ClientCertificateNeedsBothHalves",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientCertificateNeedsBothHalves asserts that half a client certificate is\nrefused, and that the refusal names the half that is missing.\n\nThe alternative — falling back to anonymous TLS — is the failure this\nguards: a caller who believed they were authenticating would discover\notherwise from a 401 much later, in a message that says nothing about the\ncertificate they thought they had supplied.\n\nNo registry is needed. The halves are checked while the connection is being\nresolved, before an address is dialled, which is exactly where a\nmisconfiguration of the call should be caught.").
+							WithSourceMap(dag.SourceMap("tls.go", 188, 1))).
+					WithFunction(
+						dag.Function("CopyPreservesAllManifests",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CopyPreservesAllManifests asserts that copying a multi-platform image keeps\nevery platform. skopeo needed --all for this; a copy that silently reduced\na manifest list to the running platform would break every non-amd64\nconsumer of a copied image.").
+							WithSourceMap(dag.SourceMap("main.go", 855, 1))).
+					WithFunction(
+						dag.Function("DockerConfigCredentialHelperIsNotSupported",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DockerConfigCredentialHelperIsNotSupported asserts that a config resolving\nthis host through a credential helper fails, and that the failure names the\nhelper binary it asked for.\n\nHelpers are not honoured and cannot be: one is an external\ndocker-credential-* binary the Docker CLI executes, and the module runtime\nholds no gcloud, no ecr-login and no keychain. The alternative to failing\nis falling through to anonymous, which turns \"your credential lives\nsomewhere I cannot reach\" into an unrelated 401 from the registry — a\nfailure whose cause is invisible in the message.").
+							WithSourceMap(dag.SourceMap("auth.go", 134, 1))).
+					WithFunction(
+						dag.Function("DockerConfigCredentialsDoNotLeak",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DockerConfigCredentialsDoNotLeak asserts that a docker config carrying the\nwrong password fails with a 401 whose text holds neither that password nor\nthe base64 blob it was packed into.\n\nThe blob matters as much as the password. It is base64, not encryption, so\na `auth` value in a CI log is a password in a CI log — and it is the form\nthe credential actually travels in, which makes it the one a client library\nechoing its own request would print.").
+							WithSourceMap(dag.SourceMap("auth.go", 71, 1))).
+					WithFunction(
+						dag.Function("InsecureStaysIndependentOfCertificates",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("InsecureStaysIndependentOfCertificates asserts that insecure and the TLS\nmaterial do not imply anything about each other.\n\nVerifiesAgainstPrivateCa covers the direction that matters most — a CA does\nnot switch verification off. This covers the other one: a caller who has\nasked for plain HTTP still gets it with a CA supplied beside it. A module\nthat treated the two as one setting would fail one of these two tests\nwhichever way it resolved them.").
+							WithSourceMap(dag.SourceMap("tls.go", 222, 1))).
+					WithFunction(
+						dag.Function("PasswordBeatsTokenAndDockerConfig",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PasswordBeatsTokenAndDockerConfig pins the top of the precedence order: a\nusername and password win over a bearer token and over a docker config,\nboth of which are wrong here and would fail the push if either were used.\n\nPrecedence has to be tested from the winning side. A test that supplied\nonly correct credentials would pass whichever source the module happened to\nread, and the bug this guards against — a later source quietly overwriting\nan earlier one — would be invisible.").
+							WithSourceMap(dag.SourceMap("auth.go", 231, 1))).
+					WithFunction(
+						dag.Function("PushArtifactThenFetchRoundTripsContent",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushArtifactThenFetchRoundTripsContent asserts that the bytes of a file in\na pushed artifact come back identical: one layer per file, the file's own\nbytes, no archive wrapper the caller did not ask for.").
+							WithSourceMap(dag.SourceMap("main.go", 552, 1))).
+					WithFunction(
+						dag.Function("PushFailsAgainstPlaintextRegistryByDefault",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushFailsAgainstPlaintextRegistryByDefault asserts a client that was not\ntold to accept plain HTTP refuses to push to one.\n\nThis is the behaviour the old inline skopeo path did not have: it inferred\n\"skip TLS verification\" from a test-only registry service being present, so\na production push over a hijacked plaintext connection would have gone\nthrough silently.").
+							WithSourceMap(dag.SourceMap("main.go", 209, 1))).
+					WithFunction(
+						dag.Function("PushFailsWithBadCredentials",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushFailsWithBadCredentials asserts the registry's 401 reaches the caller\nas an error, and that neither the wrong password nor the right one appears\nin its text.\n\nAn error crossing the Dagger boundary is rendered into a trace and a CI\nlog, both of which outlive the run. A client library that echoed its\nrequest would put the credential in both, so the module scrubs the\npassword out and this is what holds it to that.").
+							WithSourceMap(dag.SourceMap("main.go", 264, 1))).
+					WithFunction(
+						dag.Function("PushImageIsNotCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushImageIsNotCached asserts a second push really uploads.\n\nThe two pushes have identical content and therefore identical digests, so\nthe returned value cannot tell a real upload from a replayed one. Deleting\nthe manifest between them is what makes the difference observable: after\nthe delete the tag is gone, and only a push that actually reached the\nregistry can bring it back.").
+							WithSourceMap(dag.SourceMap("main.go", 158, 1))).
+					WithFunction(
+						dag.Function("PushImagePushesAllVariants",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushImagePushesAllVariants asserts that more than one variant becomes one\nmanifest list naming every platform, rather than the last push winning the\ntag.").
+							WithSourceMap(dag.SourceMap("main.go", 825, 1))).
+					WithFunction(
+						dag.Function("PushImageUntaggedPublishesNoTag",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushImageUntaggedPublishesNoTag asserts that an untagged push puts the\nbytes in the registry and leaves nothing that names them.\n\nBoth halves matter and they fail in opposite directions. A push that landed\nno manifest would make the untagged mode useless — there would be nothing to\ntag afterwards — and a push that landed a tag would make it pointless, since\nthe whole reason a caller reaches for it is to do fallible work before\nanything a consumer resolves can reach the image. So the manifest is read\nback by digest, and the tag listing is read back and has to be empty.").
+							WithSourceMap(dag.SourceMap("untagged.go", 20, 1))).
+					WithFunction(
+						dag.Function("PushLayerCarriesMediaTypeAndAnnotations",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushLayerCarriesMediaTypeAndAnnotations asserts that a layer pushed under\na tag arrives with the media type and the annotations the caller asked\nfor, inside an image manifest carrying an image config.\n\nEvery one of those is load bearing rather than decorative. The consumers\nthis function exists for — cosign's signature layout is the one this\nrepository publishes — find a document by resolving a tag they computed,\nfiltering layers on a media type they recognise and reading the rest out\nof that layer's annotations, so a push that dropped any of the three\nwould produce something a verifier reports as unsigned rather than as\nmalformed. The config media type is asserted for the same reason: those\nreaders parse an image, and the artifact-manifest shape oras would\notherwise choose is legal OCI that they do not accept.").
+							WithSourceMap(dag.SourceMap("main.go", 664, 1))).
+					WithFunction(
+						dag.Function("PushLayerRejectsMalformedAnnotations",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushLayerRejectsMalformedAnnotations asserts the annotations\nargument fails loudly on anything that is not a JSON object of strings.\n\nIt is a string because codegen has no map type, which makes it the one\nargument of this function a caller can get subtly wrong. Accepting a JSON\nnumber by stringifying it, or accepting a bare string by ignoring it,\nwould put an annotation on a published manifest that the caller never\nwrote — and annotations are where this layout keeps the signature.").
+							WithSourceMap(dag.SourceMap("main.go", 765, 1))).
+					WithFunction(
+						dag.Function("PushSucceedsAgainstPlaintextRegistryWhenInsecure",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PushSucceedsAgainstPlaintextRegistryWhenInsecure is the other half: the\nsame registry, the same image, one explicit opt-in.").
+							WithSourceMap(dag.SourceMap("main.go", 232, 1))).
+					WithFunction(
+						dag.Function("ReferrersFiltersByArtifactType",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReferrersFiltersByArtifactType asserts the artifactType filter narrows the\nlisting to one type. oras applies the filter client-side when the registry\ndoes not report having applied it, so this holds either way.").
+							WithSourceMap(dag.SourceMap("main.go", 357, 1))).
+					WithFunction(
+						dag.Function("ReferrersListsAttachedArtifacts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReferrersListsAttachedArtifacts asserts that both artifacts attached to a\nsubject come back from Referrers, and — first — that the registry answering\nis serving the native OCI 1.1 referrers API.\n\nThat second assertion is the point of the test. oras falls back to the tag\nschema against a registry without /v2/<name>/referrers/<digest>, so without\nit a green run would not say which of the two paths it exercised. The\nfallback is GHCR's path and has a test of its own,\nAttachSucceedsWhereManifestDeleteIsUnsupported.").
+							WithSourceMap(dag.SourceMap("main.go", 316, 1))).
+					WithFunction(
+						dag.Function("ResolveFailsForMissingTag",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ResolveFailsForMissingTag asserts that resolving a tag nothing was ever\npushed to fails, and that the error names the tag — an error that only says\n\"not found\" leaves the caller guessing which of its references was wrong.").
+							WithSourceMap(dag.SourceMap("main.go", 984, 1))).
+					WithFunction(
+						dag.Function("ResolveIsNotCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ResolveIsNotCached asserts that Resolve reports what the registry holds\nnow, not what it held the first time it was asked.\n\nRegistry state is mutable and Dagger caches function results for a week by\ndefault, so without a never-cache directive the second Resolve would replay\nthe first one's answer — and every caller reading a moving tag would act on\na digest that had already been superseded.").
+							WithSourceMap(dag.SourceMap("main.go", 107, 1))).
+					WithFunction(
+						dag.Function("TagFailsForAnAbsentDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TagFailsForAnAbsentDigest asserts Tag refuses to name bytes that are not\nthere, and leaves no tag behind when it does.\n\nA registry will accept a manifest PUT under any name it is handed, so a Tag\nthat trusted its digest argument could create a tag resolving to a manifest\nwhose blobs were never uploaded — an image that exists until somebody pulls\nit. Reading the digest first is what makes the failure happen before the\nname exists rather than after.").
+							WithSourceMap(dag.SourceMap("untagged.go", 155, 1))).
+					WithFunction(
+						dag.Function("TagNamesAnUntaggedDigestAndMovesAnExistingTag",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TagNamesAnUntaggedDigestAndMovesAnExistingTag asserts the second half of the\nsplit: a digest becomes resolvable when, and only when, Tag says so, and a\ntag already pointing somewhere is moved rather than refused.\n\nMoving is in the same test as naming because they are one operation at the\nregistry — a manifest PUT under a name — and a Tag that could only create\nwould be discovered by the first caller re-publishing a version.").
+							WithSourceMap(dag.SourceMap("untagged.go", 70, 1))).
+					WithFunction(
+						dag.Function("TagRefusesIncompleteArguments",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TagRefusesIncompleteArguments asserts Tag names the argument that is missing\nrather than sending an unusable reference at a registry.\n\nIt needs no registry, and that is not an economy — it is the assertion. Tag\nvalidates before it connects, so a case that reached a registry at all would\nmean the validation had been skipped. The handle below names a host nothing\nresolves and has no service behind it, so anything that got as far as the\nnetwork would fail with a dial error instead of the message expected here.").
+							WithSourceMap(dag.SourceMap("untagged.go", 197, 1))).
+					WithFunction(
+						dag.Function("TokenBeatsDockerConfig",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TokenBeatsDockerConfig pins the middle rung: with no username or password,\na bearer token is used and the docker config beside it is not.\n\nThe config names the same host and holds credentials the gate would refuse,\nso a module that preferred the file — or that fell back to it after the\ntoken — would fail here rather than pass quietly.").
+							WithSourceMap(dag.SourceMap("auth.go", 278, 1))).
+					WithFunction(
+						dag.Function("VerifiesAgainstPrivateCa",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VerifiesAgainstPrivateCa asserts that a registry fronted by a private CA is\nreachable by naming that CA, with verification still on and insecure unset —\nand that the CA is what made the difference.\n\nThe three handles are the whole point. Only the first is expected to work;\nthe second shows verification was never off, and the third shows that\nsupplying *a* CA does not switch verification off either, which is the\nfailure mode a trust anchor implemented as a flag would have. Without them a\ngreen first handle would be equally consistent with a module that had\nquietly stopped verifying.\n\nBoth client libraries are exercised: PushImage runs through\ngo-containerregistry and Resolve through oras, and the two build their\ntransports separately.").
+							WithSourceMap(dag.SourceMap("tls.go", 28, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -9,15 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type CertificateManagementExamples
-func (r *Binding) AsCertificateManagementExamples() *CertificateManagementExamples { // certificate-management-examples (../../../../../daggerverse/certificate-management/examples/go/main.go:19:6)
-	q := r.query.Select("asCertificateManagementExamples")
-
-	return &CertificateManagementExamples{
-		query: q,
-	}
-}
-
 // CertificateManagementExamples is the module's main object: a namespace for
 // the certificate-management usage recipes.
 type CertificateManagementExamples struct { // certificate-management-examples (../../../../../daggerverse/certificate-management/examples/go/main.go:19:6)
@@ -131,30 +122,6 @@ func (r *CertificateManagementExamples) RoundTripCaThroughPkcs12() *File { // ce
 func (r *CertificateManagementExamples) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
-	}
-}
-
-// Create or update a binding of type CertificateManagementExamples in the environment
-func (r *Env) WithCertificateManagementExamplesInput(name string, value *CertificateManagementExamples, description string) *Env { // certificate-management-examples (../../../../../daggerverse/certificate-management/examples/go/main.go:19:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withCertificateManagementExamplesInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired CertificateManagementExamples output to be assigned in the environment
-func (r *Env) WithCertificateManagementExamplesOutput(name string, description string) *Env { // certificate-management-examples (../../../../../daggerverse/certificate-management/examples/go/main.go:19:6)
-	q := r.query.Select("withCertificateManagementExamplesOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
 	}
 }
 

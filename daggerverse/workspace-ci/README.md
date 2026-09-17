@@ -244,15 +244,23 @@ To also adopt `generated`, `generated-self-test`, `selection-self-test` and
 ```go
 // +check
 // +cache="never"
-func (m *Root) Generated(ctx context.Context) error {
-	return dag.WorkspaceCi().Generated(ctx)
+func (m *Root) Generated(ctx context.Context, workspace *dagger.Workspace) error {
+	return dag.WorkspaceCi().Generated(ctx, workspace)
 }
 ```
 
-`dag.CurrentWorkspace()` resolves to the caller's workspace from inside a
-dependency, so the check reads your repository, not this one. Repeat
-`+cache="never"` on the wrapper: the directive on the function being called does
-not propagate to the one calling it.
+The workspace is threaded through rather than reached for. A module cannot ask
+for the workspace it was called in — Dagger marks that field experimental and
+leaves it out of the client a module is generated against, and the engine
+refuses to fill a workspace argument in for a module runtime call rather than
+defaulting it. What a module *can* do is take one as an argument, which a Dagger
+CLI fills in from the workspace the call was made in; so the wrapper takes one
+and hands it on, and the check reads your repository rather than this one. A
+module that holds only a directory makes a workspace out of it with
+`Directory.asWorkspace`.
+
+Repeat `+cache="never"` on the wrapper: the directive on the function being
+called does not propagate to the one calling it.
 
 Declaring them on the **root** module specifically is what makes them work as
 intended — a plan always runs the root module's checks and never memoizes them,
@@ -541,7 +549,7 @@ moves the digest anyway.
 hasher itself executes: a hand-patched `Glob` could make some module's hash go
 blind to that module's sources, recording a pass on good content and matching it
 against bad. What forecloses that is not the digest but the `generated` check —
-it proves every committed generated file equals what `dagger develop` produces,
+it proves every committed generated file equals what codegen produces,
 it belongs to the root module so it always runs, and it is never memoized. A
 tampered binding is red at the gate on the very push that would act on it, and
 reverting to go green restores the honest hash, which the recorded entry no
@@ -589,19 +597,19 @@ for it and it can never accidentally retire a later run.
 ## Codegen freshness
 
 `generated` fails when a module's committed `dagger.gen.go` or
-`internal/dagger/*.gen.go` differ from what `dagger develop` produces at the
+`internal/dagger/*.gen.go` differ from what codegen produces at the
 pinned `engineVersion`. It covers every `dagger.json` in the calling workspace and
 names each stale module, printing its patch:
 
 ```
 ==> daggerverse/kafka/tests is not up-to-date:
 <patch>
-generated files are not up-to-date; run `dagger develop` in: daggerverse/kafka/tests
+generated files are not up-to-date; regenerate: daggerverse/kafka/tests
 ```
 
 Dependency bindings embed the source location of every function, so an edit that
-only shifts line numbers still leaves every dependent module stale. Re-run
-`dagger develop` in the module *and* in each dependent.
+only shifts line numbers still leaves every dependent module stale. Regenerate
+the module *and* each dependent, dependencies first.
 
 `generated-self-test` guards that check: it runs the same comparison against one
 module twice, pristine and then deliberately made stale, and fails unless the

@@ -88,7 +88,7 @@ func (m *CryptoExamples) GenerateRsaKeypair(
 	if err != nil {
 		return nil, err
 	}
-	key := dag.LoadCryptoRsaKeyFromID(dagger.CryptoRsaKeyID(id))
+	key := dagger.Ref[*dagger.CryptoRsaKey](dag, id)
 
 	return dag.Directory().
 		WithFile("key.pem", key.Pem()).
@@ -114,7 +114,7 @@ func (m *CryptoExamples) GenerateEd25519SshKey(ctx context.Context) (*dagger.Dir
 	if err != nil {
 		return nil, err
 	}
-	key := dag.LoadCryptoEd25519KeyFromID(dagger.CryptoEd25519KeyID(id))
+	key := dagger.Ref[*dagger.CryptoEd25519Key](dag, id)
 
 	return dag.Directory().
 		WithFile("id_ed25519", key.Pem()).

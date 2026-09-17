@@ -1231,6 +1231,361 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the tesseract Dagger module: optical character\nrecognition as a `dagger call` instead of the usual hand-rolled Dockerfile\nplus rescue-the-output shell script. Hand it an image and get back plain\ntext, or hOCR / ALTO / TSV / PAGE / searchable PDF for anything that needs\nword positions and confidences.\n\nThere is no official Tesseract container image — upstream ships source only\n— so this module assembles its own the way the qemu module does: a\nmodule-pinned Alpine plus `apk add tesseract-ocr`.\n\nAssembling the image means two fetches, not one, and a network that cannot\nreach the public internet has to be told about both. New's registry argument\nmoves the *image*; WithApkRepository, WithApkKey and WithApkAuth move the\n*packages*, and are what an air-gapped run needs — a mirrored Alpine image\nstill runs `apk add` against dl-cdn.alpinelinux.org otherwise.\n\nThe language set lives on the root object rather than on Document because on\nAlpine each language is a separate apk package (`tesseract-ocr-data-<lang>`,\nnone of which the base package pulls in). Selecting a language changes what\nthe image *is*, not just what a flag says; Document.WithLanguage only picks a\nsubset of what was installed. WithTessdata is the same decision for models\nAlpine has no package for — a directory of `.traineddata` merged into the\nimage's datadir, and from there indistinguishable from a packaged language.\n\nPDF is not an input here at all, because leptonica cannot read it and this\nmodule carries nothing that can. Rendering a document's pages is the pdf\nmodule's job, and its page directory is what Batch takes — so the split is\nalso the fast path, one concurrent recognition per page rather than one\nserial pass over all of them. That is why the toolchain image is tesseract\nand its language data and nothing else: carrying poppler and a substitute\nfont for the callers who happened to have a PDF cost every other caller 21%\nof the image.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - enums.go     — PageSegMode / EngineMode / Format enums plus the token and\n    output-extension tables that map them onto the CLI.\n  - options.go   — the recognition option set Document and Batch share: one\n    builder, one piece of argv and one deferred check per option, so the two\n    units of work cannot drift apart.\n  - document.go  — *Document, one image in and one artifact set out.\n  - batch.go     — *Batch, a directory in and a mirrored directory out, one\n    Document per image, WithConcurrency of them recognised at a time.\n  - ci.go        — *Ci, a batch plus a confidence gate, for the repo that\n    wants its whole document pipeline as one declarative call.\n  - training.go  — *Training, the other direction: images plus ground truth\n    in, a fine-tuned model out.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tesseract", dagger.TypeDefWithObjectOpts{Description: "Tesseract is the root namespace for every exported function in this module.\nIt carries the image coordinates and the language set the image is built\nwith; Document hangs off it so the generated SDK surfaces recognition under\n`dag.Tesseract().Document(...)`.", SourceMap: dag.SourceMap("main.go", 255, 6)}).
+					WithFunction(
+						dag.Function("Batch",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("Batch binds a directory of images to the toolchain, for the shape a\nscanned-document pipeline actually arrives in: a folder of pages rather than\none file at a time.\n\nExport returns a directory mirroring the input layout, so a batch composes\nwith whatever reads the results the same way the input directory was\ncomposed. Which files take part is a glob, defaulting to the image\nextensions leptonica can read.").
+							WithSourceMap(dag.SourceMap("main.go", 543, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 543, 27)})).
+					WithFunction(
+						dag.Function("BatchSchedulingSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BatchSchedulingSelfTest verifies the properties the batch fan-out depends on:\nthat every image runs, that WithConcurrency is honoured as both a ceiling and\na floor, that a failure partway through is the error reported, that it stops\nthe images behind it from starting, that a batch of any size splits into no\nmore slices than the bound allows, and that an image's failure is still\nreadable back out of the exec that recognised several images.\n\nIt sits on the module rather than in the test module because it checks\nunexported scheduling and unexported script assembly, and it exists at all\nbecause no directory of images can check most of it. The bound as a floor\nneeds recognitions that block until every one of them has arrived; the exec\ncount needs three thousand images, which is not a fixture any suite should\nrecognise to learn that a slice count is bounded; and the quoting needs file\nnames this repository will not commit.\n\nIt runs in-process and needs no container, so it is cheap enough to be a check\nof its own.").
+							WithSourceMap(dag.SourceMap("main.go", 474, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("Ci returns a new pipeline builder over a directory of scans. Which files take\npart is the batch default: the image extensions leptonica can read, at any\ndepth.").
+							WithSourceMap(dag.SourceMap("ci.go", 62, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 62, 24)})).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the assembled toolchain image. This is the escape hatch\nfor everything this module does not wrap — the training binaries the apk\npackage ships, `combine_tessdata`, and tesseract's long tail of renderers\nstay reachable via `container with-exec`.\n\nA requested OpenMP bound lives here rather than on the recognition\ninvocation so everything reached through this escape hatch inherits it too.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 432, 1))).
+					WithFunction(
+						dag.Function("Document",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("Document binds one image to the toolchain.\n\nThe boundary input is a *dagger.File rather than a *dagger.Directory, unlike\nthe kicad module's Project: tesseract resolves nothing relative to its input,\nso one image — including a multi-page TIFF — is the whole unit of work.").
+							WithSourceMap(dag.SourceMap("main.go", 531, 1)).
+							WithArg("source", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 531, 30)})).
+					WithFunction(
+						dag.Function("Langs",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Langs returns the language codes the image can recognise in, as reported by\n`tesseract --list-langs`: the packaged languages and any model WithTessdata\nadded, as one set. This is what Document.WithLanguage validates against, and\nit includes \"osd\" when that model was installed or supplied.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 501, 1))).
+					WithFunction(
+						dag.Function("Parameters",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Parameters returns tesseract's control-variable table — every name, its\ndefault value and a one-line description — as `tesseract --print-parameters`\nprints it. These are the names Document.WithParameter accepts.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 516, 1))).
+					WithFunction(
+						dag.Function("Training",
+							dag.TypeDef().WithObject("Training")).
+							WithDescription("Training binds a directory of image and ground-truth pairs to the toolchain\nand fine-tunes a model against them, which is recognition run backwards: the\ntext is what you have and the model is what you want.\n\nIt is here rather than behind Container because the apk package already\nships every binary the job needs — lstmtraining, combine_tessdata, lstmeval\n— so what stands between a directory of transcribed lines and a\n`.traineddata` is orchestration rather than installation: a box file per\nimage, a training sample per box, one training run, one freeze.\n\nThe model it produces pairs directly with WithTessdata, so a fine-tune and\nthe recognition that uses it are two calls on the same module.").
+							WithSourceMap(dag.SourceMap("main.go", 559, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 559, 30)})).
+					WithFunction(
+						dag.Function("Version",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Version returns the tesseract release the assembled image ships, as the\nbare version number reported by `tesseract --version`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 482, 1))).
+					WithFunction(
+						dag.Function("WithApkAuth",
+							dag.TypeDef().WithObject("Tesseract")).
+							WithDescription("WithApkAuth supplies credentials for a repository that requires them.\n\nThe secret's contents are a netrc file — `machine mirror.example.com login\nUSER password PASS`, one stanza per host — which is what apk-tools 3's\nbuilt-in libfetch reads when a repository answers 401. Alpine 3.24 ships\napk-tools 3.0; see NETRC in `apk(8)`. Hosts are matched by name only, so a\nstanza covers a mirror on any port.\n\nIt is a *dagger.Secret rather than a string, and is mounted rather than\nwritten, so the credentials stay out of the cache key, out of argv, out of\nthe image's environment and out of any layer a caller exports. That is also\nwhy the credentials are not simply userinfo in the WithApkRepository URL,\nwhich would put them in /etc/apk/repositories and in every apk error message\nthat quotes it.").
+							WithSourceMap(dag.SourceMap("main.go", 414, 1)).
+							WithArg("credentials", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "netrc-formatted credentials for the configured repositories.", SourceMap: dag.SourceMap("main.go", 416, 2)})).
+					WithFunction(
+						dag.Function("WithApkKey",
+							dag.TypeDef().WithObject("Tesseract")).
+							WithDescription("WithApkKey trusts a repository's signing key by dropping it into\n/etc/apk/keys, which is the other half of WithApkRepository: a private\nmirror's index is signed by a key the stock Alpine image has never heard of,\nand apk refuses an index it cannot verify rather than installing from it.\n\nThe file keeps its own name, because the name is load-bearing — an index\nsignature names the key file it was made with, and apk looks that exact file\nup in the keys directory. A key exported from `abuild-keygen` is already\nnamed correctly; renaming it renames the key.\n\nRepeatable, for a mirror set signed by more than one key. It is a *File\nrather than a *Secret because a public key is not a credential: it is meant\nto be in the image, and WithApkAuth is the option for the part that is not.").
+							WithSourceMap(dag.SourceMap("main.go", 391, 1)).
+							WithArg("key", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "Public key file trusting a repository's index signature.", SourceMap: dag.SourceMap("main.go", 393, 2)})).
+					WithFunction(
+						dag.Function("WithApkRepository",
+							dag.TypeDef().WithObject("Tesseract")).
+							WithDescription("WithApkRepository points package installation at an Alpine repository other\nthan the one the base image ships, which is what makes this module work on a\nnetwork that cannot reach dl-cdn.alpinelinux.org.\n\nNew's registry argument is not enough on its own and never was: it moves the\n*image*, and the packages are still fetched by `apk add` from whatever\n/etc/apk/repositories carries — so mirroring Alpine into a private registry\nbuys a container that then fails on its first `apk add`, or, where the CDN is\nblackholed rather than refused, hangs until it times out.\n\nRepeatable, in preference order. The first call replaces the image's list\nrather than appending to it, because the air-gapped case needs the\nunreachable defaults gone rather than merely deprioritized: a repository apk\nstill consults is a repository apk still waits for.\n\nThe URL is the repository base, spelled the way it would be spelled in\n/etc/apk/repositories — `https://mirror.example.com/alpine/v3.24/main`, one\ncall per component. A repository's index is signed, so pair this with\nWithApkKey unless the mirror is signed by a key the base image already\ntrusts.").
+							WithSourceMap(dag.SourceMap("main.go", 363, 1)).
+							WithArg("url", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Base URL of an Alpine repository to resolve packages from.", SourceMap: dag.SourceMap("main.go", 365, 2)})).
+					WithFunction(
+						dag.Function("WithTessdata",
+							dag.TypeDef().WithObject("Tesseract")).
+							WithDescription("WithTessdata adds a directory of `.traineddata` models to the image, which\nis the only way to reach a model Alpine has no package for: a fine-tuned\nmodel, a tessdata_best or tessdata_fast variant, or a language whose package\nsimply does not exist.\n\nEvery file whose name ends in `.traineddata` becomes a language named after\nits stem — `deu_frak.traineddata` is the language `deu_frak` — so a model is\nrenamed by renaming its file. Langs reports the union of these and the\npackaged ones, and everything that takes a language name accepts either.\n\nThe directory is merged with the packaged models rather than replacing them,\nbecause tesseract's datadir is more than a bag of models: it also holds the\nrenderer configfiles and the font the PDF renderer needs. A caller-supplied\nmodel wins over a packaged one of the same name, which is what makes\nreplacing the stock `eng` with a fine-tuned one work.").
+							WithSourceMap(dag.SourceMap("main.go", 334, 1)).
+							WithArg("dir", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Directory of `.traineddata` models to make available to recognition.", SourceMap: dag.SourceMap("main.go", 336, 2)})).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Tesseract")).
+							WithDescription("New returns a Tesseract module backed by <registry>/library/alpine:<tag>\nwith tesseract-ocr and one language package per requested language.").
+							WithSourceMap(dag.SourceMap("main.go", 276, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the alpine image. This moves the image only:\nsee WithApkRepository for where the packages installed onto it are\nfetched from.", SourceMap: dag.SourceMap("main.go", 281, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("alpineTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag of the alpine image the toolchain is assembled on.", SourceMap: dag.SourceMap("main.go", 284, 2), DefaultValue: dagger.JSON("\"3.24\"")}).
+							WithArg("languages", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Language codes to install, one apk package each. Empty installs \"eng\".\n\"osd\" is not a recognition language but is required by Document.Osd.", SourceMap: dag.SourceMap("main.go", 288, 2)}).
+							WithArg("ompThreadLimit", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Upper bound on the OpenMP threads tesseract may use, set on the\nassembled image as OMP_THREAD_LIMIT. Unset, tesseract uses one thread\nper available CPU, which is what a caller who owns the machine wants.\nSet it when several recognitions share the cores — concurrent passes\neach claiming every CPU oversubscribe the box badly enough to cost an\norder of magnitude, which is the shape of the long-standing upstream\nslowdown reports (tesseract-ocr/tesseract#2611, #1171, #263). One\nthread per pass is the usual setting there.", SourceMap: dag.SourceMap("main.go", 298, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Batch", dagger.TypeDefWithObjectOpts{Description: "Batch is a directory of images plus the recognition options that apply to\nall of them. It carries the same options type Document does, so the two\ncannot drift: every With* here forwards to the shared builder.\n\nEach matched image is recognised by its own tesseract invocation, and the\ninvocations are split across at most WithConcurrency execs — one contiguous\nslice of the batch each. What decides the bound, the partition, the\nscheduling, the fail-fast and the failure message is Go; the only thing\ninterpreted inside a container is the list of per-image commands that slice\nwas handed. That keeps all of it in a language with types and a debugger,\ninstead of in a runner mounted into an image.", SourceMap: dag.SourceMap("batch.go", 40, 6)}).
+					WithFunction(
+						dag.Function("Export",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Export recognises every matched image and returns a directory mirroring the\ninput layout, with one artifact per requested format per image: `scans/a.png`\nbecomes `scans/a.txt` alongside `scans/a.pdf`.\n\nEach image is recognised by its own invocation, WithConcurrency of them at a\ntime, and each invocation writes its artifacts straight onto the mirrored\npath. tesseract's own list-file mode — a text file of image paths as the FILE\nargument — is not what a batch wants, because it treats the list as one\nmulti-page *document*: it renders a single concatenated artifact set (one .txt\nwith form-feed page breaks, one multi-page PDF) and offers no way to get the\nper-image files this returns.\n\nOne invocation per image is what makes the results cache per slice of images\nrather than per batch: an edited page invalidates the slice it falls in and\nnothing else, which is most of the difference for a corpus that grows a page\nat a time. See the README for what that is worth measured, and for why the\nslice — rather than the image — is the granularity now.").
+							WithSourceMap(dag.SourceMap("batch.go", 184, 1)).
+							WithArg("formats", dag.TypeDef().WithListOf(dag.TypeDef().WithEnum("Format")), dagger.FunctionWithArgOpts{Description: "Output formats to render for each image in the batch.", SourceMap: dag.SourceMap("batch.go", 187, 2)})).
+					WithFunction(
+						dag.Function("Files",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Files lists the images the batch will recognise, as paths relative to the\nsource directory root, sorted. Sorted is not the order they are recognised\nin — they run several at a time — but it is the order their artifacts are\nassembled in, so the returned directory is the same whatever the scheduling\ndid.\n\nIt answers the question a glob always raises — did that pattern pick up what\nI meant? — without paying for the recognition, and it fails on an empty match\nexactly as Export does.").
+							WithSourceMap(dag.SourceMap("batch.go", 163, 1))).
+					WithFunction(
+						dag.Function("WithConcurrency",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithConcurrency bounds how many images the batch recognises at once, and with\nit how many execs the export creates.\n\nIt defaults to the number of CPUs the module can see, which is what a batch\nwants: processes are how tesseract parallelises well — eleven pages on four\nCPUs take 3.37s one at a time and 1.05s eleven at a time, ~90% efficiency\nwhere its own OpenMP manages 33%, because those regions sit inside the LSTM\ninner loops and do not amortize.\n\nRecognising more than one at a time therefore also caps OpenMP at one thread\nper process, unless the caller named an explicit ompThreadLimit on New, which\nis left alone. Concurrency multiplied by per-process threads rather than\nbounded by cores is the one shape that is slower than doing nothing: four\nconcurrent unbounded passes on four CPUs take 3m36.8s against 1.24s bounded,\n174x.\n\nPass a number to take less of the machine than the default, or 1 to recognise\nthe whole batch in one exec, an image at a time. Non-positive is rejected at\noutput time.\n\nThe two meanings are one setting because they were never independent. The\nimages are split into this many contiguous slices and each slice is one exec\nrunning its images' invocations in turn, so the bound is at once how many\nrecognise at a time and how many containers an export creates — a\nthree-thousand-image batch is this many, not three thousand. It is what\ndecides how the results cache, too: a slice is the unit that hits or misses,\nso an edited image re-recognises its slice rather than only itself.\n\nWhat it is still not is a change to the answer. The same artifacts come back\nunder every bound, named the same way and recognised from the same bytes;\nconcurrency is allowed to change how long an export takes and nothing else.").
+							WithSourceMap(dag.SourceMap("batch.go", 102, 1)).
+							WithArg("concurrency", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Maximum number of images to recognise at the same time.", SourceMap: dag.SourceMap("batch.go", 104, 2)})).
+					WithFunction(
+						dag.Function("WithDpi",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithDpi declares the source resolution (`--dpi`) for every image in the\nbatch. See Document.WithDpi.").
+							WithSourceMap(dag.SourceMap("batch.go", 132, 1)).
+							WithArg("dpi", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 132, 25)})).
+					WithFunction(
+						dag.Function("WithEngine",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithEngine selects the OCR engine (`--oem`) for every image in the batch.\nSee Document.WithEngine.").
+							WithSourceMap(dag.SourceMap("batch.go", 126, 1)).
+							WithArg("mode", dag.TypeDef().WithEnum("EngineMode"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 126, 28)})).
+					WithFunction(
+						dag.Function("WithGlob",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithGlob replaces the set of files to recognise with everything matching one\nglob pattern, resolved against the directory root. `**` crosses directory\nboundaries, so `**/*.tif` reaches nested scans and `receipts/*.png` stays in\none folder.\n\nSetting a pattern also takes over the extension filtering the default does.\nThat is deliberate: a caller who names the pattern knows what is in the\ndirectory, and leptonica sniffs content rather than trusting extensions, so\n`**/*.scan` is a reasonable thing to ask for. PDFs stay rejected either way,\nbecause leptonica genuinely cannot read them.").
+							WithSourceMap(dag.SourceMap("batch.go", 65, 1)).
+							WithArg("pattern", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 65, 26)})).
+					WithFunction(
+						dag.Function("WithLanguage",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithLanguage selects the recognition language (`-l`) for every image in the\nbatch. See Document.WithLanguage.").
+							WithSourceMap(dag.SourceMap("batch.go", 114, 1)).
+							WithArg("lang", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 114, 30)})).
+					WithFunction(
+						dag.Function("WithPageSegmentation",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithPageSegmentation sets how much layout analysis precedes recognition\n(`--psm`) for every image in the batch. See Document.WithPageSegmentation.").
+							WithSourceMap(dag.SourceMap("batch.go", 120, 1)).
+							WithArg("mode", dag.TypeDef().WithEnum("PageSegMode"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 120, 38)})).
+					WithFunction(
+						dag.Function("WithParameter",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithParameter sets one of tesseract's control variables (`-c name=value`)\nfor every image in the batch. See Document.WithParameter.").
+							WithSourceMap(dag.SourceMap("batch.go", 138, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 138, 31)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 138, 44)})).
+					WithFunction(
+						dag.Function("WithUserPatterns",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithUserPatterns supplies a pattern list (`--user-patterns`) for every image\nin the batch. See Document.WithUserPatterns.").
+							WithSourceMap(dag.SourceMap("batch.go", 150, 1)).
+							WithArg("patterns", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 150, 34)})).
+					WithFunction(
+						dag.Function("WithUserWords",
+							dag.TypeDef().WithObject("Batch")).
+							WithDescription("WithUserWords supplies a word list (`--user-words`) for every image in the\nbatch. See Document.WithUserWords.").
+							WithSourceMap(dag.SourceMap("batch.go", 144, 1)).
+							WithArg("words", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("batch.go", 144, 31)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci is a chained builder for a document-processing pipeline: a directory of\nscans in, the archival formats out, and a quality gate in between.\n\nIt composes the Batch primitive without adding capability of its own — every\nstage is a call the caller could make by hand — so a document repo's CI is one\ndeclarative `dagger call` rather than a recognition step, an export step and a\nhand-rolled TSV parser.\n\nThe confidence gate is the part that is not merely a bundled call. It reads\nthe `conf` column tesseract already reports in its TSV output and fails the\nrun when mean word confidence falls below the threshold, which is how a\nscanner regression or a wrong-language configuration is caught before the\nartifacts ship rather than after they are archived.", SourceMap: dag.SourceMap("ci.go", 48, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the pipeline's gate and produces nothing, for the PR that wants to\nknow whether the scans are good enough without paying to render the archive.\n\nThe gate is recognition itself plus the confidence bar: every matched image is\nrecognised, so a page tesseract cannot read fails here, and when a threshold\nwas set every page is measured against it. Recognition is what costs, and it\nis unavoidable — a page's confidence is not knowable without recognising it.").
+							WithSourceMap(dag.SourceMap("ci.go", 114, 1))).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline and returns every enabled format for every matched\nimage, in a directory mirroring the source layout. A failing gate returns the\nerror and no directory, so artifacts never reach a caller whose scans did not\nclear the bar.\n\nGating rides along on the recognition pass that renders the artifacts rather\nthan preceding it, because recognising the whole directory twice is the\nsingle most expensive thing this module could be asked to do, and the only\ndifference between a gated run and an ungated one is a TSV. So a gated run\nrenders TSV alongside whatever was enabled, measures it, and withholds the\nwhole directory if the measurement fails — the artifacts exist inside the\nexec, and a caller who is refused them is no better off for them having been\nskipped.").
+							WithSourceMap(dag.SourceMap("ci.go", 148, 1))).
+					WithFunction(
+						dag.Function("WithFormats",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithFormats replaces the set of formats the pipeline renders for each image.\nUnset, it renders plain text.").
+							WithSourceMap(dag.SourceMap("ci.go", 76, 1)).
+							WithArg("formats", dag.TypeDef().WithListOf(dag.TypeDef().WithEnum("Format")), dagger.FunctionWithArgOpts{Description: "Output formats to render for every image in the source directory.", SourceMap: dag.SourceMap("ci.go", 78, 2)})).
+					WithFunction(
+						dag.Function("WithLanguage",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithLanguage selects the recognition language (`-l`) for every image in the\nsource directory. See Document.WithLanguage.").
+							WithSourceMap(dag.SourceMap("ci.go", 68, 1)).
+							WithArg("lang", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 68, 27)})).
+					WithFunction(
+						dag.Function("WithMinConfidence",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithMinConfidence fails the pipeline when a page comes back recognised less\nconfidently than this, as a percentage from 1 to 100.\n\nThe measurement is the mean of the per-word confidences tesseract already\nreports in its TSV output, taken per page: the gate names the page that\nmeasured worst rather than the batch, because a batch is assembled by a\nscanner and it is one sheet that goes through crooked.\n\nWhat it catches is the class of failure recognition does not report as one. A\npage fed sideways, a scanner drifting out of focus, a language configured\nwrong — all of them recognise *something*, exit 0 and render every artifact\nasked for. Unset, there is no bar and no page can be too poor to ship.").
+							WithSourceMap(dag.SourceMap("ci.go", 97, 1)).
+							WithArg("percent", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Lowest mean word confidence a page may be recognised at, as a percentage.", SourceMap: dag.SourceMap("ci.go", 99, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Document", dagger.TypeDefWithObjectOpts{Description: "Document is one unit of recognition plus the options that apply to it. It is\nimmutable: every With* returns a copy, so a configured Document can be\nbranched into several outputs without the branches interfering.\n\nThe unit is one image, and that is the whole of it: tesseract resolves\nnothing relative to its input, so a file is the natural boundary. A folder of\nthem is Batch, which is built out of these rather than beside them — one\nDocument per image — so everything below is what a batch runs too.\n\nThe options themselves live on the shared options type, which Batch carries\ntoo — the builders here are forwarders, so a new recognition option reaches\nboth units of work at once instead of being implemented twice.", SourceMap: dag.SourceMap("document.go", 25, 6)}).
+					WithFunction(
+						dag.Function("Alto",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Alto returns ALTO XML, the layout schema libraries and archives ingest.").
+							WithSourceMap(dag.SourceMap("document.go", 121, 1))).
+					WithFunction(
+						dag.Function("Box",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Box returns the character-level box file: one row per recognised character,\ngiving the character and the box it was found in.\n\nIt is the format tesseract's own training tooling corrects by hand — read\nthe boxes, fix the characters the model got wrong, feed them back — and the\nmost direct way to see where recognition thinks each glyph is. Hocr and Tsv\ncarry boxes too, but at the word level and wrapped in a document format.").
+							WithSourceMap(dag.SourceMap("document.go", 150, 1))).
+					WithFunction(
+						dag.Function("Export",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Export runs one recognition pass and returns a directory holding every\nrequested format.\n\nIt exists alongside the single-artifact functions because tesseract accepts\nseveral renderers per invocation: asking for text, hOCR and PDF together is\none pass over the image, not three. Each artifact is named `result` plus the\nrenderer's own extension.").
+							WithSourceMap(dag.SourceMap("document.go", 215, 1)).
+							WithArg("formats", dag.TypeDef().WithListOf(dag.TypeDef().WithEnum("Format")), dagger.FunctionWithArgOpts{Description: "Output formats to render in the single recognition pass.", SourceMap: dag.SourceMap("document.go", 218, 2)})).
+					WithFunction(
+						dag.Function("Hocr",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Hocr returns hOCR: HTML in which every recognised word carries its bounding\nbox and confidence, which is what layout-aware post-processing reads.").
+							WithSourceMap(dag.SourceMap("document.go", 116, 1))).
+					WithFunction(
+						dag.Function("LstmTrain",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("LstmTrain returns one LSTM training sample — a `.lstmf` — pairing this\nimage with the line of text it renders.\n\nIt is the unit Training is built out of, exposed on its own for the pipeline\nthat wants to build its samples somewhere else: generate them here, keep\nthem, and hand the collection to `lstmtraining` on its own terms. Training\nis the shorter path when the whole job is fine-tuning a model.\n\nThe ground truth is an argument rather than a file beside the image because\na Document is one image, not a directory: there is nowhere for a `.gt.txt`\nto sit. It has to be a single line, and the image has to be a single line of\ntext, for the same reason Training says so — the sample claims the whole\nimage renders exactly this text.").
+							WithSourceMap(dag.SourceMap("document.go", 179, 1)).
+							WithArg("groundTruth", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The single line of text this image renders.", SourceMap: dag.SourceMap("document.go", 182, 2)})).
+					WithFunction(
+						dag.Function("Osd",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Osd detects the document's orientation and script without recognising any\ntext (`--psm 0`), reporting the rotation needed to make the page upright.\n\nIt builds its own invocation rather than reusing the document's recognition\noptions: orientation detection runs off the osd model alone, so the selected\nlanguage, engine and page-segmentation mode have nothing to say about it.\nThe osd model has to be in the image: either as the package New installs for\nit, or as an osd.traineddata WithTessdata supplied.").
+							WithSourceMap(dag.SourceMap("document.go", 239, 1))).
+					WithFunction(
+						dag.Function("Page",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Page returns PAGE XML, the PRImA layout-analysis schema — the alternative to\nALTO for tools built around that ecosystem.").
+							WithSourceMap(dag.SourceMap("document.go", 139, 1))).
+					WithFunction(
+						dag.Function("Pdf",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pdf returns a searchable PDF: the source image with an invisible text layer\npositioned behind it, so the page looks untouched but selects and greps.").
+							WithSourceMap(dag.SourceMap("document.go", 133, 1))).
+					WithFunction(
+						dag.Function("ProcessedImages",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ProcessedImages returns the image tesseract actually recognised, which is\nnot the one it was given: recognition runs on a binarized, deskewed\nderivative, and this is that derivative as a TIFF.\n\nIt answers the question a disappointing result always raises — is the model\nwrong, or did the page never survive thresholding? A scan that comes back as\na field of black has failed before recognition started, and no amount of\ntuning `--psm` will fix it.").
+							WithSourceMap(dag.SourceMap("document.go", 162, 1))).
+					WithFunction(
+						dag.Function("Text",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Text recognises the document and returns the plain text directly, by asking\ntesseract to write to stdout instead of a file. This is the shortest path\nfor the common case; Txt is the same content as a *dagger.File.").
+							WithSourceMap(dag.SourceMap("document.go", 95, 1))).
+					WithFunction(
+						dag.Function("Tsv",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Tsv returns tab-separated recognition results: one row per layout element,\ndescending from page to word, each with its box and confidence.").
+							WithSourceMap(dag.SourceMap("document.go", 127, 1))).
+					WithFunction(
+						dag.Function("Txt",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Txt recognises the document and returns the plain text as a file. It is the\nsame content Text returns; take this when the next step wants a file rather\nthan a string.").
+							WithSourceMap(dag.SourceMap("document.go", 110, 1))).
+					WithFunction(
+						dag.Function("WithDpi",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithDpi declares the source image's resolution (`--dpi`), which tesseract\notherwise guesses from the image metadata. Guessing wrong hurts recognition\non images that carry no resolution at all. A non-positive value is rejected\nat output time.").
+							WithSourceMap(dag.SourceMap("document.go", 64, 1)).
+							WithArg("dpi", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 64, 28)})).
+					WithFunction(
+						dag.Function("WithEngine",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithEngine selects the OCR engine (`--oem`). Unset, tesseract picks based on\nwhat the language data provides.").
+							WithSourceMap(dag.SourceMap("document.go", 56, 1)).
+							WithArg("mode", dag.TypeDef().WithEnum("EngineMode"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 56, 31)})).
+					WithFunction(
+						dag.Function("WithLanguage",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithLanguage selects the recognition language (`-l`). Several languages can\nbe combined with `+`, as in \"eng+deu\", in which case tesseract loads all of\nthem for one pass.\n\nThe value picks from what the image carries — the packages New installed and\nany model WithTessdata supplied — and cannot itself add a language, since\nboth of those are baked in when the image is assembled. An unknown value is\nrejected at output time with the available set listed. Unset, recognition\nruns in the first language New installed.").
+							WithSourceMap(dag.SourceMap("document.go", 43, 1)).
+							WithArg("lang", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 43, 33)})).
+					WithFunction(
+						dag.Function("WithPageSegmentation",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithPageSegmentation sets how much layout analysis precedes recognition\n(`--psm`). Unset, tesseract uses fully automatic segmentation without\norientation detection.").
+							WithSourceMap(dag.SourceMap("document.go", 50, 1)).
+							WithArg("mode", dag.TypeDef().WithEnum("PageSegMode"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 50, 41)})).
+					WithFunction(
+						dag.Function("WithParameter",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithParameter sets one of tesseract's control variables (`-c name=value`);\nParameters lists every name and its default.\n\nIt takes a name and a value separately rather than a map because Dagger\nfunctions cannot accept map parameters. An unknown name is rejected at\noutput time: tesseract itself only warns and carries on, so a typo would\notherwise silently do nothing.").
+							WithSourceMap(dag.SourceMap("document.go", 75, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 75, 34)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 75, 47)})).
+					WithFunction(
+						dag.Function("WithUserPatterns",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithUserPatterns supplies a pattern list (`--user-patterns`): one pattern\nper line describing the shape of expected strings, such as part numbers.").
+							WithSourceMap(dag.SourceMap("document.go", 88, 1)).
+							WithArg("patterns", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 88, 37)})).
+					WithFunction(
+						dag.Function("WithUserWords",
+							dag.TypeDef().WithObject("Document")).
+							WithDescription("WithUserWords supplies a word list (`--user-words`): one word per line,\nwhich recognition then favours. Useful for jargon and proper nouns the\npackaged dictionary does not know.").
+							WithSourceMap(dag.SourceMap("document.go", 82, 1)).
+							WithArg("words", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("document.go", 82, 34)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Training", dagger.TypeDefWithObjectOpts{Description: "Training is a directory of image plus ground-truth pairs bound to the\ntoolchain, and the fine-tuning run that turns them into a model.\n\nThe unit of work is one text line: each image holds a single line and its\n`.gt.txt` holds the text that line renders, which is the shape tesseract's\nown training data takes and the reason the ground truth is rejected when it\ncarries more than one line. A page of text is not a training sample; it is\nas many samples as it has lines, and cutting it into them is a decision\nabout the data rather than about this module.\n\nFine-tuning needs a *float* base model, which nothing Alpine packages is:\nevery model in tesseract-ocr/tessdata is quantized to integers for\nrecognition speed and lstmtraining refuses to continue from one. The float\nmodels live in tesseract-ocr/tessdata_best, and reach this module the same\nway any other unpackaged model does — through WithTessdata. That is why\nWithBaseModel is required rather than defaulting to the recognition\nlanguage: the default would be a model that cannot be trained.", SourceMap: dag.SourceMap("training.go", 92, 6)}).
+					WithFunction(
+						dag.Function("Evaluate",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Evaluate runs `lstmeval` against the fine-tuned model and returns the error\nrates it reports: BCER, the character error rate, and BWER, the word error\nrate, both as percentages.\n\nIt evaluates against the training set, which makes this a measure of how\nwell the model fit the data it was shown rather than of how it will do on\ndata it has not seen. Those are different numbers and the second one is the\none that matters for a model going into production: hold part of the ground\ntruth back, and build a second Training over it to measure that.\n\nThe run is shared with Traineddata rather than repeated — both read the same\nfinished container — so asking for the model and its error rate costs one\ntraining run, not two.").
+							WithSourceMap(dag.SourceMap("training.go", 205, 1))).
+					WithFunction(
+						dag.Function("Files",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Files lists the images the run will train on, as paths relative to the\nsource directory root, in the order they are presented.\n\nIt is where the pairing is checked, so it answers the question a training\ndirectory always raises — did every image find its ground truth? — without\npaying for the training run. The check is by name alone; what the ground\ntruth files actually say is read when the run happens.").
+							WithSourceMap(dag.SourceMap("training.go", 165, 1))).
+					WithFunction(
+						dag.Function("Traineddata",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Traineddata runs the fine-tuning and returns the resulting model, named\nafter the base model it was trained from.\n\nThe file is a complete `.traineddata`: `--stop_training` folds the trained\nnetwork back together with the base model's unicharset and dictionaries, so\nit is a drop-in for the model it started from rather than a fragment needing\nassembly. Hand it to WithTessdata and it becomes a language like any other.").
+							WithSourceMap(dag.SourceMap("training.go", 184, 1))).
+					WithFunction(
+						dag.Function("WithBaseModel",
+							dag.TypeDef().WithObject("Training")).
+							WithDescription("WithBaseModel names the model fine-tuning starts from. It is required, and\nit has to be a float model: `lstmtraining` refuses to continue from a\nquantized one, and every model Alpine packages is quantized.\n\nThe float models are published as tesseract-ocr/tessdata_best, and are\nsupplied to this module exactly as any other unpackaged model is — as a\ndirectory handed to WithTessdata. The name here is the one that directory\ngives the model, so a `best.traineddata` is the base model \"best\".\n\nThe name is also what the trained model is called: fine-tuning \"eng\"\nproduces an `eng.traineddata`, which is what makes the result drop straight\nback into WithTessdata as a replacement for the model it came from. Give it\nanother name by putting it in a directory under one — WithTessdata reads the\nlanguage off the file name.").
+							WithSourceMap(dag.SourceMap("training.go", 128, 1)).
+							WithArg("lang", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Name of the model to fine-tune, as Langs reports it.", SourceMap: dag.SourceMap("training.go", 130, 2)})).
+					WithFunction(
+						dag.Function("WithIterations",
+							dag.TypeDef().WithObject("Training")).
+							WithDescription("WithIterations sets how many training iterations to run — one iteration is\none training sample presented to the network, so a 40-line set runs 40\niterations per pass over the data.\n\nThe count is always bounded: lstmtraining left to itself trains until its\nerror rate stops improving, which on a real data set is hours, so this\nmodule always passes `--max_iterations` and defaults it to 100. That default\nis deliberately far below what fine-tuning a model for production takes\n(upstream's own worked example uses 400 for a single font, and thousands is\nordinary) and is chosen instead to keep the first call a caller makes —\nand this module's own test suite — finish in seconds rather than turning\ninto an unattended job. Raise it for anything real.").
+							WithSourceMap(dag.SourceMap("training.go", 149, 1)).
+							WithArg("n", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Number of training iterations to run. Must be positive.", SourceMap: dag.SourceMap("training.go", 151, 2)}))).
+			WithEnum(
+				dag.TypeDef().WithEnum("Format", dagger.TypeDefWithEnumOpts{Description: "Format is an output renderer, which tesseract selects with a trailing\nCONFIGFILE word rather than a flag. Export takes a set of these because one\nrecognition pass can drive several renderers at once.", SourceMap: dag.SourceMap("enums.go", 118, 6)}).
+					WithEnumMember("Alto", dagger.TypeDefWithEnumMemberOpts{Value: "ALTO", Description: "FormatAlto is ALTO XML, the library-and-archive layout schema.", SourceMap: dag.SourceMap("enums.go", 127, 2)}).
+					WithEnumMember("Hocr", dagger.TypeDefWithEnumMemberOpts{Value: "HOCR", Description: "FormatHocr is hOCR: HTML carrying per-word bounding boxes and\nconfidences.", SourceMap: dag.SourceMap("enums.go", 125, 2)}).
+					WithEnumMember("Page", dagger.TypeDefWithEnumMemberOpts{Value: "PAGE", Description: "FormatPage is PAGE XML, the PRImA layout-analysis schema.", SourceMap: dag.SourceMap("enums.go", 135, 2)}).
+					WithEnumMember("Pdf", dagger.TypeDefWithEnumMemberOpts{Value: "PDF", Description: "FormatPdf is a searchable PDF: the source image with an invisible text\nlayer behind it.", SourceMap: dag.SourceMap("enums.go", 133, 2)}).
+					WithEnumMember("Tsv", dagger.TypeDefWithEnumMemberOpts{Value: "TSV", Description: "FormatTsv is tab-separated rows, one per layout element, ending in the\nword level.", SourceMap: dag.SourceMap("enums.go", 130, 2)}).
+					WithEnumMember("Txt", dagger.TypeDefWithEnumMemberOpts{Value: "TXT", Description: "FormatTxt is plain UTF-8 text, one line per recognised text line.", SourceMap: dag.SourceMap("enums.go", 122, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("EngineMode", dagger.TypeDefWithEnumOpts{Description: "EngineMode is the OCR engine tesseract recognises with (`--oem`).\n\nAll four modes are usable here because Alpine packages the *combined*\ntesseract-ocr/tessdata models, which carry legacy data alongside LSTM. A\nbuild against tessdata_fast or tessdata_best would leave LEGACY and\nLEGACY_LSTM failing at runtime.", SourceMap: dag.SourceMap("enums.go", 86, 6)}).
+					WithEnumMember("Default", dagger.TypeDefWithEnumMemberOpts{Value: "DEFAULT", Description: "EngineModeDefault lets tesseract pick based on what the language data\nprovides, and is what an unset `--oem` gets.", SourceMap: dag.SourceMap("enums.go", 97, 2)}).
+					WithEnumMember("Legacy", dagger.TypeDefWithEnumMemberOpts{Value: "LEGACY", Description: "EngineModeLegacy uses the pre-4.0 pattern-matching engine only.", SourceMap: dag.SourceMap("enums.go", 90, 2)}).
+					WithEnumMember("LegacyLstm", dagger.TypeDefWithEnumMemberOpts{Value: "LEGACY_LSTM", Description: "EngineModeLegacyLstm runs both engines and combines their results.", SourceMap: dag.SourceMap("enums.go", 94, 2)}).
+					WithEnumMember("Lstm", dagger.TypeDefWithEnumMemberOpts{Value: "LSTM", Description: "EngineModeLstm uses the LSTM neural-network engine only.", SourceMap: dag.SourceMap("enums.go", 92, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("PageSegMode", dagger.TypeDefWithEnumOpts{Description: "PageSegMode is tesseract's page-segmentation mode (`--psm`): how much layout\nanalysis to do before recognising anything. The enum value maps to the CLI's\nnumber internally, so an out-of-range mode is unrepresentable through the SDK.\n\nMode 2 (\"automatic page segmentation, but no OSD or OCR\") is deliberately\nabsent: upstream never implemented it, so it would ship as an always-useless\nmember.\n\nNote on rendered names: the Dagger Go SDK derives each GraphQL enum member\nfrom the *constant identifier* in SCREAMING_SNAKE_CASE, so these surface as\n`OSD_ONLY`, `SINGLE_BLOCK_VERT_TEXT`, and so on.", SourceMap: dag.SourceMap("enums.go", 16, 6)}).
+					WithEnumMember("Auto", dagger.TypeDefWithEnumMemberOpts{Value: "AUTO", Description: "PageSegModeAuto is full automatic segmentation without OSD, and is\ntesseract's default.", SourceMap: dag.SourceMap("enums.go", 28, 2)}).
+					WithEnumMember("AutoOsd", dagger.TypeDefWithEnumMemberOpts{Value: "AUTO_OSD", Description: "PageSegModeAutoOsd is full automatic segmentation with orientation and\nscript detection.", SourceMap: dag.SourceMap("enums.go", 25, 2)}).
+					WithEnumMember("CircleWord", dagger.TypeDefWithEnumMemberOpts{Value: "CIRCLE_WORD", Description: "PageSegModeCircleWord treats the image as a single word in a circle.", SourceMap: dag.SourceMap("enums.go", 42, 2)}).
+					WithEnumMember("OsdOnly", dagger.TypeDefWithEnumMemberOpts{Value: "OSD_ONLY", Description: "PageSegModeOsdOnly detects orientation and script and recognises\nnothing. Osd is the ergonomic path to this mode; selecting it here\nmakes the text outputs return the OSD report instead of recognised text.", SourceMap: dag.SourceMap("enums.go", 22, 2)}).
+					WithEnumMember("RawLine", dagger.TypeDefWithEnumMemberOpts{Value: "RAW_LINE", Description: "PageSegModeRawLine treats the image as a single text line, bypassing\ntesseract-specific hacks.", SourceMap: dag.SourceMap("enums.go", 53, 2)}).
+					WithEnumMember("SingleBlock", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_BLOCK", Description: "PageSegModeSingleBlock assumes a single uniform block of text.", SourceMap: dag.SourceMap("enums.go", 36, 2)}).
+					WithEnumMember("SingleBlockVertText", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_BLOCK_VERT_TEXT", Description: "PageSegModeSingleBlockVertText assumes a single uniform block of\nvertically aligned text.", SourceMap: dag.SourceMap("enums.go", 34, 2)}).
+					WithEnumMember("SingleChar", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_CHAR", Description: "PageSegModeSingleChar treats the image as a single character.", SourceMap: dag.SourceMap("enums.go", 44, 2)}).
+					WithEnumMember("SingleColumn", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_COLUMN", Description: "PageSegModeSingleColumn assumes a single column of text of variable\nsizes.", SourceMap: dag.SourceMap("enums.go", 31, 2)}).
+					WithEnumMember("SingleLine", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_LINE", Description: "PageSegModeSingleLine treats the image as a single text line.", SourceMap: dag.SourceMap("enums.go", 38, 2)}).
+					WithEnumMember("SingleWord", dagger.TypeDefWithEnumMemberOpts{Value: "SINGLE_WORD", Description: "PageSegModeSingleWord treats the image as a single word.", SourceMap: dag.SourceMap("enums.go", 40, 2)}).
+					WithEnumMember("SparseText", dagger.TypeDefWithEnumMemberOpts{Value: "SPARSE_TEXT", Description: "PageSegModeSparseText finds as much text as possible in no particular\norder.", SourceMap: dag.SourceMap("enums.go", 47, 2)}).
+					WithEnumMember("SparseTextOsd", dagger.TypeDefWithEnumMemberOpts{Value: "SPARSE_TEXT_OSD", Description: "PageSegModeSparseTextOsd is sparse text with orientation and script\ndetection.", SourceMap: dag.SourceMap("enums.go", 50, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

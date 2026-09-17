@@ -496,6 +496,132 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the flash daggerverse module. Each test is a standalone dagger\nfunction so it can be invoked individually during TDD; All wires the hermetic\nsuite up for parallel execution and carries `+check` so CI schedules it.\n\nThe hermetic suite never touches real hardware: it covers input validation,\ndeterministic Plan rendering, chip-registry resolution (the real probe-rs\nbinary, no probe), a clean failure when no probe is present, and a\nconnection-counting proof that Run re-executes (never cached). The genuinely\nhardware-dependent behaviors are the Hil* functions below — they carry NO\n`+check` and are NOT in All, so CI never runs them; a flash-runner operator\ninvokes them against a real probe.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 25, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs the hermetic flash suite in parallel. It carries `+check` so CI\nschedules it; the Hil* functions are deliberately excluded (no hardware in\nCI).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 37, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 40, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BridgeCommandRendersUsbipBind",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BridgeCommandRendersUsbipBind verifies BridgeCommand renders a host-side\nusbip bind command carrying the busid and port.").
+							WithSourceMap(dag.SourceMap("main.go", 337, 1))).
+					WithFunction(
+						dag.Function("ChipInfoResolvesKnownChip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ChipInfoResolvesKnownChip verifies a known chip resolves against probe-rs's\nregistry and the info block mentions the chip family.").
+							WithSourceMap(dag.SourceMap("main.go", 294, 1))).
+					WithFunction(
+						dag.Function("FlasherHasProbeRs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FlasherHasProbeRs asserts ProbeRs wires a probe-rs invocation (the flash\nbackend is present), via a successful Plan render mentioning probe-rs.").
+							WithSourceMap(dag.SourceMap("main.go", 259, 1))).
+					WithFunction(
+						dag.Function("HilFlashRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HilFlashRoundTrip flashes firmware to a real target and verifies it, asserting\nboth succeed. Provide a usbip host:port + busid (from BridgeCommand) or a\nremote endpoint, and the chip.").
+							WithSourceMap(dag.SourceMap("main.go", 461, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 463, 2)}).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 464, 2)}).
+							WithArg("usbip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 466, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 468, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("remote", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 470, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 472, 2), DefaultValue: dagger.JSON("\"ELF\"")}).
+							WithArg("baseAddress", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 474, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("HilGdbServes",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HilGdbServes starts the probe-rs GDB stub against a real target and asserts a\ngdb client can reach it over the bound service.").
+							WithSourceMap(dag.SourceMap("main.go", 542, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 544, 2)}).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 545, 2)}).
+							WithArg("usbip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 547, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 549, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("remote", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 551, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 553, 2), DefaultValue: dagger.JSON("1337")})).
+					WithFunction(
+						dag.Function("HilReset",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HilReset resets a real target.").
+							WithSourceMap(dag.SourceMap("main.go", 524, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 526, 2)}).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 527, 2)}).
+							WithArg("usbip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 529, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 531, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("remote", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 533, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("HilVerifyMatches",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HilVerifyMatches verifies the on-target flash matches firmware without\nrewriting it.").
+							WithSourceMap(dag.SourceMap("main.go", 498, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 500, 2)}).
+							WithArg("chip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 501, 2)}).
+							WithArg("usbip", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 503, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("busid", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 505, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("remote", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 507, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("PlanReflectsRemoteTransport",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanReflectsRemoteTransport asserts the remote plan carries the remote value\nand has no usbip-attach prefix. It asserts on the remote value, not the exact\nflag spelling, so it stays robust to probe-rs CLI evolution.").
+							WithSourceMap(dag.SourceMap("main.go", 236, 1))).
+					WithFunction(
+						dag.Function("PlanRendersBinBaseAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRendersBinBaseAddress asserts the BIN plan renders --base-address with the\nhex address.").
+							WithSourceMap(dag.SourceMap("main.go", 210, 1))).
+					WithFunction(
+						dag.Function("PlanRendersElfDownload",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRendersElfDownload asserts the ELF + usbip plan renders the probe-rs\ndownload argv with the usbip-attach prefix and no --base-address.").
+							WithSourceMap(dag.SourceMap("main.go", 184, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsBinWithoutBaseAddress",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsBinWithoutBaseAddress verifies BIN with baseAddress=0 is rejected.").
+							WithSourceMap(dag.SourceMap("main.go", 122, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsBothTransports",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsBothTransports verifies setting both usbip and remote is rejected.").
+							WithSourceMap(dag.SourceMap("main.go", 149, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsNilFirmware",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsNilFirmware verifies a nil firmware is rejected — either by the\nSDK binding's assertNotNil panic or by ProbeRs's own up-front check.").
+							WithSourceMap(dag.SourceMap("main.go", 105, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsNoTransport",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsNoTransport verifies zero transports is rejected.").
+							WithSourceMap(dag.SourceMap("main.go", 137, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsUnknownChip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsUnknownChip verifies an unknown chip is rejected against\nprobe-rs's registry (this runs the real probe-rs binary).").
+							WithSourceMap(dag.SourceMap("main.go", 279, 1))).
+					WithFunction(
+						dag.Function("ProbeRsRejectsUsbipWithoutBusid",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ProbeRsRejectsUsbipWithoutBusid verifies usbip without busid is rejected.").
+							WithSourceMap(dag.SourceMap("main.go", 165, 1))).
+					WithFunction(
+						dag.Function("RunReExecutesNotCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunReExecutesNotCached proves Run's never-cache behavior by counting how many\ntimes two Run calls hit a fake-usbipd service. Each Run's usbip attach opens one TCP\nconnection; reading the counter before and after the two Runs, the\nRun-attributable connection delta must be exactly 2 (a cached Run would skip\nthe connect and yield fewer).").
+							WithSourceMap(dag.SourceMap("main.go", 409, 1))).
+					WithFunction(
+						dag.Function("RunWithoutProbeFailsCleanly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunWithoutProbeFailsCleanly verifies that with no reachable probe, Run returns\na non-zero exit code and captured output — NOT a Go error (the FlashResult\nfailure contract). Points at the container's own loopback where nothing\nlistens, so probe-rs fails fast.").
+							WithSourceMap(dag.SourceMap("main.go", 309, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -648,6 +648,137 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the oci Dagger module: a registry client that\nknows how to talk to an OCI registry and nothing about why.\n\nIt does not choose tags, decide when to publish, or know what the bytes it\nuploads mean. Callers that need a registry — z5labs' App publish path,\nssdd's baselines — get one here instead of each growing their own.\n\nThe module is pure Go. Container.Publish cannot see session service\nbindings, which is why callers used to shell out to a container that\ncould; a Go client running in the module's own runtime reaches a Dagger\nservice directly, so this wraps go-containerregistry and oras-go rather\nthan pinning tool images.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Oci", dagger.TypeDefWithObjectOpts{Description: "Oci is the module's entrypoint. It holds no state; every operation is\nreached through Registry.", SourceMap: dag.SourceMap("main.go", 31, 6)}).
+					WithFunction(
+						dag.Function("CredentialResolutionSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CredentialResolutionSelfTest checks how a Docker config is read: which\nentry a host matches, which of an entry's forms wins, when a credential\nhelper is refused, and what a malformed config is allowed to say.\n\nIt sits on the module rather than in tests/ because it checks unexported\nresolution that never reaches the network, and because each case is one\nshape of a config file — reaching them all through tests/ would mean a\nregistry per shape to assert on a string comparison. The live tests still\nprove a resolved credential authenticates; this proves the right one was\nresolved.\n\nIt runs in process and needs no container, so it is cheap enough to be a\ncheck of its own.").
+							WithSourceMap(dag.SourceMap("main.go", 48, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Registry",
+							dag.TypeDef().WithObject("Registry")).
+							WithDescription("Registry binds one registry host and its credentials. service, when\nnon-nil, is a Dagger-hosted registry reached by hostname rather than over\nthe public network — its endpoint replaces host as the address dialled,\nbecause a session service's hostname is assigned by the engine and cannot\nbe predicted by the caller.\n\nThere are three ways to authenticate and they have a fixed precedence:\nusername/password beats bearerToken, which beats dockerConfig, and\nsupplying none of them is an anonymous client. See Registry.credential for\nwhy the order is that one and why a 401 never falls through to the next\nsource.\n\ninsecure is explicit and defaults to off: it means plain HTTP and no TLS\nverification. It is deliberately not inferred from service being set —\nthat inference is a test affordance leaking into production behaviour. It\nis spelled insecure rather than tlsVerify because a bool defaulting to\ntrue is unsettable from the CLI.\n\ncaCert, clientCert and clientKey are the TLS material, and all three are\nindependent of insecure. A registry fronted by a private CA is reached by\nnaming that CA, with verification still on — turning verification off to\nwork around a missing trust anchor is the outcome this exists to remove.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 76, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Registry host, as it appears in an image reference: \"ghcr.io\",\n\"registry.example.com:5000\". Ignored when service is set.", SourceMap: dag.SourceMap("main.go", 79, 2)}).
+							WithArg("username", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Username for basic authentication. Omit for an anonymous client.", SourceMap: dag.SourceMap("main.go", 83, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Password or token for basic authentication.", SourceMap: dag.SourceMap("main.go", 87, 2)}).
+							WithArg("bearerToken", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A bearer token to send as-is, for a registry that issued one. Used\nonly when no username or password was given.", SourceMap: dag.SourceMap("main.go", 92, 2)}).
+							WithArg("dockerConfig", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A Docker config file — the contents of ~/.docker/config.json — to read\nthis host's credentials out of. Used only when nothing more specific\nwas given. Credential helpers named by the file are not run; a host\nthat resolves through one fails naming it.", SourceMap: dag.SourceMap("main.go", 99, 2)}).
+							WithArg("service", dag.TypeDef().WithObject("Service").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A Dagger-hosted registry to reach over the session network instead of\nover the public network.", SourceMap: dag.SourceMap("main.go", 104, 2)}).
+							WithArg("insecure", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Talk plain HTTP and skip TLS verification. Off by default.", SourceMap: dag.SourceMap("main.go", 108, 2)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A PEM-encoded certificate authority to verify this registry's\ncertificate against, for a registry fronted by a private CA. It is\nadded to the system trust store, not substituted for it, and it does\nnot switch verification off.", SourceMap: dag.SourceMap("main.go", 115, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A PEM-encoded client certificate to authenticate with, for a registry\nthat authenticates callers by mutual TLS. Must be given together with\nclientKey.", SourceMap: dag.SourceMap("main.go", 121, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The PEM-encoded private key for clientCert. It crosses as a secret\nrather than a file because it is key material. Must be given together\nwith clientCert.", SourceMap: dag.SourceMap("main.go", 127, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Registry", dagger.TypeDefWithObjectOpts{Description: "Registry is an authenticated handle on one registry host.\n\nEvery method carries a never-cache directive on its own doc-comment line:\nregistry state is mutable and pushes are side-effecting, so the directive\nrepeats on each chained method rather than living only on the factory.", SourceMap: dag.SourceMap("main.go", 148, 6)}).
+					WithFunction(
+						dag.Function("Attach",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Attach uploads content as an OCI referrer of subject and returns the\nreferrer's own digest.\n\nsubject is a manifest digest in this repository; it is resolved first, so\nattaching to something that is not there fails naming the digest rather\nthan leaving a dangling referrer behind.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("artifact.go", 299, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the subject. The referrer lands here too — the\nreferrers API is per-repository.", SourceMap: dag.SourceMap("artifact.go", 303, 2)}).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Digest of the manifest being attached to, e.g. \"sha256:...\".", SourceMap: dag.SourceMap("artifact.go", 305, 2)}).
+							WithArg("content", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The bytes to attach: one file, one layer.", SourceMap: dag.SourceMap("artifact.go", 307, 2)}).
+							WithArg("artifactType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The referrer's artifact type, which is what Referrers filters on.", SourceMap: dag.SourceMap("artifact.go", 309, 2)})).
+					WithFunction(
+						dag.Function("Copy",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Copy copies srcRef into repository:tag on this registry, preserving every\nmanifest — a multi-platform source stays multi-platform, matching what\n`skopeo copy --all` did before this module existed. It returns the digest\nat the destination.\n\nThe source is read with this registry's credentials when it lives on this\nregistry, and anonymously otherwise; cross-registry copies needing source\ncredentials are a follow-up, not a silent reuse of the destination's.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("image.go", 268, 1)).
+							WithArg("srcRef", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Fully-qualified source reference, e.g. \"docker.io/library/alpine:3.20\"\nor \"<host>/<repo>@sha256:...\".", SourceMap: dag.SourceMap("image.go", 272, 2)}).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Destination repository on this registry.", SourceMap: dag.SourceMap("image.go", 274, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Destination tag.", SourceMap: dag.SourceMap("image.go", 276, 2)})).
+					WithFunction(
+						dag.Function("Fetch",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Fetch downloads one blob or manifest by digest and returns it as a file.\n\nBlobs are tried first and manifests second, because the two live at\ndifferent registry endpoints and a caller holding a digest out of a\nmanifest's layer list has no reason to know which it is.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("inspect.go", 29, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the content.", SourceMap: dag.SourceMap("inspect.go", 32, 2)}).
+							WithArg("digest", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Digest of the blob or manifest, e.g. \"sha256:...\".", SourceMap: dag.SourceMap("inspect.go", 34, 2)})).
+					WithFunction(
+						dag.Function("Manifest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Manifest returns the raw manifest JSON for a tag or a digest. It is raw\nrather than parsed because annotations, platforms and referrer subjects are\nall read back out of it, and re-encoding through a Go type would drop\nwhatever this module does not model.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("inspect.go", 128, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the manifest.", SourceMap: dag.SourceMap("inspect.go", 131, 2)}).
+							WithArg("reference", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag or digest.", SourceMap: dag.SourceMap("inspect.go", 133, 2)})).
+					WithFunction(
+						dag.Function("PushArtifact",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("PushArtifact pushes the files in contents to repository:tag as an OCI\nartifact of artifactType, and returns the manifest digest.\n\nEvery file in contents, at any depth, becomes one layer whose\norg.opencontainers.image.title annotation is its path relative to the\ndirectory root. Layers are ordered by that path so the same directory\nalways produces the same manifest.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("artifact.go", 45, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository path within the registry.", SourceMap: dag.SourceMap("artifact.go", 48, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag to publish under.", SourceMap: dag.SourceMap("artifact.go", 50, 2)}).
+							WithArg("contents", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{Description: "Files to upload. Must contain at least one file.", SourceMap: dag.SourceMap("artifact.go", 52, 2)}).
+							WithArg("artifactType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The artifact's type, e.g. \"application/vnd.example.sbom.v1+json\". This\nis what a consumer filters on when listing referrers.", SourceMap: dag.SourceMap("artifact.go", 55, 2)})).
+					WithFunction(
+						dag.Function("PushImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("PushImage pushes container variants to repository:tag and returns the\ndigest of what was pushed.\n\nMultiple variants become one manifest list. The variants are materialized\nthrough a single AsTarball with the rest as platform variants, so the\nindex this pushes is the one Dagger itself would have published —\nannotations, config and layer bytes included — rather than one this module\nreassembled.\n\nrepository and tag are separate parameters rather than one interpolated\nreference: it keeps caller-supplied values out of any string that gets\nre-parsed as something else, and it makes each half validatable.\n\nA caller that has fallible work to do between the push and the moment the\nimage becomes resolvable — attaching referrers, say — wants\nPushImageUntagged and Tag instead, which split this into its two halves.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("image.go", 40, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository path within the registry, e.g. \"z5labs/myapp\".", SourceMap: dag.SourceMap("image.go", 43, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag to publish under.", SourceMap: dag.SourceMap("image.go", 45, 2)}).
+							WithArg("variants", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Container")), dagger.FunctionWithArgOpts{Description: "Platform variants. One variant pushes a single image manifest; more\nthan one pushes a manifest list naming every platform.", SourceMap: dag.SourceMap("image.go", 48, 2)})).
+					WithFunction(
+						dag.Function("PushImageUntagged",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("PushImageUntagged pushes container variants to repository under their own\ndigest and no tag at all, and returns that digest.\n\nThe bytes land exactly as PushImage lands them — same manifest list, same\nblobs — but nothing in the repository names them, so nothing that resolves\na tag can reach them. That is the point: a caller with fallible work to do\nagainst the pushed digest (attaching SBOMs, attaching provenance) can do it\nwhile the image is unreachable, and call Tag only once that work is done. A\nfailure in between leaves an unreferenced manifest rather than a tag a\nconsumer can pull.\n\nPushing a manifest by digest is the same registry operation the referrers\npath already relies on, so it needs nothing of a registry that Attach does\nnot need already.\n\nThe manifest is unreferenced until it is tagged or something points at it,\nwhich means a registry running garbage collection is entitled to delete it.\nRegistries collect on an operator-run sweep rather than continuously — it is\noffline and manual on distribution, and scheduled on GHCR — so the window\nthis opens is not one a publish has to design around. A caller that leaves a\ndigest untagged indefinitely is a caller relying on something no registry\npromises.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("image.go", 88, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository path within the registry, e.g. \"z5labs/myapp\".", SourceMap: dag.SourceMap("image.go", 91, 2)}).
+							WithArg("variants", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Container")), dagger.FunctionWithArgOpts{Description: "Platform variants. One variant pushes a single image manifest; more\nthan one pushes a manifest list naming every platform.", SourceMap: dag.SourceMap("image.go", 94, 2)})).
+					WithFunction(
+						dag.Function("PushLayer",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("PushLayer pushes one file to repository:tag as a single-layer OCI image\nmanifest and returns the manifest digest.\n\nIt exists because two families of consumer read a document's meaning off\nthe *layer* rather than off the manifest: they resolve a tag whose name\nthey compute themselves, take the one layer whose media type they\nrecognise, and read the rest out of that layer's annotations. Cosign's\nsignature layout is the one this repository needs — `sha256-<hex>.sig`,\none `application/vnd.dev.cosign.simplesigning.v1+json` layer, the\nsignature in an annotation beside it — but nothing here knows that. This\nfunction is handed a tag, some bytes, a media type and a set of\nannotations, exactly as Attach is handed a file and an artifact type, and\nthat is all it ever learns.\n\nThe three ways it differs from PushArtifact and Attach, each of which is\nwhy neither of those could be stretched to cover it:\n\n  - The layer's media type is the caller's. PushArtifact gives every layer\n    application/octet-stream, which is right for a document a consumer\n    fetches by digest and wrong for one a consumer finds by filtering\n    layers on their type.\n  - The layer's annotations are the caller's. Both of the others set the\n    standard title annotation and nothing else, so there is nowhere to put\n    a signature.\n  - The config is a real empty image config rather than the OCI empty\n    descriptor oras.PackManifest would choose. Readers of this layout go\n    through go-containerregistry's image type, which expects an image\n    manifest carrying an image config; the artifact-manifest shape is\n    legal OCI and is not what they parse.\n\nThe manifest is addressed by tag, so pushing the same tag twice replaces\nit — which is what a caller re-signing a digest wants, and is the\ndifference from Attach, where each call adds a referrer.\n\nThe content is held in memory whole, exactly as Attach and PushArtifact\nhold theirs, so this is sized for documents — signatures, payloads,\nattestations — and not for image layers. Streaming would be a change to\nall three rather than to this one, since a caller cannot tell them apart\non that axis today.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("artifact.go", 151, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository to push to.", SourceMap: dag.SourceMap("artifact.go", 154, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag to push under. Callers of this function normally compute it from\na digest rather than taking it from a human.", SourceMap: dag.SourceMap("artifact.go", 157, 2)}).
+							WithArg("content", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The bytes to push: one file, one layer. It is read into memory whole,\nas Attach and PushArtifact read theirs, so this is for documents\nrather than for image layers.", SourceMap: dag.SourceMap("artifact.go", 161, 2)}).
+							WithArg("mediaType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The layer's media type, which is what a consumer filters layers on.", SourceMap: dag.SourceMap("artifact.go", 163, 2)}).
+							WithArg("annotations", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Annotations to set on the layer, as a JSON object whose values are\nstrings. Empty sets none. It is JSON rather than a map because codegen\nhas no map type.", SourceMap: dag.SourceMap("artifact.go", 169, 2)})).
+					WithFunction(
+						dag.Function("Referrers",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Referrers lists the artifacts attached to subject as a JSON array of OCI\ndescriptors, newest registry ordering preserved.\n\nIt returns JSON rather than a typed object for two reasons: codegen has no\nmap type, so annotations could not be modelled; and a module object\nreturned from a never-cached call detaches in Dagger v0.21, so lazily\nreading its fields fails.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("artifact.go", 395, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the subject.", SourceMap: dag.SourceMap("artifact.go", 398, 2)}).
+							WithArg("subject", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Digest of the manifest whose referrers are wanted.", SourceMap: dag.SourceMap("artifact.go", 400, 2)}).
+							WithArg("artifactType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Restrict the listing to one artifact type. Empty lists them all.", SourceMap: dag.SourceMap("artifact.go", 404, 2)})).
+					WithFunction(
+						dag.Function("Resolve",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Resolve returns the digest a tag currently points at.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("inspect.go", 92, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the tag.", SourceMap: dag.SourceMap("inspect.go", 95, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag to resolve.", SourceMap: dag.SourceMap("inspect.go", 97, 2)})).
+					WithFunction(
+						dag.Function("Tag",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Tag points tag at a manifest already in repository, named by its digest,\nand returns the digest it now resolves to.\n\nIt moves an existing tag as readily as it creates a new one — a tag is a\nmutable name, and a registry PUT of a manifest under a tag is the only\noperation either case has. What it will not do is invent the bytes: the\ndigest is read from the registry first, so tagging something that is not\nthere fails naming the digest instead of leaving a tag that resolves to\nnothing.\n\nNothing is re-uploaded. The manifest is fetched and PUT back under the new\nname, which is bytes the registry already holds; the blobs it names are\nuntouched.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("image.go", 209, 1)).
+							WithArg("repository", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Repository holding the manifest.", SourceMap: dag.SourceMap("image.go", 212, 2)}).
+							WithArg("digest", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Digest of the manifest to name, e.g. \"sha256:...\".", SourceMap: dag.SourceMap("image.go", 214, 2)}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Tag to point at it.", SourceMap: dag.SourceMap("image.go", 216, 2)})).
+					WithField("Host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Host is the registry host this handle was built for.", SourceMap: dag.SourceMap("main.go", 150, 2)}).
+					WithField("Username", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Username is the basic-auth user, empty for an anonymous client.", SourceMap: dag.SourceMap("main.go", 152, 2)}).
+					WithField("Insecure", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.TypeDefWithFieldOpts{Description: "Insecure reports whether this handle talks plain HTTP.", SourceMap: dag.SourceMap("main.go", 154, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

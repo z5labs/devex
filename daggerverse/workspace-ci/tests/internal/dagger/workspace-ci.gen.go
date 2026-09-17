@@ -10,39 +10,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type WorkspaceCi
-func (r *Binding) AsWorkspaceCi() *WorkspaceCi { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
-	q := r.query.Select("asWorkspaceCi")
-
-	return &WorkspaceCi{
-		query: q,
-	}
-}
-
-// Create or update a binding of type WorkspaceCi in the environment
-func (r *Env) WithWorkspaceCiInput(name string, value *WorkspaceCi, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withWorkspaceCiInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired WorkspaceCi output to be assigned in the environment
-func (r *Env) WithWorkspaceCiOutput(name string, description string) *Env { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:32:6)
-	q := r.query.Select("withWorkspaceCiOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // WorkspaceCiOpts contains options for Query.WorkspaceCi
 type WorkspaceCiOpts struct {
 	//
@@ -194,14 +161,9 @@ func (r *WorkspaceCi) WithGraphQLQuery(q *querybuilder.Selection) *WorkspaceCi {
 // WorkspaceCiAffectedModulesOpts contains options for WorkspaceCi.AffectedModules
 type WorkspaceCiAffectedModulesOpts struct {
 	//
-	// The repository to plan for. Defaults to the calling workspace.
+	// The repository to plan for, overriding the workspace's own root.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:317:2)
-	//
-	// The workspace to read repo from when repo is omitted. Defaults to the
-	// caller's.
-	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:322:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:330:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -210,7 +172,8 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:307:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:318:1)
+	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
 	}
@@ -220,13 +183,10 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 		if !querybuilder.IsZeroValue(opts[i].Repo) {
 			q = q.Arg("repo", opts[i].Repo)
 		}
-		// `workspace` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Workspace) {
-			q = q.Arg("workspace", opts[i].Workspace)
-		}
 	}
 	q = q.Arg("base", base)
 	q = q.Arg("head", head)
+	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	var response string
 
@@ -235,8 +195,8 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 }
 
 // Generated verifies that every committed dagger.gen.go and
-// internal/dagger/*.gen.go in the calling workspace matches what `dagger develop`
-// would produce at each module's pinned engineVersion.
+// internal/dagger/*.gen.go in the calling workspace matches what codegen
+// produces at each module's pinned engineVersion.
 //
 // Every module in the workspace is checked, including the root one and every
 // tests or examples module.
@@ -244,14 +204,17 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // This check is why generated files need not be global inputs to the memoization
 // hash: it proves they are derived from inputs that are, it belongs to the root
 // module so a plan always runs it, and it is never memoized. The result is
-// deliberately never cached either — the workspace is read at call time rather
-// than passed as an argument, so a cached pass would be a pass for a tree the
-// check never looked at.
-func (r *WorkspaceCi) Generated(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:44:1)
+// deliberately never cached either — the workspace handle the CLI fills in is a
+// live view of the tree rather than a snapshot argument the cache key can
+// describe, so a cached pass would be a pass for a tree the check never looked
+// at.
+func (r *WorkspaceCi) Generated(ctx context.Context, callingWorkspace *Workspace) error { // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:45:1)
+	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.generated != nil {
 		return nil
 	}
 	q := r.query.Select("generated")
+	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	return q.Execute(ctx)
 }
@@ -263,7 +226,7 @@ type WorkspaceCiGeneratedSelfTestOpts struct {
 	// dependency-free module in the workspace, which is the cheapest one to
 	// regenerate.
 	//
-	ProbeModule string // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:92:2)
+	ProbeModule string // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:107:2)
 }
 
 // GeneratedSelfTest pins that Generated can actually fail.
@@ -276,7 +239,8 @@ type WorkspaceCiGeneratedSelfTestOpts struct {
 // It runs the same codegen comparison against a single module, first pristine
 // (expecting no drift) and then with that module's committed bindings deliberately
 // made stale (expecting drift naming the file).
-func (r *WorkspaceCi) GeneratedSelfTest(ctx context.Context, opts ...WorkspaceCiGeneratedSelfTestOpts) error { // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:85:1)
+func (r *WorkspaceCi) GeneratedSelfTest(ctx context.Context, callingWorkspace *Workspace, opts ...WorkspaceCiGeneratedSelfTestOpts) error { // workspace-ci (../../../../../daggerverse/workspace-ci/generated.go:94:1)
+	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.generatedSelfTest != nil {
 		return nil
 	}
@@ -287,6 +251,7 @@ func (r *WorkspaceCi) GeneratedSelfTest(ctx context.Context, opts ...WorkspaceCi
 			q = q.Arg("probeModule", opts[i].ProbeModule)
 		}
 	}
+	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	return q.Execute(ctx)
 }
@@ -351,7 +316,7 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 // later run its full time and looks exactly like a workspace nobody has recorded
 // against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
 // runs in-process and needs no network, no credential and no services.
-func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:515:1)
+func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:523:1)
 	if r.memoStoreSelfTest != nil {
 		return nil
 	}
@@ -364,16 +329,13 @@ func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspac
 type WorkspaceCiPlanOpts struct {
 
 	// Default: JSON
-	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:238:2)
+	Format WorkspaceCiFormat // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:243:2)
 	//
-	// The repository to plan for. Defaults to the calling workspace.
+	// The repository to plan for, overriding the workspace's own root. It is the
+	// escape hatch for a caller whose .git is a file rather than a directory (a
+	// git worktree), which would otherwise degrade to running everything.
 	//
-	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:242:2)
-	//
-	// The workspace to read repo from when repo is omitted. Defaults to the
-	// caller's.
-	//
-	Workspace *Workspace // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:247:2)
+	Repo *Directory // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:258:2)
 	//
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
@@ -383,7 +345,7 @@ type WorkspaceCiPlanOpts struct {
 	//
 	//
 	// Default: "[]"
-	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:256:2)
+	KnownGood string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:267:2)
 	//
 	// The command a JENKINS branch runs to record its own pass, with
 	// `--hash=<that leg's hash>` appended — conventionally a `record-pass` call
@@ -403,14 +365,14 @@ type WorkspaceCiPlanOpts struct {
 	// as data for the surrounding job to record, so passing it with those is an
 	// error rather than a silent no-op.
 	//
-	RecordCommand string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:276:2)
+	RecordCommand string // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:287:2)
 	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:283:2)
+	Diagnostics bool // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:294:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
@@ -435,13 +397,19 @@ type WorkspaceCiPlanOpts struct {
 // fails safe towards running too much — an unusable diff range, an unreadable
 // source context, a module whose checks cannot be enumerated.
 //
-// repo defaults to the calling workspace and is where everything is read from:
-// module discovery is a dagger.json walk, source contexts and check enumeration
-// work off the exported tree, and the change set comes from its .git. Passing it
-// explicitly is also the escape hatch for a caller whose .git is a file rather
-// than a directory (a git worktree), which would otherwise degrade to running
-// everything.
-func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:229:1)
+// The repository read from is repo, or the workspace's own root when repo is
+// omitted. Everything comes out of it: module discovery is a dagger.json walk,
+// source contexts and check enumeration resolve against it, and the change set
+// comes from its .git.
+//
+// A Dagger CLI fills callingWorkspace in from the workspace the call was made
+// in, so a person types neither argument. A module calling this one must pass
+// one — an omitted workspace argument is an error rather than a default, because
+// the engine resolves that default to the current workspace and a module runtime
+// call has none — and Directory.asWorkspace is how a module with only a
+// directory makes one.
+func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:234:1)
+	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.plan != nil {
 		return *r.plan, nil
 	}
@@ -454,10 +422,6 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 		// `repo` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Repo) {
 			q = q.Arg("repo", opts[i].Repo)
-		}
-		// `workspace` optional argument
-		if !querybuilder.IsZeroValue(opts[i].Workspace) {
-			q = q.Arg("workspace", opts[i].Workspace)
 		}
 		// `knownGood` optional argument
 		if !querybuilder.IsZeroValue(opts[i].KnownGood) {
@@ -474,6 +438,7 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 	}
 	q = q.Arg("base", base)
 	q = q.Arg("head", head)
+	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	var response string
 
@@ -501,7 +466,7 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, opts .
 // thing: a call that named no ref, because with no ref there is no scope to judge
 // and refusing silently would be indistinguishable from a scope that was judged
 // and rejected.
-func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:360:1)
+func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:368:1)
 	if r.recordPass != nil {
 		return *r.recordPass, nil
 	}
@@ -522,7 +487,7 @@ func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, c
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:492:1)
+func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../../../daggerverse/workspace-ci/main.go:500:1)
 	if r.selectionSelfTest != nil {
 		return nil
 	}

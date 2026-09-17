@@ -398,6 +398,160 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the qemu daggerverse module. Each test is exposed as a standalone\ndagger function so it can be invoked individually during TDD; All wires them\nup for parallel execution under `dagger call all`. The four sub-aggregators\n(Validation, Firmware, Boot, Networking) each carry `+check` so CI schedules\nthem onto their own runners.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 19, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every qemu test as a convenience for local `dagger call all`\ninvocations. CI does NOT call All: each sub-aggregator below carries its own\n`+check` directive, so GH Actions schedules each onto its own runner in\nparallel — running All on top would double-bill the same work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 27, 1)).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 30, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BareMetal",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetal runs the bare-metal firmware + semihosting tests: boot a tiny\nfreestanding Cortex-M3 firmware (built reproducibly via the zig module) on\nthe MCU-class lm3s6965evb machine and assert that semihosting SYS_WRITE0\nreaches the serial console and SYS_EXIT surfaces as a guest exit code. These\nare fast TCG boots (the firmware writes a marker and exits immediately).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("baremetal.go", 21, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("baremetal.go", 24, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BareMetalBootsAndCapturesSerial",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetalBootsAndCapturesSerial verifies a semihosting firmware's SYS_WRITE0\nmarker reaches the serial console through RunStatus, Run, and WaitForLine.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("baremetal.go", 59, 1))).
+					WithFunction(
+						dag.Function("BareMetalExitCodeNonZeroOnFail",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetalExitCodeNonZeroOnFail verifies a firmware that calls SYS_EXIT with a\nnon-zero code yields the corresponding non-zero RunStatus().ExitCode.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("baremetal.go", 125, 1))).
+					WithFunction(
+						dag.Function("BareMetalExitCodeZeroOnPass",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetalExitCodeZeroOnPass verifies a firmware that calls SYS_EXIT(0) yields\nRunStatus().ExitCode == 0.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("baremetal.go", 99, 1))).
+					WithFunction(
+						dag.Function("BareMetalRejectsNilFirmware",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetalRejectsNilFirmware verifies a nil firmware is rejected. The Dagger\nSDK binding panics via assertNotNil before the call leaves the test module;\nrecover and assert the panic mentions the rejected argument.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("baremetal.go", 153, 1))).
+					WithFunction(
+						dag.Function("BareMetalRejectsUnknownArch",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BareMetalRejectsUnknownArch verifies BareMetal errors for an arch with no\nbare-metal (MCU) profile — e.g. a SoC arch like X86_64 that Linux/Disk\naccept but BareMetal does not.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("baremetal.go", 174, 1))).
+					WithFunction(
+						dag.Function("Boot",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Boot runs the real-kernel boot tests against the Alpine aarch64 netboot\nkernel (slow TCG boots).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 97, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 100, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("DefaultsBootArm64Kernel",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultsBootArm64Kernel verifies the documented defaults boot a working VM:\narch=AARCH64 with empty machine/cpu must resolve to virt + cortex-a53 and\nreach userspace.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 432, 1))).
+					WithFunction(
+						dag.Function("DiskRejectsNilImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DiskRejectsNilImage verifies a nil disk image is rejected (assertNotNil\npanic, as above).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 251, 1))).
+					WithFunction(
+						dag.Function("EndpointRejectsUnforwardedPort",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EndpointRejectsUnforwardedPort verifies Endpoint errors for a port that was\nnot in the machine's tcpPorts.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 271, 1))).
+					WithFunction(
+						dag.Function("EndpointReturnsForwardedHostPort",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EndpointReturnsForwardedHostPort verifies Endpoint returns host:port for a\nforwarded port.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 292, 1))).
+					WithFunction(
+						dag.Function("Firmware",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Firmware runs the run-to-completion serial-capture tests against a tiny\ncustom-init initramfs (fast under TCG).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 74, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 77, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("LinuxBootReachesUserspace",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LinuxBootReachesUserspace verifies a real Alpine aarch64 kernel hands off to\nPID 1 in userspace: the kernel logs the /init handoff and userspace then runs\na working `uname` syscall.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 459, 1))).
+					WithFunction(
+						dag.Function("LinuxRejectsNilKernel",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LinuxRejectsNilKernel verifies a nil kernel is rejected. The Dagger SDK\nbinding panics via assertNotNil before the call leaves the test module;\nrecover and assert the panic mentions the rejected argument.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 231, 1))).
+					WithFunction(
+						dag.Function("Networking",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Networking runs the service-bind end-to-end tests: boot a guest that brings up\nnetworking and serves a forwarded port, then prove reachability and teardown\nthrough WithServiceBinding. These are slow TCG boots plus real networking.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 119, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 122, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("RunCapturesFirmwareSerial",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunCapturesFirmwareSerial verifies Run boots the firmware to completion and\nreturns its serial console.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 340, 1))).
+					WithFunction(
+						dag.Function("RunShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunShouldNotBeCached verifies two Run calls on one Machine re-execute QEMU\nrather than cache-hitting: each boot emits fresh /dev/urandom bytes, so the\ntwo serial consoles must differ.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 401, 1))).
+					WithFunction(
+						dag.Function("SerialLogMaterializesFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SerialLogMaterializesFile verifies SerialLog stages the serial console as a\nreadable *dagger.File.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 381, 1))).
+					WithFunction(
+						dag.Function("ServiceForwardedPortReachable",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ServiceForwardedPortReachable boots a guest that brings up networking and\nlistens on a runtime-minted port, forwards it over slirp hostfwd, binds the\nmachine into a fresh consumer container, and asserts the port is reachable —\nproving hostfwd + slirp + WithServiceBinding wiring end-to-end.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 487, 1))).
+					WithFunction(
+						dag.Function("StopHaltsService",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StopHaltsService proves Stop'sbacking service (the postgres EndpointShouldNotBeCached lifecycle analog).\nThe guest serves a per-boot identity token. We pin the service up with an\nexplicit Start so it stays one instance across reads, read the token, Stop\nthe machine, then read again — the second read re-binds and, because Stop\nkilled the original VM, gets a *fresh* boot with a different token. A no-op\nStop would leave the pinned instance serving the same token, so an unchanged\ntoken fails the test. This is robust to fast TCG boots (it relies on the\nrestart, not on out-racing it); the per-read nonce keeps the two reads from\ncache-colliding.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 522, 1))).
+					WithFunction(
+						dag.Function("Validation",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Validation runs the pure input-rejection and accessor tests. None boot a\nguest, so they're fast and safe to fan out unbounded.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 51, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 54, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("WaitForLineMatchesFirmwareSerial",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WaitForLineMatchesFirmwareSerial verifies WaitForLine returns the console\nonce the marker line appears.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 362, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

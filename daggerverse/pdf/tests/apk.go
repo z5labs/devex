@@ -213,7 +213,7 @@ func mirrorBuild(ctx context.Context) (*dagger.Container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build the apk mirror: %w", err)
 	}
-	return dag.LoadContainerFromID(dagger.ContainerID(id)), nil
+	return dagger.Ref[*dagger.Container](dag, id), nil
 }
 
 // apply points the module at this mirror and at nothing else.

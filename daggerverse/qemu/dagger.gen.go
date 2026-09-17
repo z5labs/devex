@@ -862,6 +862,157 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Qemu provides Dagger functions for booting guest systems under QEMU —\nsoftware (TCG) emulation by default — so embedded firmware and homelab\nOS images can be exercised in a pipeline before being flashed to real\nhardware. One object model serves two audiences: microcontroller / SBC\nfirmware (boot a kernel + rootfs and watch the serial console) and full\nserver/SBC OS images (boot a disk image as a long-running service and\nreach it over forwarded ports).\n\nTCG is the default acceleration; KVM is selectable but requires an engine\nwith /dev/kvm (this module does not provide it). The base image is a\nmodule-pinned Alpine (`apk add qemu-system-<arch> qemu-img`); only a\n`registry` prefix is caller-overridable, for air-gapped mirrors.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - enums.go    — Arch / Accel / DiskFormat / DiskInterface enums plus the\n                  internal per-arch tables (qemu binary, apk package,\n                  default machine/cpu, net front-end) and token mappings.\n  - machine.go  — *Machine + Qemu.Linux / Qemu.Disk constructors, input\n                  validation, the QEMU argv builder, and per-arch defaults.\n  - drive.go    — the two *Machine drive modes: service-bind (Host /\n                  Endpoint / Service / Bind / Stop) and run-to-completion\n                  (Run / WaitForLine / SerialLog), plus the workdir stager.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Qemu", dagger.TypeDefWithObjectOpts{Description: "Qemu is the root namespace for every exported function in this module.\nThe machine constructors hang off *Qemu so the generated Dagger SDK\nsurfaces them under `dag.Qemu().<Func>(...)`.", SourceMap: dag.SourceMap("main.go", 29, 6)}).
+					WithFunction(
+						dag.Function("BareMetal",
+							dag.TypeDef().WithObject("Machine")).
+							WithDescription("BareMetal boots a bare-metal microcontroller firmware directly — no Linux\nkernel, initrd, rootfs, or device tree — on an MCU-class machine, with\nARM/RISC-V semihosting enabled. This is the off-device unit-test path for\nembedded firmware: a test build can write to the host console (semihosting\nSYS_WRITE0) and report pass/fail as a process exit code (semihosting\nSYS_EXIT) via Machine.RunStatus — neither of which the kernel-oriented Linux\npath can surface (it captures serial text only).\n\n`arch` selects the qemu-system-<arch> binary and an MCU-class machine\ndefault distinct from the SoC defaults Linux/Disk use (ARM => lm3s6965evb +\ncortex-m3, RISC-V => virt); an explicit `machine` / `cpu` overrides it.\nAcceleration is always TCG — MCU targets have no KVM analog. Semihosting is\non by default (`-semihosting-config enable=on,target=native` lets the guest's\nsemihosting calls reach the host so SYS_EXIT maps to the QEMU process exit\ncode); pass `disableSemihosting` for firmware that drives a real UART instead\nand wants neither the host console route nor SYS_EXIT wiring. The option is\ninverted so the Go SDK can actually turn semihosting off — a `bool can't be set false through the generated bindings (false is the zero\nvalue and is dropped). Rejects a nil firmware and an arch with no bare-metal\nprofile.\n\nSession-cached on `name` like Linux/Disk; every *Machine method is\nnever-cached so each Run / RunStatus re-executes.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("machine.go", 202, 1)).
+							WithArg("firmware", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 204, 2)}).
+							WithArg("arch", dag.TypeDef().WithEnum("Arch"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 206, 2), DefaultValue: dagger.JSON("\"Arm\"")}).
+							WithArg("machine", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 208, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("cpu", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 210, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("memoryMb", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 212, 2), DefaultValue: dagger.JSON("16")}).
+							WithArg("disableSemihosting", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 214, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("cmdline", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 216, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 218, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 220, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Disk",
+							dag.TypeDef().WithObject("Machine")).
+							WithDescription("Disk boots a guest from a bootable disk image as a long-running machine —\nthe full-OS path. `format` / `iface` map to `-drive format=`/`if=`; an\noptional `bios` supplies firmware. Empty `machine` / `cpu` resolve to the\nper-arch default. Rejects a nil image and an unknown arch.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("machine.go", 127, 1)).
+							WithArg("image", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 129, 2)}).
+							WithArg("arch", dag.TypeDef().WithEnum("Arch"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 131, 2), DefaultValue: dagger.JSON("\"Aarch64\"")}).
+							WithArg("machine", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 133, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("cpu", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 135, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("memoryMb", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 137, 2), DefaultValue: dagger.JSON("1024")}).
+							WithArg("accel", dag.TypeDef().WithEnum("Accel"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 139, 2), DefaultValue: dagger.JSON("\"Tcg\"")}).
+							WithArg("format", dag.TypeDef().WithEnum("DiskFormat"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 141, 2), DefaultValue: dagger.JSON("\"Raw\"")}).
+							WithArg("iface", dag.TypeDef().WithEnum("DiskInterface"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 143, 2), DefaultValue: dagger.JSON("\"Virtio\"")}).
+							WithArg("bios", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 145, 2)}).
+							WithArg("cmdline", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 147, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("tcpPorts", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 149, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 151, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 153, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Linux",
+							dag.TypeDef().WithObject("Machine")).
+							WithDescription("Linux boots a guest from a raw kernel (plus optional dtb / initrd / rootfs)\n— the firmware / SBC path. `arch` selects the qemu-system-<arch> binary;\nempty `machine` / `cpu` resolve to the per-arch default (AARCH64 => virt +\ncortex-a53). Each `tcpPorts` entry is forwarded `hostfwd=tcp::P-:P` and\nexposed at the same number. Rejects a nil kernel and an unknown arch.\n\nSession-cached on `name` so parallel callers get independent backing\nservices; every *Machine method is never-cached so each Run / Service\nre-executes. Pass a unique `name` per parallel test for isolation.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("machine.go", 60, 1)).
+							WithArg("kernel", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 62, 2)}).
+							WithArg("dtb", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 64, 2)}).
+							WithArg("initrd", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 66, 2)}).
+							WithArg("rootfs", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 68, 2)}).
+							WithArg("arch", dag.TypeDef().WithEnum("Arch"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 70, 2), DefaultValue: dagger.JSON("\"Aarch64\"")}).
+							WithArg("machine", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 72, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("cpu", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 74, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("memoryMb", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 76, 2), DefaultValue: dagger.JSON("512")}).
+							WithArg("accel", dag.TypeDef().WithEnum("Accel"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 78, 2), DefaultValue: dagger.JSON("\"Tcg\"")}).
+							WithArg("cmdline", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 80, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("tcpPorts", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 82, 2)}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 84, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("machine.go", 86, 2), DefaultValue: dagger.JSON("\"\"")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Machine", dagger.TypeDefWithObjectOpts{Description: "Machine is a configured-but-not-necessarily-running QEMU guest. It carries\nboth drive modes: a long-running *dagger.Service (mode A, for OS images\nreached over forwarded ports) and a finite run argv replayed per call (mode\nB, for firmware that prints to serial and powers off). See drive.go.", SourceMap: dag.SourceMap("machine.go", 36, 6)}).
+					WithFunction(
+						dag.Function("Bind",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Bind attaches the guest service to ctr under the machine's hostname so ctr\ncan dial the forwarded ports at `Host()`.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 51, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 51, 24)})).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns `host:port` for a forwarded TCP port, erroring if the port\nwas not in the machine's `tcpPorts`.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 30, 1)).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 30, 28)})).
+					WithFunction(
+						dag.Function("Host",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Host returns the per-machine hostname the backing service is reachable at.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 22, 1))).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Run boots the guest to completion (`-no-reboot`) and returns the captured\nserial console. A guest that powers off exits before `timeoutSeconds`; one\nthat doesn't is killed at the deadline and whatever serial it produced is\nreturned.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 77, 1)).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 80, 2), DefaultValue: dagger.JSON("300")})).
+					WithFunction(
+						dag.Function("RunStatus",
+							dag.TypeDef().WithObject("RunResult")).
+							WithDescription("RunStatus boots the guest to completion like Run, but returns both the\ncaptured serial console and the guest exit code in a single boot — the\nbare-metal counterpart to Run, where the semihosting SYS_EXIT code carries\npass/fail that serial text alone can't. Run / WaitForLine / SerialLog are\nunchanged and still return serial only.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 141, 1)).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 144, 2), DefaultValue: dagger.JSON("300")})).
+					WithFunction(
+						dag.Function("SerialLog",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("SerialLog runs the guest and materializes the captured serial console as a\n*dagger.File via the module workdir — no helper container.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 109, 1)).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 112, 2), DefaultValue: dagger.JSON("300")})).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the long-running guest as a *dagger.Service. Consumers can\nbind it (see Bind) and reach forwarded ports at Endpoint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 43, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down the backing service. Tests should defer this so the service\nspan closes when the test returns. SIGKILL skips graceful shutdown.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 59, 1))).
+					WithFunction(
+						dag.Function("WaitForLine",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("WaitForLine runs the guest and returns the serial console only if it\ncontains substr, erroring otherwise.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("drive.go", 89, 1)).
+							WithArg("substr", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 91, 2)}).
+							WithArg("timeoutSeconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("drive.go", 93, 2), DefaultValue: dagger.JSON("300")}))).
+			WithEnum(
+				dag.TypeDef().WithEnum("Arch", dagger.TypeDefWithEnumOpts{Description: "Arch is the guest CPU architecture QEMU emulates. The enum value (e.g.\n\"AARCH64\") maps to QEMU's lowercase token internally (`qemu-system-aarch64`);\ninvalid architectures are unrepresentable through the SDK.\n\nNote on rendered names: the Dagger Go SDK derives each GraphQL enum member\nfrom the *constant identifier* in SCREAMING_SNAKE_CASE and inserts an\nunderscore at every letter↔digit boundary, so these surface as `AARCH_64`,\n`RISCV_64`, `X_86_64`, etc. The underscores are unavoidable SDK behavior; the\ninternal Value() (the string literal below) is what drives the qemu mapping.", SourceMap: dag.SourceMap("enums.go", 14, 6)}).
+					WithEnumMember("Aarch64", dagger.TypeDefWithEnumMemberOpts{Value: "AARCH64", SourceMap: dag.SourceMap("enums.go", 19, 2)}).
+					WithEnumMember("Arm", dagger.TypeDefWithEnumMemberOpts{Value: "ARM", SourceMap: dag.SourceMap("enums.go", 20, 2)}).
+					WithEnumMember("I386", dagger.TypeDefWithEnumMemberOpts{Value: "I386", SourceMap: dag.SourceMap("enums.go", 18, 2)}).
+					WithEnumMember("Mips", dagger.TypeDefWithEnumMemberOpts{Value: "MIPS", SourceMap: dag.SourceMap("enums.go", 23, 2)}).
+					WithEnumMember("Mipsel", dagger.TypeDefWithEnumMemberOpts{Value: "MIPSEL", SourceMap: dag.SourceMap("enums.go", 24, 2)}).
+					WithEnumMember("Ppc", dagger.TypeDefWithEnumMemberOpts{Value: "PPC", SourceMap: dag.SourceMap("enums.go", 25, 2)}).
+					WithEnumMember("Ppc64", dagger.TypeDefWithEnumMemberOpts{Value: "PPC64", SourceMap: dag.SourceMap("enums.go", 26, 2)}).
+					WithEnumMember("Riscv32", dagger.TypeDefWithEnumMemberOpts{Value: "RISCV32", SourceMap: dag.SourceMap("enums.go", 22, 2)}).
+					WithEnumMember("Riscv64", dagger.TypeDefWithEnumMemberOpts{Value: "RISCV64", SourceMap: dag.SourceMap("enums.go", 21, 2)}).
+					WithEnumMember("X86_64", dagger.TypeDefWithEnumMemberOpts{Value: "X86_64", SourceMap: dag.SourceMap("enums.go", 17, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("Accel", dagger.TypeDefWithEnumOpts{Description: "Accel is the QEMU acceleration mode. TCG is pure-software emulation and\nneeds no host support; KVM requires an engine exposing /dev/kvm, which\nthis module does not provision.", SourceMap: dag.SourceMap("enums.go", 32, 6)}).
+					WithEnumMember("Kvm", dagger.TypeDefWithEnumMemberOpts{Value: "KVM", SourceMap: dag.SourceMap("enums.go", 36, 2)}).
+					WithEnumMember("Tcg", dagger.TypeDefWithEnumMemberOpts{Value: "TCG", SourceMap: dag.SourceMap("enums.go", 35, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("DiskFormat", dagger.TypeDefWithEnumOpts{Description: "DiskFormat is the on-disk image format passed to `-drive format=`.", SourceMap: dag.SourceMap("enums.go", 40, 6)}).
+					WithEnumMember("Qcow2", dagger.TypeDefWithEnumMemberOpts{Value: "QCOW2", SourceMap: dag.SourceMap("enums.go", 44, 2)}).
+					WithEnumMember("Raw", dagger.TypeDefWithEnumMemberOpts{Value: "RAW", SourceMap: dag.SourceMap("enums.go", 43, 2)})).
+			WithEnum(
+				dag.TypeDef().WithEnum("DiskInterface", dagger.TypeDefWithEnumOpts{Description: "DiskInterface is the guest-visible disk bus passed to `-drive if=`.", SourceMap: dag.SourceMap("enums.go", 48, 6)}).
+					WithEnumMember("Ide", dagger.TypeDefWithEnumMemberOpts{Value: "IDE", SourceMap: dag.SourceMap("enums.go", 52, 2)}).
+					WithEnumMember("Nvme", dagger.TypeDefWithEnumMemberOpts{Value: "NVME", SourceMap: dag.SourceMap("enums.go", 54, 2)}).
+					WithEnumMember("Sd", dagger.TypeDefWithEnumMemberOpts{Value: "SD", SourceMap: dag.SourceMap("enums.go", 53, 2)}).
+					WithEnumMember("Virtio", dagger.TypeDefWithEnumMemberOpts{Value: "VIRTIO", SourceMap: dag.SourceMap("enums.go", 51, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("RunResult", dagger.TypeDefWithObjectOpts{Description: "RunResult pairs the serial console output of a finite boot with the guest's\nexit code. On the bare-metal path the exit code is the semihosting SYS_EXIT\nvalue (0 = success); see Machine.RunStatus.", SourceMap: dag.SourceMap("drive.go", 124, 6)}).
+					WithField("Output", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{Description: "Output is the captured serial console output.", SourceMap: dag.SourceMap("drive.go", 126, 2)}).
+					WithField("ExitCode", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{Description: "ExitCode is the guest exit code (semihosting SYS_EXIT; 0 = success). A\nguest that doesn't power off before the deadline is killed and yields the\ntimeout code (124) — see runSerialStatus for why it isn't the raw SIGKILL\ncode (137).", SourceMap: dag.SourceMap("drive.go", 131, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

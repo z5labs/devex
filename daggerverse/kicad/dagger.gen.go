@@ -1552,6 +1552,460 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the kicad Dagger module: a wrapper around\n`kicad-cli` from the official kicad/kicad image, so a hardware project's\ndesign-rule checks and fabrication outputs become `dagger call`s instead of\nthe usual pile of shell scripts and Makefile recipes.\n\nEverything kicad-cli does is headless — no Xvfb, no display, including\nrenders — so the image runs unmodified. It runs as `USER kicad` (UID 1000)\nwith no entrypoint, which is why every output is written under /tmp rather\nthan into the mounted (root-owned) project.\n\nThe boundary input is a *dagger.Directory, not a lone *dagger.File:\nkicad-cli resolves sub-sheets, footprint libraries and drawing sheets\nrelative to the project. Project hoists the options that apply to nearly\nevery subcommand (--define-var, --variant, --drawing-sheet) into chained\nmodifiers rather than repeating them across a dozen signatures.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Kicad", dagger.TypeDefWithObjectOpts{Description: "Kicad wraps kicad-cli as Dagger functions. Construct via New(); call\nContainer() for the raw image, or Project(source) to reach the typed\npcb/sch helpers.", SourceMap: dag.SourceMap("main.go", 69, 6)}).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("Ci returns a new pipeline builder bound to the supplied project source. The\nboard and schematic are auto-discovered per stage, exactly as a bare\nProject(source).Pcb()/Sch() call would.").
+							WithSourceMap(dag.SourceMap("ci.go", 55, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 55, 20)})).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the bare kicad image. This is the escape hatch for every\nsubcommand this module does not wrap — kicad-cli's long tail of exotic and\nlegacy exports stays reachable via `container with-exec`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 108, 1))).
+					WithFunction(
+						dag.Function("Fp",
+							dag.TypeDef().WithObject("Fp")).
+							WithDescription("Fp binds a footprint library directory (a .pretty folder, or any directory\nof .kicad_mod files) to the toolchain for the `fp` command family.").
+							WithSourceMap(dag.SourceMap("library.go", 45, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("library.go", 45, 20)})).
+					WithFunction(
+						dag.Function("Project",
+							dag.TypeDef().WithObject("Project")).
+							WithDescription("Project binds a KiCad project directory to the toolchain. source is the\nwhole project tree, not a single file, because kicad-cli resolves\nsub-sheets, footprint libraries and drawing sheets relative to it.").
+							WithSourceMap(dag.SourceMap("main.go", 129, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 129, 25)})).
+					WithFunction(
+						dag.Function("Sym",
+							dag.TypeDef().WithObject("Sym")).
+							WithDescription("Sym binds a symbol library file (.kicad_sym) to the toolchain for the `sym`\ncommand family. It takes a lone *File, not a directory, because a symbol\nlibrary is a single self-contained file — the footprint library's on-disk\ncounterpart is a directory, which is why Fp takes a *Directory instead.").
+							WithSourceMap(dag.SourceMap("library.go", 109, 1)).
+							WithArg("source", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("library.go", 109, 21)})).
+					WithFunction(
+						dag.Function("Version",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Version returns the KiCad release the pinned image ships, as reported by\n`kicad-cli version`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 116, 1))).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Kicad")).
+							WithDescription("New returns a Kicad module backed by <registry>/kicad/kicad:<tag>.").
+							WithSourceMap(dag.SourceMap("main.go", 79, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the kicad/kicad image.", SourceMap: dag.SourceMap("main.go", 82, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for kicad/kicad.", SourceMap: dag.SourceMap("main.go", 85, 2), DefaultValue: dagger.JSON("\"10.0\"")}).
+							WithArg("full", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Select the -full image variant, which bundles the 3D component-model\nlibraries the slim image omits. The suffix is appended to tag, so\nfull=true with the default 10.0 tag resolves 10.0-full. Required for any\n3D export that includes component models (Step without boardOnly, Glb,\nStl, ...); ~1.34GB against the slim image's ~770MB.", SourceMap: dag.SourceMap("main.go", 92, 2), DefaultValue: dagger.JSON("false")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci is a chained builder for a standardized KiCad CI pipeline. Construct via\nKicad.Ci(source); enable check stages and output sets via the With* methods;\ncall Run to execute checks-then-outputs, or Check to run only the parallel\nchecks.\n\nStage 1 runs the enabled design-rule checks in parallel (Erc, Drc); errors\nare aggregated. Stage 2 produces the enabled outputs as a single directory\nand Run returns it. Downstream consumers compose that directory into their\nown pipelines (archive, upload to a fab house, attach to a release, ...).\n\nIt composes the Project/Pcb/Sch primitives without adding capability of its\nown: every stage is a call the caller could make by hand, bundled into one\ndeclarative pipeline so a hardware repo's CI is a single `dagger call`.", SourceMap: dag.SourceMap("ci.go", 37, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the enabled check stages (Erc, Drc) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of the outputs (for\nexample a PR gate that never needs the fabrication package).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 92, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (outputs). Returns the\nenabled outputs merged into one directory. On stage-1 failure, returns the\naggregated error from Check and a nil directory (stage 2 is skipped), so a\nfailing check short-circuits before any export work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("ci.go", 112, 1)).
+							WithCheck()).
+					WithFunction(
+						dag.Function("WithDrc",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithDrc enables the Design Rule Check stage (Pcb.Drc at severity error).\nPass schematicParity to also check the board against the schematic\n(footprints, nets, values) — a class of defect plain DRC never looks for.").
+							WithSourceMap(dag.SourceMap("ci.go", 68, 1)).
+							WithArg("schematicParity", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 70, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("WithErc",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithErc enables the Electrical Rule Check stage (Sch.Erc at severity error).").
+							WithSourceMap(dag.SourceMap("ci.go", 60, 1))).
+					WithFunction(
+						dag.Function("WithFabricationOutputs",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithFabricationOutputs enables the fabrication package: Gerbers, drill files,\nthe pick-and-place position file and the BOM. Run merges them into one\ndirectory (gerbers/ and drill/ subdirectories, pos.pos and bom.csv at root).").
+							WithSourceMap(dag.SourceMap("ci.go", 80, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Fp", dagger.TypeDefWithObjectOpts{Description: "Fp is a footprint library (a .pretty directory of .kicad_mod files) bound to\nthe toolchain.", SourceMap: dag.SourceMap("library.go", 36, 6)}).
+					WithFunction(
+						dag.Function("Svg",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Svg exports the footprint library to SVG, one file per footprint, and\nreturns the directory. Pass footprint to export a single footprint by name\ninstead of the whole library.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("library.go", 54, 1)).
+							WithArg("footprint", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Export only this footprint from the library; empty exports all.", SourceMap: dag.SourceMap("library.go", 58, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Upgrade",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Upgrade resaves the footprint library in the current KiCad format and returns\nthe upgraded .pretty directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("library.go", 78, 1)).
+							WithArg("force", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Resave even when the library is already at the latest format version.", SourceMap: dag.SourceMap("library.go", 82, 2), DefaultValue: dagger.JSON("false")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Project", dagger.TypeDefWithObjectOpts{Description: "Project is a KiCad project tree plus the options that apply to nearly every\nkicad-cli subcommand. It is immutable: every With* returns a copy.", SourceMap: dag.SourceMap("main.go", 156, 6)}).
+					WithFunction(
+						dag.Function("Jobset",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Jobset runs a .kicad_jobset file and returns the project directory with\neverything the jobset produced, so a project that already declares its\noutput set in-repo can generate the whole fabrication package in one call.\n\nThe jobset's outputs are written relative to the project, which is why the\nwhole tree comes back rather than a lone output folder: the jobset — not\nthis module — decides where its artifacts land.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 241, 1)).
+							WithArg("path", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 241, 47)})).
+					WithFunction(
+						dag.Function("Pcb",
+							dag.TypeDef().WithObject("Pcb")).
+							WithDescription("Pcb selects a board within the project. An empty path auto-discovers the\nsingle *.kicad_pcb in the tree and errors when there are zero or more than\none; discovery is deferred to the exec so the error surfaces on the call\nthat needed the board.").
+							WithSourceMap(dag.SourceMap("main.go", 213, 1)).
+							WithArg("path", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Project-relative path to the .kicad_pcb; empty auto-discovers.", SourceMap: dag.SourceMap("main.go", 216, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Sch",
+							dag.TypeDef().WithObject("Sch")).
+							WithDescription("Sch selects a schematic within the project. An empty path auto-discovers\nthe single *.kicad_sch in the tree, ignoring the sub-sheets of a\nhierarchical design, and errors when there are zero or more than one root.").
+							WithSourceMap(dag.SourceMap("main.go", 224, 1)).
+							WithArg("path", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Project-relative path to the .kicad_sch; empty auto-discovers.", SourceMap: dag.SourceMap("main.go", 227, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("WithDrawingSheet",
+							dag.TypeDef().WithObject("Project")).
+							WithDescription("WithDrawingSheet overrides the project's drawing sheet with the supplied\n.kicad_wks file (`--drawing-sheet`). It applies to the plotting exports;\nsubcommands that do not accept the flag ignore it.").
+							WithSourceMap(dag.SourceMap("main.go", 203, 1)).
+							WithArg("sheet", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 203, 36)})).
+					WithFunction(
+						dag.Function("WithVar",
+							dag.TypeDef().WithObject("Project")).
+							WithDescription("WithVar sets a KiCad text variable, overriding or adding to the ones the\nproject file declares (kicad-cli's `--define-var name=value`).\n\nIt takes a name and a value rather than a map because Dagger functions\ncannot accept map parameters. Validation is deferred to the exec: builder\nmethods have no error return, so a bad name surfaces when the export or\ncheck that would have used it runs.").
+							WithSourceMap(dag.SourceMap("main.go", 178, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 178, 27)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 178, 40)})).
+					WithFunction(
+						dag.Function("WithVariant",
+							dag.TypeDef().WithObject("Project")).
+							WithDescription("WithVariant selects a KiCad assembly variant (`--variant`). It applies to\nthe exports that support variants; checks (drc, erc) and drill files ignore\nit because kicad-cli does not accept the flag there.\n\nThe name is validated against the variants the project file declares:\nkicad-cli silently falls back to the default variant when handed an unknown\nname, so an unrecognised variant would otherwise produce a wrong export with\nno signal. Like WithVar, the check is deferred to the exec that uses it,\nbecause a builder method has no error return.").
+							WithSourceMap(dag.SourceMap("main.go", 194, 1)).
+							WithArg("variant", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 194, 31)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Sym", dagger.TypeDefWithObjectOpts{Description: "Sym is a symbol library (a .kicad_sym file) bound to the toolchain.", SourceMap: dag.SourceMap("library.go", 98, 6)}).
+					WithFunction(
+						dag.Function("Svg",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Svg exports the symbol library to SVG, one file per symbol unit, and returns\nthe directory. Pass symbol to export a single symbol by name instead of the\nwhole library.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("library.go", 118, 1)).
+							WithArg("symbol", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Export only this symbol from the library; empty exports all.", SourceMap: dag.SourceMap("library.go", 122, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Upgrade",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Upgrade resaves the symbol library in the current KiCad format and returns\nthe upgraded .kicad_sym file.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("library.go", 142, 1)).
+							WithArg("force", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Resave even when the library is already at the latest format version.", SourceMap: dag.SourceMap("library.go", 146, 2), DefaultValue: dagger.JSON("false")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Pcb", dagger.TypeDefWithObjectOpts{Description: "Pcb is a board selected within a Project. Every method here execs\nkicad-cli, so each carries a session cache directive; selecting the board\nitself is pure config and carries none.", SourceMap: dag.SourceMap("pcb.go", 14, 6)}).
+					WithFunction(
+						dag.Function("Brep",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Brep exports the board as an OpenCASCADE BREP model.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 105, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 108, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 110, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 112, 2), DefaultValue: dagger.JSON("\"board.brep\"")})).
+					WithFunction(
+						dag.Function("Drc",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Drc runs the Design Rule Check and returns a non-nil error listing the\nviolations when the board fails, nil when it is clean.\n\nIt returns a bare error rather than (report, error) because Dagger drops a\nfunction's value whenever it also returns a non-nil error: a\nreport-returning signature would leave the violation list unreachable on\nexactly the failure path that needs it. `--exit-code-violations` exits 5 on\nviolations, which Expect=ReturnTypeAny keeps on the value path so the\nreport can be read back and folded into the message.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 32, 1)).
+							WithArg("severity", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Violation levels to report: all, error, warning or exclusions.", SourceMap: dag.SourceMap("pcb.go", 36, 2), DefaultValue: dagger.JSON("\"error\"")}).
+							WithArg("schematicParity", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Also check the board against the schematic (footprints, nets, values).", SourceMap: dag.SourceMap("pcb.go", 39, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("refillZones", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Refill copper zones before checking.", SourceMap: dag.SourceMap("pcb.go", 42, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Drill",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Drill generates the board's drill files and returns them as a directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 106, 1)).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Drill file format: excellon or gerber.", SourceMap: dag.SourceMap("pcb.go", 110, 2), DefaultValue: dagger.JSON("\"excellon\"")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Excellon output units: mm or in.", SourceMap: dag.SourceMap("pcb.go", 113, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("origin", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Drill origin: absolute or plot.", SourceMap: dag.SourceMap("pcb.go", 116, 2), DefaultValue: dagger.JSON("\"absolute\"")}).
+							WithArg("separatePlatedHoles", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Emit independent files for plated and non-plated holes.", SourceMap: dag.SourceMap("pcb.go", 119, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("generateMap", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Also emit a drill map.", SourceMap: dag.SourceMap("pcb.go", 122, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Dxf",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Dxf plots the given layers into a single DXF drawing (`--mode-single`).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 20, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, e.g. F.Cu, Edge.Cuts.", SourceMap: dag.SourceMap("pcb_util.go", 23, 2)}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Output units: mm or in.", SourceMap: dag.SourceMap("pcb_util.go", 26, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 28, 2), DefaultValue: dagger.JSON("\"board.dxf\"")})).
+					WithFunction(
+						dag.Function("Gencad",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Gencad exports the board in GenCAD format — a legacy interchange format still\nused by some test-fixture and assembly houses.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 126, 1)).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 129, 2), DefaultValue: dagger.JSON("\"board.cad\"")})).
+					WithFunction(
+						dag.Function("Gerbers",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Gerbers plots the board's Gerber files and returns them as a directory. An\nempty layers list plots every layer the board defines, plus the .gbrjob\nfile that ties them together.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 68, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, e.g. F.Cu, B.Cu. Empty plots all.", SourceMap: dag.SourceMap("pcb.go", 72, 2)}).
+							WithArg("precision", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Gerber coordinate precision: 5 or 6.", SourceMap: dag.SourceMap("pcb.go", 75, 2), DefaultValue: dagger.JSON("6")}).
+							WithArg("checkZones", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Check and refill zones before plotting.", SourceMap: dag.SourceMap("pcb.go", 78, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Glb",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Glb exports the board as a binary glTF (GLB) model. Like every 3D export it\nneeds the -full image for component models; pass boardOnly for board\ngeometry alone on the slim image.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 73, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Export the bare board, with no component models.", SourceMap: dag.SourceMap("pcb_3d.go", 77, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Exclude models for components flagged Do Not Populate.", SourceMap: dag.SourceMap("pcb_3d.go", 80, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 82, 2), DefaultValue: dagger.JSON("\"board.glb\"")})).
+					WithFunction(
+						dag.Function("Import",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Import converts a non-KiCad board file into KiCad format and returns the\nproduced .kicad_pcb. inputPath names the foreign file within the project\nsource; unlike the export commands it is not auto-discovered, since it is not\na .kicad_pcb and the board selected by Pcb() is irrelevant here.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 265, 1)).
+							WithArg("inputPath", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Project-relative path to the non-KiCad board file to convert.", SourceMap: dag.SourceMap("pcb_util.go", 268, 2)}).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Input format hint: auto, pads, altium, eagle, cadstar, fabmaster, pcad\nor solidworks.", SourceMap: dag.SourceMap("pcb_util.go", 272, 2), DefaultValue: dagger.JSON("\"auto\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 274, 2), DefaultValue: dagger.JSON("\"imported.kicad_pcb\"")})).
+					WithFunction(
+						dag.Function("Ipc2581",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Ipc2581 exports the board in IPC-2581 format — a single XML file carrying\nthe fabrication and assembly data that would otherwise be spread across\nGerbers, drill files and a BOM.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 234, 1)).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "IPC-2581 standard revision: B or C.", SourceMap: dag.SourceMap("pcb.go", 238, 2), DefaultValue: dagger.JSON("\"C\"")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Units: mm or in.", SourceMap: dag.SourceMap("pcb.go", 241, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb.go", 243, 2), DefaultValue: dagger.JSON("\"board.xml\"")})).
+					WithFunction(
+						dag.Function("Ipcd356",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Ipcd356 generates an IPC-D-356 netlist file, the bare-board electrical test\nformat a fab house uses to flying-probe an unpopulated board.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 152, 1)).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 155, 2), DefaultValue: dagger.JSON("\"board.d356\"")})).
+					WithFunction(
+						dag.Function("Odb",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Odb exports the board in ODB++ format as a single compressed archive — the\nfabrication data package many modern fab houses prefer over Gerbers.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 177, 1)).
+							WithArg("compression", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Archive compression: zip, tgz or none. none writes an uncompressed\ndirectory tree rather than a single file.", SourceMap: dag.SourceMap("pcb_util.go", 182, 2), DefaultValue: dagger.JSON("\"zip\"")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Units: mm or in.", SourceMap: dag.SourceMap("pcb_util.go", 185, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 187, 2), DefaultValue: dagger.JSON("\"odb.zip\"")})).
+					WithFunction(
+						dag.Function("Pdf",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pdf plots the given layers into a single PDF.\n\nPdf and PdfPerLayer are split into file- and directory-returning functions\nrather than one function taking a mode flag: a Dagger function has exactly\none return type, so modelling `--mode-single` vs `--mode-separate` as a\nparameter would force *Directory onto the common single-file case.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 277, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, e.g. F.Cu, Edge.Cuts.", SourceMap: dag.SourceMap("pcb.go", 280, 2)}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb.go", 282, 2), DefaultValue: dagger.JSON("\"board.pdf\"")})).
+					WithFunction(
+						dag.Function("Pdf3d",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pdf3d exports the board as a 3D PDF (a PDF carrying an embedded U3D model).\nExposed as `pdf-3d` on the CLI.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 181, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 184, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 186, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 188, 2), DefaultValue: dagger.JSON("\"board-3d.pdf\"")})).
+					WithFunction(
+						dag.Function("PdfPerLayer",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("PdfPerLayer plots each layer into its own PDF and returns the directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 308, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, one PDF each.", SourceMap: dag.SourceMap("pcb.go", 311, 2)})).
+					WithFunction(
+						dag.Function("Ply",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Ply exports the board as a PLY mesh.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 120, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 123, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 125, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 127, 2), DefaultValue: dagger.JSON("\"board.ply\"")})).
+					WithFunction(
+						dag.Function("Pos",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pos generates the component position (pick-and-place) file.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 159, 1)).
+							WithArg("side", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Board side to include: front, back or both.", SourceMap: dag.SourceMap("pcb.go", 163, 2), DefaultValue: dagger.JSON("\"both\"")}).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Output format: ascii, csv or gerber.", SourceMap: dag.SourceMap("pcb.go", 166, 2), DefaultValue: dagger.JSON("\"ascii\"")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Output units for the ascii and csv formats: in or mm.", SourceMap: dag.SourceMap("pcb.go", 169, 2), DefaultValue: dagger.JSON("\"in\"")}).
+							WithArg("smdOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Include only SMD footprints.", SourceMap: dag.SourceMap("pcb.go", 172, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Name of the produced file. Named outputName, not output, because -o\ncollides with the Dagger CLI's own top-level flag.", SourceMap: dag.SourceMap("pcb.go", 176, 2), DefaultValue: dagger.JSON("\"pos.pos\"")})).
+					WithFunction(
+						dag.Function("Ps",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Ps plots the given layers into a single PostScript file (`--mode-single`).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 57, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, e.g. F.Cu, Edge.Cuts.", SourceMap: dag.SourceMap("pcb_util.go", 60, 2)}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 62, 2), DefaultValue: dagger.JSON("\"board.ps\"")})).
+					WithFunction(
+						dag.Function("Render",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Render ray-traces the board's 3D view to a PNG or JPEG image; the output\nformat follows the outputName extension. Like the 3D model exports it is\nonly meaningful with component models, so it wants the -full image — but\nunlike them it degrades to a bare-board render on the slim image rather than\nfailing, because a board-only render is still a useful artifact.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 217, 1)).
+							WithArg("side", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Camera side: top, bottom, left, right, front or back.", SourceMap: dag.SourceMap("pcb_util.go", 221, 2), DefaultValue: dagger.JSON("\"top\"")}).
+							WithArg("quality", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Render quality: basic, high, user or job_settings.", SourceMap: dag.SourceMap("pcb_util.go", 224, 2), DefaultValue: dagger.JSON("\"basic\"")}).
+							WithArg("width", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Image width in pixels.", SourceMap: dag.SourceMap("pcb_util.go", 227, 2), DefaultValue: dagger.JSON("1600")}).
+							WithArg("height", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Image height in pixels.", SourceMap: dag.SourceMap("pcb_util.go", 230, 2), DefaultValue: dagger.JSON("900")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 232, 2), DefaultValue: dagger.JSON("\"render.png\"")})).
+					WithFunction(
+						dag.Function("Stats",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Stats generates a board statistics report (pad, via, track and area counts).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 88, 1)).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Report format: report (human-readable) or json.", SourceMap: dag.SourceMap("pcb_util.go", 92, 2), DefaultValue: dagger.JSON("\"report\"")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Report units: mm or in.", SourceMap: dag.SourceMap("pcb_util.go", 95, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_util.go", 97, 2), DefaultValue: dagger.JSON("\"stats.txt\"")})).
+					WithFunction(
+						dag.Function("Step",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Step exports the board as a STEP model. The default `10.0` image is the\nslim variant, which ships no 3D component models: a with-models export\n(boardOnly=false) fails there naming the -full image, rather than silently\nemitting a board-only model. Pass boardOnly for board geometry alone, or\nselect the -full image for populated assemblies.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 215, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Export the bare board, with no component models.", SourceMap: dag.SourceMap("pcb.go", 219, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Exclude models for components flagged Do Not Populate.", SourceMap: dag.SourceMap("pcb.go", 222, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb.go", 224, 2), DefaultValue: dagger.JSON("\"board.step\"")})).
+					WithFunction(
+						dag.Function("Stl",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Stl exports the board as an STL mesh.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 90, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 93, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 95, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 97, 2), DefaultValue: dagger.JSON("\"board.stl\"")})).
+					WithFunction(
+						dag.Function("Stpz",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Stpz exports the board as a zip-compressed STEP (STPZ) model.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 165, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 168, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 170, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 172, 2), DefaultValue: dagger.JSON("\"board.stpz\"")})).
+					WithFunction(
+						dag.Function("Svg",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Svg plots the given layers into a single SVG.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 333, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, e.g. F.Cu, Edge.Cuts.", SourceMap: dag.SourceMap("pcb.go", 336, 2)}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb.go", 338, 2), DefaultValue: dagger.JSON("\"board.svg\"")})).
+					WithFunction(
+						dag.Function("SvgPerLayer",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("SvgPerLayer plots each layer into its own SVG and returns the directory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb.go", 364, 1)).
+							WithArg("layers", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Untranslated layer names to plot, one SVG each.", SourceMap: dag.SourceMap("pcb.go", 367, 2)})).
+					WithFunction(
+						dag.Function("U3d",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("U3d exports the board as a Universal 3D (U3D) model.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 135, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 138, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 140, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 142, 2), DefaultValue: dagger.JSON("\"board.u3d\"")})).
+					WithFunction(
+						dag.Function("Upgrade",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Upgrade resaves the board in the current KiCad file format and returns the\nupgraded .kicad_pcb. kicad-cli's `pcb upgrade` rewrites the file in place and\nhas no output flag, so the board runs against a writable copy (owned by the\nimage's UID-1000 user) rather than the read-only mounted source.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_util.go", 308, 1)).
+							WithArg("force", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Resave even when the board is already at the latest format version.", SourceMap: dag.SourceMap("pcb_util.go", 312, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Vrml",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Vrml exports the board as a VRML model. Unlike the other 3D exports\nkicad-cli's `pcb export vrml` has no --board-only flag, so boardOnly here is\na module-level acknowledgement rather than a kicad-cli switch: it gates the\n-full-image guard only. On the slim image no component models resolve, so\nboardOnly=true yields the board geometry alone; on the -full image the\nmodels are always embedded regardless, which is why boardOnly cannot suppress\nthem for VRML.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 202, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Acknowledge board-geometry-only output on the slim image, skipping the\n-full guard. VRML has no board-only mode, so this cannot exclude models\non the -full image.", SourceMap: dag.SourceMap("pcb_3d.go", 208, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Exclude models for components flagged Do Not Populate.", SourceMap: dag.SourceMap("pcb_3d.go", 211, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("units", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Output units: mm, m, in or tenths.", SourceMap: dag.SourceMap("pcb_3d.go", 214, 2), DefaultValue: dagger.JSON("\"mm\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 216, 2), DefaultValue: dagger.JSON("\"board.wrl\"")})).
+					WithFunction(
+						dag.Function("Xao",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Xao exports the board as an XAO model (Salome geometry exchange).").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("pcb_3d.go", 150, 1)).
+							WithArg("boardOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 153, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 155, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("pcb_3d.go", 157, 2), DefaultValue: dagger.JSON("\"board.xao\"")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Sch", dagger.TypeDefWithObjectOpts{Description: "Sch is a schematic selected within a Project.", SourceMap: dag.SourceMap("sch.go", 10, 6)}).
+					WithFunction(
+						dag.Function("Bom",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Bom exports the Bill of Materials as CSV. The header row is the field list\nverbatim, because fields is always passed through to kicad-cli — the column\nlabels follow whatever the caller asked to export.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 50, 1)).
+							WithArg("fields", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Ordered list of fields to export. Generated fields such as QUANTITY,\nITEM_NUMBER and DNP may be used alongside symbol fields.", SourceMap: dag.SourceMap("sch.go", 55, 2), DefaultValue: dagger.JSON("\"Reference,Value,Footprint,QUANTITY,DNP\"")}).
+							WithArg("groupBy", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Fields to group references by when their values match.", SourceMap: dag.SourceMap("sch.go", 58, 2)}).
+							WithArg("sortField", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Field name to sort by.", SourceMap: dag.SourceMap("sch.go", 61, 2), DefaultValue: dagger.JSON("\"Reference\"")}).
+							WithArg("excludeDnp", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Exclude symbols marked Do Not Populate.", SourceMap: dag.SourceMap("sch.go", 64, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sch.go", 66, 2), DefaultValue: dagger.JSON("\"bom.csv\"")})).
+					WithFunction(
+						dag.Function("Dxf",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Dxf plots the schematic to DXF, one file per sheet, and returns the\ndirectory. Like Svg there is no single-file counterpart: kicad-cli always\nplots schematics per sheet.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 179, 1))).
+					WithFunction(
+						dag.Function("Erc",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Erc runs the Electrical Rule Check and returns a non-nil error listing the\nviolations when the schematic fails, nil when it is clean.\n\nLike Pcb.Drc it returns a bare error: Dagger drops a function's value when\nit also returns a non-nil error, so a (report, error) signature would hide\nthe violation list on the failure path. `--exit-code-violations` exits 5,\nwhich Expect=ReturnTypeAny keeps on the value path.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 26, 1)).
+							WithArg("severity", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Violation levels to report: all, error, warning or exclusions.", SourceMap: dag.SourceMap("sch.go", 30, 2), DefaultValue: dagger.JSON("\"error\"")})).
+					WithFunction(
+						dag.Function("Netlist",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Netlist exports the schematic's netlist.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 97, 1)).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Netlist format: kicadsexpr, kicadxml, cadstar, orcadpcb2, spice,\nspicemodel, pads or allegro.", SourceMap: dag.SourceMap("sch.go", 102, 2), DefaultValue: dagger.JSON("\"kicadsexpr\"")}).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sch.go", 104, 2), DefaultValue: dagger.JSON("\"netlist.net\"")})).
+					WithFunction(
+						dag.Function("Pdf",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Pdf plots the schematic to a single multi-page PDF — one page per sheet of\na hierarchical design.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 133, 1)).
+							WithArg("outputName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("sch.go", 136, 2), DefaultValue: dagger.JSON("\"schematic.pdf\"")})).
+					WithFunction(
+						dag.Function("Ps",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Ps plots the schematic to PostScript, one file per sheet, and returns the\ndirectory.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 197, 1))).
+					WithFunction(
+						dag.Function("Svg",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Svg plots the schematic to SVG, one file per sheet, and returns the\ndirectory. Unlike Pcb.Svg there is no single-file counterpart: kicad-cli\nalways plots schematics per sheet.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("sch.go", 160, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

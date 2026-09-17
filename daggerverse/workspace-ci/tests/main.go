@@ -43,8 +43,7 @@ func explain(ctx context.Context, ci *dagger.WorkspaceCi, fx fixture, commit str
 }
 
 func explainRange(ctx context.Context, ci *dagger.WorkspaceCi, fx fixture, base, head, knownGood string) (report, error) {
-	raw, err := ci.Plan(ctx, base, head, dagger.WorkspaceCiPlanOpts{
-		Repo:        fx.dir,
+	raw, err := ci.Plan(ctx, base, head, fx.workspace(), dagger.WorkspaceCiPlanOpts{
 		Diagnostics: true,
 		KnownGood:   knownGood,
 	})
@@ -314,12 +313,47 @@ func (t *Tests) PlanRunsEverythingOnAnUnresolvableRevision(ctx context.Context) 
 // gate having run nothing, which is the one failure mode worth failing closed for.
 func (t *Tests) PlanErrorsOnWorkspaceWithNoModules(ctx context.Context) error {
 	empty := dag.Directory().WithNewFile("README.md", "no modules here\n")
-	_, err := dag.WorkspaceCi().Plan(ctx, "", "", dagger.WorkspaceCiPlanOpts{Repo: empty})
+	_, err := dag.WorkspaceCi().Plan(ctx, "", "", empty.AsWorkspace())
 	if err == nil {
 		return fmt.Errorf("a workspace with no modules produced a plan")
 	}
 	if !strings.Contains(err.Error(), "no dagger.json") {
 		return fmt.Errorf("a workspace with no modules failed for the wrong reason: %v", err)
+	}
+	return nil
+}
+
+// PlanFromRepoMatchesPlanFromWorkspace proves the two ways of naming the
+// repository are the same repository.
+//
+// The rest of this suite passes only a workspace, because that is what a module
+// caller can build out of a directory. repo is the other seam — the escape hatch
+// for a caller whose .git is a file rather than a directory — and it overrides
+// the workspace rather than sitting beside it, so the two have to agree.
+func (t *Tests) PlanFromRepoMatchesPlanFromWorkspace(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	base, head := fx.before(cTouchA), fx.at(cTouchA)
+
+	fromWorkspace, err := explainRange(ctx, dag.WorkspaceCi(), fx, base, head, "")
+	if err != nil {
+		return err
+	}
+	// An empty workspace beside repo, so a plan that quietly read the workspace
+	// instead would come back with no modules rather than the same answer.
+	raw, err := dag.WorkspaceCi().Plan(ctx, base, head, dag.Directory().AsWorkspace(),
+		dagger.WorkspaceCiPlanOpts{Repo: fx.dir, Diagnostics: true})
+	if err != nil {
+		return err
+	}
+	var fromRepo report
+	if err := json.Unmarshal([]byte(raw), &fromRepo); err != nil {
+		return fmt.Errorf("parse the plan %q: %w", raw, err)
+	}
+	if got, want := names(fromRepo.Plan), names(fromWorkspace.Plan); !slices.Equal(got, want) {
+		return fmt.Errorf("--repo planned %v, --workspace planned %v", got, want)
 	}
 	return nil
 }
@@ -342,6 +376,7 @@ func (t *Tests) All(ctx context.Context) error {
 		"plan-accepts-symbolic-revisions":                        t.PlanAcceptsSymbolicRevisions,
 		"plan-runs-everything-on-an-unresolvable-revision":       t.PlanRunsEverythingOnAnUnresolvableRevision,
 		"plan-errors-on-workspace-with-no-modules":               t.PlanErrorsOnWorkspaceWithNoModules,
+		"plan-from-repo-matches-plan-from-workspace":             t.PlanFromRepoMatchesPlanFromWorkspace,
 		"plan-drops-known-good-leg":                              t.PlanDropsKnownGoodLeg,
 		"plan-refuses-recorded-passes-when-global-input-changed": t.PlanRefusesRecordedPassesWhenGlobalInputChanged,
 		"plan-always-runs-unhashable-leg":                        t.PlanAlwaysRunsUnhashableLeg,

@@ -230,6 +230,40 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the otel-examples Dagger module: a runnable cookbook of\notel recipes. Each one walks the same builder chain — receivers,\nprocessors, and exporters composed into a pipeline, pipelines composed\ninto a collector — and then returns either the endpoint a telemetry\nclient would point at or the YAML that chain rendered.\n\nRead them in order: DebugTracesPipeline is the shortest chain that runs,\nOtlpToTempo swaps the throwaway exporter for a real backend,\nBatchedMetricsPipeline adds the processor stage, ConfigDumpYaml shows\nwhat any of those chains actually rendered, and CustomReceiverYaml is the\nescape hatch for the components the typed factories do not cover.\n").
+			WithObject(
+				dag.TypeDef().WithObject("OtelExamples", dagger.TypeDefWithObjectOpts{Description: "OtelExamples is the module's main object: a namespace for the otel usage\nrecipes.", SourceMap: dag.SourceMap("main.go", 23, 6)}).
+					WithFunction(
+						dag.Function("BatchedMetricsPipeline",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("BatchedMetricsPipeline shows the processor stage carrying real weight:\na memory_limiter in front of a batch processor, in that order. Order is\nthe lesson — processors run in the sequence they were added, so the\nlimiter has to see data first if it is to shed load before the batcher\nbuffers it. Returns the collector's OTLP/HTTP endpoint, the one an\nexporter posting protobuf over HTTP wants.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 90, 1))).
+					WithFunction(
+						dag.Function("ConfigDumpYaml",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ConfigDumpYaml returns the collector config that BatchedMetricsPipeline\nruns, as a file, without starting anything. ConfigFile is the debugging\ntool for the builder API: when a pipeline misbehaves, render it and read\nthe YAML the components were spliced into rather than guessing.\n\n\tdagger -m daggerverse/otel/examples/go call config-dump-yaml contents").
+							WithSourceMap(dag.SourceMap("main.go", 104, 1))).
+					WithFunction(
+						dag.Function("CustomReceiverYaml",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("CustomReceiverYaml is the escape hatch. The typed factories cover the\ncommon components, but every collector option they do not expose is\nstill reachable: CustomReceiver takes a kind, a name, and a YAML body\nthat is spliced verbatim under receivers.<kind>/<name>. The body is\nparsed (so malformed YAML fails at build time, not at collector\nstartup) but never interpreted, which is what lets it configure\ncomponents this module has never heard of. CustomProcessor and\nCustomExporter work the same way.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 143, 1))).
+					WithFunction(
+						dag.Function("DebugTracesPipeline",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("DebugTracesPipeline builds the shortest collector that does something\nobservable: DebugPipeline pre-wires otlp receiver → batch → debug\nexporter, so spans pushed to the returned OTLP/gRPC address are printed\nto the collector's stdout instead of being forwarded anywhere. Start\nhere when you want to see what a tracer is actually emitting.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 43, 1))).
+					WithFunction(
+						dag.Function("OtlpToTempo",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpToTempo replaces the debug exporter with a real backend: a\ngrafana-stack Tempo, bound into the collector's network under the\n\"tempo\" hostname, which is why the exporter can address it as\n\"tempo:4317\". The returned OTLP/gRPC address is what a tracer targets;\nspans pushed there are batched and forwarded on to Tempo. This is the\nrecipe to copy whenever an exporter needs to reach another service —\nthe binding alias and the exporter endpoint are one contract.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 63, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

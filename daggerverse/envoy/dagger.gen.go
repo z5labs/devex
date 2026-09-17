@@ -1288,6 +1288,311 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the envoy Dagger module: spins up the Envoy proxy\n(envoyproxy/envoy) as a service for local development and testing,\nwith a builder API for composing L7 (HTTP) and L4 (TCP) listeners\nand their referenced clusters into a static-resources Envoy\nbootstrap without writing the YAML by hand. TLS / mTLS terminates\non listeners (downstream) and authenticates clusters (upstream)\nvia per-listener / per-cluster *ServerSecurity / *UpstreamSecurity\nprofiles. File-based xDS is supported via XdsResources +\n(*Proxy).WithDynamicResources; gRPC-based xDS (ADS, SDS over\nstreaming RPCs) lands in a separate follow-up.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Envoy", dagger.TypeDefWithObjectOpts{Description: "Envoy is the top-level builder type. All component factories hang\noff of it.", SourceMap: dag.SourceMap("main.go", 37, 6)}).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("Cluster builds a Cluster optionally configured with upstream\nTLS / mTLS via an UpstreamSecurity profile. clusterType defaults\nto \"STRICT_DNS\"; unknown values return a non-nil error. A nil or\nplaintext upstream produces the same plaintext cluster as before.").
+							WithSourceMap(dag.SourceMap("main.go", 120, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 122, 2)}).
+							WithArg("clusterType", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 124, 2), DefaultValue: dagger.JSON("\"STRICT_DNS\"")}).
+							WithArg("upstream", dag.TypeDef().WithObject("UpstreamSecurity").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 126, 2)})).
+					WithFunction(
+						dag.Function("CustomHttpFilter",
+							dag.TypeDef().WithObject("HttpFilter")).
+							WithDescription("CustomHttpFilter builds an HTTP filter whose typed_config body is\nthe caller-supplied YAML, spliced verbatim. yamlBody is validated\nvia yaml.Unmarshal at construction time.").
+							WithSourceMap(dag.SourceMap("main.go", 267, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 267, 34)}).
+							WithArg("yamlBody", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 267, 40)})).
+					WithFunction(
+						dag.Function("CustomListener",
+							dag.TypeDef().WithObject("Listener")).
+							WithDescription("CustomListener builds a Listener whose body is the caller-supplied\nYAML, spliced verbatim under static_resources.listeners with `name`\nkeyed in by the builder. The yamlBody must NOT include a top-level\n`name:` key (the builder splices that from the argument).").
+							WithSourceMap(dag.SourceMap("main.go", 611, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 611, 32)}).
+							WithArg("yamlBody", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 611, 38)})).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithObject("Endpoint")).
+							WithDescription("Endpoint builds an Endpoint, validating host (non-empty) and port\n(1..65535).").
+							WithSourceMap(dag.SourceMap("main.go", 83, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 83, 26)}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 83, 39)})).
+					WithFunction(
+						dag.Function("HttpConnectionManager",
+							dag.TypeDef().WithObject("HttpConnectionManager")).
+							WithDescription("HttpConnectionManager builds an HCM bound to routeConfig.").
+							WithSourceMap(dag.SourceMap("main.go", 291, 1)).
+							WithArg("statPrefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 291, 39)}).
+							WithArg("routeConfig", dag.TypeDef().WithObject("RouteConfig"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 291, 58)})).
+					WithFunction(
+						dag.Function("HttpListener",
+							dag.TypeDef().WithObject("Listener")).
+							WithDescription("HttpListener builds an L7 listener bound at address:port whose\nfilter chain delegates to hcm. A nil or plaintext security profile\nrenders the existing plaintext listener; TLS / MTLS mints a\nper-listener server leaf certificate from the supplied CA at\nfactory time and embeds the transport_socket block in the filter\nchain.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 316, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 318, 2)}).
+							WithArg("address", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 320, 2), DefaultValue: dagger.JSON("\"0.0.0.0\"")}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 321, 2)}).
+							WithArg("hcm", dag.TypeDef().WithObject("HttpConnectionManager"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 322, 2)}).
+							WithArg("security", dag.TypeDef().WithObject("ServerSecurity").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 324, 2)})).
+					WithFunction(
+						dag.Function("MtlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("MtlsServerSecurity returns a ServerSecurity profile that terminates\nmTLS on the listener. caKeyStore signs the per-listener server\nleaf; clientTrustStore holds the CA(s) the listener will accept\nincoming client certs from (asymmetric trust is allowed).").
+							WithSourceMap(dag.SourceMap("security.go", 79, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 80, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 81, 2)}).
+							WithArg("clientTrustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 82, 2)}).
+							WithArg("clientTrustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 83, 2)})).
+					WithFunction(
+						dag.Function("MtlsUpstreamSecurity",
+							dag.TypeDef().WithObject("UpstreamSecurity")).
+							WithDescription("MtlsUpstreamSecurity returns an UpstreamSecurity profile that opens\nan mTLS connection to upstreams: the upstream's server cert is\nvalidated against trustStore, and Envoy presents its own client\nleaf from keyStore.").
+							WithSourceMap(dag.SourceMap("security.go", 118, 1)).
+							WithArg("keyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 119, 2)}).
+							WithArg("keyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 120, 2)}).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 121, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 122, 2)})).
+					WithFunction(
+						dag.Function("PlaintextServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("PlaintextServerSecurity returns a ServerSecurity profile configured\nfor unencrypted, unauthenticated traffic.").
+							WithSourceMap(dag.SourceMap("security.go", 57, 1))).
+					WithFunction(
+						dag.Function("PlaintextUpstreamSecurity",
+							dag.TypeDef().WithObject("UpstreamSecurity")).
+							WithDescription("PlaintextUpstreamSecurity returns an UpstreamSecurity profile\nconfigured for unencrypted, unauthenticated cluster traffic.").
+							WithSourceMap(dag.SourceMap("security.go", 96, 1))).
+					WithFunction(
+						dag.Function("Proxy",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("Proxy returns a Proxy backed by the envoyproxy/envoy image at\n<registry>/envoyproxy/envoy:<tag>. configFile, when supplied, fully\nreplaces the rendered bootstrap; clusters added via WithCluster are\nignored when an override is set, and listeners added via WithListener\nare ignored for rendering but still drive container port exposure so\ncallers can expose ports from an override config.").
+							WithSourceMap(dag.SourceMap("main.go", 651, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 653, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 655, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")}).
+							WithArg("adminPort", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 657, 2), DefaultValue: dagger.JSON("9901")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 659, 2)})).
+					WithFunction(
+						dag.Function("RouteConfig",
+							dag.TypeDef().WithObject("RouteConfig")).
+							WithDescription("RouteConfig builds an empty RouteConfig.").
+							WithSourceMap(dag.SourceMap("main.go", 225, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 225, 29)})).
+					WithFunction(
+						dag.Function("RoutePrefix",
+							dag.TypeDef().WithObject("Route")).
+							WithDescription("RoutePrefix builds a route matching paths with the given prefix and\nforwarding to cluster.").
+							WithSourceMap(dag.SourceMap("main.go", 177, 1)).
+							WithArg("prefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 177, 29)}).
+							WithArg("cluster", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 177, 37)})).
+					WithFunction(
+						dag.Function("RouterHttpFilter",
+							dag.TypeDef().WithObject("HttpFilter")).
+							WithDescription("RouterHttpFilter returns the terminal envoy.filters.http.router\nfilter. Per the Envoy contract this must be the last filter in the\nhttp_filters chain; the builder does NOT enforce ordering — Envoy\nrejects the bootstrap at startup if violated.").
+							WithSourceMap(dag.SourceMap("main.go", 260, 1))).
+					WithFunction(
+						dag.Function("TcpListener",
+							dag.TypeDef().WithObject("Listener")).
+							WithDescription("TcpListener builds an L4 listener bound at address:port whose\nfilter chain delegates to proxy. Accepts the same *ServerSecurity\nunion as HttpListener — TLS / mTLS terminates on the listener and\nthe resulting transport_socket lives on the filter chain alongside\nthe tcp_proxy filter.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 487, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 489, 2)}).
+							WithArg("address", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 491, 2), DefaultValue: dagger.JSON("\"0.0.0.0\"")}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 492, 2)}).
+							WithArg("proxy", dag.TypeDef().WithObject("TcpProxy"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 493, 2)}).
+							WithArg("security", dag.TypeDef().WithObject("ServerSecurity").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 495, 2)})).
+					WithFunction(
+						dag.Function("TcpProxy",
+							dag.TypeDef().WithObject("TcpProxy")).
+							WithDescription("TcpProxy builds a TcpProxy network filter targeting cluster.").
+							WithSourceMap(dag.SourceMap("main.go", 470, 1)).
+							WithArg("statPrefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 470, 26)}).
+							WithArg("cluster", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 470, 38)})).
+					WithFunction(
+						dag.Function("TlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("TlsServerSecurity returns a ServerSecurity profile that terminates\nTLS on the listener. caKeyStore is a PKCS#12 archive containing the\nCA cert + private key used to mint a per-listener leaf certificate.").
+							WithSourceMap(dag.SourceMap("security.go", 64, 1)).
+							WithArg("caKeyStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 65, 2)}).
+							WithArg("caKeyStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 66, 2)})).
+					WithFunction(
+						dag.Function("TlsUpstreamSecurity",
+							dag.TypeDef().WithObject("UpstreamSecurity")).
+							WithDescription("TlsUpstreamSecurity returns an UpstreamSecurity profile that opens\na TLS connection to upstreams. trustStore is a PKCS#12 archive of\nthe CA(s) used to verify the upstream's server cert.").
+							WithSourceMap(dag.SourceMap("security.go", 103, 1)).
+							WithArg("trustStore", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 104, 2)}).
+							WithArg("trustStorePassword", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 105, 2)})).
+					WithFunction(
+						dag.Function("VirtualHost",
+							dag.TypeDef().WithObject("VirtualHost")).
+							WithDescription("VirtualHost builds an empty VirtualHost.").
+							WithSourceMap(dag.SourceMap("main.go", 196, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 196, 29)}).
+							WithArg("domains", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 196, 42)})).
+					WithFunction(
+						dag.Function("XdsResources",
+							dag.TypeDef().WithObject("XdsResources")).
+							WithDescription("XdsResources returns an empty discovery-resource set. Feed it\nlisteners and clusters, then hand Directory() to\n(*Proxy).WithDynamicResources.").
+							WithSourceMap(dag.SourceMap("xds.go", 136, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster is a named upstream cluster of Endpoints, optionally\nconfigured with TLS / mTLS to the upstream side.", SourceMap: dag.SourceMap("main.go", 95, 6)}).
+					WithFunction(
+						dag.Function("WithEndpoint",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("WithEndpoint appends an Endpoint to the cluster and returns a new\ncluster value.").
+							WithSourceMap(dag.SourceMap("main.go", 163, 1)).
+							WithArg("ep", dag.TypeDef().WithObject("Endpoint"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 163, 32)})).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 96, 2)}).
+					WithField("Kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 97, 2)}).
+					WithField("Endpoints", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Endpoint")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 98, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("UpstreamSecurity", dagger.TypeDefWithObjectOpts{Description: "UpstreamSecurity describes how an Envoy cluster authenticates and\nencrypts traffic to upstream endpoints. Plaintext is the default;\nTLS validates the upstream's server cert; mTLS additionally\npresents a client leaf to the upstream.", SourceMap: dag.SourceMap("security.go", 42, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("HttpFilter", dagger.TypeDefWithObjectOpts{Description: "HttpFilter is a single HTTP filter that participates in the\nHttpConnectionManager's filter chain. Body is the YAML body of the\nfilter's `typed_config` map; for the terminal router filter Body\nis empty (the typed_config has a fixed shape and is filled in at\nrender time).", SourceMap: dag.SourceMap("main.go", 244, 6)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 245, 2)}).
+					WithField("Body", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 246, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Listener", dagger.TypeDefWithObjectOpts{Description: "Listener is a single Envoy listener — either typed\n(HttpListener/TcpListener) or opaque (CustomListener). Body is the\nYAML body for the listener excluding the top-level `name:` key,\nwhich is keyed in at render time from Name. ClusterRefs lists\ncluster names this listener references in its filter chain so\n(*Proxy).ConfigFile() can validate references against the\nregistered cluster set; it is empty for CustomListener whose body\nis opaque.", SourceMap: dag.SourceMap("main.go", 557, 6)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 558, 2)}).
+					WithField("Body", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 559, 2)}).
+					WithField("ClusterRefs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 560, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Endpoint", dagger.TypeDefWithObjectOpts{Description: "Endpoint is a single upstream address (host + port) that a Cluster\nresolves to.", SourceMap: dag.SourceMap("main.go", 76, 6)}).
+					WithField("Host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 77, 2)}).
+					WithField("Port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 78, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("HttpConnectionManager", dagger.TypeDefWithObjectOpts{Description: "HttpConnectionManager is the L7 network filter that decodes HTTP\nframes, applies an ordered filter chain, and dispatches to a\nroute_config.", SourceMap: dag.SourceMap("main.go", 284, 6)}).
+					WithFunction(
+						dag.Function("WithHttpFilter",
+							dag.TypeDef().WithObject("HttpConnectionManager")).
+							WithDescription("WithHttpFilter appends an HTTP filter to the HCM.").
+							WithSourceMap(dag.SourceMap("main.go", 302, 1)).
+							WithArg("f", dag.TypeDef().WithObject("HttpFilter"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 302, 48)})).
+					WithField("StatPrefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 285, 2)}).
+					WithField("RouteConfig", dag.TypeDef().WithObject("RouteConfig"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 286, 2)}).
+					WithField("HttpFilters", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("HttpFilter")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 287, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("RouteConfig", dagger.TypeDefWithObjectOpts{Description: "RouteConfig is a named route configuration (a set of virtual hosts).", SourceMap: dag.SourceMap("main.go", 219, 6)}).
+					WithFunction(
+						dag.Function("WithVirtualHost",
+							dag.TypeDef().WithObject("RouteConfig")).
+							WithDescription("WithVirtualHost appends a VirtualHost to the route config.").
+							WithSourceMap(dag.SourceMap("main.go", 233, 1)).
+							WithArg("v", dag.TypeDef().WithObject("VirtualHost"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 233, 40)})).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 220, 2)}).
+					WithField("VirtualHosts", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("VirtualHost")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 221, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("ServerSecurity", dagger.TypeDefWithObjectOpts{Description: "ServerSecurity describes how an Envoy listener authenticates and\nencrypts traffic from downstream clients. Plaintext is the default;\nTLS and mTLS modes carry the PKI material needed to terminate TLS\non the listener and (for mTLS) verify client certificates.", SourceMap: dag.SourceMap("security.go", 25, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Proxy", dagger.TypeDefWithObjectOpts{Description: "Proxy is a running Envoy instance with a composed (or\ncaller-supplied) static-resources bootstrap, or — when\nDynamicResources is set — a file-based xDS bootstrap that\ndiscovers its listeners and clusters from a mounted directory.", SourceMap: dag.SourceMap("main.go", 629, 6)}).
+					WithFunction(
+						dag.Function("AdminEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("AdminEndpoint returns host:adminPort for the running proxy.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 831, 1))).
+					WithFunction(
+						dag.Function("ConfigFile",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ConfigFile returns the file that will be mounted as Envoy's -c\nargument: the caller-supplied override, the rendered\nstatic_resources bootstrap, or — when WithDynamicResources was\ncalled — the file-based xDS bootstrap. Returns a non-nil error if\nany listener references an unregistered cluster, if two listeners\nshare a name, or if WithDynamicResources was mixed with any of\nWithListener / WithCluster / WithConfigFile.").
+							WithSourceMap(dag.SourceMap("main.go", 706, 1))).
+					WithFunction(
+						dag.Function("ListenerEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("ListenerEndpoint returns host:port for the named listener on the\nrunning proxy — resolved against the registered Listeners, or\nagainst the mounted lds.yaml when the proxy runs in file-based xDS\nmode. Returns a non-nil error if no listener matches name or if the\nlistener has no recognizable socket_address.port_value.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 870, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 870, 55)})).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the running Envoy container. Listens on\nAdminPort (admin) plus each registered listener's port — read from\nthe mounted lds.yaml when the proxy runs in file-based xDS mode.\nWhen no override and no listeners/clusters are registered, launches\nwith no `-c` flag so the envoy binary exits non-zero — exposed\nverbatim so callers can detect the misconfig via service-binding\nprobes.").
+							WithSourceMap(dag.SourceMap("main.go", 748, 1))).
+					WithFunction(
+						dag.Function("WithCluster",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("WithCluster appends a cluster to the proxy.").
+							WithSourceMap(dag.SourceMap("main.go", 686, 1)).
+							WithArg("c", dag.TypeDef().WithObject("Cluster"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 686, 29)})).
+					WithFunction(
+						dag.Function("WithConfigFile",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("WithConfigFile fully replaces the rendered bootstrap.").
+							WithSourceMap(dag.SourceMap("main.go", 693, 1)).
+							WithArg("f", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 693, 32)})).
+					WithFunction(
+						dag.Function("WithDynamicResources",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("WithDynamicResources switches the proxy from a rendered\nstatic_resources bootstrap to file-based xDS: the bootstrap's\ndynamic_resources block points lds_config at\n/etc/envoy/xds/lds.yaml and cds_config at /etc/envoy/xds/cds.yaml,\nand dir is mounted at /etc/envoy/xds. dir must contain at minimum\nlds.yaml and cds.yaml, each a v3 discovery response; rds.yaml is\nloaded only when a listener's HttpConnectionManager references it\nvia an `rds` config source (the bootstrap does not wire RDS\nitself).\n\nThis mode is exclusive with WithListener / WithCluster /\nWithConfigFile: calling both makes ConfigFile() (and therefore\nService()) return a non-nil error.\n\nHot reload is NOT exercised. Dagger's WithMountedDirectory is\ncontent-addressed and immutable at mount time, so the mounted\nresource files never change for the lifetime of the container —\nonly Envoy's initial discovery path runs. Callers wanting to test\nreload semantics need to launch a fresh Proxy per resource\nsnapshot.").
+							WithSourceMap(dag.SourceMap("xds.go", 64, 1)).
+							WithArg("dir", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("xds.go", 64, 38)})).
+					WithFunction(
+						dag.Function("WithListener",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("WithListener appends a listener to the proxy.").
+							WithSourceMap(dag.SourceMap("main.go", 679, 1)).
+							WithArg("l", dag.TypeDef().WithObject("Listener"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 679, 30)})).
+					WithFunction(
+						dag.Function("WithServiceBinding",
+							dag.TypeDef().WithObject("Proxy")).
+							WithDescription("WithServiceBinding binds an upstream service into Envoy's network\nso cluster endpoints can reach it by hostname.").
+							WithSourceMap(dag.SourceMap("main.go", 671, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 671, 36)}).
+							WithArg("svc", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 671, 49)})).
+					WithField("Registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 630, 2)}).
+					WithField("Tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 631, 2)}).
+					WithField("AdminPort", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 632, 2)}).
+					WithField("Override", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 633, 2)}).
+					WithField("Listeners", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Listener")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 634, 2)}).
+					WithField("Clusters", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Cluster")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 635, 2)}).
+					WithField("BindingHosts", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 636, 2)}).
+					WithField("BindingSvcs", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Service")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 637, 2)}).
+					WithField("DynamicResources", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "DynamicResources is the file-based xDS discovery-resource\ndirectory set via WithDynamicResources. Exclusive with\nOverride / Listeners / Clusters.", SourceMap: dag.SourceMap("main.go", 642, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Route", dagger.TypeDefWithObjectOpts{Description: "Route is a single HTTP route (prefix match → cluster).", SourceMap: dag.SourceMap("main.go", 170, 6)}).
+					WithField("Prefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 171, 2)}).
+					WithField("Cluster", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 172, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("TcpProxy", dagger.TypeDefWithObjectOpts{Description: "TcpProxy is the network-level filter that forwards bytes from a\nTcpListener to a single cluster.", SourceMap: dag.SourceMap("main.go", 464, 6)}).
+					WithField("StatPrefix", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 465, 2)}).
+					WithField("Cluster", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 466, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("VirtualHost", dagger.TypeDefWithObjectOpts{Description: "VirtualHost is a named virtual host with a domain list and an\nordered set of routes.", SourceMap: dag.SourceMap("main.go", 189, 6)}).
+					WithFunction(
+						dag.Function("WithRoute",
+							dag.TypeDef().WithObject("VirtualHost")).
+							WithDescription("WithRoute appends a route to the virtual host.").
+							WithSourceMap(dag.SourceMap("main.go", 212, 1)).
+							WithArg("route", dag.TypeDef().WithObject("Route"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 212, 33)})).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 190, 2)}).
+					WithField("Domains", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 191, 2)}).
+					WithField("Routes", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Route")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 192, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("XdsResources", dagger.TypeDefWithObjectOpts{Description: "XdsResources composes the same v1 component types the static\nbuilders take (Listener, Cluster) into the discovery-resource files\na file-based xDS Proxy consumes. Composition mirrors Proxy: WithX\nmethods return shallow copies.", SourceMap: dag.SourceMap("xds.go", 128, 6)}).
+					WithFunction(
+						dag.Function("Directory",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Directory renders lds.yaml and cds.yaml — v3 discovery responses\ncarrying the registered listeners and clusters — into a directory\nsuitable for (*Proxy).WithDynamicResources. Each resource is\nstructurally identical to the static_resources entry the same\ncomponent produces in static mode, plus the `@type` discriminator\nthe discovery response requires.\n\nRoute configurations stay inline in each listener's\nHttpConnectionManager, so no rds.yaml is emitted: the v1 builders\nhave no way to express an RDS config source. Callers who need RDS\nbring their own directory containing rds.yaml plus listeners that\nreference it.\n\nReturns a non-nil error under the same conditions as\n(*Proxy).ConfigFile() — a listener referencing a cluster that isn't\nregistered here, or two listeners sharing a name — and also when\nany component carries TLS / mTLS security, whose key material only\n(*Proxy).Service() can mount and which the Proxy cannot see through\nan opaque resource directory.").
+							WithSourceMap(dag.SourceMap("xds.go", 173, 1))).
+					WithFunction(
+						dag.Function("WithCluster",
+							dag.TypeDef().WithObject("XdsResources")).
+							WithDescription("WithCluster appends a cluster to the CDS resource set.").
+							WithSourceMap(dag.SourceMap("xds.go", 148, 1)).
+							WithArg("c", dag.TypeDef().WithObject("Cluster"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("xds.go", 148, 36)})).
+					WithFunction(
+						dag.Function("WithListener",
+							dag.TypeDef().WithObject("XdsResources")).
+							WithDescription("WithListener appends a listener to the LDS resource set.").
+							WithSourceMap(dag.SourceMap("xds.go", 141, 1)).
+							WithArg("l", dag.TypeDef().WithObject("Listener"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("xds.go", 141, 37)})).
+					WithField("Listeners", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Listener")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("xds.go", 129, 2)}).
+					WithField("Clusters", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Cluster")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("xds.go", 130, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

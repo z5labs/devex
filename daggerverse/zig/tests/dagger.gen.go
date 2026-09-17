@@ -440,6 +440,184 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the zig Dagger module. Each test\nis exposed as a standalone dagger function so it can be invoked individually\nduring TDD; All wires them up for parallel execution under `dagger call all`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 19, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every zig-module test in parallel.\n\nparallel caps how many tests run concurrently inside this suite. Defaults to\n0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions\nrunner, so in-runner parallelism is bounded by the VM's CPU/memory, not by\nthe scheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 37, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 40, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BuildCrossTargetProducesBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildCrossTargetProducesBinary cross-compiles the hello fixture for\naarch64-linux and asserts an artifact is produced. The binary is not\nhost-runnable, so only its size is checked.").
+							WithSourceMap(dag.SourceMap("main.go", 225, 1))).
+					WithFunction(
+						dag.Function("BuildExeProducesExecutable",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildExeProducesExecutable builds the single-file fixture via build-exe and\nasserts the produced file is named \"main\" and non-empty.").
+							WithSourceMap(dag.SourceMap("main.go", 249, 1))).
+					WithFunction(
+						dag.Function("BuildExeRejectsEmptyRoot",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildExeRejectsEmptyRoot asserts BuildExe rejects an empty root. BuildExe\nreturns a lazy file, so the error surfaces on resolve.").
+							WithSourceMap(dag.SourceMap("main.go", 270, 1))).
+					WithFunction(
+						dag.Function("BuildHelloProducesBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildHelloProducesBinary builds the hello fixture for the host and asserts\nthe installed executable (zig-out/bin/hello) is non-empty.").
+							WithSourceMap(dag.SourceMap("main.go", 197, 1))).
+					WithFunction(
+						dag.Function("BuildOptimizeReleaseSmall",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildOptimizeReleaseSmall builds the hello fixture with\n-Doptimize=ReleaseSmall and asserts an executable is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 210, 1))).
+					WithFunction(
+						dag.Function("BuildRejectsInvalidOptimize",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BuildRejectsInvalidOptimize asserts Build rejects an invalid optimize value.\nBuild returns a lazy directory, so the validation error surfaces on resolve.").
+							WithSourceMap(dag.SourceMap("main.go", 239, 1))).
+					WithFunction(
+						dag.Function("CcCompilesHelloC",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CcCompilesHelloC compiles the C fixture for the host with `zig cc` and\nasserts the produced artifact is non-empty.").
+							WithSourceMap(dag.SourceMap("main.go", 336, 1))).
+					WithFunction(
+						dag.Function("CcCrossWindowsProducesExe",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CcCrossWindowsProducesExe cross-compiles the C fixture for\nx86_64-windows-gnu and asserts the artifact carries the requested output\nname. Resolving .Name runs the cross-compile, so a successful Name read also\nproves the cross build succeeded.").
+							WithSourceMap(dag.SourceMap("main.go", 466, 1))).
+					WithFunction(
+						dag.Function("CcRejectsEmptyFiles",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CcRejectsEmptyFiles asserts Cc rejects an empty files slice. Cc returns a\nlazy file, so the validation error surfaces on resolve.").
+							WithSourceMap(dag.SourceMap("main.go", 483, 1))).
+					WithFunction(
+						dag.Function("CcRejectsPathOutputName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CcRejectsPathOutputName asserts Cc rejects a path-like outputName (the\nparameter is a bare filename, not a path). The validation error surfaces on\nresolve, before any zig exec runs.").
+							WithSourceMap(dag.SourceMap("main.go", 500, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithBuildCatchesCompileError",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithBuildCatchesCompileError is the core regression test for issue\n#161: Ci.Check must compile when WithBuild was requested. The no-compile\nfixture is fmt-clean but does not type-check, so with only Fmt enabled Check\nreports a false green (see CiCheckWithoutBuildIsFmtOnly). Adding WithBuild\nmust make Check run the build stage and surface the compile error.").
+							WithSourceMap(dag.SourceMap("main.go", 591, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithBuildPassesOnCleanProject",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithBuildPassesOnCleanProject configures every stage against the clean\nhello fixture and calls Check (not Run), asserting no error. With WithBuild\nenabled, Check runs fmt, test, and the build stage; a nil return proves all\nthree passed. Together with CiCheckWithBuildCatchesCompileError (build catches\na compile error) this proves the build stage genuinely runs under Check when\nrequested, rather than being silently skipped.").
+							WithSourceMap(dag.SourceMap("main.go", 621, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithoutBuildIsFmtOnly",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithoutBuildIsFmtOnly is the counterpart to\nCiCheckWithBuildCatchesCompileError and pins the opt-in semantics: without\nWithBuild, Check runs only the enabled static checks and never compiles. The\nno-compile fixture is fmt-clean, so Fmt-only Check passes even though the\nproject does not build. This preserves the documented build-free Check for\nmulti-target pipelines that share one check run across N target builds.").
+							WithSourceMap(dag.SourceMap("main.go", 608, 1))).
+					WithFunction(
+						dag.Function("CiRunAggregatesFailures",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunAggregatesFailures runs Ci against the ci-bad fixture with both Fmt and\nTest enabled and asserts stage-1 aggregated BOTH job failures rather than\nshort-circuiting on the first. Fmt fails with the \"unformatted files\" message\nand Test fails with a withExec \"exit code\" error; the parallel aggregator\nconcatenates both, so requiring both signatures in the message proves both\njobs ran and both errors propagated (and the build was skipped).").
+							WithSourceMap(dag.SourceMap("main.go", 639, 1))).
+					WithFunction(
+						dag.Function("CiRunAllStagesProducesBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunAllStagesProducesBinary runs Ci with every stage enabled against the\nhello fixture and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 571, 1))).
+					WithFunction(
+						dag.Function("CiWithFmtPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithFmtPasses runs Ci with only the Fmt check enabled against the\nfmt-clean hello fixture and asserts the build stage still produces a\nnon-empty binary.").
+							WithSourceMap(dag.SourceMap("main.go", 545, 1))).
+					WithFunction(
+						dag.Function("CiWithTestPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiWithTestPasses runs Ci with only the Test check enabled (zig build test)\nagainst the hello fixture and asserts a non-empty binary is produced.").
+							WithSourceMap(dag.SourceMap("main.go", 558, 1))).
+					WithFunction(
+						dag.Function("ContainerHasZigToolchain",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasZigToolchain proves the base container is reachable, the\ndownloaded toolchain is on PATH, the source is mounted at /src, and `zig`\nruns. This is the canary for every other test — if it fails, the rest can't\npossibly pass.").
+							WithSourceMap(dag.SourceMap("main.go", 124, 1))).
+					WithFunction(
+						dag.Function("ContainerInfersVersionFromZon",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerInfersVersionFromZon asserts that constructing the module with\nNew(\"\") and a fixture whose build.zig.zon declares\nminimum_zig_version = zonVersion actually downloads the matching toolchain —\ni.e. resolveVersion + ZON parsing wire through to toolchain selection.\nzonVersion is a different patch than the pinned default, so a match proves\ninference rather than the fallback.").
+							WithSourceMap(dag.SourceMap("main.go", 143, 1))).
+					WithFunction(
+						dag.Function("CxxCompilesHelloCpp",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CxxCompilesHelloCpp compiles the C++ fixture for the host with `zig c++` and\nasserts the produced artifact is non-empty.").
+							WithSourceMap(dag.SourceMap("main.go", 515, 1))).
+					WithFunction(
+						dag.Function("EnvContainsVersionKey",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EnvContainsVersionKey calls the source-less Env and asserts the `zig env`\nJSON contains the version key.").
+							WithSourceMap(dag.SourceMap("main.go", 171, 1))).
+					WithFunction(
+						dag.Function("FmtHelloIsClean",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FmtHelloIsClean runs Fmt against the fmt-clean hello fixture and asserts no\nerror is returned.").
+							WithSourceMap(dag.SourceMap("main.go", 311, 1))).
+					WithFunction(
+						dag.Function("FmtUnformattedReportsFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FmtUnformattedReportsFile runs Fmt against the unformatted fixture and\nasserts it returns an error naming the offending file. Fmt surfaces the\noffending paths only via the error (it returns error alone, since a Dagger\nfunction's non-error return value is dropped at the GraphQL boundary when it\nalso returns a non-nil error).").
+							WithSourceMap(dag.SourceMap("main.go", 323, 1))).
+					WithFunction(
+						dag.Function("ObjCopyProducesBinary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ObjCopyProducesBinary converts the BuildExe ELF to a raw .bin and asserts the\nresult is non-empty and no longer carries the ELF magic.").
+							WithSourceMap(dag.SourceMap("main.go", 355, 1))).
+					WithFunction(
+						dag.Function("ObjCopyProducesIntelHex",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ObjCopyProducesIntelHex converts the BuildExe ELF to Intel HEX and asserts the\nfirst record begins with ':' (the Intel HEX record start code).").
+							WithSourceMap(dag.SourceMap("main.go", 388, 1))).
+					WithFunction(
+						dag.Function("ObjCopyRejectsUnknownFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ObjCopyRejectsUnknownFormat asserts ObjCopy rejects an unsupported format\n(e.g. \"uf2\"). ObjCopy returns a lazy file, so the error surfaces on resolve.").
+							WithSourceMap(dag.SourceMap("main.go", 401, 1))).
+					WithFunction(
+						dag.Function("RunHelloPrintsHello",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunHelloPrintsHello runs the hello fixture and asserts its stdout contains\n\"hello\".").
+							WithSourceMap(dag.SourceMap("main.go", 298, 1))).
+					WithFunction(
+						dag.Function("SizeRejectsNonElf",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SizeRejectsNonElf feeds a raw .bin (produced by ObjCopy) into Size and asserts\na clear non-ELF error.").
+							WithSourceMap(dag.SourceMap("main.go", 450, 1))).
+					WithFunction(
+						dag.Function("SizeReportsSections",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SizeReportsSections asserts Size on the BuildExe host ELF returns Text > 0 and\ninternally consistent Flash/Ram rollups.").
+							WithSourceMap(dag.SourceMap("main.go", 414, 1))).
+					WithFunction(
+						dag.Function("TargetsListsKnownArch",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TargetsListsKnownArch calls the source-less Targets and asserts a known\narchitecture appears in the output.").
+							WithSourceMap(dag.SourceMap("main.go", 184, 1))).
+					WithFunction(
+						dag.Function("TestDirectFilePasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestDirectFilePasses runs `zig test main.zig` against the single-file\nfixture and asserts it succeeds.").
+							WithSourceMap(dag.SourceMap("main.go", 289, 1))).
+					WithFunction(
+						dag.Function("TestHelloBuildStepPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestHelloBuildStepPasses runs `zig build test` against the hello fixture and\nasserts it succeeds.").
+							WithSourceMap(dag.SourceMap("main.go", 280, 1))).
+					WithFunction(
+						dag.Function("ToolVersionReturnsVersion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ToolVersionReturnsVersion calls the source-less ToolVersion and asserts it\nreturns a dotted version string.").
+							WithSourceMap(dag.SourceMap("main.go", 158, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

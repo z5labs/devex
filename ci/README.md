@@ -14,7 +14,7 @@ whole rather than any one module's closure:
 
 | check | what it proves |
 | --- | --- |
-| `ci:generated` | every committed `dagger.gen.go` and `internal/dagger/*.gen.go` matches what `dagger develop` produces at the pinned `engineVersion` |
+| `ci:generated` | every committed `dagger.gen.go` and `internal/dagger/*.gen.go` matches what codegen produces at the pinned `engineVersion` |
 | `ci:generated-self-test` | `ci:generated` can actually fail — it makes one module deliberately stale and demands a red |
 | `ci:selection-self-test` | the planner's change → modules → legs mapping still holds against its fixtures |
 
@@ -30,14 +30,14 @@ dagger check 'ci:generated'     # run one
 ```
 ==> daggerverse/kafka/tests is not up-to-date:
 <patch>
-generated files are not up-to-date; run `dagger develop` in: daggerverse/kafka/tests
+generated files are not up-to-date; regenerate: daggerverse/kafka/tests
 ```
 
 Dependency bindings embed the source location of every function
 (`// kafka (../../../../../daggerverse/kafka/cluster_kafka.go:401:1)`), so
 an edit that only shifts line numbers in `daggerverse/<m>` still leaves
-every dependent module stale. Re-run `dagger develop` in the module *and*
-in each dependent.
+every dependent module stale. Re-run `hack/regen.sh`, which regenerates the
+whole tree in dependency order.
 
 ## Running checks locally
 
@@ -85,7 +85,7 @@ toolchains were retired with it (#290). Three things fall out:
   Those bindings embed the source *location* of every function in the
   suite they were generated from, so any edit to any tests module — a
   comment, a blank line — left the root module's copy stale and turned
-  `ci:generated` red until someone re-ran `dagger develop` at the root
+  `ci:generated` red until someone regenerated the root module
   and committed the churn. That tax was paid on nearly every PR.
 - **The run-everything path stops being one enormous leg.** A plan that
   selects everything emits one coarse leg per module, whose `dagger
