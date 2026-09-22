@@ -244,6 +244,36 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the crypto-examples Dagger module: a runnable cookbook of\ncrypto recipes. It covers both halves of the module's surface -- digesting a\nfile you already have, and generating a keypair you don't -- and each recipe\nis written the way a downstream consumer would call it, passing only files\nand primitives across the module boundary.\n").
+			WithObject(
+				dag.TypeDef().WithObject("CryptoExamples", dagger.TypeDefWithObjectOpts{Description: "CryptoExamples is the module's main object: a namespace for the crypto usage\nrecipes.", SourceMap: dag.SourceMap("main.go", 16, 6)}).
+					WithFunction(
+						dag.Function("GenerateEd25519SshKey",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("GenerateEd25519SshKey returns a directory holding a fresh Ed25519 SSH\nidentity under the names ssh expects: the PKCS#8 private key as\n`id_ed25519` and the OpenSSH-formatted public key as `id_ed25519.pub`, the\nsingle line you paste into an `authorized_keys` file or a Git host.\n\n\tdagger call generate-ed25519-ssh-key export --path ~/.ssh\n\nThis is the SSH flow in miniature: crypto emits the private key as PEM and\nthe public key in OpenSSH wire format from the same generated key, so no\nssh-keygen container is needed anywhere in the pipeline. As in\nGenerateRsaKeypair, the key is resolved to one instance before both files\nare derived from it.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 112, 1))).
+					WithFunction(
+						dag.Function("GenerateRsaKeypair",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("GenerateRsaKeypair returns a directory holding a freshly generated RSA\nkeypair: the PKCS#8 private key as `key.pem` and its PKIX public half as\n`key.pub.pem`. Export it to see both files at once:\n\n\tdagger call generate-rsa-keypair export --path ./keys\n\nThe two halves are matched because the recipe resolves the generated key to\na single instance (via its ID) before deriving files from it. Selecting\n.pem() and .publicKeyPem() straight off the generator would build two\nindependent queries, and because key generation carries `each would run its own generator and hand back halves of two different keys.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 79, 1)).
+							WithArg("bits", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{Description: "Modulus size in bits. Matches crypto's own default; drop to 2048 when\nyou want the recipe to finish quickly.", SourceMap: dag.SourceMap("main.go", 85, 2), DefaultValue: dagger.JSON("4096")})).
+					WithFunction(
+						dag.Function("HashSourceFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("HashSourceFile returns the SHA-256 hex digest of a caller-supplied file --\nthe everyday recipe for fingerprinting a build artifact, a lockfile, or a\ndownloaded release before you trust it.\n\nHashing is pure, so this function is deliberately left on Dagger's default\ncaching: the same bytes always digest to the same string, and a repeat call\nshould replay rather than re-read the file.").
+							WithSourceMap(dag.SourceMap("main.go", 39, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The file to digest. Defaults to a small built-in sample so the recipe\nruns with no arguments.", SourceMap: dag.SourceMap("main.go", 45, 2)})).
+					WithFunction(
+						dag.Function("HashWithSha3",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("HashWithSha3 returns the SHA3-512 hex digest of the same file\nHashSourceFile digests. Run both to see that SHA-2 and SHA-3 are different\nalgorithms, not different sizes of one: SHA3-512 is a Keccak sponge, so its\ndigest shares no bytes with the SHA-256 one even though the input is\nidentical. Reach for it when a policy mandates the SHA-3 family.").
+							WithSourceMap(dag.SourceMap("main.go", 55, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The file to digest. Defaults to a small built-in sample so the recipe\nruns with no arguments.", SourceMap: dag.SourceMap("main.go", 61, 2)}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

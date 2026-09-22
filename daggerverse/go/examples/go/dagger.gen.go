@@ -272,6 +272,38 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the go-examples Dagger module: a runnable cookbook of go\nrecipes. Each one walks a common Go-toolchain operation -- compile, test,\ntidy up, install a tool -- the way a downstream consumer would call it,\npassing only directories, files and primitives across the module boundary.\n\nEvery recipe defaults to the sample module vendored in `sample/`\n(a two-package, stdlib-only `example.com/greeter`), so `dagger call` works\nwith no arguments; pass --source to point any recipe at your own tree.\n").
+			WithObject(
+				dag.TypeDef().WithObject("GoExamples", dagger.TypeDefWithObjectOpts{Description: "GoExamples is the module's main object: a namespace for the go usage\nrecipes.", SourceMap: dag.SourceMap("main.go", 20, 6)}).
+					WithFunction(
+						dag.Function("BuildBinary",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("BuildBinary compiles a Go source tree and returns the single produced\nexecutable as a *dagger.File -- the recipe to reach for when the artifact\nyou actually want out of a pipeline is one binary to ship:\n\n\tdagger call build-binary export --path ./greeter\n\nTwo details worth copying. Build returns the whole /out directory (go\nbuild can emit one binary per main package), so you select the file you\nwant out of it. And passing output pins that filename, which is what makes\nthe .File(\"app\") selection below deterministic -- leave output empty and\ngo names each binary after its own package instead.\n\nNote the toolchain is never named here: go infers it from the source's\ngo.mod `go` directive, so the sample builds on golang:1.23. Pin it\nexplicitly with dag.Go(dagger.GoOpts{Version: \"1.24\"}) when a project\nneeds a newer compiler than it declares.").
+							WithSourceMap(dag.SourceMap("main.go", 51, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The Go source tree to build. Defaults to the built-in sample module.", SourceMap: dag.SourceMap("main.go", 55, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The package to build, relative to the source root. Must resolve to a\nsingle main package, since output names one file.", SourceMap: dag.SourceMap("main.go", 60, 2), DefaultValue: dagger.JSON("\".\"")})).
+					WithFunction(
+						dag.Function("InstallTool",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("InstallTool `go install`s a command-line tool and returns the compiled\nbinary as a *dagger.File, ready to mount into any other container:\n\n\tdagger call install-tool export --path ./yamlfmt\n\nThis is how you get a Go-distributed tool into a pipeline without building\nan image for it. The returned file is named after the package's last path\nsegment (`yamlfmt`), matching go install's own naming rules, and the\ninstall runs in a source-less container -- so the same tool installed by\nseveral stages resolves to one shared build.\n\npkg must pin an explicit version. go rejects `@latest` and bare paths,\nbecause Install is cached for the session: without a pin the proxy could\nresolve a different version on a later call and the pipeline would\nsilently keep serving the first binary it happened to build.").
+							WithSourceMap(dag.SourceMap("main.go", 147, 1)).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The tool package to install, pinned to an explicit version.", SourceMap: dag.SourceMap("main.go", 151, 2), DefaultValue: dagger.JSON("\"github.com/google/yamlfmt/cmd/yamlfmt@v0.21.0\"")})).
+					WithFunction(
+						dag.Function("ModuleHygiene",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("ModuleHygiene runs the three housekeeping checks a Go repo wants before it\ncommits -- gofmt, go vet, go mod tidy -- and returns the tidied source\ntree:\n\n\tdagger call module-hygiene export --path ./tidied\n\nThe ordering is the lesson. Fmt and Vet are gates: each returns an error\nthe moment it finds a problem, so an unformatted file or a bad Printf verb\nstops the recipe before anything is rewritten. Only once both pass does\nModTidy run and hand back /src, which is why the exported directory is\nalways a tree that already passed its checks.\n\nFmt also returns the gofmt diff alongside its error. That output is the\nuseful half of the failure, so it is folded into the error message here\ninstead of being dropped.").
+							WithSourceMap(dag.SourceMap("main.go", 110, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The Go source tree to check and tidy. Defaults to the built-in sample\nmodule.", SourceMap: dag.SourceMap("main.go", 116, 2)})).
+					WithFunction(
+						dag.Function("TestPackage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("TestPackage runs `go test ./...` over a source tree and returns the\ncombined output, so a failing package shows up as text you can read rather\nthan an opaque exit code:\n\n\tdagger call test-package\n\ngo always passes -count=1, which disables Go's own test cache: inside a\npipeline you want the tests to actually execute, not replay a previous\n\"ok (cached)\" line. Set race to add the data-race detector, the same knob\nthe Ci builder's WithTest(race) flips.").
+							WithSourceMap(dag.SourceMap("main.go", 77, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{Description: "The Go source tree to test. Defaults to the built-in sample module.", SourceMap: dag.SourceMap("main.go", 82, 2)}).
+							WithArg("pkg", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The package pattern to test.", SourceMap: dag.SourceMap("main.go", 86, 2), DefaultValue: dagger.JSON("\"./...\"")}).
+							WithArg("race", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Enable the data-race detector (`go test -race`).", SourceMap: dag.SourceMap("main.go", 90, 2), DefaultValue: dagger.JSON("false")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -9,39 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type GoExamples
-func (r *Binding) AsGoExamples() *GoExamples { // go-examples (../../../../../daggerverse/go/examples/go/main.go:20:6)
-	q := r.query.Select("asGoExamples")
-
-	return &GoExamples{
-		query: q,
-	}
-}
-
-// Create or update a binding of type GoExamples in the environment
-func (r *Env) WithGoExamplesInput(name string, value *GoExamples, description string) *Env { // go-examples (../../../../../daggerverse/go/examples/go/main.go:20:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withGoExamplesInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired GoExamples output to be assigned in the environment
-func (r *Env) WithGoExamplesOutput(name string, description string) *Env { // go-examples (../../../../../daggerverse/go/examples/go/main.go:20:6)
-	q := r.query.Select("withGoExamplesOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // GoExamples is the module's main object: a namespace for the go usage
 // recipes.
 type GoExamples struct { // go-examples (../../../../../daggerverse/go/examples/go/main.go:20:6)

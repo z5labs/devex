@@ -244,6 +244,38 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 10, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every random test inside this suite.\n\nparallel caps how many tests run concurrently. Defaults to 0 (unbounded\nfan-out) — each `dagger check` job runs on its own GH Actions runner, so\nin-runner parallelism is bounded by the VM's CPU/memory, not by the\nscheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 21, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 24, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("SerialShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 148, 1))).
+					WithFunction(
+						dag.Function("Sha256ShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 114, 1))).
+					WithFunction(
+						dag.Function("Sha512ShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 131, 1))).
+					WithFunction(
+						dag.Function("UuidV4ShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 80, 1))).
+					WithFunction(
+						dag.Function("UuidV7ShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 97, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

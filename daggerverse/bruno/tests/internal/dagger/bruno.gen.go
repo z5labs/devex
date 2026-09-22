@@ -9,33 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type Bruno
-func (r *Binding) AsBruno() *Bruno { // bruno (../../../../../daggerverse/bruno/main.go:47:6)
-	q := r.query.Select("asBruno")
-
-	return &Bruno{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type BrunoCi
-func (r *Binding) AsBrunoCi() *BrunoCi { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
-	q := r.query.Select("asBrunoCi")
-
-	return &BrunoCi{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type BrunoCollection
-func (r *Binding) AsBrunoCollection() *BrunoCollection { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
-	q := r.query.Select("asBrunoCollection")
-
-	return &BrunoCollection{
-		query: q,
-	}
-}
-
 // Bruno wraps the Bruno CLI as Dagger functions. Construct via New(); call
 // Container() for the raw image, or Collection(source) to bind a collection
 // and reach Run/Report.
@@ -1162,78 +1135,6 @@ func (r *BrunoCollection) WithoutTruststore() *BrunoCollection { // bruno (../..
 func (r *BrunoCollection) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
-	}
-}
-
-// Create or update a binding of type BrunoCi in the environment
-func (r *Env) WithBrunoCiInput(name string, value *BrunoCi, description string) *Env { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withBrunoCiInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired BrunoCi output to be assigned in the environment
-func (r *Env) WithBrunoCiOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/ci.go:37:6)
-	q := r.query.Select("withBrunoCiOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type BrunoCollection in the environment
-func (r *Env) WithBrunoCollectionInput(name string, value *BrunoCollection, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withBrunoCollectionInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired BrunoCollection output to be assigned in the environment
-func (r *Env) WithBrunoCollectionOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/collection.go:94:6)
-	q := r.query.Select("withBrunoCollectionOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Bruno in the environment
-func (r *Env) WithBrunoInput(name string, value *Bruno, description string) *Env { // bruno (../../../../../daggerverse/bruno/main.go:47:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withBrunoInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Bruno output to be assigned in the environment
-func (r *Env) WithBrunoOutput(name string, description string) *Env { // bruno (../../../../../daggerverse/bruno/main.go:47:6)
-	q := r.query.Select("withBrunoOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
 	}
 }
 

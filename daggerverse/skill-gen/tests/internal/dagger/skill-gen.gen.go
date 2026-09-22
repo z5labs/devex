@@ -9,39 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type SkillGen
-func (r *Binding) AsSkillGen() *SkillGen { // skill-gen (../../../../../daggerverse/skill-gen/main.go:22:6)
-	q := r.query.Select("asSkillGen")
-
-	return &SkillGen{
-		query: q,
-	}
-}
-
-// Create or update a binding of type SkillGen in the environment
-func (r *Env) WithSkillGenInput(name string, value *SkillGen, description string) *Env { // skill-gen (../../../../../daggerverse/skill-gen/main.go:22:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withSkillGenInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired SkillGen output to be assigned in the environment
-func (r *Env) WithSkillGenOutput(name string, description string) *Env { // skill-gen (../../../../../daggerverse/skill-gen/main.go:22:6)
-	q := r.query.Select("withSkillGenOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // SkillGen is the module's root object.
 func (r *Query) SkillGen() *SkillGen { // skill-gen (../../../../../daggerverse/skill-gen/main.go:22:6)
 	q := r.query.Select("skillGen")

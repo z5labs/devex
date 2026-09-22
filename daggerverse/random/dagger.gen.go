@@ -251,6 +251,43 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithObject(
+				dag.TypeDef().WithObject("Random", dagger.TypeDefWithObjectOpts{Description: "Random provides functions for generating random values such as UUIDs and\nrandom-derived SHA hashes. Each call returns a fresh value; results are not\ncached by the Dagger engine.", SourceMap: dag.SourceMap("main.go", 17, 6)}).
+					WithFunction(
+						dag.Function("Serial",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Serial generates a random n-byte X.509 serial number and returns it as a\nlowercase hexadecimal string (n*2 chars). The default n=16 yields a 128-bit\nserial, which is the recommended size for newly issued certificates. The\nlow bit is forced to 1 so the value is always non-zero (an all-zero output,\nwhile astronomically unlikely from crypto/rand, would be rejected by\nconsumers that require a positive integer such as crypto/x509). ASN.1\nINTEGER sign encoding is x509's responsibility and is unaffected by this\nadjustment.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 93, 1)).
+							WithArg("n", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 95, 2), DefaultValue: dagger.JSON("16")})).
+					WithFunction(
+						dag.Function("Sha256",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha256 generates a random n-byte value and returns its SHA-256 hash as a hexadecimal string.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 44, 1)).
+							WithArg("n", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 46, 2), DefaultValue: dagger.JSON("32")})).
+					WithFunction(
+						dag.Function("Sha512",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha512 generates a random n-byte value and returns its SHA-512 hash as a hexadecimal string.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 65, 1)).
+							WithArg("n", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 67, 2), DefaultValue: dagger.JSON("64")})).
+					WithFunction(
+						dag.Function("UuidV4",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("UuidV4 generates a random UUID version 4 and returns it as a string.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 22, 1))).
+					WithFunction(
+						dag.Function("UuidV7",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("UuidV7 generates a random UUID version 7 and returns it as a string.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 33, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -29,14 +30,16 @@ const engineConcurrency = 8
 // workspace is the repository a plan is computed from, materialized on disk with
 // everything read off it that does not depend on the diff.
 //
-// Module sources are resolved from the exported copy rather than from the live
-// Workspace because a module loaded from a Workspace handle resolves its
-// dependencies' default-path contexts against host paths this runtime cannot see.
-// Everything under the exported root is visible to it, which is also what lets a
-// caller plan for a repository that is not their workspace at all.
+// It is held two ways because the two things done to it need different handles.
+// go-git reads an os filesystem, so the repository is exported to disk; module
+// sources are resolved off the Directory, because a module runtime cannot load a
+// local module source at all (see moduleSource). Both describe the same tree,
+// which is also what lets a caller plan for a repository that is not their
+// workspace.
 type workspace struct {
 	m       *WorkspaceCi
-	root    string // absolute path of the exported repository
+	dir     *dagger.Directory // the repository
+	root    string            // absolute path of the exported copy
 	cleanup func()
 
 	// moduleDirs is every module in the repository, repo-relative and sorted, with
@@ -70,7 +73,7 @@ type workspace struct {
 func (m *WorkspaceCi) load(ctx context.Context, repo *dagger.Directory, ws *dagger.Workspace) (*workspace, error) {
 	if repo == nil {
 		if ws == nil {
-			ws = dag.CurrentWorkspace()
+			return nil, fmt.Errorf("neither repo nor workspace was supplied: a Dagger CLI fills workspace in from the caller's own, but a module calling this one has no workspace to offer and has to pass repo")
 		}
 		// "/" -- an absolute path, which resolves from the workspace boundary. A
 		// relative "." resolves from the workspace's current directory, which is
@@ -78,11 +81,11 @@ func (m *WorkspaceCi) load(ctx context.Context, repo *dagger.Directory, ws *dagg
 		repo = ws.Directory("/")
 	}
 
-	root, cleanup, err := exportDir(ctx, repo)
+	root, _, cleanup, err := exportDir(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	out := &workspace{m: m, root: root, cleanup: cleanup, srcs: map[string]map[string]bool{}}
+	out := &workspace{m: m, dir: repo, root: root, cleanup: cleanup, srcs: map[string]map[string]bool{}}
 
 	if out.moduleDirs, err = moduleRoots(root); err != nil {
 		cleanup()
@@ -90,12 +93,28 @@ func (m *WorkspaceCi) load(ctx context.Context, repo *dagger.Directory, ws *dagg
 	}
 	out.sources = make(map[string]*dagger.ModuleSource, len(out.moduleDirs))
 	for _, dir := range out.moduleDirs {
-		out.sources[dir] = dag.ModuleSource(filepath.Join(root, dir))
+		out.sources[dir] = moduleSource(repo, dir)
 	}
 	out.rootSource, out.bindings = out.rootConfig(ctx)
 	out.adj = out.dependencyGraph(ctx)
 	out.closures = planner.BuildClosures(out.adj)
 	return out, nil
+}
+
+// moduleSource resolves the module rooted at dir -- repo-relative, "." for the
+// root module -- out of the repository directory.
+//
+// It is resolved from the Directory rather than from a path under the exported
+// copy because a module runtime cannot load a local module source: the engine
+// serves a local path from the session's own client, which is the host, where
+// this container's scratch directory does not exist. Everything the module needs
+// is in the Directory, and its context is the whole repository, which is what
+// lets a dependency spelled "../../crypto" resolve.
+func moduleSource(repo *dagger.Directory, dir string) *dagger.ModuleSource {
+	if dir == planner.RootModule {
+		return repo.AsModuleSource()
+	}
+	return repo.AsModuleSource(dagger.DirectoryAsModuleSourceOpts{SourceRootPath: dir})
 }
 
 // rootConfig reads what the root module contributes to attribution: where its own
@@ -119,28 +138,86 @@ func (ws *workspace) rootConfig(ctx context.Context) (rootSource string, binding
 	// reports "".
 	rootSource = strings.TrimPrefix(rootSource, "/")
 
-	toolchains, err := src.Toolchains(ctx)
+	return rootSource, planner.AggregatorBindings(rootSource, ws.toolchains())
+}
+
+// toolchains maps each local toolchain the root module installs to its
+// repo-relative source root, read straight out of the root dagger.json.
+//
+// It is read from disk rather than through ModuleSource.toolchains because that
+// field no longer exists: Dagger v1 moved toolchains (and blueprints) to
+// workspaces and refuses to load a module whose dagger.json still declares them.
+// The config is still the only place the mapping was ever written down, and the
+// exported tree is already on disk, so reading it here costs no engine round trip
+// and keeps #179's attribution working for the workspaces that do declare
+// toolchains -- a repository whose root module cannot be loaded can still be
+// planned for, since only affected modules are ever loaded.
+//
+// Anything unreadable yields no mapping at all, which is the fail-safe direction:
+// an unattributed binding belongs to the root module and runs everything.
+func (ws *workspace) toolchains() map[string]string {
+	cfg, err := readModuleConfig(filepath.Join(ws.root, planner.RootModule))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the root module's toolchains (%v); their generated bindings will run everything\n", err)
-		return rootSource, nil
+		fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the root module's config (%v); its generated bindings will run everything\n", err)
+		return nil
 	}
-	names := map[string]string{}
-	for i := range toolchains {
-		tc := toolchains[i]
-		if kind, err := tc.Kind(ctx); err != nil || kind != dagger.ModuleSourceKindLocalSource {
+	out := make(map[string]string, len(cfg.Toolchains))
+	for _, tc := range cfg.Toolchains {
+		if tc.Source == "" {
 			continue
 		}
-		name, err := tc.ModuleName(ctx)
+		// A toolchain's source is relative to the dagger.json that declares it,
+		// which for the root module is the repository root -- so the cleaned path
+		// is already the repo-relative source root. A git ref has no dagger.json
+		// under the repository and is skipped: a commit here cannot change it, and
+		// so is anything that climbs out of the repository, which no path in a
+		// plan may name.
+		dir := filepath.Clean(tc.Source)
+		if filepath.IsAbs(dir) || dir == ".." || strings.HasPrefix(dir, "../") {
+			continue
+		}
+		sub, err := readModuleConfig(filepath.Join(ws.root, dir))
 		if err != nil {
 			continue
 		}
-		dir, err := tc.SourceRootSubpath(ctx)
-		if err != nil {
+		name := tc.Name
+		if name == "" {
+			name = sub.Name
+		}
+		if name == "" {
 			continue
 		}
-		names[name] = dir
+		out[name] = dir
 	}
-	return rootSource, planner.AggregatorBindings(rootSource, names)
+	return out
+}
+
+// moduleConfig is the part of a dagger.json this module reads.
+type moduleConfig struct {
+	Name string `json:"name"`
+	// Source is where the module's own code lives, relative to the module root.
+	// Empty means the root itself.
+	Source string `json:"source"`
+	// Include is the module's context patterns, an entry prefixed with "!" being
+	// an exclusion.
+	Include    []string `json:"include"`
+	Toolchains []struct {
+		Name   string `json:"name"`
+		Source string `json:"source"`
+	} `json:"toolchains"`
+}
+
+// readModuleConfig reads the dagger.json of the module rooted at dir.
+func readModuleConfig(dir string) (moduleConfig, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, "dagger.json"))
+	if err != nil {
+		return moduleConfig{}, err
+	}
+	var cfg moduleConfig
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return moduleConfig{}, fmt.Errorf("parse %s: %w", filepath.Join(dir, "dagger.json"), err)
+	}
+	return cfg, nil
 }
 
 // dependencyGraph returns each module's direct local dependencies, keyed by module
@@ -167,7 +244,14 @@ func (ws *workspace) dependencyGraph(ctx context.Context) map[string][]string {
 			var dirs []string
 			for i := range deps {
 				dep := deps[i]
-				if kind, err := dep.Kind(ctx); err != nil || kind != dagger.ModuleSourceKindLocalSource {
+				// GIT_SOURCE is the one kind to drop, and the test is written that
+				// way round on purpose: a module's dependency reports LOCAL_SOURCE
+				// when the module was resolved from a path and DIR_SOURCE when it was
+				// resolved from a Directory, which is how this module resolves every
+				// one of them. Matching LOCAL_SOURCE instead would quietly empty the
+				// graph, leaving every module with no dependents and a change to a
+				// shared module reaching nothing.
+				if kind, err := dep.Kind(ctx); err != nil || kind == dagger.ModuleSourceKindGitSource {
 					continue
 				}
 				sub, err := dep.SourceRootSubpath(ctx)
@@ -382,8 +466,7 @@ func (ws *workspace) resolveSources(ctx context.Context, want map[string]bool) {
 	var g errgroup.Group
 	g.SetLimit(engineConcurrency)
 	for dir := range want {
-		src, known := ws.sources[dir]
-		if !known {
+		if _, known := ws.sources[dir]; !known {
 			continue
 		}
 		mu.Lock()
@@ -393,7 +476,7 @@ func (ws *workspace) resolveSources(ctx context.Context, want map[string]bool) {
 			continue
 		}
 		g.Go(func() error {
-			set, err := sourceContext(ctx, src, dir)
+			set, err := ws.sourceContext(ctx, dir)
 			if err != nil {
 				// Never fatal: the caller's fail-safes cover an unresolved module.
 				fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the source context of %q (%v); treating everything under it as an input\n", dir, err)
@@ -408,56 +491,95 @@ func (ws *workspace) resolveSources(ctx context.Context, want map[string]bool) {
 	g.Wait() //nolint:errcheck // every goroutine returns nil by construction
 }
 
-// sourceContext lists the repo-relative file paths Dagger uploads for the module
-// rooted at dir. The context directory is rooted at the repository, so the glob is
-// scoped back down to the module — otherwise a module with dependencies would
-// claim its dependencies' files as its own inputs, and the dependency closure is
-// what propagates those. The root module is the exception: its context is already
-// just its own source plus the root dagger.json.
-func sourceContext(ctx context.Context, src *dagger.ModuleSource, dir string) (map[string]bool, error) {
-	pattern := "**"
-	if dir != planner.RootModule {
-		pattern = dir + "/**"
-	}
-	paths, err := src.ContextDirectory().Glob(ctx, pattern)
+// sourceContext lists the repo-relative file paths that make up the source of the
+// module rooted at dir: its config file, the subtree its config points its source
+// at, and whatever its include patterns add, less whatever they take away.
+//
+// That set is what decides whether a changed path is an input to a module at all,
+// and it is computed here rather than read off ModuleSource.contextDirectory
+// because on Dagger v1 that field cannot answer the question. A module resolved
+// from a Directory — the only kind a module runtime can resolve, see moduleSource
+// — reports the whole Directory as its context, unfiltered and identical for
+// every module in the workspace. Taken at face value the root module would own
+// every path in the repository, which makes every change global and, because an
+// untracked file anywhere would then be one of its inputs, every leg unhashable.
+//
+// The filtering itself is still the engine's: the patterns are handed to
+// Directory.filter rather than matched here. What this reproduces is only how a
+// module config names them — an include entry prefixed with "!" is an exclusion,
+// and paths are relative to the module's own root.
+//
+// Scoping to the module also keeps a module with dependencies from claiming its
+// dependencies' files as its own inputs; the dependency closure is what propagates
+// those.
+func (ws *workspace) sourceContext(ctx context.Context, dir string) (map[string]bool, error) {
+	cfg, err := readModuleConfig(filepath.Join(ws.root, dir))
 	if err != nil {
 		return nil, err
+	}
+
+	include := []string{"dagger.json"}
+	if src := strings.Trim(filepath.Clean(cfg.Source), "/"); src == "" || src == "." {
+		include = append(include, "**")
+	} else {
+		include = append(include, src+"/**")
+	}
+	var exclude []string
+	for _, pattern := range cfg.Include {
+		if rest, found := strings.CutPrefix(pattern, "!"); found {
+			exclude = append(exclude, rest)
+			continue
+		}
+		include = append(include, pattern)
+	}
+
+	paths, err := ws.dir.Directory(dir).
+		Filter(dagger.DirectoryFilterOpts{Include: include, Exclude: exclude}).
+		Glob(ctx, "**")
+	if err != nil {
+		return nil, err
+	}
+
+	prefix := ""
+	if dir != planner.RootModule {
+		prefix = dir + "/"
 	}
 	set := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		if strings.HasSuffix(p, "/") {
 			continue // directory entry
 		}
-		set[p] = true
+		set[prefix+p] = true
 	}
 	return set, nil
 }
 
 // exportDir materializes a directory into the module's scratch workdir (the
-// Export/workdir runtime-I/O pattern) and returns its absolute path plus a cleanup
-// that is always safe to call.
+// Export/workdir runtime-I/O pattern) and returns its path relative to that
+// workdir and absolutely, plus a cleanup that is always safe to call.
 //
-// Export is required twice over: go-git reads an os filesystem, and module sources
-// are resolved as local paths, which have to exist on disk. A lazy Directory
-// handle is neither.
-func exportDir(ctx context.Context, dir *dagger.Directory) (string, func(), error) {
+// Export is what go-git needs: it reads an os filesystem, and a lazy Directory
+// handle is not one. The relative name is returned as well because it is what
+// dag.CurrentModule().Workdir takes, which is how a tree this module has written
+// to disk is read back as a Directory.
+func exportDir(ctx context.Context, dir *dagger.Directory) (abs, rel string, cleanup func(), err error) {
 	suffix, err := uniqueSuffix()
 	if err != nil {
-		return "", func() {}, err
+		return "", "", func() {}, err
 	}
-	scratch := "workspace-" + suffix
-	cleanup := func() { os.RemoveAll(scratch) }
+	rel = "workspace-" + suffix
+	cleanup = func() { os.RemoveAll(rel) }
 
-	if _, err := dir.Export(ctx, scratch); err != nil {
+	if _, err := dir.Export(ctx, rel); err != nil {
 		cleanup()
-		return "", func() {}, fmt.Errorf("export the repository: %w", err)
+		return "", "", func() {}, fmt.Errorf("export the repository: %w", err)
 	}
-	abs, err := filepath.Abs(scratch)
+	abs, err = filepath.Abs(rel)
 	if err != nil {
 		cleanup()
-		return "", func() {}, err
+		return "", "", func() {}, err
 	}
-	return abs, cleanup, nil
+	return abs, rel, cleanup, nil
 }
 
 // moduleRoots returns every module source root under root, repo-relative and

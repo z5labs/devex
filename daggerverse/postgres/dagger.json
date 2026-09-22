@@ -1,6 +1,6 @@
 {
   "name": "postgres",
-  "engineVersion": "v0.21.8",
+  "engineVersion": "v1.0.0-beta.13",
   "sdk": {
     "source": "go"
   },

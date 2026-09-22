@@ -293,6 +293,91 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the skill-gen daggerverse module. Each test is exposed as a\nstandalone dagger function so it can be invoked individually during TDD;\nAll wires them up for parallel execution under `dagger call all`.\n\nEvery password, cluster name, and database name is minted at runtime via\ndag.Random().Sha256 — no secret literals enter git. The schema DDL (table and\ncolumn names) is fixed test input, not a secret, so it stays inline below.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 18, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every skill-gen test for local `dagger call all`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 24, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 27, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BakesCustomPsqlImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BakesCustomPsqlImage pins that a caller-supplied psqlImage lands in the\ngenerated scripts/query.sh and scripts/.env.example in place of the default,\nso a team on a private registry gets a skill that runs out of the box\nwithout every consumer exporting PSQL_IMAGE by hand.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 201, 1))).
+					WithFunction(
+						dag.Function("DefaultsPsqlImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultsPsqlImage pins the v1 default: omitting psqlImage bakes\ndocker.io/alpine/psql:17.7 and leaves the regen command free of the flag.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 255, 1))).
+					WithFunction(
+						dag.Function("GeneratesPgSkillFromCluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratesPgSkillFromCluster pins the happy path: the full tree is present and\nfully substituted, the frontmatter is correct and model-invocable, and\nenums.md exists because the schema defines an enum.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 317, 1))).
+					WithFunction(
+						dag.Function("GeneratesPgSkillOverMtls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratesPgSkillOverMtls pins that SkillGen.Postgres introspects a mutual-TLS\ncluster when handed the server CA plus a client cert/key whose CN matches the\nrole (clientcert=verify-full), producing the full skill tree.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 577, 1))).
+					WithFunction(
+						dag.Function("GeneratesPgSkillOverTls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratesPgSkillOverTls pins that SkillGen.Postgres introspects a one-way-TLS\ncluster (sslmode=verify-full) when handed only the server CA, producing the\nfull skill tree. The server cert's SAN must cover the dialed clusterHost.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 540, 1))).
+					WithFunction(
+						dag.Function("IntrospectionFailureAborts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("IntrospectionFailureAborts pins that an introspection failure (here, a wrong\npassword against a live cluster) aborts with a non-zero error and yields no\nDirectory.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 289, 1))).
+					WithFunction(
+						dag.Function("PlaintextParamsAgainstTlsAbort",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlaintextParamsAgainstTlsAbort pins that introspecting a TLS-required cluster\nwith no cert params (plaintext) aborts: the primary's hostssl-only pg_hba.conf\nrefuses the unencrypted connection, so generation fails and yields no\nDirectory rather than silently producing partial output.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 623, 1))).
+					WithFunction(
+						dag.Function("PostgresShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PostgresShouldNotBeCached pins the non-caching contract: regenerating after a\nschema change reflects the change rather than serving a stale cached\nDirectory.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 397, 1))).
+					WithFunction(
+						dag.Function("RegenChangesetEmptyWhenUnchanged",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RegenChangesetEmptyWhenUnchanged pins byte-stability: two generations over an\nunchanged schema produce an empty changeset.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 438, 1))).
+					WithFunction(
+						dag.Function("RegenChangesetReflectsSchemaDrift",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RegenChangesetReflectsSchemaDrift pins that a schema change yields a non-empty\nchangeset: a new table modifies the references, and adding the first enum\nadds references/enums.md as a brand-new path.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 469, 1))).
+					WithFunction(
+						dag.Function("RejectsInvalidDbName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsInvalidDbName pins that a db name violating ^[A-Za-z0-9_-]+$ is\nrejected before any introspection (no cluster needed — validation precedes\nthe network).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 152, 1))).
+					WithFunction(
+						dag.Function("RejectsInvalidPsqlImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsInvalidPsqlImage pins that a psql image outside the inert charset is\nrejected before any introspection. The image is substituted raw into the\ngenerated query.sh (inside a \"${PSQL_IMAGE:-…}\" default word, where the shell\nstill expands), so a value carrying shell metacharacters must never reach\nrendering. No cluster is needed — validation precedes the network.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("tests.go", 176, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

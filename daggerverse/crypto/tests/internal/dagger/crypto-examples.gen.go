@@ -9,15 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type CryptoExamples
-func (r *Binding) AsCryptoExamples() *CryptoExamples { // crypto-examples (../../../../../daggerverse/crypto/examples/go/main.go:16:6)
-	q := r.query.Select("asCryptoExamples")
-
-	return &CryptoExamples{
-		query: q,
-	}
-}
-
 // CryptoExamples is the module's main object: a namespace for the crypto usage
 // recipes.
 type CryptoExamples struct { // crypto-examples (../../../../../daggerverse/crypto/examples/go/main.go:16:6)
@@ -209,30 +200,6 @@ func (r *CryptoExamples) UnmarshalJSON(bs []byte) error {
 func (r *CryptoExamples) AsNode() Node {
 	return &NodeClient{
 		query: r.query,
-	}
-}
-
-// Create or update a binding of type CryptoExamples in the environment
-func (r *Env) WithCryptoExamplesInput(name string, value *CryptoExamples, description string) *Env { // crypto-examples (../../../../../daggerverse/crypto/examples/go/main.go:16:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withCryptoExamplesInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired CryptoExamples output to be assigned in the environment
-func (r *Env) WithCryptoExamplesOutput(name string, description string) *Env { // crypto-examples (../../../../../daggerverse/crypto/examples/go/main.go:16:6)
-	q := r.query.Select("withCryptoExamplesOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
 	}
 }
 

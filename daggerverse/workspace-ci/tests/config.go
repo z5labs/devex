@@ -48,9 +48,7 @@ func (t *Tests) AffectedModulesReportsWhatChangeReached(ctx context.Context) err
 	if err != nil {
 		return err
 	}
-	raw, err := dag.WorkspaceCi().AffectedModules(ctx, fx.before(cTouchA), fx.at(cTouchA), dagger.WorkspaceCiAffectedModulesOpts{
-		Repo: fx.dir,
-	})
+	raw, err := dag.WorkspaceCi().AffectedModules(ctx, fx.before(cTouchA), fx.at(cTouchA), fx.workspace())
 	if err != nil {
 		return err
 	}
@@ -75,8 +73,7 @@ func (t *Tests) PlanEmitsGithubActionsMatrix(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	raw, err := dag.WorkspaceCi().Plan(ctx, fx.before(cTouchA), fx.at(cTouchA), dagger.WorkspaceCiPlanOpts{
-		Repo:   fx.dir,
+	raw, err := dag.WorkspaceCi().Plan(ctx, fx.before(cTouchA), fx.at(cTouchA), fx.workspace(), dagger.WorkspaceCiPlanOpts{
 		Format: dagger.WorkspaceCiFormatGithubActions,
 	})
 	if err != nil {
@@ -182,8 +179,7 @@ func (t *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 	}
 	ci := dag.WorkspaceCi()
 	base, head := fx.before(cTouchA), fx.at(cTouchA)
-	raw, err := ci.Plan(ctx, base, head, dagger.WorkspaceCiPlanOpts{
-		Repo:   fx.dir,
+	raw, err := ci.Plan(ctx, base, head, fx.workspace(), dagger.WorkspaceCiPlanOpts{
 		Format: dagger.WorkspaceCiFormatJenkins,
 	})
 	if err != nil {
@@ -329,8 +325,7 @@ func (t *Tests) PlanRecordsPassesFromJenkinsBranches(ctx context.Context) error 
 	}
 	ci := dag.WorkspaceCi()
 	base, head := fx.before(cTouchA), fx.at(cTouchA)
-	raw, err := ci.Plan(ctx, base, head, dagger.WorkspaceCiPlanOpts{
-		Repo:          fx.dir,
+	raw, err := ci.Plan(ctx, base, head, fx.workspace(), dagger.WorkspaceCiPlanOpts{
 		Format:        dagger.WorkspaceCiFormatJenkins,
 		RecordCommand: jenkinsRecordCommand,
 	})
@@ -408,8 +403,7 @@ func (t *Tests) PlanRefusesRecordCommandForDataFormats(ctx context.Context) erro
 		return err
 	}
 	for _, format := range []dagger.WorkspaceCiFormat{dagger.WorkspaceCiFormatJson, dagger.WorkspaceCiFormatGithubActions} {
-		_, err := dag.WorkspaceCi().Plan(ctx, fx.before(cTouchA), fx.at(cTouchA), dagger.WorkspaceCiPlanOpts{
-			Repo:          fx.dir,
+		_, err := dag.WorkspaceCi().Plan(ctx, fx.before(cTouchA), fx.at(cTouchA), fx.workspace(), dagger.WorkspaceCiPlanOpts{
 			Format:        format,
 			RecordCommand: jenkinsRecordCommand,
 		})
@@ -499,7 +493,7 @@ func (t *Tests) PlanSplitsNamedModulesOnTheRunEverythingPath(ctx context.Context
 // thing left to catch loudly is a table nothing could be read from.
 func (t *Tests) NewRejectsMalformedTimeouts(ctx context.Context) error {
 	_, err := dag.WorkspaceCi(dagger.WorkspaceCiOpts{Timeouts: `{"mods/a:ok": `}).
-		Plan(ctx, "", "", dagger.WorkspaceCiPlanOpts{Repo: dag.Directory()})
+		Plan(ctx, "", "", dag.Directory().AsWorkspace())
 	if err == nil {
 		return fmt.Errorf("a malformed timeout table was accepted")
 	}
@@ -518,7 +512,7 @@ func (t *Tests) NewRejectsMemoTokenWithoutRepo(ctx context.Context) error {
 		return err
 	}
 	_, err = dag.WorkspaceCi(dagger.WorkspaceCiOpts{MemoToken: token}).
-		Plan(ctx, "", "", dagger.WorkspaceCiPlanOpts{Repo: dag.Directory()})
+		Plan(ctx, "", "", dag.Directory().AsWorkspace())
 	if err == nil {
 		return fmt.Errorf("a memo token with no repository was accepted")
 	}

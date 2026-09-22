@@ -186,7 +186,7 @@ dry run (txn discarded, no triples persisted). `RunQuery` and
 
 ## Tests
 
-After `dagger develop` in both `daggerverse/dgraph` and
+After regenerating both `daggerverse/dgraph` and
 `daggerverse/dgraph/tests`, run any individual test:
 
 ```sh

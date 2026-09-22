@@ -4,3 +4,12 @@
 # not to track its own checkouts: an untracked worktree reads as a dirty tree,
 # and a dirty tree is one of the cycle's stop conditions.
 .claude/worktrees/
+
+# Dagger's workspace lockfile, which pins the image digests and git refs a run
+# resolved. Any Dagger command may write it -- `dagger check` on a suite that
+# pulls an image is enough -- so tracking it would make every local run dirty the
+# tree, and a dirty tree is one of the backlog loop's stop conditions. Dagger's
+# own header in the file says to commit it, so this is a deliberate deferral
+# rather than a verdict: whether devex adopts workspace lockfiles is decided in
+# the follow-up to #440, not here.
+dagger.lock

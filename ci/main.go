@@ -28,9 +28,8 @@ const selfTestProbeModule = "daggerverse/random"
 type Ci struct{}
 
 // Generated verifies that every committed dagger.gen.go and
-// internal/dagger/*.gen.go in the workspace matches what `dagger develop`
-// produces at the pinned engineVersion, naming each stale module and printing
-// its patch.
+// internal/dagger/*.gen.go in the workspace matches what codegen produces at
+// the pinned engineVersion, naming each stale module and printing its patch.
 //
 // It is declared here rather than left to daggerverse/workspace-ci's own checks
 // because only the root module's checks run for every change. That is also what
@@ -38,10 +37,16 @@ type Ci struct{}
 // a file is derived from inputs that are in it, which is worth nothing unless it
 // has run. See daggerverse/workspace-ci/README.md.
 //
+// The workspace is a parameter rather than something workspace-ci reaches for,
+// because a module cannot reach for it: Dagger v1 marks the field experimental
+// and leaves it out of the client a module is generated against. The CLI fills
+// this in from the workspace the check was invoked in, and it is passed straight
+// through.
+//
 // +check
 // +cache="never"
-func (ci *Ci) Generated(ctx context.Context) error {
-	return dag.WorkspaceCi().Generated(ctx)
+func (ci *Ci) Generated(ctx context.Context, callingWorkspace *dagger.Workspace) error {
+	return dag.WorkspaceCi().Generated(ctx, callingWorkspace)
 }
 
 // GeneratedSelfTest proves Generated can actually fail: it runs the same
@@ -54,8 +59,8 @@ func (ci *Ci) Generated(ctx context.Context) error {
 //
 // +check
 // +cache="never"
-func (ci *Ci) GeneratedSelfTest(ctx context.Context) error {
-	return dag.WorkspaceCi().GeneratedSelfTest(ctx, dagger.WorkspaceCiGeneratedSelfTestOpts{
+func (ci *Ci) GeneratedSelfTest(ctx context.Context, callingWorkspace *dagger.Workspace) error {
+	return dag.WorkspaceCi().GeneratedSelfTest(ctx, callingWorkspace, dagger.WorkspaceCiGeneratedSelfTestOpts{
 		ProbeModule: selfTestProbeModule,
 	})
 }

@@ -198,14 +198,28 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Ci).Generated(&parent, ctx)
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
+			}
+			return nil, (*Ci).Generated(&parent, ctx, callingWorkspace)
 		case "GeneratedSelfTest":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
-			return nil, (*Ci).GeneratedSelfTest(&parent, ctx)
+			var callingWorkspace *dagger.Workspace
+			if inputArgs["callingWorkspace"] != nil {
+				err = json.Unmarshal([]byte(inputArgs["callingWorkspace"]), &callingWorkspace)
+				if err != nil {
+					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg callingWorkspace", err))
+				}
+			}
+			return nil, (*Ci).GeneratedSelfTest(&parent, ctx, callingWorkspace)
 		case "SelectionSelfTest":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -216,6 +230,33 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Ci is the workspace's root module: the checks that must run for every change,\nwhatever it touched.\n\nPlanning, routing and memoization live in daggerverse/workspace-ci, which\n.github/workflows/change-aware-ci.yml calls directly — this module is not in\nthat path, and\nno run leg loads it to reach another module's suite. What has to live here is\nonly the set of checks a plan treats as global: workspace-ci always runs the\nroot module's checks and never memoizes them, because they are the ones that\nread the workspace as a whole rather than any one module's closure. So this\nmodule is three delegations and nothing else.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci holds no state: every check it declares is workspace-ci's, invoked against\nthe calling workspace.", SourceMap: dag.SourceMap("main.go", 28, 6)}).
+					WithFunction(
+						dag.Function("Generated",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Generated verifies that every committed dagger.gen.go and\ninternal/dagger/*.gen.go in the workspace matches what codegen produces at\nthe pinned engineVersion, naming each stale module and printing its patch.\n\nIt is declared here rather than left to daggerverse/workspace-ci's own checks\nbecause only the root module's checks run for every change. That is also what\nlets a generated file stay out of the memoization hash: this check proves such\na file is derived from inputs that are in it, which is worth nothing unless it\nhas run. See daggerverse/workspace-ci/README.md.\n\nThe workspace is a parameter rather than something workspace-ci reaches for,\nbecause a module cannot reach for it: Dagger v1 marks the field experimental\nand leaves it out of the client a module is generated against. The CLI fills\nthis in from the workspace the check was invoked in, and it is passed straight\nthrough.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 48, 1)).
+							WithCheck().
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 48, 46)})).
+					WithFunction(
+						dag.Function("GeneratedSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratedSelfTest proves Generated can actually fail: it runs the same\ncomparison against one module twice, pristine and then deliberately made\nstale, and fails unless the stale copy is reported.\n\nThe check this was extracted from silently verified nothing for months (#184),\nso a green Generated is only worth as much as the proof that a stale module\nturns it red.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 62, 1)).
+							WithCheck().
+							WithArg("callingWorkspace", dag.TypeDef().WithObject("Workspace"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 62, 54)})).
+					WithFunction(
+						dag.Function("SelectionSelfTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SelectionSelfTest runs the change -> modules -> legs mapping, and the\nproperties a recorded pass depends on, against workspace-ci's fixed fixtures.\n\nA regression there under-runs this repository's CI silently, so it is checked\non every change rather than only when the planner itself is edited. It needs\nno engine and no services, which is what makes that affordable.").
+							WithSourceMap(dag.SourceMap("main.go", 76, 1)).
+							WithCheck())), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

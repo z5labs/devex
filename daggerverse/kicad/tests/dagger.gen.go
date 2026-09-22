@@ -622,6 +622,314 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the kicad Dagger module. Each\ntest is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hand-authored, self-contained KiCad\nprojects: symbols and footprints are embedded in the .kicad_sch/.kicad_pcb\nfiles, so nothing resolves against a system symbol or footprint library and\nthe tests stay hermetic.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 25, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every kicad-module test in parallel.\n\nparallel caps how many tests run concurrently inside this suite. Defaults to\n0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions\nrunner, so in-runner parallelism is bounded by the VM's CPU/memory, not by\nthe scheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 36, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 39, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BomDefaultFieldsProduceCsvHeader",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BomDefaultFieldsProduceCsvHeader asserts the default field list produces\nthe matching CSV header and one row per component.").
+							WithSourceMap(dag.SourceMap("main.go", 410, 1))).
+					WithFunction(
+						dag.Function("CiCheckFailsOnViolations",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckFailsOnViolations runs Check against the violations fixture with both\nERC and DRC enabled and asserts the parallel fan-out aggregated BOTH job\nfailures rather than short-circuiting on the first. ERC fails with a\npin_not_connected violation and DRC fails with its \"DRC violations\" report;\nrequiring both signatures proves both jobs ran and both errors propagated.").
+							WithSourceMap(dag.SourceMap("main.go", 706, 1))).
+					WithFunction(
+						dag.Function("CiCheckRunsErcAndDrc",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckRunsErcAndDrc asserts the chained pipeline runs both enabled checks\nagainst a clean project and returns nil. blinky passes both ERC and DRC on\nits own, so a nil return proves the fan-out ran the enabled stages and\naggregated no error.").
+							WithSourceMap(dag.SourceMap("main.go", 690, 1))).
+					WithFunction(
+						dag.Function("CiRunProducesFabricationOutputs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunProducesFabricationOutputs runs the full pipeline against the clean\nblinky project — checks then outputs — and asserts Run returns one directory\nholding the whole fabrication package: gerbers/ and drill/ subdirectories,\nplus pos.pos and bom.csv at the root.").
+							WithSourceMap(dag.SourceMap("main.go", 728, 1))).
+					WithFunction(
+						dag.Function("CiRunShortCircuitsOnFailingCheck",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunShortCircuitsOnFailingCheck asserts a failing check stops the pipeline\nbefore any output work: Run against the violations fixture with ERC enabled\nand fabrication outputs requested must return the aggregated check error and\nno directory. The error carries the ERC report, proving the failure came\nfrom stage 1 rather than from an export.").
+							WithSourceMap(dag.SourceMap("main.go", 769, 1))).
+					WithFunction(
+						dag.Function("ContainerHasKicadCli",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ContainerHasKicadCli asserts the base image exposes kicad-cli on PATH, so\nthe escape hatch documented on Container() actually works.").
+							WithSourceMap(dag.SourceMap("main.go", 121, 1))).
+					WithFunction(
+						dag.Function("DrcCleanProjectPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DrcCleanProjectPasses asserts a clean board returns nil.").
+							WithSourceMap(dag.SourceMap("main.go", 242, 1))).
+					WithFunction(
+						dag.Function("DrcReportsViolations",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DrcReportsViolations asserts a board with overlapping footprints fails and\nthat the violation list makes it into the error.").
+							WithSourceMap(dag.SourceMap("main.go", 251, 1))).
+					WithFunction(
+						dag.Function("DrcSchematicParityDetectsMismatch",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DrcSchematicParityDetectsMismatch asserts schematicParity surfaces a board\nwhose pad nets disagree with the schematic — a class of defect plain DRC\nnever looks for.").
+							WithSourceMap(dag.SourceMap("main.go", 265, 1))).
+					WithFunction(
+						dag.Function("DrillProducesExcellonFiles",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DrillProducesExcellonFiles asserts the default drill export writes an\nExcellon file for the board.").
+							WithSourceMap(dag.SourceMap("main.go", 319, 1))).
+					WithFunction(
+						dag.Function("DrillRejectsInvalidFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DrillRejectsInvalidFormat asserts an out-of-range enum is rejected with the\nlegal set spelled out, rather than passed through to kicad-cli.").
+							WithSourceMap(dag.SourceMap("main.go", 533, 1))).
+					WithFunction(
+						dag.Function("ErcCleanProjectPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ErcCleanProjectPasses asserts a clean schematic returns nil.").
+							WithSourceMap(dag.SourceMap("main.go", 221, 1))).
+					WithFunction(
+						dag.Function("ErcReportsViolations",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ErcReportsViolations asserts a schematic with a dangling pin fails and that\nthe violation list — not just a count — makes it into the error.").
+							WithSourceMap(dag.SourceMap("main.go", 230, 1))).
+					WithFunction(
+						dag.Function("FpSvgExportsFootprint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FpSvgExportsFootprint asserts the footprint-library SVG export lands one SVG\nper footprint, named after the footprint, in the returned directory.").
+							WithSourceMap(dag.SourceMap("main.go", 993, 1))).
+					WithFunction(
+						dag.Function("FpUpgradeResavesLibrary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FpUpgradeResavesLibrary asserts the footprint-library upgrade returns the\nresaved .pretty directory with its .kicad_mod file in place.").
+							WithSourceMap(dag.SourceMap("main.go", 1006, 1))).
+					WithFunction(
+						dag.Function("GencadProducesGencad",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GencadProducesGencad asserts the GenCAD export produces a GenCAD file, which\nopens with a $HEADER section naming the format.").
+							WithSourceMap(dag.SourceMap("main.go", 894, 1))).
+					WithFunction(
+						dag.Function("GerbersDefaultExportsAllLayers",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GerbersDefaultExportsAllLayers asserts an empty layer list plots every\nlayer the board defines rather than silently plotting none.").
+							WithSourceMap(dag.SourceMap("main.go", 301, 1))).
+					WithFunction(
+						dag.Function("GerbersProduceOneFilePerLayer",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GerbersProduceOneFilePerLayer asserts an explicit layer list plots exactly\nthose layers (plus the job file that ties them together).").
+							WithSourceMap(dag.SourceMap("main.go", 281, 1))).
+					WithFunction(
+						dag.Function("GlbBoardOnlyProducesGlb",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GlbBoardOnlyProducesGlb asserts the board-only GLB export produces a real\nbinary glTF, whose files open with the \"glTF\" magic.").
+							WithSourceMap(dag.SourceMap("main.go", 836, 1))).
+					WithFunction(
+						dag.Function("ImportRejectsUnknownFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ImportRejectsUnknownFormat asserts the import format enum is validated,\nlisting every format kicad-cli accepts, rather than passed through. Import\nconverts a foreign board and needs no real fixture to prove the validation.").
+							WithSourceMap(dag.SourceMap("main.go", 936, 1))).
+					WithFunction(
+						dag.Function("Ipc2581ProducesXml",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Ipc2581ProducesXml asserts the IPC-2581 export produces an XML document at\nthe requested revision.").
+							WithSourceMap(dag.SourceMap("main.go", 444, 1))).
+					WithFunction(
+						dag.Function("Ipcd356ProducesNetlist",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Ipcd356ProducesNetlist asserts the IPC-D-356 export produces a bare-board\ntest netlist, whose records carry the format's CODE/UNITS parameters.").
+							WithSourceMap(dag.SourceMap("main.go", 907, 1))).
+					WithFunction(
+						dag.Function("JobsetRejectsMissingFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("JobsetRejectsMissingFile asserts a jobset path that is not in the tree is\nreported as such, naming the path.").
+							WithSourceMap(dag.SourceMap("main.go", 577, 1))).
+					WithFunction(
+						dag.Function("JobsetRunProducesDeclaredOutputs",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("JobsetRunProducesDeclaredOutputs asserts a jobset runs and its declared\noutput folder comes back populated.").
+							WithSourceMap(dag.SourceMap("main.go", 561, 1))).
+					WithFunction(
+						dag.Function("NetlistDefaultsToKicadSexpr",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("NetlistDefaultsToKicadSexpr asserts the default netlist format is KiCad's\nown s-expression export, carrying the nets the schematic declares.").
+							WithSourceMap(dag.SourceMap("main.go", 426, 1))).
+					WithFunction(
+						dag.Function("NetlistRejectsInvalidFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("NetlistRejectsInvalidFormat asserts the netlist format enum is validated\nthe same way, listing every format kicad-cli accepts.").
+							WithSourceMap(dag.SourceMap("main.go", 547, 1))).
+					WithFunction(
+						dag.Function("OdbProducesArchive",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("OdbProducesArchive asserts the ODB++ export produces a zip archive, which\nopens with the \"PK\" local-file-header magic.").
+							WithSourceMap(dag.SourceMap("main.go", 920, 1))).
+					WithFunction(
+						dag.Function("PcbAutoDiscoversSingleBoard",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbAutoDiscoversSingleBoard asserts an empty path finds the project's only\nboard — the produced drill file is named after it, so a wrong pick would\nshow up in the output name.").
+							WithSourceMap(dag.SourceMap("main.go", 150, 1))).
+					WithFunction(
+						dag.Function("PcbDxfProducesDxf",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbDxfProducesDxf asserts the single-file DXF plot produces a DXF drawing,\nwhose ASCII form opens with a SECTION record.").
+							WithSourceMap(dag.SourceMap("main.go", 860, 1))).
+					WithFunction(
+						dag.Function("PcbPdfIsSingleMultipageFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbPdfIsSingleMultipageFile asserts --mode-single produces one real PDF.\nThe assertion goes through Export + os.ReadFile rather than Contents()\nbecause Contents mangles non-UTF-8 bytes.").
+							WithSourceMap(dag.SourceMap("main.go", 365, 1))).
+					WithFunction(
+						dag.Function("PcbPdfPerLayerProducesFilePerLayer",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbPdfPerLayerProducesFilePerLayer asserts --mode-separate lands one PDF\nper requested layer in the returned directory.").
+							WithSourceMap(dag.SourceMap("main.go", 332, 1))).
+					WithFunction(
+						dag.Function("PcbPsProducesPostscript",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbPsProducesPostscript asserts the single-file PostScript plot produces a\ndocument opening with the \"%!PS\" magic.").
+							WithSourceMap(dag.SourceMap("main.go", 874, 1))).
+					WithFunction(
+						dag.Function("PcbRejectsAmbiguousAutoDiscovery",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbRejectsAmbiguousAutoDiscovery asserts a project with two boards and no\nboard named after the project file errors, naming both candidates.").
+							WithSourceMap(dag.SourceMap("main.go", 163, 1))).
+					WithFunction(
+						dag.Function("PcbRejectsExplicitPathNotFound",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbRejectsExplicitPathNotFound asserts an explicit path that is not in the\ntree is reported as such, naming the path.").
+							WithSourceMap(dag.SourceMap("main.go", 191, 1))).
+					WithFunction(
+						dag.Function("PcbRejectsMissingBoard",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbRejectsMissingBoard asserts a project with no board at all errors,\nrather than letting kicad-cli fail on an empty argument.").
+							WithSourceMap(dag.SourceMap("main.go", 178, 1))).
+					WithFunction(
+						dag.Function("PcbSvgProducesSingleSvg",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbSvgProducesSingleSvg asserts --mode-single produces one SVG document.").
+							WithSourceMap(dag.SourceMap("main.go", 372, 1))).
+					WithFunction(
+						dag.Function("PcbUpgradeProducesBoard",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PcbUpgradeProducesBoard asserts the in-place board upgrade returns a resaved\n.kicad_pcb. kicad-cli's upgrade has no output flag and rewrites the file in\nplace, so a returned board proves the writable-copy path worked.").
+							WithSourceMap(dag.SourceMap("main.go", 951, 1))).
+					WithFunction(
+						dag.Function("PosDefaultsToAsciiBothSides",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PosDefaultsToAsciiBothSides asserts the default position file is the ascii\nformat covering both sides, and lists the board's footprints.").
+							WithSourceMap(dag.SourceMap("main.go", 392, 1))).
+					WithFunction(
+						dag.Function("RejectsOutputNameWithPathSeparator",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsOutputNameWithPathSeparator asserts an artifact name that would walk\nout of the module-owned output directory is rejected up front.").
+							WithSourceMap(dag.SourceMap("main.go", 519, 1))).
+					WithFunction(
+						dag.Function("RenderProducesPng",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RenderProducesPng asserts the 3D render produces a PNG image, which opens\nwith the PNG signature. On the slim image this is a bare-board render, which\nis a valid PNG all the same.").
+							WithSourceMap(dag.SourceMap("main.go", 928, 1))).
+					WithFunction(
+						dag.Function("SchAutoDiscoversSingleSchematic",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchAutoDiscoversSingleSchematic asserts an empty path finds the project's\nschematic; the netlist records the source sheet, so it names what was\npicked.").
+							WithSourceMap(dag.SourceMap("main.go", 207, 1))).
+					WithFunction(
+						dag.Function("SchDxfProducesFilePerSheet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchDxfProducesFilePerSheet asserts the schematic DXF plot lands one file per\nsheet in the returned directory.").
+							WithSourceMap(dag.SourceMap("main.go", 965, 1))).
+					WithFunction(
+						dag.Function("SchPdfProducesPdf",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchPdfProducesPdf asserts the schematic PDF export produces a real PDF.").
+							WithSourceMap(dag.SourceMap("main.go", 385, 1))).
+					WithFunction(
+						dag.Function("SchPsProducesFilePerSheet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchPsProducesFilePerSheet asserts the schematic PostScript plot lands one\nfile per sheet in the returned directory.").
+							WithSourceMap(dag.SourceMap("main.go", 978, 1))).
+					WithFunction(
+						dag.Function("SchSvgProducesOneFilePerSheet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SchSvgProducesOneFilePerSheet asserts a hierarchical schematic plots one\nSVG per sheet, which also proves the root sheet — not a sub-sheet — was the\none auto-discovered.").
+							WithSourceMap(dag.SourceMap("main.go", 349, 1))).
+					WithFunction(
+						dag.Function("StatsProducesReport",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StatsProducesReport asserts the board statistics report is produced and reads\nas a human-readable report.").
+							WithSourceMap(dag.SourceMap("main.go", 881, 1))).
+					WithFunction(
+						dag.Function("StepBoardOnlyProducesStepFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StepBoardOnlyProducesStepFile asserts the board-only STEP export produces a\nreal ISO-10303-21 file. Asserted via Export + os.ReadFile, not Contents.").
+							WithSourceMap(dag.SourceMap("main.go", 460, 1))).
+					WithFunction(
+						dag.Function("StepWithComponentModelsIncludesModels",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("StepWithComponentModelsIncludesModels asserts a with-models STEP on the -full\nimage differs from the boardOnly output. The blinky R1 footprint references a\ncomponent 3D model that only the -full image bundles, so the populated\nassembly carries geometry the bare board does not — proving the with-models\npath actually resolved and embedded the model rather than falling back to\nboard geometry.").
+							WithSourceMap(dag.SourceMap("main.go", 810, 1))).
+					WithFunction(
+						dag.Function("SymSvgExportsSymbol",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SymSvgExportsSymbol asserts the symbol-library SVG export lands one SVG per\nsymbol unit in the returned directory.").
+							WithSourceMap(dag.SourceMap("main.go", 1020, 1))).
+					WithFunction(
+						dag.Function("SymUpgradeResavesLibrary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SymUpgradeResavesLibrary asserts the symbol-library upgrade returns the\nresaved .kicad_sym file.").
+							WithSourceMap(dag.SourceMap("main.go", 1033, 1))).
+					WithFunction(
+						dag.Function("ThreeDExportRequiresFullImage",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ThreeDExportRequiresFullImage asserts a with-models 3D export on the slim\nimage fails with an error naming the -full tag, rather than silently emitting\na board-only model. Glb stands in for the whole step-family here; every one\nof them routes through the same require3DModels guard.").
+							WithSourceMap(dag.SourceMap("main.go", 790, 1))).
+					WithFunction(
+						dag.Function("VersionReportsKicadRelease",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VersionReportsKicadRelease asserts Version reports the release the pinned\nimage ships, i.e. a 10.x version for the default 10.0 tag.").
+							WithSourceMap(dag.SourceMap("main.go", 136, 1))).
+					WithFunction(
+						dag.Function("VrmlBoardOnlyProducesVrml",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VrmlBoardOnlyProducesVrml asserts the board-only VRML export produces a VRML\nv2.0 document. VRML has no kicad-cli board-only flag, so boardOnly here only\nskips the -full guard; on the slim image the output is board geometry alone.").
+							WithSourceMap(dag.SourceMap("main.go", 844, 1))).
+					WithFunction(
+						dag.Function("WithDrawingSheetAppliesCustomSheet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithDrawingSheetAppliesCustomSheet asserts the custom drawing sheet's\ntitle-block text lands in an export produced with it and is absent without\nit. The board's SVG plot renders worksheet text as literal <text> elements\n(unlike the PDF plot, which strokes it to geometry), so the marker string is\ngreppable in the exported document rather than only in rendered pixels.").
+							WithSourceMap(dag.SourceMap("main.go", 595, 1))).
+					WithFunction(
+						dag.Function("WithVarRejectsNameContainingEquals",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarRejectsNameContainingEquals asserts a name that would corrupt\nkicad-cli's `name=value` encoding is rejected. WithVar is a builder with no\nerror return, so the error has to surface on the exec that uses it.").
+							WithSourceMap(dag.SourceMap("main.go", 496, 1))).
+					WithFunction(
+						dag.Function("WithVarSubstitutesTextVariable",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarSubstitutesTextVariable asserts WithVar overrides the value the\nproject file declares. The blinky board carries a `${LEDCOLOR}` silkscreen\ntext; the IPC-2581 export records resolved text verbatim, so it shows which\nvalue won.").
+							WithSourceMap(dag.SourceMap("main.go", 472, 1))).
+					WithFunction(
+						dag.Function("WithVariantIgnoredByChecks",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVariantIgnoredByChecks asserts a variant-bearing project still passes ERC\nand DRC with a variant selected. kicad-cli rejects --variant on sch erc and\npcb drc, so the module drops the flag there; a clean pass proves it was\ndropped rather than passed through, which would fail as a usage error.").
+							WithSourceMap(dag.SourceMap("main.go", 673, 1))).
+					WithFunction(
+						dag.Function("WithVariantRejectsUnknownVariant",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVariantRejectsUnknownVariant asserts an undeclared variant name produces\na clear error naming the variants the project does declare. kicad-cli\nsilently falls back to the default variant for an unknown name, so this is\nthe module's own validation rather than a passed-through kicad-cli error.").
+							WithSourceMap(dag.SourceMap("main.go", 651, 1))).
+					WithFunction(
+						dag.Function("WithVariantSelectsDesignVariant",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVariantSelectsDesignVariant asserts two assembly variants of the same\nproject produce different BOMs. The variants fixture overrides R1's value per\nvariant (1k vs 10k), which the default BOM's Value column records verbatim,\nso the selected variant is observable in exported text rather than geometry.").
+							WithSourceMap(dag.SourceMap("main.go", 624, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

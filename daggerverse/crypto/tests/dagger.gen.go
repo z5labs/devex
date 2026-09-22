@@ -300,6 +300,71 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the crypto Dagger module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 20, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every crypto test inside this suite.\n\nparallel caps how many tests run concurrently. Defaults to 0 (unbounded\nfan-out) — each `dagger check` job runs on its own GH Actions runner, so\nin-runner parallelism is bounded by the VM's CPU/memory, not by the\nscheduler. Pass any positive integer to opt into a specific cap.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 31, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 34, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("EcdsaP256KeyEmitsValidFormats",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 436, 1))).
+					WithFunction(
+						dag.Function("EcdsaP256KeyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 309, 1))).
+					WithFunction(
+						dag.Function("EcdsaP384KeyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 324, 1))).
+					WithFunction(
+						dag.Function("EcdsaP521KeyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 339, 1))).
+					WithFunction(
+						dag.Function("Ed25519KeyEmitsValidFormats",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 441, 1))).
+					WithFunction(
+						dag.Function("Ed25519KeyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 354, 1))).
+					WithFunction(
+						dag.Function("RsaKeyEmitsValidFormats",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 431, 1))).
+					WithFunction(
+						dag.Function("RsaKeyShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 294, 1))).
+					WithFunction(
+						dag.Function("Sha256MatchesKnownDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 236, 1))).
+					WithFunction(
+						dag.Function("Sha384MatchesKnownDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 247, 1))).
+					WithFunction(
+						dag.Function("Sha3_256MatchesKnownDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 269, 1))).
+					WithFunction(
+						dag.Function("Sha3_512MatchesKnownDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 280, 1))).
+					WithFunction(
+						dag.Function("Sha512MatchesKnownDigest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithSourceMap(dag.SourceMap("main.go", 258, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

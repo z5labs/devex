@@ -391,6 +391,162 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the dgraph daggerverse module. Each test is exposed as a\nstandalone dagger function so it can be invoked individually during\nTDD; All wires them up for parallel execution under\n`dagger call all`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 18, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every dgraph test as a convenience for local `dagger call\nall` invocations. CI does NOT call All: each of the two\nsub-aggregators below (Validation, Cluster) carries its own `directive, so GH Actions schedules each onto its own runner in\nparallel — running All on top would double-bill the same work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 27, 1)).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 30, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("BindAlphasResolvesFromUserContainerTls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BindAlphasResolvesFromUserContainerTls boots a one-way-TLS cluster,\nbinds its Alphas into an alpine container, and proves the Alpha's HTTPS\n/health listener is reachable there: `wget --ca-certificate` (trusting\nthe test CA) succeeds, while the same `wget` without the CA fails\ncertificate verification.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("security.go", 333, 1))).
+					WithFunction(
+						dag.Function("ClientAlterSchemaRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientAlterSchemaRoundTrip verifies AlterSchema accepts a non-trivial\nDQL schema and the cluster reports it on subsequent schema queries.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 423, 1))).
+					WithFunction(
+						dag.Function("ClientMutateThenQueryRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientMutateThenQueryRoundTrip applies a schema, sets a triple with\na random value, and verifies the value reads back via Query.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 450, 1))).
+					WithFunction(
+						dag.Function("ClientMutateWithoutCommitDoesNotPersist",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientMutateWithoutCommitDoesNotPersist mutates with commit=false\nand verifies a subsequent Query does NOT see the value.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 490, 1))).
+					WithFunction(
+						dag.Function("ClientQueryWithVarsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientQueryWithVarsRoundTrip exercises the variable-substitution path\nof QueryWithVars, which crosses the Dagger boundary as a JSON-encoded\nmap.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 523, 1))).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Cluster runs the topology and client round-trip tests. Each test\npasses its own name to `freshCluster`, which folds into Dgraph.Cluster's\nsession-cache key so concurrent tests boot independent backing\nservices and never share schema or storage.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 85, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 88, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ClusterMtlsRoundTripFromClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterMtlsRoundTripFromClient boots a mutual-TLS cluster and proves a\nmatching mTLS client (presenting a client cert signed by the trusted\nCA) can AlterSchema + Mutate + Query. One CA both signs the server leaf\nand anchors the accepted client certs — the simplest symmetric mTLS\ntrust setup.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("security.go", 206, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsEvenReplicas",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsEvenReplicas verifies that an even replicas value > 1\nis rejected — Dgraph's Raft consensus needs an odd replica count per\ngroup (or replicas=1 for no replication). Alphas=2 keeps\nalphas%replicas==0 so only the odd-replicas rule can trip.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 212, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsInvalidAlphasReplicasRatio",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsInvalidAlphasReplicasRatio verifies alphas % replicas != 0 is rejected.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 191, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsMultipleZeros",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsMultipleZeros verifies zeros != 1 surfaces a descriptive error.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 173, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsNilSecurity",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsNilSecurity verifies that a nil clientListenerSecurity is\nrejected. The Dagger SDK's binding panics via assertNotNil before the\ncall leaves the test module; recover and assert the panic mentions\nthe rejected argument.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 233, 1))).
+					WithFunction(
+						dag.Function("ClusterTlsRoundTripFromClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterTlsRoundTripFromClient boots a one-way-TLS cluster and proves a\nmatching TLS client (pinning the server CA) can AlterSchema + Mutate +\nQuery end to end.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("security.go", 158, 1))).
+					WithFunction(
+						dag.Function("DefaultsProduceWorkingSingleNodeCluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultsProduceWorkingSingleNodeCluster boots a 1-Zero, 1-Alpha,\nreplicas=1 cluster (the constructor defaults) and runs a schema\nalteration against it to prove it's serving requests.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 365, 1))).
+					WithFunction(
+						dag.Function("GrpcEndpointsShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GrpcEndpointsShouldNotBeCached verifies that GrpcEndpoints re-executes\non every call rather than returning a cached snapshot. We boot the\ncluster, fetch endpoints (starts services), Stop the cluster (kills\nservices), and call GrpcEndpoints again — the second call must\nre-start the services. A bare length check can't distinguish that\nfrom cached strings, so we follow the second call with a real\nAlterSchema against the cluster: if start() didn't run because\nGrpcEndpoints returned a cached result, the alphas remain dead and\nthe alter dials a hung port.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 265, 1))).
+					WithFunction(
+						dag.Function("HttpEndpointsShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("HttpEndpointsShouldNotBeCached: same restart-after-stop check as Grpc\nbut for the HTTP listener. The liveness probe is the same gRPC-based\nAlterSchema — both endpoint methods share start(), so any restart\nproves either never-cache directive fired.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 297, 1))).
+					WithFunction(
+						dag.Function("MtlsClusterRejectsTlsOnlyClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsClusterRejectsTlsOnlyClient boots an mTLS cluster and proves a\nTLS-only client (verifies the server but presents no client cert) fails\nat the gRPC handshake — the REQUIREANDVERIFY listener demands a client\ncertificate. This goes through the standalone Dgraph.Client, which has\nno cluster reference and so cannot short-circuit with a mode-mismatch\nerror: the failure must come from the wire.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("security.go", 294, 1))).
+					WithFunction(
+						dag.Function("MultiAlphaShardedTopology",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MultiAlphaShardedTopology boots a 2-Alpha cluster at replicas=1 (two\ngroups, one Alpha each — sharded, no replication) and verifies the\ncluster serves a trivial schema alteration. Dgraph's Raft consensus\nrequires replicas to be odd, so the smallest valid sharded topology\nis 2 Alphas at replicas=1.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 406, 1))).
+					WithFunction(
+						dag.Function("MultiAlphaSingleGroupAllReachable",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MultiAlphaSingleGroupAllReachable boots a 3-Alpha cluster at\nreplicas=3 (single group of three Alphas, fully replicated) and\nverifies every endpoint serves queries.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 379, 1))).
+					WithFunction(
+						dag.Function("MutateShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MutateShouldNotBeCached calls Mutate twice with the same payload on\nthe same cluster and verifies each call assigns a fresh UID. If the\nengine cached the call, both would return identical UID JSON. The\npayload value is randomised per-run so re-running the suite never\nreuses a probe name across engine sessions.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 330, 1))).
+					WithFunction(
+						dag.Function("RemoteClientCanTargetExistingCluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RemoteClientCanTargetExistingCluster builds a cluster locally, then\nconstructs a top-level Dgraph.Client (not Cluster.Client) against\nthe cluster's endpoints — proving the constructor works against any\nreachable address list.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 559, 1))).
+					WithFunction(
+						dag.Function("Security",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Security runs the TLS / mTLS round-trip, mode-coupling, and container-\nbinding tests. Each mints its own per-test CA and cert material and\n(for the round-trip / bind tests) boots an independent backing cluster\nkeyed by a unique name, so the jobs are safe to fan out.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 114, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 117, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("TlsClusterRejectsPlaintextClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsClusterRejectsPlaintextClient verifies the mode-coupling check:\nasking a TLS cluster for a plaintext client returns an error naming\nboth modes, before any wire activity. The requireMode guard fires ahead\nof GrpcEndpoints, so no cluster boots.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("security.go", 257, 1))).
+					WithFunction(
+						dag.Function("Validation",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Validation runs the pure-validation tests (ClusterRejects*) plus the\ncache-directive tests (*ShouldNotBeCached) that explicitly Stop their\ncluster after use. These don't share session-cached cluster state, so\nthey're safe to fan out unbounded.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 57, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 60, 2), DefaultValue: dagger.JSON("0")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

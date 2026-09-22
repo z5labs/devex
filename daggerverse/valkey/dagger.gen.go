@@ -1095,6 +1095,293 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Valkey provides Dagger functions for spinning up Valkey topologies\n(from the upstream `valkey/valkey` image, or `valkey/valkey-bundle` for\na node carrying the JSON / Bloom / Search modules) — a single node, a\nprimary with N read replicas, or a slot-sharded Valkey Cluster — plus\na pure-Go\nvalkey-go based client that can target either a local topology or any\nreachable remote Valkey (e.g. ElastiCache Serverless, MemoryDB, a\nself-hosted node).\n\nThree client-facing listener modes are supported: PLAINTEXT\n(`requirepass` auth over an unencrypted TCP listener), TLS (one-way:\nthe node presents a server certificate on a `--tls-port` listener and\nclients still authenticate with the password), and MTLS (mutual: the\nclient must additionally present a certificate signed by the node's\ntrusted CA). Replication and Cluster are plaintext-only for now — see\nValkey.Replication and Valkey.Cluster.\n\nThe single-node type is `Server`, not `Cluster`: in Valkey \"cluster\"\nmeans slot-sharded Valkey Cluster, and that is what `Cluster` is.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - security.go    — *ServerSecurity / *ClientSecurity, the Plaintext /\n    Tls / Mtls constructors, and the listener-mode rendering\n    (validateServerSecurity / applyServerSecurity).\n  - server.go      — *Server + Valkey.Server, input validation, the\n    shared node builder (buildServer), and the Endpoint / User /\n    Password / BindServer / Client / Stop methods.\n  - bundle.go      — Valkey.BundleServer, the `valkey-bundle` image and\n    its own entrypoint script, and the MODULE LIST assertion readiness\n    runs against a node that is supposed to carry modules.\n  - config.go      — the `valkey-server` configuration passthrough a\n    caller hands Valkey.Server (config file, ACL file, append-only,\n    max-memory, extra args), its validation, and its rendering into\n    mounts and boot arguments.\n  - replication.go — *Replication + Valkey.Replication, the\n    primary/replica topology builder, and the Primary / Replicas /\n    Stop methods.\n  - cluster.go     — *Cluster + Valkey.Cluster, the symmetric-peer node\n    builder, the concurrent start (startAll) and the containerised\n    slot-assignment bootstrap, and the Endpoints / BindNodes / Client /\n    Stop methods.\n  - client.go      — *Client + Valkey.Client, valkey-go wiring, and the\n    Ping / Do / Get / Set / Del / Keys / ApplyFile / Info / DbSize /\n    FlushAll method set — the last of which are cluster-aware.\n  - keyspace.go    — Client.Export / Client.ImportFile, the SCAN +\n    DUMP / RESTORE keyspace round trip, its on-disk JSON schema, and\n    the workdir-file materialisation the export is returned through.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Valkey", dagger.TypeDefWithObjectOpts{Description: "Valkey is the root namespace for every exported function in this\nmodule. The server constructor, security helpers, and the\nremote-client factory all hang off *Valkey so the generated Dagger SDK\nsurfaces them under `dag.Valkey().<Func>(...)`.", SourceMap: dag.SourceMap("main.go", 55, 6)}).
+					WithFunction(
+						dag.Function("BundleServer",
+							dag.TypeDef().WithObject("Server")).
+							WithDescription("BundleServer spins up a single-node Valkey server from the\n`valkey/valkey-bundle` image: the upstream build that carries the\nmodule ecosystem — JSON (`JSON.SET` / `JSON.GET`), Bloom (`BF.*`), and\nSearch (`FT.*`) — preinstalled.\n\nImage: `<registry>/valkey/valkey-bundle:<tag>`. Everything else — the\nlistener modes, `requirepass` auth, the hostname derivation, the\nsession-cache semantics of `name` — is identical to Valkey.Server, and\nthe returned *Server is the same type with the same method set.\n\nThis is a separate constructor rather than a `bundle bool` parameter on\nValkey.Server so the image choice stays legible at the call site and so\nreadiness can assert something extra: a bundle node is not ready\nmerely because it answers PING, it is ready when MODULE LIST reports\nthe JSON, Bloom, and Search modules. A missing module therefore fails\nthe boot, naming what is missing, rather than surfacing much later as\nan unknown-command error from the first `JSON.SET`.\n\nThe module commands themselves need no new API: `Client.Do([\"JSON.SET\",\n...])` already reaches them, and their replies come back JSON-encoded\nlike any other. Typed sugar for JSON / Bloom / Search is deliberately\nnot part of this surface.\n\nThe `valkey-server` configuration passthrough Valkey.Server offers\n(config file, ACL file, append-only, max-memory, extra args) is not\nwired up here yet — a bundle node is provisioned for what its modules\ncan do, and the passthrough is a follow-up.\n\nRejected inputs are exactly Valkey.Server's, for the same reasons: a\nnil `password`, a nil `clientListenerSecurity`, an incomplete TLS /\nMTLS profile, and an empty `name` for a TLS / MTLS node.\n\nSession-cached on the same terms as Valkey.Server: `name` folds into\nthe cache key, so parallel test suites should pass a unique value per\ntest and a single test should reuse the returned handle.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("bundle.go", 77, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("bundle.go", 80, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("bundle.go", 82, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("bundle.go", 84, 2), DefaultValue: dagger.JSON("\"9.1\"")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("bundle.go", 85, 2)}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("bundle.go", 86, 2)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client constructs a valkey-go backed client targeting host:port with\nthe given user, password, and logical database. No I/O happens at\nconstruction time. Works against the local Server() topology or any\nreachable remote Valkey — ElastiCache Serverless, MemoryDB, an\nexisting self-hosted node, anything that speaks the Valkey/Redis wire\nprotocol with password auth.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("client.go", 68, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 69, 2)}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 71, 2), DefaultValue: dagger.JSON("6379")}).
+							WithArg("user", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 73, 2), DefaultValue: dagger.JSON("\"default\"")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 74, 2)}).
+							WithArg("db", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 76, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 77, 2)})).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("Cluster describes a Valkey Cluster: `shards` primaries sharing the\n16384 hash slots, each with `replicasPerShard` replicas.\n\nImage: `<registry>/valkey/valkey:<tag>` for every node — the topology\nis deliberately homogeneous.\n\nRejected inputs (each a descriptive error rather than a half-formed\ncluster):\n\n  - `password == nil` — the same secret is every node's `requirepass`\n    and every replica's `masterauth`, so it is mandatory.\n  - `clientListenerSecurity == nil` — plaintext must be a deliberate\n    caller choice, exactly as for a single Server.\n  - a TLS or MTLS profile — see the note below.\n  - `shards < 3` — see minClusterShards.\n  - `replicasPerShard < 0` — nonsense rather than a topology.\n\nTLS/mTLS is not supported for this topology yet, for the reason\nReplication does not support it and one more besides: a TLS node runs\nwith `--port 0`, so the cluster bus would have to run over TLS too\n(`--tls-cluster yes`), and each peer would need trust material a\nclient-facing `*ServerSecurity` profile does not carry. On top of that\nthe bootstrap runs through `valkey-cli --cluster create`, which would\nneed its own `--tls` / `--cacert` material to reach the nodes at all. A\nTLS/mTLS profile is therefore rejected here rather than booting a\ncluster whose members spin on a failed handshake.\n\nLike Valkey.Server, this constructor starts nothing: it validates,\nbuilds every node, and composes the bootstrap exec, all lazily. Both\nentry points into a running cluster — Cluster.Client and\nCluster.BindNodes — drive that bootstrap themselves, because a Dagger\nservice is only reachable from whichever client started it. Starting\nthe nodes here (from the valkey module's runtime) would register them\nin the valkey module's DNS domain, and a consumer container binding\nthem from ANOTHER module then cannot resolve them at all:\n\n\tlookup valkey-<host> for hosts file: ... no such host\n\n— the same trap Server.Endpoint documents, and a known Dagger\nlimitation reported upstream. Until it is addressed, BindNodes has to\nbe able to bring the cluster up itself.\n\nSession-cached for the same reason Valkey.Server and\nValkey.Replication are: repeated chained calls on the returned cluster\nwithin one test must observe the SAME backing services — and the same\nbootstrap exec — and therefore the same keyspace. `name` folds into\nthat cache key and into every node's hostname, so parallel test suites\nshould pass a unique value per test.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster.go", 113, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 116, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 118, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 120, 2), DefaultValue: dagger.JSON("\"9.1\"")}).
+							WithArg("shards", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 122, 2), DefaultValue: dagger.JSON("3")}).
+							WithArg("replicasPerShard", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 124, 2), DefaultValue: dagger.JSON("0")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 125, 2)}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 126, 2)})).
+					WithFunction(
+						dag.Function("MtlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("MtlsClientSecurity returns a ClientSecurity profile that opens a\nmutual-TLS connection: the server is verified against serverCa and the\nclient presents clientCert + clientKey to satisfy the node's\n`tls-auth-clients yes` requirement.").
+							WithSourceMap(dag.SourceMap("security.go", 111, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 111, 37)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 111, 60)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 111, 85)})).
+					WithFunction(
+						dag.Function("MtlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("MtlsServerSecurity returns a ServerSecurity profile that terminates\nmutual TLS. In addition to the server leaf (serverCert and serverKey),\nclientCa is mounted as `--tls-ca-cert-file` and `tls-auth-clients` is\nleft at its default (`yes`), so connecting clients must present a cert\nsigned by clientCa AND the correct password.").
+							WithSourceMap(dag.SourceMap("security.go", 82, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 82, 37)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 82, 62)}).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 82, 88)})).
+					WithFunction(
+						dag.Function("PlaintextClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("PlaintextClientSecurity returns a ClientSecurity profile configured\nfor `requirepass` auth over an unencrypted TCP connection.").
+							WithSourceMap(dag.SourceMap("security.go", 93, 1))).
+					WithFunction(
+						dag.Function("PlaintextServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("PlaintextServerSecurity returns a ServerSecurity profile configured\nfor `requirepass` auth over an unencrypted TCP listener.").
+							WithSourceMap(dag.SourceMap("security.go", 58, 1))).
+					WithFunction(
+						dag.Function("Replication",
+							dag.TypeDef().WithObject("Replication")).
+							WithDescription("Replication boots a primary/replica topology: one primary node plus\n`replicas` read replicas, each booted with `--replicaof <primary-host>\n6379`, the primary's password, and `--replica-read-only yes`.\n\nImage: `<registry>/valkey/valkey:<tag>` for every node — the topology\nis deliberately homogeneous.\n\nRejected inputs (each a descriptive error rather than a half-broken\ntopology):\n\n  - `password == nil` — the same secret is both the nodes'\n    `requirepass` and the replicas' `masterauth`, so it is mandatory.\n  - `clientListenerSecurity == nil` — plaintext must be a deliberate\n    caller choice, exactly as for a single Server.\n  - a TLS or MTLS profile — see the note below.\n  - `replicas < 1` — a zero-replica \"replication\" topology is a\n    single node with extra steps, and Valkey.Server already builds\n    that.\n\nTLS/mTLS is not supported for this topology yet. A TLS node runs with\n`--port 0`, so the replication link would have to run over TLS too\n(`--tls-replication yes`), and that link needs trust material this\nprofile does not carry: the replica must verify the primary against a\nCA, and under mTLS it must additionally present a client certificate\nthe primary's CA accepts. `*ServerSecurity` describes the\n*client-facing* listener only, so a TLS/mTLS profile is rejected here\nrather than silently booting replicas that spin on a failed handshake.\n\nSession-cached for the same reason Valkey.Server is: repeated chained\ncalls on the returned topology within one test must observe the SAME\nbacking services, and therefore the same keyspace. `name` folds into\nthat cache key and into every node's hostname, so parallel test suites\nshould pass a unique value per test.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("replication.go", 59, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 62, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 64, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 66, 2), DefaultValue: dagger.JSON("\"9.1\"")}).
+							WithArg("replicas", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 68, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 69, 2)}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("replication.go", 70, 2)})).
+					WithFunction(
+						dag.Function("Server",
+							dag.TypeDef().WithObject("Server")).
+							WithDescription("Server spins up a single-node Valkey server listening on 6379 with\n`requirepass` auth. The listener mode (plaintext / TLS / mTLS) is\nchosen by clientListenerSecurity: PLAINTEXT keeps the plaintext TCP\nlistener; TLS / MTLS swap it for an encrypted `--tls-port` listener\nwith the plaintext port turned off (`--port 0`).\n\nImage: `<registry>/valkey/valkey:<tag>` — the `valkey/valkey` portion\nis fixed; only `registry` and `tag` are caller-overridable. The default\ntag `\"9.1\"` pins this story to Valkey 9.1.\n\nRejected inputs (each surfaces a descriptive error rather than booting\na half-broken or wide-open node):\n\n  - `password == nil` — an unauthenticated Valkey node is reachable by\n    anything that can route to it, so a password is mandatory.\n  - `clientListenerSecurity == nil` — plaintext must be a deliberate\n    caller choice, so a nil profile is rejected rather than defaulted.\n  - an incomplete TLS / MTLS profile (missing cert, key, or client CA)\n    — validateServerSecurity rejects it before boot.\n  - `name == \"\"` for a TLS / MTLS node — the hostname (and therefore\n    the SAN the server cert must carry) derives from `name`, so each\n    encrypted node needs a unique discriminator.\n  - a malformed `maxMemory` or an unknown `maxMemoryPolicy` — either\n    makes valkey-server refuse to start, which would otherwise reach\n    the caller as an opaque readiness timeout.\n  - an `aclFile` that never mentions the `default` user — Valkey would\n    recreate that user `nopass` and the node would boot without the\n    password this function insists on. See validateAclFile.\n\n# Configuration passthrough\n\n`configFile`, `aclFile`, `appendOnly`, `maxMemory`, `maxMemoryPolicy`,\nand `extraArgs` are all optional, and omitting every one of them\nproduces exactly the node this function produced before they existed.\nThey are constructor parameters rather than post-boot modifiers\nbecause valkey-server reads each of them only while starting up.\n\nPrecedence runs left to right along the command line, which Valkey\nresolves last-one-wins:\n\n\t<configFile>  <listener flags>  <passthrough flags>  <extraArgs>\n\nSo a flag argument always beats the same directive in `configFile`,\nand `extraArgs` beats everything — including this module's own\nchoices. A passthrough parameter left at its default emits no flag at\nall, which is what lets `configFile` govern the settings the caller\ndid not name.\n\n`aclFile` is a `*dagger.Secret`, not a `*dagger.File`: an ACL file\ncarries per-user password material, so it is mounted as a secret and\nnever lands in an image layer or the Dagger graph. Valkey loads it\nAFTER `requirepass` and recreates any user the file omits in its\nfactory `on nopass` state, so the file must say something about\n`default` — that is the one thing about it this function validates.\n\nA `configFile` carrying its own `user ...` directives cannot be\ncombined with an `aclFile`: valkey-server refuses to start when both\nare present. This module does not read the config file, so that one\nsurfaces as a node that never becomes ready.\n\n`extraArgs` is the deliberate escape hatch. It is appended verbatim,\nlast, and completely unvalidated; it is UNSUPPORTED surface, and\nanything reachable through it may break without notice. Each element\nbecomes one shell word in the node's boot command, so a caller passing\na value containing whitespace must quote it themselves.\n\nSession-cached so that repeated chained method calls on the returned\nserver (e.g. Client.Set → Client.Get across two Server.Client() calls\nin `set-get-round-trip`) observe the SAME underlying service — and\ntherefore the same keyspace. Every method on *Server and *Client is\nindependently marked never-cache, so any data-returning call\nre-executes per invocation.\n\n`name` is a caller-supplied discriminator that folds into the session\ncache key. Parallel test suites should pass a unique value per test so\neach test gets its own backing service — without it, every same-shape\ncall collapses to one cached node and concurrent tests race on a\nshared keyspace. Same name + same shape still cache-hits, which is\nwhat a single test's chained Client calls need. Leaving the default\nempty is fine for ad-hoc `dagger call` use where only one node is in\nplay.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("server.go", 122, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 125, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 127, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 129, 2), DefaultValue: dagger.JSON("\"9.1\"")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 130, 2)}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 131, 2)}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A valkey.conf loaded before every flag argument; conflicting flags win.", SourceMap: dag.SourceMap("server.go", 135, 2)}).
+							WithArg("aclFile", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "An ACL file loaded via --aclfile. A secret, not a file: it carries\nper-user password material.", SourceMap: dag.SourceMap("server.go", 140, 2)}).
+							WithArg("appendOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Turn the append-only file on. Defaults to false, matching Valkey.", SourceMap: dag.SourceMap("server.go", 144, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("maxMemory", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Memory ceiling in Valkey's notation (\"512mb\", \"1gb\", \"104857600\").", SourceMap: dag.SourceMap("server.go", 148, 2)}).
+							WithArg("maxMemoryPolicy", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Eviction policy applied once maxMemory is reached.", SourceMap: dag.SourceMap("server.go", 152, 2), DefaultValue: dagger.JSON("\"noeviction\"")}).
+							WithArg("extraArgs", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Unvalidated, unsupported valkey-server arguments, appended last.", SourceMap: dag.SourceMap("server.go", 156, 2)})).
+					WithFunction(
+						dag.Function("TlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("TlsClientSecurity returns a ClientSecurity profile that opens a\none-way TLS connection and verifies the server against serverCa, with\nServerName pinned to the dialed host.").
+							WithSourceMap(dag.SourceMap("security.go", 100, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 100, 36)})).
+					WithFunction(
+						dag.Function("TlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("TlsServerSecurity returns a ServerSecurity profile that terminates\none-way TLS on the node's :6379 listener. serverCert is the PEM leaf\ncertificate (its SAN must cover the hostname the client dials) and\nserverKey is the matching PEM PKCS#8 private key. The node starts with\n`--tls-port 6379 --port 0` (encrypted listener only, plaintext off)\nand `--tls-auth-clients no`, so a client authenticates with the\npassword and the server certificate but presents no client cert.").
+							WithSourceMap(dag.SourceMap("security.go", 69, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 69, 36)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 69, 61)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Server", dagger.TypeDefWithObjectOpts{Description: "Server represents a running single-node Valkey server plus the\nconnection metadata callers need to reach it. Holds a reference to the\nbacking service so callers can bind it into their own containers or\nopen a valkey-go Client against it.", SourceMap: dag.SourceMap("server.go", 24, 6)}).
+					WithFunction(
+						dag.Function("BindServer",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindServer attaches the Valkey service to the given container under\nthe same hostname Endpoint reports, so the container can dial the node\nat `Endpoint()` (e.g. `valkey-cli -h <host> -a <pw> PING`).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 382, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 382, 29)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client starts the node and returns a valkey-go Client wired with its\nendpoint, user, and password on logical database 0.\n\nThe supplied ClientSecurity mode must match the node's listener mode\n(PLAINTEXT/TLS/MTLS); a mismatch returns an error naming both modes\nrather than failing opaquely at the wire. Readiness is then probed\nwith the client itself, so a TLS / mTLS listener would be polled over\nTLS using the caller's own cert material.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 396, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("server.go", 396, 46)})).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the node's `host:6379` address. It does NOT start the\nservice: it is a pure accessor, mirroring postgres' Endpoint.\nBindServer is what makes that address reachable from a consumer\ncontainer (WithServiceBinding starts the service as the consumer's\ndependency and wires its IP into /etc/hosts). For module-runtime\naccess use Server.Client, which starts the service itself.\n\nPre-starting the service from this module before a consumer binds it\nwould register the service in the module's DNS domain, which the\nbinding's host-file lookup can't resolve from a session-domain\nconsumer — so the start must be driven by the binding, not here.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 355, 1))).
+					WithFunction(
+						dag.Function("Password",
+							dag.TypeDef().WithObject("Secret")).
+							WithDescription("Password returns the `requirepass` secret the node was provisioned\nwith, so callers can re-use it via Valkey.Client against the same\nendpoint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 373, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down the service container backing this node. Tests should\ncall this in a defer so the service span closes when the test returns.\nSIGKILL skips graceful shutdown — Valkey's save-on-shutdown path is\nwasted work for a torn-down test node.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 432, 1))).
+					WithFunction(
+						dag.Function("User",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("User returns the ACL user clients authenticate as. `requirepass` sets\nthe password of the built-in `default` user, so this is always\n\"default\" in this story; an ACL-file follow-up is what makes it vary.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("server.go", 364, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("ServerSecurity", dagger.TypeDefWithObjectOpts{Description: "ServerSecurity describes how a Valkey server's client-facing listener\nauthenticates and encrypts traffic. Three modes are supported:\n\n  - PLAINTEXT — `requirepass` auth over an unencrypted TCP listener.\n  - TLS — one-way TLS: the node presents a server certificate on a\n    `--tls-port` listener and clients still authenticate with the\n    password.\n  - MTLS — mutual TLS: connecting clients must additionally present a\n    certificate signed by ClientCa.\n\nThe cert material is caller-supplied PEM: valkey-server reads it\nnatively via `--tls-cert-file` / `--tls-key-file` / `--tls-ca-cert-file`.\n\nThe trap this module has to get right: Valkey's `tls-auth-clients`\ndefaults to `yes`, so a TLS-enabled node demands client certificates\nunless `--tls-auth-clients no` is passed. One-way TLS is therefore the\nopt-*out* here, inverting the postgres posture where mTLS is the\nopt-in — see applyServerSecurity.", SourceMap: dag.SourceMap("security.go", 28, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a valkey-go backed Valkey client. Each method opens a fresh\nconnection so the function call is stateless from Dagger's\nperspective; ApplyFile is the exception — it runs every command on one\nconnection.", SourceMap: dag.SourceMap("client.go", 35, 6)}).
+					WithFunction(
+						dag.Function("ApplyFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyFile reads a file of Valkey commands — one per line, in\nvalkey-cli syntax — and runs them in order on a single connection.\nThis is the fixture-seeding path.\n\nBlank lines and `#` comment lines are skipped. Arguments are split on\nwhitespace, with single- and double-quoted runs kept intact so values\ncontaining spaces survive; `\\` escapes inside double quotes. A command\nthat fails aborts the run and reports the offending line number.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 498, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 498, 49)})).
+					WithFunction(
+						dag.Function("DbSize",
+							dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).
+							WithDescription("DbSize returns the number of keys in the client's logical database.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 623, 1))).
+					WithFunction(
+						dag.Function("Del",
+							dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).
+							WithDescription("Del removes the given keys and returns how many actually existed.\n\nAgainst a cluster the keys are grouped by hash slot and one DEL is\nissued per group: a single DEL naming keys from two slots is refused\noutright with CROSSSLOT, because the slots may live on different\nprimaries and Valkey will not split a command across them. The groups\nare pipelined with DoMulti, so a multi-slot delete still costs one\nround trip per node rather than one per key.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 340, 1)).
+							WithArg("keys", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 340, 43)})).
+					WithFunction(
+						dag.Function("Do",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Do runs an arbitrary command — `[\"SET\", \"k\", \"v\"]`, `[\"GET\", \"k\"]`,\n`[\"LPUSH\", \"l\", \"a\", \"b\"]` — and returns the reply JSON-encoded, so\nthe RESP type survives the round trip: a status reply is `\"OK\"`, an\ninteger is `1`, a bulk string is `\"v\"`, an array is `[\"a\",\"b\"]`, and a\nnil reply is `null` (never `\"\"`).\n\nThis is the escape hatch: every other method on Client is expressible\nthrough it. The reply comes back as a string rather than a\n*dagger.File because a single command reply is small and a core scalar\nkeeps `dagger call do --args=GET,foo` readable.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 217, 1)).
+							WithArg("args", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 217, 42)})).
+					WithFunction(
+						dag.Function("Export",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Export captures every key matching pattern and writes it to a single\nJSON file, returned via `dag.CurrentModule().WorkdirFile`. ImportFile\nreverses it, so the pair moves a pre-seeded cache between servers —\nthe fixture path for a test that needs a populated keyspace it did not\nbuild command by command.\n\nEach key is captured with DUMP (the binary serialization RDB itself\nuses, so every type and encoding survives — strings, hashes, lists,\nsets, sorted sets, streams, and module types alike) plus its PTTL. The\nkeyspace is walked with SCAN, cursor to exhaustion, with the same\ncluster fan-out Keys performs.\n\nThis deliberately avoids the obvious approach of extracting\n`/data/dump.rdb`: a running Dagger Service's filesystem is not\ndirectly readable, so pulling the RDB out would mean restructuring the\nnode as a Container with an exported mount. DUMP/RESTORE is pure\nclient-side work and needs no filesystem access at all, which is also\nwhat makes it work unchanged against a remote managed instance\n(ElastiCache, MemoryDB) where there is no filesystem to reach.\n\nOnly the client's logical database is exported. A key that expires\nbetween the SCAN that named it and the DUMP that captures it is\nskipped rather than failing the export.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("keyspace.go", 87, 1)).
+							WithArg("pattern", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("keyspace.go", 90, 2), DefaultValue: dagger.JSON("\"*\"")})).
+					WithFunction(
+						dag.Function("FlushAll",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FlushAll removes every key from every logical database on the node.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 640, 1))).
+					WithFunction(
+						dag.Function("Get",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Get returns the string value stored at key. A missing key is an error,\nnot an empty string — an empty string is itself a legitimate stored\nvalue and must stay distinguishable from absence.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 275, 1)).
+							WithArg("key", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 275, 43)})).
+					WithFunction(
+						dag.Function("ImportFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).
+							WithDescription("ImportFile restores a file written by Export into the client's logical\ndatabase and returns how many keys it wrote, TTLs included.\n\nIt is not called `Import`, which is what the symmetry with Export\nwants, because it cannot be: the Go SDK caches every scalar-returning\nfunction on a generated struct field named after the GraphQL field, so\nan `Import` returning an Int renders as `import *int` in every\nconsumer module's bindings and refuses to compile. `ApplyFile` is the\nnaming this module already uses for the other file-taking method.\n\nWithout replace a key already present in the target is a hard error:\nRESTORE answers BUSYKEY, which is the desired default for a fixture\nload — silently clobbering a keyspace someone else is using is worse\nthan refusing. Pass replace to overwrite instead.\n\nThe import is not transactional. The restores are pipelined in\nbatches, so a mid-file failure (a collision, a corrupt payload, an RDB\nversion the server is too old to read) leaves the keys already written\nin place. Re-running with replace after fixing the cause is the\nintended recovery.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("keyspace.go", 186, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("keyspace.go", 188, 2)}).
+							WithArg("replace", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("keyspace.go", 190, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Info",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Info returns the server's INFO output. An empty section returns the\ndefault set; pass a section name (`\"server\"`, `\"replication\"`,\n`\"keyspace\"`, …) to narrow it.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 602, 1)).
+							WithArg("section", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 605, 2), DefaultValue: dagger.JSON("\"\"")})).
+					WithFunction(
+						dag.Function("Keys",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Keys returns every key matching a glob pattern (`\"*\"` for all).\n\nIt is SCAN-backed rather than KEYS-backed — KEYS blocks the server for\nthe whole sweep — and walks the cursor to exhaustion, so the result is\nthe complete match set and not just SCAN's first page.\n\nAgainst a cluster it scans EVERY node rather than the one the client\nhappens to be seeded from. SCAN names no key, so a cluster client has\nno slot to route it by and it is answered from whichever node it lands\non — reporting that node's shard of the keyspace as if it were the\nwhole thing. Replicas are scanned too (they answer SCAN locally rather\nthan redirecting) and the union is de-duplicated, so a replica lagging\nits primary can only ever contribute keys the primary also reports.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 417, 1)).
+							WithArg("pattern", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 417, 44)})).
+					WithFunction(
+						dag.Function("Ping",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Ping opens a connection and verifies the node is reachable and\naccepting authenticated commands.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 196, 1))).
+					WithFunction(
+						dag.Function("Set",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Set stores value at key. ttl is a Go duration string (`\"250ms\"`,\n`\"30s\"`, `\"5m\"`); empty means no expiry.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 296, 1)).
+							WithArg("key", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 298, 2)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 299, 2)}).
+							WithArg("ttl", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind).WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 301, 2)}))).
+			WithObject(
+				dag.TypeDef().WithObject("ClientSecurity", dagger.TypeDefWithObjectOpts{Description: "ClientSecurity describes how a valkey-go client connects to a Valkey\nserver. PLAINTEXT connects over an unencrypted TCP listener; TLS pins\nthe server CA and sets ServerName to the dialed host; MTLS\nadditionally presents a client certificate + key. The client builds a\n*tls.Config from this PEM material and hands it to valkey-go via\nClientOption.TLSConfig.", SourceMap: dag.SourceMap("security.go", 45, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster is a slot-sharded Valkey Cluster: `shards` primaries splitting\nthe 16384-slot keyspace between them, each with `replicasPerShard`\nreplicas. Nodes holds every member — the first `shards` entries are the\nprimaries, the remainder their replicas — in the order valkey-cli is\nhanded them at bootstrap.\n\nUnlike Replication, the members are symmetric peers: each one gossips\nwith every other over the cluster bus, and none of them is \"already up\"\nwhen its neighbours boot. That is what rules out node-to-node service\nbindings here — see startAll.", SourceMap: dag.SourceMap("cluster.go", 56, 6)}).
+					WithFunction(
+						dag.Function("BindNodes",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindNodes attaches every member service to the given container under\nthe hostname it advertises, so the container can dial any of them at\nthe addresses Endpoints reports — and, just as importantly, can follow\na MOVED redirect to any other member, since a cluster client is told to\ngo to a node's *advertised* hostname rather than the one it dialed.\nBinding only the seed node would leave every redirect unresolvable.\n\nThe returned container also carries the bootstrap script's completion\nmarker. That file is never read; grafting it is what makes the\nbootstrap a build-time dependency of whatever the consumer runs next,\nso the container's first command meets a cluster whose slots are\nalready assigned rather than one answering CLUSTERDOWN.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 410, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 410, 29)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client brings the cluster up and returns a cluster-aware valkey-go\nClient seeded with every member's endpoint. valkey-go detects cluster\nmode from the seed addresses (CLUSTER SLOTS), keeps its own slot map,\nand follows MOVED/ASK redirects itself, so callers address the cluster\nas one keyspace.\n\nThe supplied ClientSecurity mode must match the cluster's listener\nmode, which is PLAINTEXT for now; a mismatch returns an error naming\nboth modes rather than failing opaquely at the wire.\n\nThe nodes are started explicitly (and concurrently — see startAll)\nrather than left to the bootstrap exec's service bindings, because a\nbinding only wires the service into that one container's hosts file:\nthe returned valkey-go client dials from the module runtime, which\nneeds the hostnames in session DNS. Starting them here is also what\nmakes BindNodes unusable on the same cluster afterwards — see\nValkey.Cluster — so a consumer container should bind a cluster this\nmodule has not already dialled.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 438, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 438, 47)})).
+					WithFunction(
+						dag.Function("Endpoints",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("Endpoints returns every member's `host:6379` address, primaries first.\nThese are the addresses a cluster-aware client seeds from, and the\nhostnames BindNodes makes reachable. Like Server.Endpoint it is a pure\naccessor and starts nothing.\n\nSession-cached rather than never-cached: Dagger v0.21 detaches module\nobjects returned from a `module reads their fields lazily, and `tests/` is such a consumer.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster.go", 388, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down every member. Every node is attempted even if an\nearlier one fails, and the failures are joined — a partial teardown\nthat reported only the first error would leave services running with\nnothing naming them.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 465, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Replication", dagger.TypeDefWithObjectOpts{Description: "Replication is a primary/replica Valkey topology: one primary plus N\nasynchronous read replicas. Nodes[0] is always the primary and the\nremainder are its replicas, in the order they were created.\n\nA replica is asymmetric — it dials a primary that is already up — so\nthe whole topology is expressible with an ordinary service binding and\nnone of the symmetric-peer startup problems of Valkey Cluster apply.", SourceMap: dag.SourceMap("replication.go", 19, 6)}).
+					WithFunction(
+						dag.Function("Primary",
+							dag.TypeDef().WithObject("Server")).
+							WithDescription("Primary returns the topology's primary node — the only node that\naccepts writes.\n\nSession-cached rather than never-cached: Dagger v0.21 detaches module\nobjects returned from a `module reads their fields lazily, and `tests/` is such a consumer. The\nmethods on the returned *Server are individually never-cached, so no\ndata-returning call is served stale.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("replication.go", 166, 1))).
+					WithFunction(
+						dag.Function("Replicas",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Server"))).
+							WithDescription("Replicas returns the topology's read replicas, in creation order.\nSession-cached for the same reason Primary is.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("replication.go", 177, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down every node in the topology, replicas first so the\nprimary does not spend its last moments logging dropped links. Every\nnode is attempted even if an earlier one fails, and the failures are\njoined — a partial teardown that reported only the first error would\nleave services running with nothing naming them.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("replication.go", 191, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -580,6 +580,217 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the envoy-tests Dagger module: round-trip and unit\nchecks for the envoy daggerverse module.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 15, 6)}).
+					WithFunction(
+						dag.Function("Admin",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Admin runs the boot-and-probe tests — Envoy comes up, we hit the\nadmin endpoint or assert misconfigurations fail at boot, no upstream\ntraffic.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 95, 1)).
+							WithCheck().
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 98, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 100, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("AdminEndpointServesReady",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AdminEndpointServesReady asserts the admin /ready endpoint\nreturns HTTP 200 from a fresh probe container service-bound to a\nproxy whose minimal valid config is one HTTP listener wired to one\ncluster.").
+							WithSourceMap(dag.SourceMap("main.go", 475, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 478, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every envoy test as a convenience for local `dagger call all`\ninvocations. CI does NOT call All: each of the three sub-aggregators\nbelow (Validation, Admin, RoundTrips) carries its own `directive, so GH Actions schedules each onto its own runner in\nparallel — running All on top would double-bill the same work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 24, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 27, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 29, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ConfigFileOverridesRendered",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ConfigFileOverridesRendered asserts that WithConfigFile fully\nreplaces the rendered bootstrap; listeners and clusters added via\nWithListener/WithCluster are ignored when an override is set.").
+							WithSourceMap(dag.SourceMap("main.go", 411, 1))).
+					WithFunction(
+						dag.Function("CustomHttpFilterBodyIsSpliced",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CustomHttpFilterBodyIsSpliced asserts that a CustomHttpFilter's\ncaller-supplied YAML body lands as the filter's typed_config in\nthe rendered HCM http_filters chain.").
+							WithSourceMap(dag.SourceMap("main.go", 350, 1))).
+					WithFunction(
+						dag.Function("CustomListenerBodyIsSpliced",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CustomListenerBodyIsSpliced asserts that a CustomListener's\ncaller-supplied YAML body round-trips verbatim under\nstatic_resources.listeners with the builder-supplied name keyed\nin.").
+							WithSourceMap(dag.SourceMap("main.go", 307, 1))).
+					WithFunction(
+						dag.Function("DefaultClusterTypeIsStrictDns",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultClusterTypeIsStrictDns asserts a cluster built with default\nclusterType renders as `type: STRICT_DNS` in the rendered\nbootstrap YAML.").
+							WithSourceMap(dag.SourceMap("main.go", 239, 1))).
+					WithFunction(
+						dag.Function("DynamicResourcesConflictsWithStatic",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DynamicResourcesConflictsWithStatic asserts that mixing\nWithDynamicResources with any of WithListener / WithCluster /\nWithConfigFile on the same Proxy makes ConfigFile() return a\nnon-nil error — the two configuration modes are exclusive.").
+							WithSourceMap(dag.SourceMap("xds.go", 372, 1))).
+					WithFunction(
+						dag.Function("DynamicResourcesRendersDynamicBootstrap",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DynamicResourcesRendersDynamicBootstrap asserts WithDynamicResources\nrenders a bootstrap whose dynamic_resources block points lds/cds at\nthe mounted xds directory and which carries no static_resources.").
+							WithSourceMap(dag.SourceMap("xds.go", 16, 1))).
+					WithFunction(
+						dag.Function("DynamicResourcesRequiresLdsAndCds",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DynamicResourcesRequiresLdsAndCds asserts Service() rejects a\nresource directory missing either of the two files the bootstrap's\ndynamic_resources block points at, rather than booting an Envoy\nthat silently discovers nothing.").
+							WithSourceMap(dag.SourceMap("xds.go", 349, 1))).
+					WithFunction(
+						dag.Function("L4TcpRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L4TcpRoundTrip stands up an alpine `nc` echo upstream behind an\nEnvoy TcpListener and asserts that bytes sent through Envoy come\nback on the same TCP connection.").
+							WithSourceMap(dag.SourceMap("main.go", 590, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 593, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L4TcpTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L4TcpTlsRoundTrip stands up an nc echo upstream behind an Envoy\nTLS-terminated TcpListener and asserts an openssl s_client probe\ncan complete a TLS round-trip with marker bytes echoed back.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 395, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 398, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L4TcpXdsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L4TcpXdsRoundTrip stands up an alpine `nc` echo upstream behind an\nEnvoy TcpListener delivered over file-based xDS and asserts bytes\nsent through Envoy come back on the same TCP connection. Also\nasserts ListenerEndpoint resolves the listener's port out of the\nmounted lds.yaml, since no Listener is registered on the Proxy in\nthis mode.").
+							WithSourceMap(dag.SourceMap("xds.go", 134, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("xds.go", 137, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L7HttpRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L7HttpRoundTrip stands up an HTTP upstream behind an Envoy\nHttpListener and asserts a request through Envoy returns a fresh\nrandom marker served by the upstream.").
+							WithSourceMap(dag.SourceMap("main.go", 543, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 546, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L7HttpXdsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L7HttpXdsRoundTrip stands up an HTTP upstream behind an Envoy\nproxy whose listeners and clusters arrive over file-based xDS\nrather than static_resources, and asserts a request through Envoy\nreturns a fresh random marker served by the upstream.").
+							WithSourceMap(dag.SourceMap("xds.go", 82, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("xds.go", 85, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L7HttpsMtlsAcceptsAuthorizedClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L7HttpsMtlsAcceptsAuthorizedClient asserts that an mTLS-terminated\nlistener accepts curl clients that present a leaf signed by the\nconfigured clientTrustStore CA.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 199, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 202, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L7HttpsMtlsRejectsAnonymousClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L7HttpsMtlsRejectsAnonymousClient asserts that an mTLS-terminated\nHttpListener refuses clients that don't present a cert signed by\nthe configured clientTrustStore CA — curl exits non-zero.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 131, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 134, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("L7HttpsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("L7HttpsRoundTrip stands up a plaintext HTTP upstream behind an\nEnvoy TLS-terminated HttpListener and asserts a client trusting\nthe CA can complete an HTTPS round-trip.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 79, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 82, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("MtlsServerSecurityRequiresClientCert",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsServerSecurityRequiresClientCert asserts that mTLS adds\nrequire_client_certificate + a validation_context.trusted_ca\npointing at the listener's trust PEM mount path.").
+							WithSourceMap(dag.SourceMap("security.go", 183, 1))).
+					WithFunction(
+						dag.Function("MtlsUpstreamSecurityIncludesClientLeaf",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsUpstreamSecurityIncludesClientLeaf asserts that mTLS upstream\nrenders both validation_context AND tls_certificates referencing\nthe cluster keystore PKCS#12 path + env-var password.").
+							WithSourceMap(dag.SourceMap("security.go", 300, 1))).
+					WithFunction(
+						dag.Function("PlaintextServerSecurityRendersNoTransportSocket",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlaintextServerSecurityRendersNoTransportSocket asserts that a\nlistener built with PlaintextServerSecurity is byte-identical to\none built with nil security (no transport_socket in either).").
+							WithSourceMap(dag.SourceMap("security.go", 226, 1))).
+					WithFunction(
+						dag.Function("PlaintextUpstreamSecurityRendersNoTransportSocket",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlaintextUpstreamSecurityRendersNoTransportSocket asserts that\nPlaintextUpstreamSecurity renders the same cluster as nil upstream.").
+							WithSourceMap(dag.SourceMap("security.go", 341, 1))).
+					WithFunction(
+						dag.Function("RejectsDuplicateListenerName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsDuplicateListenerName asserts that wiring two listeners\nsharing the same name into a Proxy causes ConfigFile() to return a\nnon-nil error.").
+							WithSourceMap(dag.SourceMap("main.go", 272, 1))).
+					WithFunction(
+						dag.Function("RejectsInvalidComponentName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsInvalidComponentName asserts that the typed component\nfactories reject names that don't match [A-Za-z0-9_-]+ with a\nnon-nil error. AC calls out Envoy.Cluster and Envoy.VirtualHost\nexplicitly; RoutePrefix's cluster arg shares the same validator.").
+							WithSourceMap(dag.SourceMap("main.go", 192, 1))).
+					WithFunction(
+						dag.Function("RejectsUnknownClusterReference",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsUnknownClusterReference asserts a listener whose filter\nchain references a cluster not registered via WithCluster causes\nConfigFile() to return a non-nil error.").
+							WithSourceMap(dag.SourceMap("main.go", 289, 1))).
+					WithFunction(
+						dag.Function("RejectsUnknownClusterType",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RejectsUnknownClusterType asserts Envoy.Cluster rejects clusterType\nvalues outside {STATIC, STRICT_DNS, LOGICAL_DNS} with a non-nil\nerror.").
+							WithSourceMap(dag.SourceMap("main.go", 222, 1))).
+					WithFunction(
+						dag.Function("RoundTrips",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RoundTrips runs every L7/L4 + TLS/mTLS round-trip — each spins an\nEnvoy proxy plus an upstream service plus a curl client. The\nheaviest of the three groups.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 123, 1)).
+							WithCheck().
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 126, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")}).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 128, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ServiceWithoutConfigFails",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ServiceWithoutConfigFails asserts that Service() on a Proxy with\nno listeners, clusters, or override produces a container whose\nadmin port never opens (the envoy binary refuses to start without\n-c).").
+							WithSourceMap(dag.SourceMap("main.go", 443, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 446, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("TlsServerSecurityRendersDownstreamTlsContext",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsServerSecurityRendersDownstreamTlsContext asserts that an\nHttpListener built with TlsServerSecurity renders a downstream TLS\ntransport_socket on its filter chain referencing the listener's\nPKCS#12 mount path and a password env var, with no\nrequire_client_certificate.").
+							WithSourceMap(dag.SourceMap("security.go", 124, 1))).
+					WithFunction(
+						dag.Function("TlsUpstreamSecurityRendersUpstreamTlsContext",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsUpstreamSecurityRendersUpstreamTlsContext asserts that a\nCluster built with TlsUpstreamSecurity renders an\nUpstreamTlsContext transport_socket on the cluster with a\nvalidation_context pointing at the upstream trust PEM path.").
+							WithSourceMap(dag.SourceMap("security.go", 261, 1))).
+					WithFunction(
+						dag.Function("UpstreamMtlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UpstreamMtlsRoundTrip asserts Envoy presents a client leaf to a\nmTLS upstream that verifies it against its own clientTrust CA.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 316, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 319, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("UpstreamTlsRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UpstreamTlsRoundTrip stands up a python HTTPS upstream and asserts\nEnvoy connects to it over TLS when the cluster's\nUpstreamSecurity truststore matches the upstream's server cert CA.").
+							WithSourceMap(dag.SourceMap("roundtrips.go", 262, 1)).
+							WithArg("envoyTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("roundtrips.go", 265, 2), DefaultValue: dagger.JSON("\"v1.32.1\"")})).
+					WithFunction(
+						dag.Function("Validation",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Validation runs the pure-render and config-validation tests — no\nEnvoy service is booted, just the proxy config-rendering paths and\nthe security renderers. The fastest of the three groups.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 55, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 58, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("XdsResourcesMatchStaticResources",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("XdsResourcesMatchStaticResources asserts that the lds.yaml /\ncds.yaml discovery responses rendered by XdsResources.Directory()\nare structurally equivalent to the static_resources block the same\ncomponents produce in static mode — identical apart from the\nper-resource `@type` discriminator that only the xDS shape needs.").
+							WithSourceMap(dag.SourceMap("xds.go", 194, 1))).
+					WithFunction(
+						dag.Function("XdsResourcesRejectsInvalidResourceSet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("XdsResourcesRejectsInvalidResourceSet asserts Directory() surfaces\nthe same two errors (*Proxy).ConfigFile() does: two listeners\nsharing a name, and a listener whose filter chain references a\ncluster that isn't in the resource set.").
+							WithSourceMap(dag.SourceMap("xds.go", 277, 1))).
+					WithFunction(
+						dag.Function("XdsResourcesRejectsSecureComponents",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("XdsResourcesRejectsSecureComponents asserts Directory() refuses\nTLS / mTLS listeners and clusters: their rendered resources point\nat key material under /etc/envoy/secrets that only the static\nService() path mounts, so a proxy fed them through an opaque\nresource directory would boot and then fail every handshake.").
+							WithSourceMap(dag.SourceMap("xds.go", 313, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

@@ -2164,7 +2164,7 @@ func pin(ctx context.Context, dir *dagger.Directory) (*dagger.Directory, error) 
 	if err != nil {
 		return nil, err
 	}
-	return dag.LoadDirectoryFromID(dagger.DirectoryID(id)), nil
+	return dagger.Ref[*dagger.Directory](dag, id), nil
 }
 
 // exportContents round-trips an artifact through the module's own workdir and

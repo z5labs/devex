@@ -22,11 +22,55 @@ Reference: https://docs.dagger.io/extending/function-caching/
 ## Regenerating bindings
 
 After editing `main.go` (adding/renaming functions, changing signatures, or
-changing directives like `+cache`), run `dagger develop` in the module
-directory to regenerate `dagger.gen.go` and `internal/dagger/*.gen.go`.
+changing directives like `+cache`), regenerate `dagger.gen.go` and
+`internal/dagger/*.gen.go` for the module.
 
-If module A depends on module B (e.g. `tests/` depends on `..`), run
-`dagger develop` in **both** so A picks up B's new API.
+**`dagger develop` no longer exists.** Dagger v1 replaced it with `dagger
+generate`, which is driven by a workspace `dagger.toml`; this repository's
+modules are still configured the legacy way (one `dagger.json` each, which v1
+reads by inference), so `dagger generate` finds no generators here. Use
+`hack/regen.sh` instead — it drives the API `develop` used to sit on
+(`ModuleSource.generatedContextDirectory`), for every module in the tree, in
+dependency order, and bumps each `engineVersion` to the pin:
+
+```
+hack/regen.sh                 # every module, at the version in the root dagger.json
+```
+
+For a single module, the same query by hand:
+
+```
+printf '{ moduleSource(refString: "%s") { generatedContextDirectory { export(path: "%s") } } }' \
+  daggerverse/<module> "$PWD" | dagger api query
+```
+
+If module A depends on module B (e.g. `tests/` depends on `..`), regenerate
+**both**, B first, so A picks up B's new API. `hack/regen.sh` already orders
+the whole tree that way.
+
+## Re-hydrating an object from its ID: `dagger.Ref`, not `LoadXFromID`
+
+A function marked `+cache="never"` runs once per *selection*, so reading two
+things off one call runs it twice and hands back halves of two different
+results. The fix is to resolve the handle to an ID once and re-hydrate a single
+instance from it — and the spelling of that changed in Dagger v1.
+
+`dag.LoadDirectoryFromID(dagger.DirectoryID(id))` is gone: v1 dropped every
+`load<Type>FromID` field from the API (130 of them in this repo's generated
+client) in favour of one `Query.node(id)`, and there is a single `dagger.ID`
+type rather than one per object. Use the generated generic helper:
+
+```go
+id, err := dir.ID(ctx)
+if err != nil {
+    return nil, err
+}
+return dagger.Ref[*dagger.Directory](dag, id), nil
+```
+
+It works for a dependency's objects as well as core ones
+(`dagger.Ref[*dagger.CryptoRsaKey](dag, id)`), and it is lazy — no round trip
+until something selects off it.
 
 ## Module layout
 
@@ -328,9 +372,11 @@ and CLI names become kebab-case (`Sha256ShouldNotBeCached` → `sha-256-should-n
 
 ## Useful commands
 
-- `dagger functions` — list functions exposed by the current module.
-- `dagger call <fn> [--arg=val]` — invoke a function.
-- `dagger develop` — regenerate SDK bindings after source changes.
+- `dagger functions -m <dir>` — list functions exposed by a module.
+- `dagger call -m <dir> <fn> [--arg=val]` — invoke a function.
+- `dagger check -m <dir> [pattern]` — run a module's checks (`dagger checks`,
+  plural, was removed in v1).
+- `hack/regen.sh` — regenerate SDK bindings after source changes; see above.
 - `dagger version` — engine and CLI version.
 
 ## Common pitfalls
@@ -375,7 +421,7 @@ Args form throughout: see `daggerverse/otel/main.go:82` and
 ### Struct fields named `Type` break downstream codegen
 
 An exported field literally named `Type` on a Dagger module struct
-makes the own-module `dagger develop` succeed but breaks dependency
+makes the own-module codegen succeed but breaks dependency
 binding generation in any consumer module with:
 
 ```
@@ -390,9 +436,8 @@ unparseable Go in the consumer's `tests/internal/dagger/<dep>.gen.go`.
 Use `Kind`, `Mode`, `Format`, or any other descriptive name. The same
 applies to other Go/GraphQL keywords on exported fields: avoid
 `Query`, `Mutation`, `Schema`, `On`, `Fragment`, and the scalar names
-(`Int`, `Float`, `String`, `Boolean`, `ID`). Run `dagger develop` in
-a *consumer* module after adding a new exported field to surface
-this early.
+(`Int`, `Float`, `String`, `Boolean`, `ID`). Regenerate a *consumer*
+module after adding a new exported field to surface this early.
 
 ### Scalar-returning methods named after Go keywords break the same way
 
@@ -408,7 +453,7 @@ type <Dep><Type> struct {
 }
 ```
 
-and the consumer's `dagger develop` fails with the same
+and the consumer's codegen fails with the same
 `error formatting generated code: NNN:9: expected '}', found 'import'`.
 
 This bites only methods whose return type is a scalar (`int`, `string`,
@@ -525,7 +570,7 @@ object: the generated `ID()` on a dependency type returns the generic
 What keeps them out of the schema is that **no exposed API signature
 references them** — not the lowercase initial by itself. Drop the `+private`
 from `Variants` and you are asking the generator to expose a field whose type
-it cannot register, which fails in the module's *own* `dagger develop`, before
+it cannot register, which fails in the module's *own* codegen, before
 any consumer is involved:
 
 ```
@@ -660,8 +705,8 @@ the suite; do not even write all tests then implement.
    easiest first — pure-validation tests before render-only tests
    before service round-trips.
 2. Write only that test in `<module>/tests/main.go`.
-3. Run `dagger develop` in `<module>` (if module API moved) and in
-   `<module>/tests`.
+3. Run `hack/regen.sh` if the module's API moved, so `<module>` and
+   `<module>/tests` both pick it up.
 4. Run `dagger -m daggerverse/<module>/tests call <test-name-kebab>`
    and confirm it fails for the *expected* reason (compile error,
    missing factory, validation gap) — not an unrelated reason.

@@ -1041,6 +1041,278 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the otel Dagger module: spins up the OpenTelemetry\nCollector as a service for local development and testing, with a\ncomponent/pipeline builder API for composing receivers, processors,\nand exporters without writing YAML by hand.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Otel", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 151, 6)}).
+					WithFunction(
+						dag.Function("BatchProcessor",
+							dag.TypeDef().WithObject("Processor")).
+							WithDescription("BatchProcessor builds a batch processor with collector defaults.").
+							WithSourceMap(dag.SourceMap("main.go", 323, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 323, 31)})).
+					WithFunction(
+						dag.Function("Contrib",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("Contrib returns a ContribCollector backed by the\notel/opentelemetry-collector-contrib image. See Core.").
+							WithSourceMap(dag.SourceMap("main.go", 836, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 838, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 840, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 842, 2)})).
+					WithFunction(
+						dag.Function("Core",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("Core returns a CoreCollector backed by the\notel/opentelemetry-collector image at <registry>/<image>:<tag>.\nconfigFile, when supplied, fully replaces the rendered pipeline\nYAML; the image path is fixed.").
+							WithSourceMap(dag.SourceMap("main.go", 510, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 512, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 514, 2), DefaultValue: dagger.JSON("\"0.130.1\"")}).
+							WithArg("configFile", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 516, 2)})).
+					WithFunction(
+						dag.Function("CustomExporter",
+							dag.TypeDef().WithObject("Exporter")).
+							WithDescription("CustomExporter — see CustomReceiver.").
+							WithSourceMap(dag.SourceMap("main.go", 395, 1)).
+							WithArg("kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 395, 31)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 395, 37)}).
+							WithArg("yamlBody", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 395, 43)})).
+					WithFunction(
+						dag.Function("CustomProcessor",
+							dag.TypeDef().WithObject("Processor")).
+							WithDescription("CustomProcessor — see CustomReceiver.").
+							WithSourceMap(dag.SourceMap("main.go", 387, 1)).
+							WithArg("kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 387, 32)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 387, 38)}).
+							WithArg("yamlBody", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 387, 44)})).
+					WithFunction(
+						dag.Function("CustomReceiver",
+							dag.TypeDef().WithObject("Receiver")).
+							WithDescription("CustomReceiver builds a receiver of arbitrary kind whose body is the\ncaller-supplied YAML, spliced verbatim under `receivers.<kind>/<name>`.").
+							WithSourceMap(dag.SourceMap("main.go", 379, 1)).
+							WithArg("kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 379, 31)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 379, 37)}).
+							WithArg("yamlBody", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 379, 43)})).
+					WithFunction(
+						dag.Function("DebugExporter",
+							dag.TypeDef().WithObject("Exporter")).
+							WithDescription("DebugExporter builds the stdout `debug` exporter at verbosity=detailed.").
+							WithSourceMap(dag.SourceMap("main.go", 311, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 311, 30)})).
+					WithFunction(
+						dag.Function("DebugPipeline",
+							dag.TypeDef().WithObject("Pipeline")).
+							WithDescription("DebugPipeline is a pre-wired smoke-test pipeline of\notlp receiver → batch processor → debug exporter for signal.\nComponent names are fixed (`otlp/debug`, `batch/debug`,\n`debug/debug`); the pipeline name is `debug`.").
+							WithSourceMap(dag.SourceMap("main.go", 439, 1)).
+							WithArg("signal", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 439, 30)})).
+					WithFunction(
+						dag.Function("MemoryLimiterProcessor",
+							dag.TypeDef().WithObject("Processor")).
+							WithDescription("MemoryLimiterProcessor builds a memory_limiter processor with\nconservative defaults (check_interval: 1s, limit_mib: 512). Callers\nneeding different thresholds should reach for CustomProcessor.").
+							WithSourceMap(dag.SourceMap("main.go", 333, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 333, 39)})).
+					WithFunction(
+						dag.Function("OtlpExporter",
+							dag.TypeDef().WithObject("Exporter")).
+							WithDescription("OtlpExporter builds an OTLP gRPC exporter pointing at endpoint\n(host:port, no scheme). With no TLS options the exporter is plaintext\n(tls.insecure=true). Supplying caCert pins the server CA; supplying\nclientCert + clientKey (which must be given together) presents an mTLS\nidentity.").
+							WithSourceMap(dag.SourceMap("main.go", 227, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 228, 2)}).
+							WithArg("endpoint", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 228, 8)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM-encoded CA certificate to verify the receiver against. When set\nthe exporter speaks TLS instead of plaintext.", SourceMap: dag.SourceMap("main.go", 232, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM-encoded client certificate presented for mTLS. Must be paired\nwith clientKey.", SourceMap: dag.SourceMap("main.go", 236, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "PEM-encoded PKCS#8 client private key for mTLS. Must be paired with\nclientCert.", SourceMap: dag.SourceMap("main.go", 240, 2)})).
+					WithFunction(
+						dag.Function("OtlpHttpExporter",
+							dag.TypeDef().WithObject("Exporter")).
+							WithDescription("OtlpHttpExporter builds an OTLP/HTTP exporter pointing at endpoint\n(URL with scheme, e.g. http://loki:3100/otlp). TLS options behave as\non OtlpExporter; point endpoint at an https:// URL when supplying them.").
+							WithSourceMap(dag.SourceMap("main.go", 248, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 249, 2)}).
+							WithArg("endpoint", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 249, 8)}).
+							WithArg("caCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 251, 2)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 253, 2)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 255, 2)})).
+					WithFunction(
+						dag.Function("OtlpReceiver",
+							dag.TypeDef().WithObject("Receiver")).
+							WithDescription("OtlpReceiver builds the standard OTLP receiver listening on gRPC :4317\nand HTTP :4318.").
+							WithSourceMap(dag.SourceMap("main.go", 206, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 206, 29)})).
+					WithFunction(
+						dag.Function("Pipeline",
+							dag.TypeDef().WithObject("Pipeline")).
+							WithDescription("Pipeline builds an empty pipeline for signal (logs|traces|metrics)\nkeyed at <signal>/<name> in the rendered config.").
+							WithSourceMap(dag.SourceMap("main.go", 425, 1)).
+							WithArg("signal", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 425, 25)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 425, 33)})).
+					WithFunction(
+						dag.Function("ResourceProcessor",
+							dag.TypeDef().WithObject("Processor")).
+							WithDescription("ResourceProcessor builds a no-op resource processor (empty\nattributes list). Callers needing actual attribute upserts should\nreach for CustomProcessor.").
+							WithSourceMap(dag.SourceMap("main.go", 350, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 350, 34)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Processor", dagger.TypeDefWithObjectOpts{Description: "Processor is a single OpenTelemetry Collector processor component.", SourceMap: dag.SourceMap("main.go", 163, 6)}).
+					WithField("Kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 164, 2)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 165, 2)}).
+					WithField("Body", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 166, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("ContribCollector", dagger.TypeDefWithObjectOpts{Description: "ContribCollector wraps the otel/opentelemetry-collector-contrib\nimage. Method set is identical to CoreCollector; only the image\npath differs, so the rendering and service helpers are shared.", SourceMap: dag.SourceMap("main.go", 819, 6)}).
+					WithFunction(
+						dag.Function("ConfigFile",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ConfigFile — see CoreCollector.ConfigFile.").
+							WithSourceMap(dag.SourceMap("main.go", 885, 1))).
+					WithFunction(
+						dag.Function("OtlpGrpcEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpGrpcEndpoint — see CoreCollector.OtlpGrpcEndpoint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 897, 1))).
+					WithFunction(
+						dag.Function("OtlpHttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpHttpEndpoint — see CoreCollector.OtlpHttpEndpoint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 912, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service — see CoreCollector.Service.").
+							WithSourceMap(dag.SourceMap("main.go", 890, 1))).
+					WithFunction(
+						dag.Function("WithConfigFile",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("WithConfigFile — see CoreCollector.WithConfigFile.").
+							WithSourceMap(dag.SourceMap("main.go", 863, 1)).
+							WithArg("f", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 863, 43)})).
+					WithFunction(
+						dag.Function("WithMtls",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("WithMtls — see CoreCollector.WithMtls.").
+							WithSourceMap(dag.SourceMap("main.go", 878, 1)).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 878, 37)})).
+					WithFunction(
+						dag.Function("WithPipeline",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("WithPipeline — see CoreCollector.WithPipeline.").
+							WithSourceMap(dag.SourceMap("main.go", 856, 1)).
+							WithArg("p", dag.TypeDef().WithObject("Pipeline"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 856, 41)})).
+					WithFunction(
+						dag.Function("WithServiceBinding",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("WithServiceBinding — see CoreCollector.WithServiceBinding.").
+							WithSourceMap(dag.SourceMap("main.go", 848, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 848, 47)}).
+							WithArg("svc", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 848, 60)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("ContribCollector")).
+							WithDescription("WithTls — see CoreCollector.WithTls.").
+							WithSourceMap(dag.SourceMap("main.go", 870, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 870, 36)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 870, 61)})).
+					WithField("Registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 820, 2)}).
+					WithField("Tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 821, 2)}).
+					WithField("Override", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 822, 2)}).
+					WithField("Pipelines", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Pipeline")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 823, 2)}).
+					WithField("BindingHosts", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 824, 2)}).
+					WithField("BindingSvcs", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Service")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 825, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("CoreCollector", dagger.TypeDefWithObjectOpts{Description: "CoreCollector wraps the otel/opentelemetry-collector image. Its\npublic surface is identical to ContribCollector — both share the\nrendering and service-construction helpers below; only the image\npath differs.", SourceMap: dag.SourceMap("main.go", 491, 6)}).
+					WithFunction(
+						dag.Function("ConfigFile",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("ConfigFile returns the file that will be mounted as the collector's\n--config: either the caller-supplied override or the\npipeline-rendered YAML. Inspecting it does not launch the service.").
+							WithSourceMap(dag.SourceMap("main.go", 573, 1))).
+					WithFunction(
+						dag.Function("OtlpGrpcEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpGrpcEndpoint returns the host:port of the running collector's\nOTLP/gRPC listener (no scheme).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 589, 1))).
+					WithFunction(
+						dag.Function("OtlpHttpEndpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("OtlpHttpEndpoint returns <scheme>://<host>:4318 for the running\ncollector's OTLP/HTTP listener. The scheme is https once WithTls has\nbeen called, http otherwise.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 606, 1))).
+					WithFunction(
+						dag.Function("Service",
+							dag.TypeDef().WithObject("Service")).
+							WithDescription("Service returns the running collector. Listens on :4317 (OTLP gRPC)\nand :4318 (OTLP HTTP). Mounts the resolved config (override or\nrendered) when one exists; otherwise launches with no --config flag,\nmatching the collector binary's behavior of refusing to start.").
+							WithSourceMap(dag.SourceMap("main.go", 581, 1))).
+					WithFunction(
+						dag.Function("WithConfigFile",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("WithConfigFile fully replaces the rendered pipeline YAML with the\nsupplied file. Pipelines added via WithPipeline are ignored when an\noverride is set.").
+							WithSourceMap(dag.SourceMap("main.go", 543, 1)).
+							WithArg("f", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 543, 40)})).
+					WithFunction(
+						dag.Function("WithMtls",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("WithMtls requires client certificates signed by clientCa (PEM-encoded)\non every incoming OTLP connection. Must be combined with WithTls;\nService returns an error otherwise.").
+							WithSourceMap(dag.SourceMap("main.go", 564, 1)).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 564, 34)})).
+					WithFunction(
+						dag.Function("WithPipeline",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("WithPipeline appends a pipeline to the collector. The collector\ndedupes shared components into one top-level entry per kind/name\nat YAML-render time.").
+							WithSourceMap(dag.SourceMap("main.go", 534, 1)).
+							WithArg("p", dag.TypeDef().WithObject("Pipeline"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 534, 38)})).
+					WithFunction(
+						dag.Function("WithServiceBinding",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("WithServiceBinding binds a backend service into the collector's\nnetwork so exporter endpoints can reach it by hostname. Repeated\ncalls accumulate.").
+							WithSourceMap(dag.SourceMap("main.go", 524, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 524, 44)}).
+							WithArg("svc", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 524, 57)})).
+					WithFunction(
+						dag.Function("WithTls",
+							dag.TypeDef().WithObject("CoreCollector")).
+							WithDescription("WithTls enables TLS on both OTLP receivers (gRPC :4317 and HTTP :4318).\nserverCert is the PEM-encoded server certificate and serverKey its\nPEM-encoded PKCS#8 private key; both are mounted into the collector and\nwired into every otlp receiver at render time. After this call\nOtlpHttpEndpoint returns an https:// URL.").
+							WithSourceMap(dag.SourceMap("main.go", 554, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 554, 33)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 554, 58)})).
+					WithField("Registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 492, 2)}).
+					WithField("Tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 493, 2)}).
+					WithField("Override", dag.TypeDef().WithObject("File"), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 494, 2)}).
+					WithField("Pipelines", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Pipeline")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 495, 2)}).
+					WithField("BindingHosts", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 496, 2)}).
+					WithField("BindingSvcs", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Service")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 497, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Exporter", dagger.TypeDefWithObjectOpts{Description: "Exporter is a single OpenTelemetry Collector exporter component. When\nTLS options are supplied to the factory, the cert/key material is\ncarried here so the collector can mount it at the paths already baked\ninto Body (see exporterCertDir).", SourceMap: dag.SourceMap("main.go", 173, 6)}).
+					WithField("Kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 174, 2)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 175, 2)}).
+					WithField("Body", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 176, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Receiver", dagger.TypeDefWithObjectOpts{Description: "Receiver is a single OpenTelemetry Collector receiver component.\nBody is the YAML body for this component, spliced under\n`receivers.<kind>/<name>` at render time.", SourceMap: dag.SourceMap("main.go", 156, 6)}).
+					WithField("Kind", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 157, 2)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 158, 2)}).
+					WithField("Body", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 159, 2)})).
+			WithObject(
+				dag.TypeDef().WithObject("Pipeline", dagger.TypeDefWithObjectOpts{Description: "Pipeline is a single OpenTelemetry Collector pipeline binding a\nsignal kind to an ordered set of receivers, processors, and\nexporters. Components are held by reference; the collector\ndeduplicates shared components into one top-level entry per\nkind/name when the YAML is rendered.", SourceMap: dag.SourceMap("main.go", 407, 6)}).
+					WithFunction(
+						dag.Function("WithExporter",
+							dag.TypeDef().WithObject("Pipeline")).
+							WithDescription("WithExporter — see WithReceiver.").
+							WithSourceMap(dag.SourceMap("main.go", 481, 1)).
+							WithArg("exp", dag.TypeDef().WithObject("Exporter"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 481, 33)})).
+					WithFunction(
+						dag.Function("WithProcessor",
+							dag.TypeDef().WithObject("Pipeline")).
+							WithDescription("WithProcessor — see WithReceiver.").
+							WithSourceMap(dag.SourceMap("main.go", 474, 1)).
+							WithArg("proc", dag.TypeDef().WithObject("Processor"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 474, 34)})).
+					WithFunction(
+						dag.Function("WithReceiver",
+							dag.TypeDef().WithObject("Pipeline")).
+							WithDescription("WithReceiver appends a receiver to the pipeline and returns a new\npipeline; the receiver is held by reference so it can be deduped\nacross pipelines at render time.").
+							WithSourceMap(dag.SourceMap("main.go", 467, 1)).
+							WithArg("recv", dag.TypeDef().WithObject("Receiver"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 467, 33)})).
+					WithField("Signal", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 408, 2)}).
+					WithField("Name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 409, 2)}).
+					WithField("Receivers", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Receiver")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 410, 2)}).
+					WithField("Processors", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Processor")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 411, 2)}).
+					WithField("Exporters", dag.TypeDef().WithListOf(dag.TypeDef().WithObject("Exporter")), dagger.TypeDefWithFieldOpts{SourceMap: dag.SourceMap("main.go", 412, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

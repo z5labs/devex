@@ -697,6 +697,161 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Postgres provides Dagger functions for spinning up a single-node\nPostgreSQL 17 primary (from the upstream `postgres` image) and a\npure-Go pgx-based client that can target either the local cluster or\nany reachable remote PostgreSQL (e.g. AWS RDS, Cloud SQL).\n\nThis module is plaintext-only: scram-sha-256 password auth over an\nunencrypted TCP listener. TLS / mTLS and primary/replica streaming\nreplication land in follow-ups; the empty-but-distinct security\ntypes are kept so future constructors slot in without changing the\nCluster / Client signatures.\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - security.go  — *ServerSecurity / *ClientSecurity + the two\n                   Plaintext constructors.\n  - cluster.go   — *Cluster + Postgres.Cluster, input validation, the\n                   single-node topology builder, and the Endpoint /\n                   User / Database / Password / BindPrimary / Client /\n                   Stop methods.\n  - client.go    — *Client + Postgres.Client, pgx wiring, and the\n                   Ping / Exec / Scalar / ApplyFile / QueryJSON method\n                   set.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Postgres", dagger.TypeDefWithObjectOpts{Description: "Postgres is the root namespace for every exported function in this\nmodule. All cluster constructors, security helpers, and the\nremote-client factory hang off *Postgres so the generated Dagger SDK\nsurfaces them under `dag.Postgres().<Func>(...)`.", SourceMap: dag.SourceMap("main.go", 29, 6)}).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client constructs a pgx-backed PostgreSQL client targeting host:port\nwith the given role, database, and password. No I/O happens at\nconstruction time. Works against the local Cluster() topology or any\nreachable remote PostgreSQL — AWS RDS, Cloud SQL, an existing\nself-hosted primary, anything that speaks the PostgreSQL wire\nprotocol with scram-sha-256 password auth.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("client.go", 53, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 54, 2)}).
+							WithArg("port", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 56, 2), DefaultValue: dagger.JSON("5432")}).
+							WithArg("user", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 57, 2)}).
+							WithArg("db", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 58, 2)}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 59, 2)}).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 60, 2)})).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("Cluster spins up a single-node PostgreSQL primary listening on 5432\nwith scram-sha-256 password auth over a plaintext TCP listener (the\nonly security mode in this story).\n\nImage: `<registry>/library/postgres:<tag>` — the `library/postgres`\nportion is fixed; only `registry` and `tag` are caller-overridable.\nThe default tag `\"17\"` pins this story to PostgreSQL 17.\n\nRejected inputs (each surfaces a descriptive error rather than\nbooting a half-broken cluster):\n\n  - `password == nil` — the primary refuses to start without a\n    superuser password and a plaintext-password cluster needs one.\n  - `clientListenerSecurity == nil` or a non-PLAINTEXT mode —\n    plaintext must be a deliberate caller choice so a future TLS\n    upgrade stays explicit.\n  - `user == \"\"` / `db == \"\"` — the postgres image needs both to\n    provision the superuser role and the default database.\n\nSession-cached so that repeated chained method calls on the returned\ncluster (e.g. Client.Exec → Client.Scalar across two Cluster.Client()\ncalls in `exec-scalar-round-trip`) observe the SAME underlying\nservice — and therefore the same on-disk state. Every method on\n*Cluster and *Client is independently marked never-cache, so any\ndata-returning call re-executes per invocation.\n\n`name` is a caller-supplied discriminator that folds into the session\ncache key. Parallel test suites should pass a unique value per test\nso each test gets its own backing service — without it, every\nsame-shape call collapses to one cached cluster and concurrent tests\nrace on shared tables and storage. Same name + same shape still\ncache-hits, which is what a single test's chained Client.Exec →\nClient.Scalar sequence needs. Leaving the default empty is fine for\nad-hoc `dagger call` use where only one cluster is in play.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster.go", 68, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 71, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 73, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 75, 2), DefaultValue: dagger.JSON("\"17\"")}).
+							WithArg("user", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 77, 2), DefaultValue: dagger.JSON("\"postgres\"")}).
+							WithArg("db", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 79, 2), DefaultValue: dagger.JSON("\"postgres\"")}).
+							WithArg("password", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 80, 2)}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 81, 2)})).
+					WithFunction(
+						dag.Function("MtlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("MtlsClientSecurity returns a ClientSecurity profile that opens a\nmutual-TLS connection: the server is verified against serverCa and the\nclient presents clientCert + clientKey to satisfy the primary's\nclientcert=verify-full requirement.").
+							WithSourceMap(dag.SourceMap("security.go", 101, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 101, 39)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 101, 62)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 101, 87)})).
+					WithFunction(
+						dag.Function("MtlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("MtlsServerSecurity returns a ServerSecurity profile that terminates\nmutual TLS. In addition to the server leaf (serverCert and serverKey),\nclientCa is mounted as ssl_ca_file and the pg_hba.conf line carries\n`clientcert=verify-full`, so connecting clients must present a cert\nsigned by clientCa AND the correct password.").
+							WithSourceMap(dag.SourceMap("security.go", 72, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 72, 39)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 72, 64)}).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 72, 90)})).
+					WithFunction(
+						dag.Function("PlaintextClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("PlaintextClientSecurity returns a ClientSecurity profile configured\nfor scram-sha-256 password auth over an unencrypted TCP connection.").
+							WithSourceMap(dag.SourceMap("security.go", 83, 1))).
+					WithFunction(
+						dag.Function("PlaintextServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("PlaintextServerSecurity returns a ServerSecurity profile configured\nfor scram-sha-256 password auth over an unencrypted TCP listener.").
+							WithSourceMap(dag.SourceMap("security.go", 49, 1))).
+					WithFunction(
+						dag.Function("TlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("TlsClientSecurity returns a ClientSecurity profile that opens a\none-way TLS connection and verifies the server against serverCa\n(sslmode=verify-full with the supplied root).").
+							WithSourceMap(dag.SourceMap("security.go", 90, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 90, 38)})).
+					WithFunction(
+						dag.Function("TlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("TlsServerSecurity returns a ServerSecurity profile that terminates\none-way TLS on the primary's :5432 listener. serverCert is the PEM\nleaf certificate (its SAN must cover the cluster hostname the client\ndials) and serverKey is the matching PEM PKCS#8 private key. The\nprimary starts with `ssl=on` and a pg_hba.conf that accepts only\n`hostssl … scram-sha-256` — plaintext TCP is refused.").
+							WithSourceMap(dag.SourceMap("security.go", 59, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 59, 38)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 59, 63)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a pgx-backed PostgreSQL client. Each method opens a fresh\nconnection so the function call is stateless from Dagger's\nperspective; ApplyFile is the exception — it runs every statement on\none connection.", SourceMap: dag.SourceMap("client.go", 24, 6)}).
+					WithFunction(
+						dag.Function("ApplyFile",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyFile reads a `.sql` file and runs its statements on a single\nconnection, in order. Statements are split on `;` outside of single-\nand double-quoted strings, line (`--`) and block (`/* */`) comments,\nand dollar-quoted strings (`$$ ... $$` / `$tag$ ... $tag$`).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 283, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 283, 49)})).
+					WithFunction(
+						dag.Function("Exec",
+							dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind)).
+							WithDescription("Exec runs a SQL statement and returns the affected-row count\n(INSERT/UPDATE/DELETE rows, or 0 for DDL).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 226, 1)).
+							WithArg("sql", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 226, 44)})).
+					WithFunction(
+						dag.Function("Ping",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Ping opens a connection and verifies the server is reachable and\naccepting authenticated queries.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 213, 1))).
+					WithFunction(
+						dag.Function("QueryJSON",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("QueryJSON runs a query and returns the result set as a *dagger.File\ncontaining a JSON array of objects — one per row, keyed by column\nname.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 308, 1)).
+							WithArg("sql", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 308, 49)})).
+					WithFunction(
+						dag.Function("Scalar",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Scalar runs a query and returns the first column of the first row as\na string. Errors if the query returns zero rows, or if that first\ncolumn is SQL NULL (rather than silently returning the string\n\"<nil>\").").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 245, 1)).
+							WithArg("sql", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 245, 46)}))).
+			WithObject(
+				dag.TypeDef().WithObject("ClientSecurity", dagger.TypeDefWithObjectOpts{Description: "ClientSecurity describes how a pgx client authenticates to a Postgres\nprimary. PLAINTEXT connects over an unencrypted TCP listener; TLS pins\nthe server CA (sslmode=verify-full); MTLS additionally presents a\nclient certificate + key. The client builds a *tls.Config from this\nPEM material and hands it to pgx via pgconn.Config.TLSConfig.", SourceMap: dag.SourceMap("security.go", 36, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster represents a running single-node PostgreSQL primary plus the\nconnection metadata callers need to reach it. Holds a reference to\nthe backing service so callers can bind it into their own containers\nor open a pgx Client against it.", SourceMap: dag.SourceMap("cluster.go", 17, 6)}).
+					WithFunction(
+						dag.Function("BindPrimary",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindPrimary attaches the primary service to the given container under\nthe same hostname Endpoint reports, so the container can dial the\nprimary at `Endpoint()` (e.g. `pg_isready -h <host>`).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 205, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 205, 31)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client starts the primary and returns a pgx Client wired with its\nendpoint, superuser role, default database, and password.\n\nThe supplied ClientSecurity mode must match the cluster's listener\nmode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming both\nmodes rather than failing opaquely at the wire. Readiness is then\nprobed with the client itself, so a TLS / mTLS listener is polled over\nTLS using the caller's own cert material — the only way to\nauthenticate the probe against an mTLS listener.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 220, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 220, 47)})).
+					WithFunction(
+						dag.Function("Database",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Database returns the default database name the cluster was\nprovisioned with.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 187, 1))).
+					WithFunction(
+						dag.Function("Endpoint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Endpoint returns the primary's `host:5432` address. It does NOT start\nthe service: it is a pure accessor, mirroring kafka's BootstrapServers.\nBindPrimary is what makes that address reachable from a consumer\ncontainer (WithServiceBinding starts the service as the consumer's\ndependency and wires its IP into /etc/hosts). For module-runtime\naccess use Cluster.Client, which starts the service itself.\n\nPre-starting the service from this module before a consumer binds it\nwould register the service in the module's DNS domain, which the\nbinding's host-file lookup can't resolve from a session-domain\nconsumer — so the start must be driven by the binding, not here.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 171, 1))).
+					WithFunction(
+						dag.Function("Password",
+							dag.TypeDef().WithObject("Secret")).
+							WithDescription("Password returns the superuser password secret the cluster was\nprovisioned with, so callers can re-use it via Postgres.Client\nagainst the same endpoint.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 196, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down the service container backing this cluster. Tests\nshould call this in a defer so the service span closes when the test\nreturns. SIGKILL skips graceful shutdown — Postgres' checkpoint-on-\nshutdown path is wasted work for a torn-down test cluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 271, 1))).
+					WithFunction(
+						dag.Function("User",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("User returns the superuser role name the cluster was provisioned\nwith.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 179, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("ServerSecurity", dagger.TypeDefWithObjectOpts{Description: "ServerSecurity describes how a Postgres cluster's client-facing\nlistener authenticates and encrypts traffic. Three modes are\nsupported:\n\n  - PLAINTEXT — scram-sha-256 password auth over an unencrypted TCP\n    listener.\n  - TLS — one-way TLS: the primary presents a server certificate and\n    clients still authenticate with scram-sha-256. Plaintext TCP is\n    refused.\n  - MTLS — mutual TLS: connecting clients must additionally present a\n    certificate signed by ClientCa (clientcert=verify-full) on top of\n    the password.\n\nThe cert material is caller-supplied PEM: PostgreSQL reads it natively\nvia ssl_cert_file / ssl_key_file / ssl_ca_file.", SourceMap: dag.SourceMap("security.go", 20, 6)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

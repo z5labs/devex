@@ -218,12 +218,17 @@ const (
 // fails safe towards running too much — an unusable diff range, an unreadable
 // source context, a module whose checks cannot be enumerated.
 //
-// repo defaults to the calling workspace and is where everything is read from:
-// module discovery is a dagger.json walk, source contexts and check enumeration
-// work off the exported tree, and the change set comes from its .git. Passing it
-// explicitly is also the escape hatch for a caller whose .git is a file rather
-// than a directory (a git worktree), which would otherwise degrade to running
-// everything.
+// The repository read from is repo, or the workspace's own root when repo is
+// omitted. Everything comes out of it: module discovery is a dagger.json walk,
+// source contexts and check enumeration resolve against it, and the change set
+// comes from its .git.
+//
+// A Dagger CLI fills callingWorkspace in from the workspace the call was made
+// in, so a person types neither argument. A module calling this one must pass
+// one — an omitted workspace argument is an error rather than a default, because
+// the engine resolves that default to the current workspace and a module runtime
+// call has none — and Directory.asWorkspace is how a module with only a
+// directory makes one.
 //
 // +cache="never"
 func (m *WorkspaceCi) Plan(
@@ -236,15 +241,21 @@ func (m *WorkspaceCi) Plan(
 	// +optional
 	// +default="JSON"
 	format Format,
-	// The repository to plan for. Defaults to the calling workspace.
+	// The workspace to plan for. A Dagger CLI fills this in from the workspace
+	// the call was made in, so nobody types it there -- which is just as well,
+	// since the CLI's own --workspace is a global flag and a function argument by
+	// that name cannot be spelled. It is required rather than optional because a
+	// workspace argument a module leaves out is fatal, not empty: the engine
+	// resolves its default to the current workspace, and a module runtime call
+	// has none. A module that holds only a directory makes one with
+	// Directory.asWorkspace.
+	callingWorkspace *dagger.Workspace,
+	// The repository to plan for, overriding the workspace's own root. It is the
+	// escape hatch for a caller whose .git is a file rather than a directory (a
+	// git worktree), which would otherwise degrade to running everything.
 	//
 	// +optional
 	repo *dagger.Directory,
-	// The workspace to read repo from when repo is omitted. Defaults to the
-	// caller's.
-	//
-	// +optional
-	workspace *dagger.Workspace,
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
 	// are how a CI system that reads its own store — or a test — supplies them
@@ -282,7 +293,7 @@ func (m *WorkspaceCi) Plan(
 	// +optional
 	diagnostics bool,
 ) (string, error) {
-	result, err := m.plan(ctx, base, head, repo, workspace, knownGood)
+	result, err := m.plan(ctx, base, head, repo, callingWorkspace, knownGood)
 	if err != nil {
 		return "", err
 	}
@@ -311,17 +322,14 @@ func (m *WorkspaceCi) AffectedModules(
 	base string,
 	// The revision the change is measured to, in the same forms as base.
 	head string,
-	// The repository to plan for. Defaults to the calling workspace.
+	// The workspace to plan for, which a Dagger CLI fills in.
+	callingWorkspace *dagger.Workspace,
+	// The repository to plan for, overriding the workspace's own root.
 	//
 	// +optional
 	repo *dagger.Directory,
-	// The workspace to read repo from when repo is omitted. Defaults to the
-	// caller's.
-	//
-	// +optional
-	workspace *dagger.Workspace,
 ) (string, error) {
-	ws, err := m.load(ctx, repo, workspace)
+	ws, err := m.load(ctx, repo, callingWorkspace)
 	if err != nil {
 		return "", err
 	}
@@ -403,14 +411,14 @@ func (m *WorkspaceCi) plan(
 	ctx context.Context,
 	base, head string,
 	repo *dagger.Directory,
-	workspace *dagger.Workspace,
+	callingWorkspace *dagger.Workspace,
 	knownGood string,
 ) (*planReport, error) {
 	timeouts, err := planner.ParseTimeouts(m.Timeouts)
 	if err != nil {
 		return nil, err
 	}
-	ws, err := m.load(ctx, repo, workspace)
+	ws, err := m.load(ctx, repo, callingWorkspace)
 	if err != nil {
 		return nil, err
 	}

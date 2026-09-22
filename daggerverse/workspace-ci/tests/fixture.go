@@ -218,6 +218,16 @@ func uniqueSuffix() (string, error) {
 // at returns the SHA of the named commit.
 func (fx fixture) at(name string) string { return fx.commits[name] }
 
+// workspace presents the fixture tree as a workspace, which is what the planner
+// takes.
+//
+// A workspace argument is how a Dagger CLI hands a module the tree the call was
+// made in, and a module has no such tree of its own to offer — the engine refuses
+// to fill one in for a module runtime call rather than defaulting it. This is the
+// other end of that: Directory.asWorkspace is how a module with a directory in
+// hand calls something that asks for a workspace.
+func (fx fixture) workspace() *dagger.Workspace { return fx.dir.AsWorkspace() }
+
 // before returns the SHA of the commit preceding the named one, so a test can ask
 // about exactly one change.
 func (fx fixture) before(name string) string {

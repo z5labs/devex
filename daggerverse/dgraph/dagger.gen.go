@@ -652,6 +652,153 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Dgraph provides Dagger functions for spinning up Dgraph graph-database\nclusters (one Zero coordinator + N Alpha data nodes grouped at a\nconfigurable replication factor) and a pure-Go dgo-based client that\ncan target either the local cluster or any reachable remote cluster\n(e.g. Dgraph Cloud, an existing self-hosted cluster).\n\nFile map (all `package main`, surfaced as one Dagger module):\n\n  - security.go       — *ServerSecurity / *ClientSecurity + the\n                         Plaintext / TLS / mTLS constructors and the\n                         server-profile validation.\n  - serversecurity.go — mounts the caller-supplied TLS material onto\n                         each Alpha / Zero container and renders the\n                         `--tls` superflag args.\n  - cluster.go        — *Cluster + Dgraph.Cluster, input validation,\n                         the topology builder (one Zero + N Alphas),\n                         and the Stop / GrpcEndpoints / HttpEndpoints /\n                         BindAlphas / Client methods (with mode\n                         coupling).\n  - client.go         — *Client + Dgraph.Client, dgo wiring including\n                         the client-side *tls.Config, and the DropAll /\n                         AlterSchema / Mutate / RunQuery / QueryWithVars\n                         method set.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Dgraph", dagger.TypeDefWithObjectOpts{Description: "Dgraph is the root namespace for every exported function in this\nmodule. All cluster constructors, security helpers, and the\nremote-client factory hang off *Dgraph so the generated Dagger SDK\nsurfaces them under `dag.Dgraph().<Func>(...)`.", SourceMap: dag.SourceMap("main.go", 30, 6)}).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client constructs a dgo-backed Dgraph client that targets the given\ngRPC endpoints (each of the form `host:9080`). No I/O happens at\nconstruction time. Works against the local Cluster() topology or any\nreachable remote cluster — Dgraph Cloud, an existing self-hosted\ncluster, anything that speaks the Dgraph gRPC API.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("client.go", 44, 1)).
+							WithArg("grpcEndpoints", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 44, 25)}).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 44, 49)})).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithObject("Cluster")).
+							WithDescription("Cluster spins up a Dgraph cluster of one Zero coordinator and `alphas`\nAlpha data nodes, with Alphas grouped at replication factor `replicas`\n(so every group is exactly `replicas` Alphas large; `alphas %\nreplicas == 0` is required). All listeners use plaintext in this\nstory.\n\nImage: `<registry>/dgraph/dgraph:<tag>` — the `dgraph/dgraph` portion\nis fixed; only `registry` and `tag` are caller-overridable.\n\nRejected inputs (each surfaces a descriptive error rather than\nbooting a half-broken cluster):\n\n  - `zeros != 1` — multi-Zero quorum needs every peer's address at\n    static config time via `--peer`, which Dagger's WithServiceBinding\n    model can't express without an unresolvable cycle. Multi-Zero HA\n    lands in a follow-up.\n  - `alphas < 1` or `replicas < 1`.\n  - `replicas > 1 && replicas % 2 == 0` — Dgraph's Raft consensus\n    needs an odd replica count per group (or `replicas == 1` for no\n    replication).\n  - `alphas % replicas != 0` — every Dgraph group must be full.\n  - `clientListenerSecurity == nil` — plaintext must be a deliberate\n    caller choice so a future TLS upgrade stays explicit.\n\nSession-cached so that repeated chained method calls on the returned\ncluster (e.g. Client.Mutate → Client.RunQuery in\n`client-mutate-then-query-round-trip`) observe the SAME underlying\nservices — and therefore the same graph state. The acceptance\ncriteria suggest a never-cache here, but under never-cache the engine\nre-spawns the cluster between Mutate and Query in the same test,\nlosing the data the prior Mutate wrote (verified during impl). Every\nmethod on *Cluster and *Client is independently marked never-cache, so\nany data-returning call re-executes per invocation.\n\n`name` is a caller-supplied discriminator that folds into the session\ncache key. Parallel test suites should pass a unique value per test\n(e.g. the test function name) so each test gets its own backing\nservices — without it, every same-shape call collapses to one cached\ncluster and concurrent tests race on shared schema and storage. Same\nname + same shape still cache-hits, which is what a single test's\nchained Client.Mutate → Client.RunQuery sequence needs. Leaving the\ndefault empty is fine for ad-hoc `dagger call` use where only one\ncluster is in play.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("cluster.go", 77, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 80, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("zeros", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 82, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("alphas", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 84, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("replicas", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 86, 2), DefaultValue: dagger.JSON("1")}).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 88, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 90, 2), DefaultValue: dagger.JSON("\"v24.0.4\"")}).
+							WithArg("clientListenerSecurity", dag.TypeDef().WithObject("ServerSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 91, 2)})).
+					WithFunction(
+						dag.Function("MtlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("MtlsClientSecurity returns a ClientSecurity profile that opens a\nmutual-TLS connection: the Alpha is verified against serverCa and the\nclient presents clientCert + clientKey to satisfy the listener's\nREQUIREANDVERIFY client-auth requirement.").
+							WithSourceMap(dag.SourceMap("security.go", 107, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 107, 37)}).
+							WithArg("clientCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 107, 60)}).
+							WithArg("clientKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 107, 85)})).
+					WithFunction(
+						dag.Function("MtlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("MtlsServerSecurity returns a ServerSecurity profile that terminates\nmutual TLS. In addition to the server leaf (serverCert and serverKey),\nclientCa is passed as the `--tls \"ca-cert=…\"` value and\n`client-auth-type=REQUIREANDVERIFY`, so connecting clients must present\na certificate signed by clientCa.").
+							WithSourceMap(dag.SourceMap("security.go", 79, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 79, 37)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 79, 62)}).
+							WithArg("clientCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 79, 88)})).
+					WithFunction(
+						dag.Function("PlaintextClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("PlaintextClientSecurity returns a ClientSecurity profile configured\nfor unencrypted, unauthenticated traffic to the cluster's Alphas.").
+							WithSourceMap(dag.SourceMap("security.go", 90, 1))).
+					WithFunction(
+						dag.Function("PlaintextServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("PlaintextServerSecurity returns a ServerSecurity profile configured\nfor unencrypted, unauthenticated traffic on every cluster listener.").
+							WithSourceMap(dag.SourceMap("security.go", 55, 1))).
+					WithFunction(
+						dag.Function("TlsClientSecurity",
+							dag.TypeDef().WithObject("ClientSecurity")).
+							WithDescription("TlsClientSecurity returns a ClientSecurity profile that opens a\none-way TLS connection and verifies the Alpha against serverCa.").
+							WithSourceMap(dag.SourceMap("security.go", 96, 1)).
+							WithArg("serverCa", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 96, 36)})).
+					WithFunction(
+						dag.Function("TlsServerSecurity",
+							dag.TypeDef().WithObject("ServerSecurity")).
+							WithDescription("TlsServerSecurity returns a ServerSecurity profile that terminates\none-way TLS on every Dgraph listener. serverCert is the PEM leaf\ncertificate (its SAN must cover the Alpha / Zero hostnames the client\ndials) and serverKey is the matching PEM private key. Dgraph starts\neach node with `--tls \"server-cert=…; server-key=…\"`; the default\n`client-auth-type=VERIFYIFGIVEN` means clients need not present a\ncertificate, so a plain TlsClientSecurity connects cleanly.").
+							WithSourceMap(dag.SourceMap("security.go", 66, 1)).
+							WithArg("serverCert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 66, 36)}).
+							WithArg("serverKey", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("security.go", 66, 61)}))).
+			WithObject(
+				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a dgo-backed Dgraph client. Each method opens a fresh\ngRPC connection so the function call is stateless from Dagger's\nperspective.", SourceMap: dag.SourceMap("client.go", 24, 6)}).
+					WithFunction(
+						dag.Function("AlterSchema",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("AlterSchema applies the given DQL schema (predicate definitions,\ntypes, indexes) to the cluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 210, 1)).
+							WithArg("schema", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 210, 51)})).
+					WithFunction(
+						dag.Function("DropAll",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DropAll wipes every predicate, type, and triple from the cluster.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 197, 1))).
+					WithFunction(
+						dag.Function("Mutate",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Mutate applies a JSON set mutation to the cluster. setJson is the\nJSON-encoded payload (e.g. `{\"name\":\"Alice\"}` or `{\"set\":[...]}` —\ndgo's SetJson field is the raw value array form). If commit is true\nthe mutation commits as a single transaction; if false the\ntransaction is discarded (dry run) and no triples are persisted.\n\nReturns the assigned-UIDs JSON object (`{\"<blank-node>\":\"<uid>\"}`)\nas a string.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 229, 1)).
+							WithArg("setJson", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 229, 46)}).
+							WithArg("commit", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 229, 62)})).
+					WithFunction(
+						dag.Function("QueryWithVars",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("QueryWithVars runs a parameterised DQL query and returns the\nresponse JSON body verbatim. varsJson is a JSON-encoded string-to-\nstring map of variable bindings (e.g. `{\"$name\":\"Alice\"}`); Dagger's\nfunction signatures don't support Go map parameters so the map is\npassed as JSON across the module boundary.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 289, 1)).
+							WithArg("dql", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 289, 53)}).
+							WithArg("varsJson", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 289, 65)})).
+					WithFunction(
+						dag.Function("RunQuery",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("RunQuery runs a DQL read-only query and returns the response JSON\nbody verbatim (the `data` object Dgraph returns).\n\nNamed RunQuery rather than Query because Dagger Go SDK codegen\nallocates a struct field named after the lowercase method name to\ncache the result, and `query` collides with the always-present\nquerybuilder field on every generated object type. RunQuery sidesteps\nthe collision (`runQuery` is unique) while preserving the verb-noun\nshape callers expect.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("client.go", 268, 1)).
+							WithArg("dql", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 268, 48)}))).
+			WithObject(
+				dag.TypeDef().WithObject("ClientSecurity", dagger.TypeDefWithObjectOpts{Description: "ClientSecurity describes how a dgo client authenticates to a Dgraph\nAlpha. PLAINTEXT dials an unencrypted gRPC listener; TLS pins the\nserver CA and verifies the Alpha's certificate; MTLS additionally\npresents a client certificate + key. The client builds a *tls.Config\nfrom this PEM material and hands it to dgo via\ngrpc.WithTransportCredentials(credentials.NewTLS(cfg)).", SourceMap: dag.SourceMap("security.go", 42, 6)})).
+			WithObject(
+				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster represents a running Dgraph cluster: a single Zero coordinator\nplus N Alpha data nodes grouped at the requested replication factor.\nHolds references to every service so callers can bind them into their\nown containers or open a dgo Client against them.", SourceMap: dag.SourceMap("cluster.go", 21, 6)}).
+					WithFunction(
+						dag.Function("AlphaHostNames",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("AlphaHostNames returns the cluster's Alpha hostnames (no port), for\ncallers that need to reference an Alpha by name from a container\nattached via BindAlphas.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 328, 1))).
+					WithFunction(
+						dag.Function("BindAlphas",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("BindAlphas attaches every Alpha service to the given container under\nthe same hostname GrpcEndpoints / HttpEndpoints reports, so the\ncontainer can dial Alphas using the same address strings as a dgo\nClient returned from Cluster.Client.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 340, 1)).
+							WithArg("ctr", dag.TypeDef().WithObject("Container"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 340, 30)})).
+					WithFunction(
+						dag.Function("Client",
+							dag.TypeDef().WithObject("Client")).
+							WithDescription("Client starts every Alpha service in the cluster and returns a dgo\nClient wired with their gRPC endpoints.\n\nThe supplied ClientSecurity mode must match the cluster's client-facing\nlistener mode (PLAINTEXT/TLS/MTLS); a mismatch returns an error naming\nboth modes rather than failing opaquely at the wire. Readiness is then\nverified with the client itself — a gRPC schema query retried until the\nAlphas report a Raft leader — so an mTLS listener is polled over mTLS\nusing the caller's own cert material (the only way to authenticate the\nprobe against a REQUIREANDVERIFY listener). Dgraph.Client (the\nstandalone constructor) has no cluster reference and therefore cannot\nperform the mode check; callers reaching a listener via a mismatched\nstandalone client fail at the wire instead.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 362, 1)).
+							WithArg("security", dag.TypeDef().WithObject("ClientSecurity"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 362, 47)})).
+					WithFunction(
+						dag.Function("GrpcEndpoints",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("GrpcEndpoints returns the host:port pairs each Alpha advertises on\nits external gRPC listener (port 9080), suitable for passing to dgo.\nExplicitly Starts each Alpha and waits for it to report healthy\nbefore returning so module-runtime callers can dial immediately.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 202, 1))).
+					WithFunction(
+						dag.Function("HttpEndpoints",
+							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
+							WithDescription("HttpEndpoints returns the host:port pairs each Alpha advertises on\nits HTTP listener (port 8080). Waits for each Alpha to report healthy.\nOnce the cluster's client-facing listener is TLS or mTLS the entries\nare prefixed with `https://` so HTTP callers dial the encrypted\nlistener; plaintext clusters return the scheme-less `host:8080` form\n(unchanged from the MVP). GrpcEndpoints stays scheme-less in every\nmode — dgo takes a bare `host:9080`.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 222, 1))).
+					WithFunction(
+						dag.Function("Stop",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Stop tears down every service container backing this cluster (the\nZero plus every Alpha). Tests should call this in a defer so each\nservice span closes when the test returns. SIGKILL skips graceful\nshutdown — Dgraph's shutdown path waits on Raft drain timeouts that\na torn-down test cluster doesn't need.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("cluster.go", 400, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("ServerSecurity", dagger.TypeDefWithObjectOpts{Description: "ServerSecurity describes how a Dgraph cluster's listeners authenticate\nand encrypt traffic. Three modes are supported, applied uniformly to\nevery Alpha (client-facing HTTP :8080 / gRPC :9080) and Zero (admin\nHTTP :6080) listener via Dgraph's unified `--tls` superflag:\n\n  - PLAINTEXT — unencrypted, unauthenticated traffic on every listener.\n  - TLS — one-way TLS: each node presents a server certificate and\n    clients verify it against the CA they hold. Dgraph's\n    `client-auth-type=VERIFYIFGIVEN` (the default) means clients are\n    not required to present a certificate.\n  - MTLS — mutual TLS: connecting clients must additionally present a\n    certificate signed by ClientCa\n    (`client-auth-type=REQUIREANDVERIFY`).\n\nThe cert material is caller-supplied PEM: Dgraph reads it natively via\nthe `--tls \"server-cert=…; server-key=…; ca-cert=…\"` superflag.", SourceMap: dag.SourceMap("security.go", 25, 6)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

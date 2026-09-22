@@ -1,14 +1,21 @@
 name: Update Dagger
 
-# Manually-triggered mechanical Dagger upgrade: install the target CLI, run
-# `dagger develop` in every module (which bumps engineVersion + regenerates
+# Manually-triggered mechanical Dagger upgrade: install the target CLI, regenerate
+# every module through hack/regen.sh (which bumps engineVersion + regenerates
 # bindings and go.mod/go.sum), bump the workflow's Dagger pin, and open a PR.
 # Reproduces the by-hand diff of #114 (v0.20.8 -> v0.21.3) with one click.
+#
+# A major bump is NOT mechanical: this repository cannot straddle two Dagger
+# majors (#440), and v1 removed API the modules used. Expect this workflow to
+# open a PR that needs source changes on top of it.
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Target Dagger version: 'latest', or a pin like 0.21.7 / v0.21.7"
+        description: >-
+          Target Dagger version: 'latest', or a pin like 0.21.7 / v0.21.7 /
+          1.0.0-beta.13. 'latest' is refused while the repository is pinned to a
+          prerelease -- see the resolve step.
         required: false
         default: latest
 
@@ -20,7 +27,7 @@ jobs:
   update:
     name: Update Dagger modules
     runs-on: ubuntu-latest
-    # First `dagger develop` cold-pulls the ~633MB engine image (single job,
+    # The first engine round trip cold-pulls the ~633MB engine image (single job,
     # single pull -- cf. #116). Budget generously.
     timeout-minutes: 45
     steps:
@@ -34,22 +41,45 @@ jobs:
           INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
+
+          # The version this repository is on now, read from the same line the bump
+          # step rewrites.
+          CURRENT=$(sed -n -E '/^      dagger-version:/,/^      [a-z-]+:/ s/.*default:[[:space:]]*"([^"]+)".*/\1/p' \
+            .github/workflows/change-aware-ci.yml | head -1)
+          [ -n "$CURRENT" ] || { echo "cannot read the current dagger-version pin" >&2; exit 1; }
+
           if [ -z "$INPUT" ] || [ "$INPUT" = "latest" ]; then
+            # gh reports the newest *stable* release, which is older than a
+            # prerelease pin rather than newer than it -- resolving 'latest' against
+            # a beta would silently open a downgrade PR. A Dagger major is a one-way
+            # move for this repository (#440: a module's runtime is rebuilt from
+            # freshly generated bindings by whichever engine loads it, so it cannot
+            # straddle), so refuse rather than guess. Semver ordering is not
+            # something `sort -V` gets right for prereleases, and this workflow is
+            # not the place to reimplement it: name the target.
+            case "$CURRENT" in
+              *-*) echo "the repository is pinned to the prerelease '$CURRENT'; name the target version explicitly rather than 'latest'" >&2; exit 1 ;;
+            esac
             TAG=$(gh release view --repo dagger/dagger --json tagName --jq '.tagName')
           else
             TAG="$INPUT"
           fi
           BARE="${TAG#v}"                 # 0.21.7  -- install.sh + workflow pin + branch
           VTAG="v${BARE}"                 # v0.21.7 -- human-facing labels
-          echo "$BARE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
+          # Prereleases are accepted: v1.0.0 is still unreleased and the engine this
+          # repository runs is a beta of it, so the mechanical upgrade path has to be
+          # able to name one.
+          echo "$BARE" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z][0-9A-Za-z.-]*)?$' \
             || { echo "unexpected version '$TAG'" >&2; exit 1; }
+          [ "$BARE" != "$CURRENT" ] \
+            || { echo "the repository is already pinned to ${BARE}" >&2; exit 1; }
           echo "bare=$BARE" >> "$GITHUB_OUTPUT"
           echo "vtag=$VTAG" >> "$GITHUB_OUTPUT"
 
       - name: Install target Dagger CLI
-        # Pin the CLI to the EXACT resolved version: `dagger develop` regenerates
-        # core internal/dagger/dagger.gen.go against the running CLI's engine and
-        # CI enforces a byte-exact Generated check, so a CLI even a patch off the
+        # Pin the CLI to the EXACT resolved version: codegen writes
+        # internal/dagger/dagger.gen.go against the running CLI's engine and CI
+        # enforces a byte-exact Generated check, so a CLI even a patch off the
         # target writes mismatched churn. This workflow (not an ambient local CLI)
         # is the source of truth for the regenerated tree.
         env:
@@ -75,22 +105,37 @@ jobs:
           [ "$GOT" = "v${BARE}" ] \
             || { echo "dagger version is '$GOT', expected 'v${BARE}'" >&2; exit 1; }
 
-      - name: Regenerate every module (leaf -> tests -> root)
-        # tests/ load their parent module, and the root ci module depends on
-        # daggerverse/workspace-ci, so develop mains first, tests next, root LAST
-        # (else a module regenerates against stale deps -- the java/kafka
-        # aggregator-binding concern). Glob-based discovery needs no hardcoded
-        # module list and picks up modules added later automatically; the
-        # [ -f ... ] guard skips any dir without a dagger.json.
+      - name: Regenerate every module (leaf -> examples -> tests -> root)
+        # hack/regen.sh is this repository's `dagger develop`: v1 removed that
+        # command in favour of `dagger generate`, which is driven by a workspace
+        # dagger.toml this repository does not have, so the script drives the API
+        # underneath it instead. It also owns the ordering (a module regenerated
+        # before its dependencies embeds their stale type definitions) and the
+        # engineVersion bump, and it globs every module shape in the tree --
+        # including daggerverse/*/examples/*/, the pass this step used to be missing,
+        # which is what stranded six modules at v0.21.7.
+        env:
+          VTAG: ${{ steps.resolve.outputs.vtag }}
+        run: hack/regen.sh "$VTAG"
+
+      - name: Verify every module moved to the target version
+        # The upgrade is only mechanical if it reached everything: a module the
+        # regeneration pass missed keeps its old pin, and since this repository
+        # cannot straddle a major (#440) that is a tree nothing can load rather than
+        # a module that lags. Assert it here rather than leaving it to review.
+        env:
+          VTAG: ${{ steps.resolve.outputs.vtag }}
         run: |
           set -euo pipefail
-          for d in daggerverse/*/; do
-            [ -f "${d}dagger.json" ] && dagger develop -m "$d"
-          done
-          for d in daggerverse/*/tests/; do
-            [ -f "${d}dagger.json" ] && dagger develop -m "$d"
-          done
-          dagger develop -m .
+          rc=0
+          while IFS= read -r cfg; do
+            got=$(jq -r '.engineVersion // "<none>"' "$cfg")
+            if [ "$got" != "$VTAG" ]; then
+              echo "::error file=$cfg::engineVersion is '$got', expected '$VTAG'"
+              rc=1
+            fi
+          done < <(find . -name dagger.json -not -path './.git/*' | sort)
+          exit "$rc"
 
       - name: Verify Module.checks still matches `dagger check -l`
         # The planner (daggerverse/workspace-ci) builds the CI matrix by asking
@@ -107,18 +152,24 @@ jobs:
         # specific to how one module declares its checks. Enumeration reads the
         # SDK's introspection rather than building a module runtime, so this costs
         # a couple of seconds per module.
+        #
+        # Both sides are compared as bare check names. `dagger check -l` prints
+        # `<name>   # <description>` with no header row and no module prefix -- v1
+        # dropped the `<module>:<check>` spelling the previous shape of this guard
+        # parsed, and a parser that silently matched nothing would have made the
+        # guard pass by finding no checks on either side.
         run: |
           set -uo pipefail
           rc=0
           count=0
           while IFS= read -r cfg; do
             mod="$(dirname "$cfg")"
-            stable="$(dagger check -l -m "$mod" \
+            stable="$(dagger check -l -m "$mod" 2>/dev/null \
               | sed 's/\x1b\[[0-9;]*m//g' \
-              | awk 'NR>1 && $1 ~ /:/ {print $1}' | sort)"
-            enumerated="$(printf '{ moduleSource(refString: "%s") { asModule { name checks { list { name } } } } }' "$mod" \
-              | dagger query \
-              | jq -r '.moduleSource.asModule as $m | $m.checks.list[] | "\($m.name):\(.name)"' | sort)"
+              | awk 'NF {print $1}' | sort)"
+            enumerated="$(printf '{ moduleSource(refString: "%s") { asModule { checks { list { name } } } } }' "$mod" \
+              | dagger api query \
+              | jq -r '.moduleSource.asModule.checks.list[].name' | sort)"
             if ! diff <(printf '%s\n' "$stable") <(printf '%s\n' "$enumerated"); then
               echo "::error::Module.checks for $mod diverges from 'dagger check -l' at this Dagger version; the planner may under-run CI. Reconcile before merging." >&2
               rc=1
@@ -140,17 +191,20 @@ jobs:
       - name: Bump the Dagger pin in change-aware-ci.yml
         # change-aware-ci.yml is the single source of truth: its `dagger-version`
         # input default is what installs the CLI, keys the engine-image cache and
-        # feeds both dagger/checks steps, and ci.yml does not override it. One
+        # feeds both the list and run jobs, and ci.yml does not override it. One
         # targeted sed on that default line is all that's needed -- no dagger.json
-        # edits (develop already bumped every engineVersion).
+        # edits (hack/regen.sh already bumped every engineVersion).
         env:
           BARE: ${{ steps.resolve.outputs.bare }}
         run: |
           set -euo pipefail
           # Scoped to the dagger-version input's own block, so a semver default
-          # added to some other input can never be the thing this rewrites.
+          # added to some other input can never be the thing this rewrites. The
+          # value is matched as a loose version-shaped token rather than as three
+          # dotted numbers, so a prerelease pin (1.0.0-beta.13) is rewritten too; the
+          # block scope is what keeps that loose match from reaching anything else.
           sed -i -E "/^      dagger-version:/,/^      [a-z-]+:/ \
-            s/(default:[[:space:]]*\")[0-9]+\.[0-9]+\.[0-9]+(\")/\1${BARE}\2/" \
+            s/(default:[[:space:]]*\")[0-9][0-9A-Za-z.-]*(\")/\1${BARE}\2/" \
             .github/workflows/change-aware-ci.yml
           # Fail fast if the pin didn't actually land on the target -- a drifted
           # input-default format makes the sed a silent no-op, which would otherwise

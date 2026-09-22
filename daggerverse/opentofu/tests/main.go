@@ -250,7 +250,7 @@ func pin(ctx context.Context, dir *dagger.Directory) (*dagger.Directory, error) 
 	if err != nil {
 		return nil, err
 	}
-	return dag.LoadDirectoryFromID(dagger.DirectoryID(id)), nil
+	return dagger.Ref[*dagger.Directory](dag, id), nil
 }
 
 // expectErrorContains asserts a call failed and that its message carries every

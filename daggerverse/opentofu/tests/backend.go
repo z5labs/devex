@@ -279,12 +279,22 @@ const (
 	// minioImage is the S3-compatible server the backend tests write to. It is
 	// the last community MinIO release, pinned so a suite that passes today
 	// passes tomorrow.
-	minioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z"
+	//
+	// Pulled from quay.io rather than Docker Hub because MinIO withdrew both
+	// images from Docker Hub: `minio/minio` and `minio/mc` now return an empty
+	// tag list there, so the pin resolved to "not found" rather than to an
+	// older release. quay.io is MinIO's own second registry and still carries
+	// these exact tags, so this is a registry change and not a version bump —
+	// the digests are unchanged and the suite tests what it always did.
+	minioImage = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
 
 	// mcImage is MinIO's own client. It creates the bucket, and it reads the
 	// bucket back from outside tofu — the only way to assert the state landed
 	// in the backend rather than merely that tofu did not complain.
-	mcImage = "minio/mc:RELEASE.2025-08-13T08-35-41Z"
+	//
+	// Same registry move, and for the same reason, as minioImage above. This
+	// one had not failed yet only because the server is started first.
+	mcImage = "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
 
 	minioPort = 9000
 

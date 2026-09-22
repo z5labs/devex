@@ -377,6 +377,150 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Tests for the postgres daggerverse module. Each test is exposed as a\nstandalone dagger function so it can be invoked individually during\nTDD; All wires them up for parallel execution under\n`dagger call all`.\n\nEvery password, cluster name, and table name is minted at runtime via\ndag.Random().Sha256. Role and database deliberately use the postgres\nmodule's defaults (\"postgres\"), which a few tests assert against.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 25, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every postgres test as a convenience for local `dagger call\nall` invocations. CI does NOT call All: each of the two\nsub-aggregators below (Validation, Cluster) is registered as its own\ncheck, so GH Actions schedules each onto its own runner in parallel —\nrunning All on top would double-bill the same work.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 34, 1)).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 37, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ApplyFileRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ApplyFileRoundTrip runs a multi-statement *dagger.File and confirms\nthe resulting rows are readable via Scalar.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 696, 1))).
+					WithFunction(
+						dag.Function("BindPrimaryReachableFromAlpine",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BindPrimaryReachableFromAlpine verifies BindPrimary makes the primary\nreachable at Cluster.Endpoint() from a fresh alpine container. Alpine\nlacks pg_isready, so we prove TCP reachability with busybox nc.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 586, 1))).
+					WithFunction(
+						dag.Function("BindPrimaryResolvesFromUserContainerTls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("BindPrimaryResolvesFromUserContainerTls binds a TLS primary into an\nalpine container running psql: a verify-full connection with the right\nCA succeeds, and the same connection without sslrootcert fails (it\ncannot verify the server).").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 1030, 1))).
+					WithFunction(
+						dag.Function("ClientPingWrongPasswordFails",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientPingWrongPasswordFails verifies a correct-password Ping succeeds\nand a wrong-password Ping fails with an auth error.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 609, 1))).
+					WithFunction(
+						dag.Function("Cluster",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Cluster runs the topology and client round-trip tests. Each test\nboots its own cluster via bootCluster, whose runtime-random name folds\ninto Postgres.Cluster's session-cache key so concurrent tests boot\nindependent backing services and never share storage.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 88, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 91, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("ClusterMtlsRoundTripFromClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterMtlsRoundTripFromClient boots a mutual-TLS primary and proves a\nmatching mTLS client (presenting a client cert signed by the trusted\nCA) can round-trip Exec").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 832, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsNilPassword",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsNilPassword verifies a nil password is rejected.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 335, 1))).
+					WithFunction(
+						dag.Function("ClusterRejectsNilSecurity",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterRejectsNilSecurity verifies a nil clientListenerSecurity is rejected.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 354, 1))).
+					WithFunction(
+						dag.Function("ClusterTlsRoundTripFromClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClusterTlsRoundTripFromClient boots a one-way-TLS primary and proves a\nmatching TLS client can Exec + Scalar against it over the encrypted\nlistener.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 782, 1))).
+					WithFunction(
+						dag.Function("DefaultsProduceHealthyPrimary",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DefaultsProduceHealthyPrimary boots a default cluster and proves it is\na healthy primary by running `pg_isready` against it from a container\nrunning the postgres image (which ships pg_isready), bound via\nBindPrimary.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 469, 1))).
+					WithFunction(
+						dag.Function("EndpointShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("EndpointShouldNotBeCached verifies the chained cluster methods\nre-execute on every call rather than freezing on a cached result.\nEndpoint is a pure address getter, so we exercise the\nre-execution that matters: Ping (which starts the service), Stop\n(which kills it), then Ping again — the second Ping must re-start the\nkilled service. If Client/start were cached, the service would stay\ndead and the second Ping would dial a hung port. We also assert the\nEndpoint address is stable across the cycle.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 390, 1))).
+					WithFunction(
+						dag.Function("ExecScalarRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ExecScalarRoundTrip runs a CREATE TABLE + INSERT + SELECT count(*)\nsequence across chained Cluster.Client() calls, proving the\nsession-cached cluster preserves on-disk state between separate\nClient handles.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 657, 1))).
+					WithFunction(
+						dag.Function("MtlsClusterRejectsTlsOnlyClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsClusterRejectsTlsOnlyClient boots an mTLS primary (started via a\nvalid mTLS client so the service is ready), then dials it with a\nTLS-only standalone client that presents no client certificate. The\nstandalone Postgres.Client has no cluster reference, so it bypasses the\ncoupling check and reaches the wire, where the listener's\nclientcert=verify-full rejects it with a TLS/cert error.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 965, 1))).
+					WithFunction(
+						dag.Function("PasswordReusableViaClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PasswordReusableViaClient verifies Cluster.Password() returns a secret\nwhose plaintext equals the provisioning password: re-using it via\nPostgres.Client against the same endpoint authenticates successfully.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 544, 1))).
+					WithFunction(
+						dag.Function("QueryJSONReturnsRowObjects",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("QueryJSONReturnsRowObjects verifies QueryJSON returns a *dagger.File\nwhose contents parse as a JSON array of row objects keyed by column\nname.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 732, 1))).
+					WithFunction(
+						dag.Function("ScalarShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ScalarShouldNotBeCached verifies Scalar re-executes on every call. We\ninsert one row, read count(*) == \"1\", insert a second row, then read\ncount(*) again: a cached Scalar would still report \"1\" instead of \"2\".").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 423, 1))).
+					WithFunction(
+						dag.Function("Security",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Security runs the TLS / mTLS listener + client tests. Each test mints\nits own CA, leaf certs, password, and cluster name at runtime (no\nliteral credentials or PEM blobs), and folds a unique name into the\ncluster's session-cache key, so the tests fan out without sharing\nstate.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 118, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 121, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("TlsClusterRejectsEmptyName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsClusterRejectsEmptyName verifies a TLS cluster rejects an empty\n`name`. The cluster hostname — and therefore the SAN the server cert\nmust carry — derives from `name` alone, so an empty name would\ncollapse every TLS/mTLS cluster onto the same sha256(\"\") host and\ninvite cert/SAN reuse. The guard fires in the constructor, before any\nservice starts, so a placeholder SAN on the cert is fine here.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 929, 1))).
+					WithFunction(
+						dag.Function("TlsClusterRejectsPlaintextClient",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsClusterRejectsPlaintextClient verifies the mode-coupling check:\nasking a TLS cluster for a plaintext client returns an error naming\nboth modes, before any wire activity.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 888, 1))).
+					WithFunction(
+						dag.Function("UserDatabaseRoundTrip",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UserDatabaseRoundTrip verifies Cluster.User()/Database() echo the\ninputs and a pgx round-trip confirms current_user / current_database\nmatch.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 504, 1))).
+					WithFunction(
+						dag.Function("Validation",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Validation runs the input-rejection tests plus the cache-directive\ntests (*ShouldNotBeCached). These don't share session-cached cluster\nstate with one another, so they're safe to fan out unbounded.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 63, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 66, 2), DefaultValue: dagger.JSON("0")}))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

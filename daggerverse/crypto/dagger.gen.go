@@ -491,6 +491,153 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the crypto Dagger module: file digests and key\ngeneration utilities. All operations run in pure Go inside the module\nruntime — no helper containers or external tools — using `crypto/*` from\nthe standard library plus `golang.org/x/crypto/sha3` and\n`golang.org/x/crypto/ssh` for SHA-3 hashing and OpenSSH public-key\nformatting.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Crypto", dagger.TypeDefWithObjectOpts{Description: "Crypto provides hashing and key-generation utilities for use in pipelines.\nAll operations execute in pure Go inside the module runtime — no helper\ncontainers or external tools.", SourceMap: dag.SourceMap("main.go", 37, 6)}).
+					WithFunction(
+						dag.Function("GenerateEcdsaP256Key",
+							dag.TypeDef().WithObject("EcdsaKey")).
+							WithDescription("GenerateEcdsaP256Key generates a fresh ECDSA private key over the P-256 curve.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 109, 1))).
+					WithFunction(
+						dag.Function("GenerateEcdsaP384Key",
+							dag.TypeDef().WithObject("EcdsaKey")).
+							WithDescription("GenerateEcdsaP384Key generates a fresh ECDSA private key over the P-384 curve.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 116, 1))).
+					WithFunction(
+						dag.Function("GenerateEcdsaP521Key",
+							dag.TypeDef().WithObject("EcdsaKey")).
+							WithDescription("GenerateEcdsaP521Key generates a fresh ECDSA private key over the P-521 curve.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 123, 1))).
+					WithFunction(
+						dag.Function("GenerateEd25519Key",
+							dag.TypeDef().WithObject("Ed25519Key")).
+							WithDescription("GenerateEd25519Key generates a fresh Ed25519 private key.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 142, 1))).
+					WithFunction(
+						dag.Function("GenerateRsaKey",
+							dag.TypeDef().WithObject("RsaKey")).
+							WithDescription("GenerateRsaKey generates a fresh RSA private key of the requested size.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 91, 1)).
+							WithArg("bits", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 93, 2), DefaultValue: dagger.JSON("4096")})).
+					WithFunction(
+						dag.Function("Sha256",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha256 returns the SHA-256 hex digest of file.").
+							WithSourceMap(dag.SourceMap("main.go", 40, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 40, 46)})).
+					WithFunction(
+						dag.Function("Sha384",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha384 returns the SHA-384 hex digest of file.").
+							WithSourceMap(dag.SourceMap("main.go", 45, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 45, 46)})).
+					WithFunction(
+						dag.Function("Sha3_256",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha3_256 returns the SHA3-256 hex digest of file.").
+							WithSourceMap(dag.SourceMap("main.go", 55, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 55, 48)})).
+					WithFunction(
+						dag.Function("Sha3_512",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha3_512 returns the SHA3-512 hex digest of file.").
+							WithSourceMap(dag.SourceMap("main.go", 60, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 60, 48)})).
+					WithFunction(
+						dag.Function("Sha512",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Sha512 returns the SHA-512 hex digest of file.").
+							WithSourceMap(dag.SourceMap("main.go", 50, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 50, 46)}))).
+			WithObject(
+				dag.TypeDef().WithObject("EcdsaKey", dagger.TypeDefWithObjectOpts{Description: "EcdsaKey wraps a generated ECDSA keypair. See RsaKey for why each method\ncarries `", SourceMap: dag.SourceMap("main.go", 206, 6)}).
+					WithFunction(
+						dag.Function("Der",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 217, 1))).
+					WithFunction(
+						dag.Function("OpenSshPublicKey",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 240, 1))).
+					WithFunction(
+						dag.Function("Pem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 212, 1))).
+					WithFunction(
+						dag.Function("PublicKeyDer",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 231, 1))).
+					WithFunction(
+						dag.Function("PublicKeyPem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 222, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Ed25519Key", dagger.TypeDefWithObjectOpts{Description: "Ed25519Key wraps a generated Ed25519 keypair. See RsaKey for why each\nmethod carries `", SourceMap: dag.SourceMap("main.go", 250, 6)}).
+					WithFunction(
+						dag.Function("Der",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 261, 1))).
+					WithFunction(
+						dag.Function("OpenSshPublicKey",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 270, 1))).
+					WithFunction(
+						dag.Function("Pem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 258, 1))).
+					WithFunction(
+						dag.Function("PublicKeyDer",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 267, 1))).
+					WithFunction(
+						dag.Function("PublicKeyPem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 264, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("RsaKey", dagger.TypeDefWithObjectOpts{Description: "RsaKey wraps a generated RSA keypair. The private key bytes live off the\nGraphQL surface and are materialized to a *dagger.File on demand.\n\nEach format method carries `chained query (`generateRsaKey.pem.contents`) by chain shape, so repeat\ninvocations would return the first call's File even though the parent\ngenerator runs fresh. Forcing re-execution at every method node keeps\nevery call genuinely fresh.\n\nStored as PKCS#8 DER because the Dagger code generator only round-trips\n`[]byte` cleanly across runtime invocations — `*rsa.PrivateKey` directly\nwould generate broken bindings.", SourceMap: dag.SourceMap("main.go", 162, 6)}).
+					WithFunction(
+						dag.Function("Der",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 173, 1))).
+					WithFunction(
+						dag.Function("OpenSshPublicKey",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 196, 1))).
+					WithFunction(
+						dag.Function("Pem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 168, 1))).
+					WithFunction(
+						dag.Function("PublicKeyDer",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 187, 1))).
+					WithFunction(
+						dag.Function("PublicKeyPem",
+							dag.TypeDef().WithObject("File")).
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 178, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

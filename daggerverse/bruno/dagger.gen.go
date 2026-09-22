@@ -1045,6 +1045,315 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the bruno Dagger module: a wrapper around `bru`,\nthe Bruno CLI, so an API collection stops reaching CI as a hand-rolled step\n— a Node install or a `docker run` with the volume mount spelled correctly,\nthe environment name passed through, and a wrapper script to turn the exit\ncode into something a pipeline understands — and becomes a `dagger call`.\n\nUpstream publishes `usebruno/cli` as a Docker Verified Publisher image on\nboth Docker Hub and ghcr.io, so unlike tesseract or opentofu this module\npins a vendor image rather than assembling one. That image's entrypoint is\n`bru`, its working directory is /bruno, and it runs as the non-root `node`\nuser (UID 1000) — which is why reports are staged in a module-owned writable\ndirectory instead of being written into the mounted collection.\n\nThe boundary input is a *dagger.Directory, not a lone *dagger.File: `bru`\nexits 4 when invoked outside a collection root, and resolves environments/\nand .env relative to it.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Bruno", dagger.TypeDefWithObjectOpts{Description: "Bruno wraps the Bruno CLI as Dagger functions. Construct via New(); call\nContainer() for the raw image, or Collection(source) to bind a collection\nand reach Run/Report.", SourceMap: dag.SourceMap("main.go", 47, 6)}).
+					WithFunction(
+						dag.Function("Ci",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("Ci returns a new pipeline builder bound to the supplied collection source.\nThe input is the collection root, exactly as a bare Collection(source) call\nwould take it.").
+							WithSourceMap(dag.SourceMap("ci.go", 51, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 51, 20)})).
+					WithFunction(
+						dag.Function("Collection",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("Collection binds a Bruno collection directory to the toolchain.").
+							WithSourceMap(dag.SourceMap("collection.go", 158, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 158, 28)})).
+					WithFunction(
+						dag.Function("Container",
+							dag.TypeDef().WithObject("Container")).
+							WithDescription("Container returns the bare Bruno CLI image. This is the escape hatch for\nevery flag this module does not wrap — `bru`'s long tail of proxy and cookie\noptions stays reachable via `container with-exec`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 86, 1))).
+					WithFunction(
+						dag.Function("Generate",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Generate converts an OpenAPI document into a Bruno collection directory\n(`bru import openapi`), so a collection can be produced in CI rather than\nhand-maintained beside the spec it drifts from.\n\nThe spec is a *dagger.File rather than a URL string, so a local document and\na remote one are the same call: dag.HTTP(url) covers the URL case without a\nsecond parameter — and without needing bru's `--insecure`, since the fetch\nnever happens inside the container.\n\nformat defaults to \"bru\" where upstream defaults to \"opencollection\". Only\nthe bru shape carries the bruno.json and .bru requests that Collection, Run\nand Report read, so the default is the one whose output feeds straight back\ninto this module. \"opencollection\" writes an opencollection.yml instead and\nis not runnable here.\n\nRequests are grouped by OpenAPI tag, which is bru's own default, so they\nland one folder deep and need Run's recursive default to be reached.\n\nIt isthe document and touches no live service.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("generate.go", 57, 1)).
+							WithArg("spec", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The OpenAPI document to convert. YAML or JSON — bru reads the contents,\nnot the file name.", SourceMap: dag.SourceMap("generate.go", 61, 2)}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Name stamped into the generated collection's bruno.json.", SourceMap: dag.SourceMap("generate.go", 64, 2), DefaultValue: dagger.JSON("\"api\"")}).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Output shape: \"bru\", the tree this module can run, or \"opencollection\".", SourceMap: dag.SourceMap("generate.go", 67, 2), DefaultValue: dagger.JSON("\"bru\"")})).
+					WithFunction(
+						dag.Function("Version",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Version returns the Bruno CLI release the pinned image ships, as reported\nby `bru --version`.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 94, 1))).
+					WithConstructor(
+						dag.Function("New",
+							dag.TypeDef().WithObject("Bruno")).
+							WithDescription("New returns a Bruno module backed by <registry>/usebruno/cli:<version>.").
+							WithSourceMap(dag.SourceMap("main.go", 57, 1)).
+							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Container registry hosting the usebruno/cli image. Upstream publishes\nthe same image to docker.io and ghcr.io.", SourceMap: dag.SourceMap("main.go", 61, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
+							WithArg("version", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Image tag for usebruno/cli, which is the Bruno CLI release it ships.", SourceMap: dag.SourceMap("main.go", 64, 2), DefaultValue: dagger.JSON("\"3.4.2\"")}).
+							WithArg("debian", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Select the Debian variant (node:22-slim) of the image. The suffix is\nappended to version, so debian=true with the default 3.4.2 resolves\n3.4.2-debian. The Alpine default hits musl/OpenSSL failures against\nsome TLS endpoints, which is what this variant is for.", SourceMap: dag.SourceMap("main.go", 70, 2), DefaultValue: dagger.JSON("false")}))).
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{Description: "Ci is a chained builder for a standardized Bruno CI pipeline: a collection\nin, a gate and the reports out.\n\nLint, run and report are three calls plus the glue that decides what fails\nthe build, which is the shape every API repo ends up hand-rolling. This\nbundles them so that CI is one declarative `dagger call`.\n\nIt composes Collection without adding capability of its own — every stage is\na call the caller could make by hand. What it adds is the ordering: lint runs\nbefore the collection, so a {{baseUrl}} that resolves nowhere or a\ncredential committed in plaintext is reported without spending a request on\ndiscovering it, and a collection that could never have passed does not start\na container's worth of work to say so.\n\nThe two terminals split the way Collection's own Run and Report do, and for\nthe same reason. Check is the gate: it fails on a lint error, on a failing\nrequest, test or assertion, and on any of bru's usage errors. Run is the\nartifact: it returns the reports directory, and does not fail a run whose\nrequests failed — Dagger drops a function's value when it also returns an\nerror, so a gating Run could never hand back the report describing the\nfailure, which is exactly when the report matters. CI pairs them.", SourceMap: dag.SourceMap("ci.go", 37, 6)}).
+					WithFunction(
+						dag.Function("Check",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Check runs the pipeline as a gate and produces nothing, for the PR that wants\nto know whether the API is behaving.\n\nThe stages are the enabled lint followed by the collection itself. Lint comes\nfirst so that a structural error costs no request: a collection whose\nvariables resolve nowhere fails here rather than against a live service,\nnaming the file instead of the response. The collection then fails on bru's\nexit 1 — a failing request, test or assertion — and reports every other\nnon-zero exit as the usage error it is.\n\nNo report is produced, because a gate that returns nothing can gate: see Run\nfor why the terminal that hands back artifacts cannot also be the one that\nfails.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("ci.go", 241, 1))).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithObject("Directory")).
+							WithDescription("Run executes the pipeline and returns the requested reports as a directory,\none file per format: report.json, report.xml for junit, report.html.\n\nIt does not fail on a failing request, test or assertion. That is deliberate\nand it is the same reasoning as Collection.Report: a Dagger function that\nreturns an error forfeits its value, so a Run that gated would hand back\nnothing on exactly the runs whose reports a pipeline needs — the JUnit file a\nCI system turns into a test report, the HTML page somebody opens to see which\nassertion failed. Pair the two: Run for the artifacts, Check for the gate.\n\nA lint error is still an error here, because then the collection never ran\nand there is no report to return. So is a usage error, for the same reason.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("ci.go", 266, 1))).
+					WithFunction(
+						dag.Function("WithCaCert",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithCaCert verifies peers against a custom CA certificate, for a pipeline\nwhose target presents a certificate signed by a private CA. See\nCollection.WithCaCert.\n\nThis is the case the pipeline builder exists for as much as any: an internal\nendpoint is exactly the kind a repo hangs a CI check on, and the alternative\nis `--insecure`, which verifies nothing.").
+							WithSourceMap(dag.SourceMap("ci.go", 97, 1)).
+							WithArg("cert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 97, 25)})).
+					WithFunction(
+						dag.Function("WithClientCert",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithClientCert presents a client certificate to hosts matching host, for a\npipeline that has to authenticate to an mTLS endpoint. Call it more than once\nfor more than one host. See Collection.WithClientCert.").
+							WithSourceMap(dag.SourceMap("ci.go", 115, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hostname pattern the certificate applies to, matched against the request\nURL: \"api.internal\" for one host, \"*.internal\" for a wildcard. bru uses\nthe first configured host that matches.", SourceMap: dag.SourceMap("ci.go", 119, 2)}).
+							WithArg("cert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "PEM certificate to present.", SourceMap: dag.SourceMap("ci.go", 121, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM private key for the certificate.", SourceMap: dag.SourceMap("ci.go", 123, 2)}).
+							WithArg("passphrase", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Passphrase the private key is encrypted with, if it is.", SourceMap: dag.SourceMap("ci.go", 126, 2)})).
+					WithFunction(
+						dag.Function("WithEnvironment",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithEnvironment selects the environment the pipeline resolves variables from,\nby the name of the file under environments/ without its extension. See\nCollection.WithEnvironment.\n\nIt is also what the lint stage checks references against, so the environment\na pipeline runs under is the one its variables are required to resolve in.").
+							WithSourceMap(dag.SourceMap("ci.go", 61, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 61, 30)})).
+					WithFunction(
+						dag.Function("WithLint",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithLint adds the lint stage, which runs before the collection and fails the\npipeline on a structural error without issuing a request. See\nCollection.Lint for the rules.\n\nIt is opt-in rather than always-on because linting is an opinion about how a\ncollection is written, and a pipeline should not start failing on one the day\nit adopts the builder.").
+							WithSourceMap(dag.SourceMap("ci.go", 140, 1)).
+							WithArg("failOnWarnings", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Treat lint warnings as failures.", SourceMap: dag.SourceMap("ci.go", 143, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("WithReport",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithReport adds a reporter format — json, junit or html — to the set Run\nreturns. Call it more than once for more than one format.\n\nEvery requested format comes out of a single collection pass: bru accepts all\nof its `--reporter-*` flags at once, so asking for both JUnit and HTML costs\none run and the two artifacts describe the same set of responses rather than\ntwo different ones.\n\nLike the rest of the builder it has no error return, so an unknown format is\nreported by the terminal that would have written it.").
+							WithSourceMap(dag.SourceMap("ci.go", 161, 1)).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Reporter format: json, junit or html.", SourceMap: dag.SourceMap("ci.go", 163, 2)})).
+					WithFunction(
+						dag.Function("WithSecretVar",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithSecretVar makes a secret readable from the collection as\n{{process.env.NAME}}, without it ever reaching argv. See\nCollection.WithSecretVar.\n\nA pipeline takes secrets and not plain overrides on purpose: a value worth\npassing into CI by hand is usually a credential, and WithVar would put it on\nthe command line. A collection that needs a non-secret override can still be\nassembled through Collection.").
+							WithSourceMap(dag.SourceMap("ci.go", 84, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 84, 28)}).
+							WithArg("value", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 84, 41)})).
+					WithFunction(
+						dag.Function("WithService",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithService binds a service into the pipeline's network under alias, so the\ncollection can reach it by that hostname. A collection is inert without a\ntarget. See Collection.WithService.").
+							WithSourceMap(dag.SourceMap("ci.go", 70, 1)).
+							WithArg("alias", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 70, 26)}).
+							WithArg("service", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("ci.go", 70, 40)})).
+					WithFunction(
+						dag.Function("WithUnredactedReport",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithUnredactedReport reports every header and both bodies, cancelling the\nredaction a WithSecretVar secret otherwise applies. See\nCollection.WithUnredactedReport.\n\nThis is the builder where the default matters most and where cancelling it\ndeserves the most thought: what Run produces is the artifact a CI system\narchives, and an archived report outlives the run that wrote it.").
+							WithSourceMap(dag.SourceMap("ci.go", 220, 1))).
+					WithFunction(
+						dag.Function("WithoutAllHeaders",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutAllHeaders omits every header from the reports Run returns. See\nCollection.WithoutAllHeaders.").
+							WithSourceMap(dag.SourceMap("ci.go", 183, 1))).
+					WithFunction(
+						dag.Function("WithoutBodies",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutBodies omits both request and response bodies from the reports Run\nreturns. See Collection.WithoutBodies.").
+							WithSourceMap(dag.SourceMap("ci.go", 207, 1))).
+					WithFunction(
+						dag.Function("WithoutHeaders",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutHeaders omits the named headers from the reports Run returns. See\nCollection.WithoutHeaders.").
+							WithSourceMap(dag.SourceMap("ci.go", 172, 1)).
+							WithArg("names", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Header names to omit, matched case-insensitively.", SourceMap: dag.SourceMap("ci.go", 174, 2)})).
+					WithFunction(
+						dag.Function("WithoutRequestBody",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutRequestBody omits every request body from the reports Run returns. See\nCollection.WithoutRequestBody.").
+							WithSourceMap(dag.SourceMap("ci.go", 191, 1))).
+					WithFunction(
+						dag.Function("WithoutResponseBody",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutResponseBody omits every response body from the reports Run returns.\nSee Collection.WithoutResponseBody.").
+							WithSourceMap(dag.SourceMap("ci.go", 199, 1))).
+					WithFunction(
+						dag.Function("WithoutTruststore",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithoutTruststore verifies peers against the WithCaCert certificate alone,\nignoring the CAs the image ships. It means nothing without WithCaCert, and on\nits own is rejected by the terminal. See Collection.WithoutTruststore.").
+							WithSourceMap(dag.SourceMap("ci.go", 106, 1)))).
+			WithObject(
+				dag.TypeDef().WithObject("Collection", dagger.TypeDefWithObjectOpts{Description: "Collection is a Bruno collection tree plus the options that apply across\nbru's subcommands. It is immutable: every With* returns a copy.\n\nThe input is a directory, not a lone request file: bru exits 4 when invoked\noutside a collection root, and resolves environments/ and .env relative to\nit.", SourceMap: dag.SourceMap("collection.go", 94, 6)}).
+					WithFunction(
+						dag.Function("CheckDrift",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CheckDrift fails when the committed collection no longer matches the OpenAPI\ndocument it was generated from, so a pipeline can hang a check on the two\nstaying in step.\n\nThe report travels in the error rather than alongside it, following Lint: a\nDagger function that returns an error forfeits its value, so a (report, error)\nsignature would hide the report on the one path that needs it.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("drift.go", 98, 1)).
+							WithArg("spec", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The OpenAPI document the collection is generated from.", SourceMap: dag.SourceMap("drift.go", 101, 2)})).
+					WithFunction(
+						dag.Function("Drift",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Drift reports how the committed collection differs from the OpenAPI document\nit was generated from.\n\nA new operation in the spec that nobody added to the collection is a silently\nuntested endpoint: nothing fails, because nothing asks. This is the check that\nnotices — it regenerates the collection from the document and compares the\nresult against what is committed.\n\nThe comparison is scoped to the request set — each request's method and path,\ndeduplicated and sorted — rather than being a diff of the two trees. A\ngenerated request carries detail the document never described (the tests and\nassertions that make the collection worth running, the ordering, the scripts),\nand a byte-for-byte comparison would call every one of those drift. Query\nstrings are dropped and path parameters are normalised onto Bruno's `:name`\nspelling, so the same endpoint written either way reads as the same endpoint.\n\nIt returns the difference rather than failing on it, and never fails on drift\nalone: Dagger drops a function's value when it also returns an error, so a\ngating Drift could not hand back the report that says what drifted. CheckDrift\nis the gate; this is the one that tells you what to fix.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("drift.go", 76, 1)).
+							WithArg("spec", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "The OpenAPI document the collection is generated from. YAML or JSON —\nbru reads the contents, not the file name.", SourceMap: dag.SourceMap("drift.go", 80, 2)})).
+					WithFunction(
+						dag.Function("Lint",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("Lint checks a collection's structure without issuing a single request.\n\nBruno ships no linter, and the failure modes it leaves open are the\nexpensive kind: a {{baseUrl}} that resolves nowhere fails at request time in\nCI rather than at review time, and an API key committed as a plaintext value\nunder environments/ is a leak nobody notices.\n\nFindings are folded into the returned error rather than returned as a value,\nfollowing kicad's Drc and Erc: Dagger drops a function's value when it also\nreturns a non-nil error, so a (findings, error) signature would hide the\nfindings on exactly the path that needs them. Warnings that do not fail the\ncall are written to stderr instead, so they are still visible in the run's\nlogs.\n\nEverything is evaluated in pure Go over the source tree — no container, per\nthe module's runtime-I/O convention — which is also why it is\ndirectory's contents and nothing else.\n\nScope limit: this reads the collection's block and reference structure, not\na full .bru parse. Blocks are recognised by their opener at column 0, which\nis where Bruno's own writer puts them.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("lint.go", 99, 1)).
+							WithArg("failOnWarnings", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Treat warnings as failures.", SourceMap: dag.SourceMap("lint.go", 103, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("Report",
+							dag.TypeDef().WithObject("File")).
+							WithDescription("Report executes the collection and returns the reporter's artifact.\n\nUnlike Run it does not fail on exit 1: a Dagger function that returns an\nerror forfeits its value, so a Report that gated would never hand back the\nfile describing the failure — which is exactly when the file matters. CI\npairs the two, taking the artifact from Report and the gate from Run. A\nusage error is still an error, because then there is no report to return.\n\nThe run is recursive, matching Run's default, so the artifact describes the\nwhole collection.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("collection.go", 362, 1)).
+							WithArg("format", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Reporter format: json, junit or html.", SourceMap: dag.SourceMap("collection.go", 365, 2)})).
+					WithFunction(
+						dag.Function("Run",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Run executes the collection and returns bru's output.\n\nIt fails on exit 1 — a failing request, test or assertion — so a collection\nis a gate a pipeline can hang a check on. Every other non-zero exit is a\nusage error reported as itself, so \"the environment name is wrong\" never\nreads as \"your API is broken\". Errors carry combined stdout and stderr,\nbecause bru splits its diagnostics across both.\n\nA failing Run returns no output alongside its error: a Dagger function that\nreturns an error forfeits its value. Pair it with Report when the artifact\nmatters.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("collection.go", 322, 1)).
+							WithArg("recursive", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Descend into the collection's folders. Off, only the requests at the\ncollection root run. Note that a defaulted-true bool cannot be set\nfalse from the Go SDK — the zero value is dropped and the default\napplies — so a non-recursive run is `--recursive=false` from the CLI.", SourceMap: dag.SourceMap("collection.go", 329, 2), DefaultValue: dagger.JSON("true")})).
+					WithFunction(
+						dag.Function("WithBail",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithBail stops the run at the first failing request, test or assertion\n(`--bail`) instead of working through the rest of the collection.").
+							WithSourceMap(dag.SourceMap("collection.go", 295, 1))).
+					WithFunction(
+						dag.Function("WithCaCert",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithCaCert verifies peers against a custom CA certificate (`--cacert`), for\nthe collection whose target presents a certificate signed by a private CA —\nan internal endpoint, or a service stood up for the length of the pipeline.\n\nbru adds the certificate to the default truststore rather than replacing it,\nso a collection that also reaches a public endpoint keeps working. Use\nWithoutTruststore for the private CA exclusively.\n\nThis is the control WithInsecure is not: the run still verifies, it just\nverifies against the CA the caller named.").
+							WithSourceMap(dag.SourceMap("tls.go", 90, 1)).
+							WithArg("cert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("tls.go", 90, 33)})).
+					WithFunction(
+						dag.Function("WithClientCert",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithClientCert presents a client certificate to hosts matching host\n(`--client-cert-config`), for the collection that has to authenticate to an\nmTLS endpoint. Call it more than once for more than one host.\n\nThe key is a *dagger.Secret and not a *dagger.File: it is key material, and a\nfile's contents are content-addressed into the build cache and readable from\na trace. It is mounted as a secret, outside the collection, and named only\nfrom the rendered config — so it reaches neither argv nor the collection tree.\n\nbru takes this as a JSON document referring to the certificate and key by\npath. That document is rendered at run time against the paths this module\nmounts them under, because a caller writing it by hand would have to name\npaths inside a container they cannot see.").
+							WithSourceMap(dag.SourceMap("tls.go", 121, 1)).
+							WithArg("host", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Hostname pattern the certificate applies to, matched against the request\nURL: \"api.internal\" for one host, \"*.internal\" for a wildcard. bru uses\nthe first configured host that matches.", SourceMap: dag.SourceMap("tls.go", 125, 2)}).
+							WithArg("cert", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{Description: "PEM certificate to present.", SourceMap: dag.SourceMap("tls.go", 127, 2)}).
+							WithArg("key", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{Description: "PEM private key for the certificate.", SourceMap: dag.SourceMap("tls.go", 129, 2)}).
+							WithArg("passphrase", dag.TypeDef().WithObject("Secret").WithOptional(true), dagger.FunctionWithArgOpts{Description: "Passphrase the private key is encrypted with, if it is.", SourceMap: dag.SourceMap("tls.go", 132, 2)})).
+					WithFunction(
+						dag.Function("WithData",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithData runs the collection once per row of a data file — a CSV\n(`--csv-file-path`) or a JSON array (`--json-file-path`) — with that row's\ncolumns readable from every request as runtime variables.\n\nOne collection then covers a matrix rather than a case: the tenants, regions\nor payloads a suite would otherwise carry a copy of the same request for.\nEach row is an iteration, and every reporter writes one entry per iteration.\n\nIt takes a file rather than a flag and a path because the extension already\nsays which of the two bru wants: .csv or .json. Like the other builders it\nhas no error return, so a file that is neither is reported by the run that\nwould have read it.").
+							WithSourceMap(dag.SourceMap("collection.go", 222, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 222, 31)})).
+					WithFunction(
+						dag.Function("WithDelay",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithDelay waits the given number of milliseconds between requests\n(`--delay`), for a target that rate-limits.").
+							WithSourceMap(dag.SourceMap("collection.go", 303, 1)).
+							WithArg("milliseconds", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 303, 32)})).
+					WithFunction(
+						dag.Function("WithEnvFile",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithEnvFile supplies an environment file (`--env-file`), a .bru or .json\nfile holding the variables for the run. It is mounted outside the\ncollection, so it never shadows a file the collection ships.").
+							WithSourceMap(dag.SourceMap("collection.go", 204, 1)).
+							WithArg("file", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 204, 34)})).
+					WithFunction(
+						dag.Function("WithEnvironment",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithEnvironment selects the environment bru resolves variables from\n(`--env`), by the name of the file under environments/ without its\nextension. An unknown name is bru's exit 6, reported as a usage error.").
+							WithSourceMap(dag.SourceMap("collection.go", 165, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 165, 38)})).
+					WithFunction(
+						dag.Function("WithInsecure",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithInsecure accepts TLS certificates the run cannot verify\n(`--insecure`) — a self-signed certificate on a service that only exists\nfor the length of the pipeline, typically.\n\nIt verifies nothing, which is the wrong tool for a target behind a private\nCA: use WithCaCert for that, and WithClientCert to authenticate with a\ncertificate of the run's own. bru drops `--cacert` when `--insecure` is set,\nso combining the two is rejected rather than quietly verifying nothing.").
+							WithSourceMap(dag.SourceMap("collection.go", 278, 1))).
+					WithFunction(
+						dag.Function("WithSandbox",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithSandbox selects the JavaScript sandbox scripts and assertions run in\n(`--sandbox`): \"safe\", the QuickJS sandbox bru 3.0 made the default, or\n\"developer\", the Node one. A collection whose scripts require() a module or\ntouch the filesystem needs \"developer\" — and fails at runtime, not at parse\ntime, without it.\n\nA collection that says nothing runs in \"safe\", matching both bru's default\nand Collection's. Like WithVar, an unknown mode is reported by the run\nrather than here.").
+							WithSourceMap(dag.SourceMap("collection.go", 264, 1)).
+							WithArg("mode", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 264, 34)})).
+					WithFunction(
+						dag.Function("WithSecretVar",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithSecretVar makes a secret readable from the collection as\n{{process.env.NAME}}.\n\nIt is a separate function from WithVar rather than an overload because\n`--env-var` places its value on the process command line. A secret is bound\nwith WithSecretVariable instead, so it appears in neither argv nor any\ndiagnostic this module echoes back.").
+							WithSourceMap(dag.SourceMap("collection.go", 194, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 194, 36)}).
+							WithArg("value", dag.TypeDef().WithObject("Secret"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 194, 49)})).
+					WithFunction(
+						dag.Function("WithService",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithService binds a service into the run's network under alias, so the\ncollection can reach it by that hostname. A collection is inert without a\ntarget, which is why this exists at all.").
+							WithSourceMap(dag.SourceMap("collection.go", 248, 1)).
+							WithArg("alias", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 248, 34)}).
+							WithArg("service", dag.TypeDef().WithObject("Service"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 248, 48)})).
+					WithFunction(
+						dag.Function("WithTags",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithTags restricts the run to requests carrying any of these tags\n(`--tags`).").
+							WithSourceMap(dag.SourceMap("collection.go", 230, 1)).
+							WithArg("tags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 230, 31)})).
+					WithFunction(
+						dag.Function("WithTestsOnly",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithTestsOnly runs only the requests that carry a test or an active\nassertion (`--tests-only`), skipping the ones that exist to set up state\nfor a human.").
+							WithSourceMap(dag.SourceMap("collection.go", 287, 1))).
+					WithFunction(
+						dag.Function("WithUnredactedReport",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithUnredactedReport reports every header and both bodies, cancelling the\nredaction that a WithSecretVar secret otherwise applies.\n\nA collection that was handed a secret redacts its reports by default: see\nredactArgs for why that is the default rather than the option. This is the\nway back for a pipeline that wants the whole exchange in its artifact and has\ndecided the artifact is somewhere that can hold it.\n\nIt does not undo the five Without* controls above; it only cancels what the\nsecret added. So a pipeline that wants the bodies in its artifact and none of\nthe headers sets this alongside WithoutAllHeaders, and gets exactly that\nrather than the default's both.").
+							WithSourceMap(dag.SourceMap("redact.go", 105, 1))).
+					WithFunction(
+						dag.Function("WithVar",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithVar overrides a single environment variable (`--env-var name=value`),\ntaking precedence over whatever the selected environment declares.\n\nIt takes a name and a value rather than a map because Dagger functions\ncannot accept map parameters. The value lands on bru's command line — use\nWithSecretVar for anything that should not.\n\nValidation is deferred to the run: builder methods have no error return, so\na bad name surfaces on the Run or Report that would have used it.").
+							WithSourceMap(dag.SourceMap("collection.go", 180, 1)).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 180, 30)}).
+							WithArg("value", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 180, 43)})).
+					WithFunction(
+						dag.Function("WithoutAllHeaders",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutAllHeaders omits every header from the reporter output\n(`--reporter-skip-all-headers`), on both sides of each exchange.\n\nThis is the choice to make when the collection's headers are not enumerable\nfrom where the pipeline is written — a header set by a script, or an auth\nscheme that adds one. WithoutHeaders keeps the rest of them.").
+							WithSourceMap(dag.SourceMap("redact.go", 60, 1))).
+					WithFunction(
+						dag.Function("WithoutBodies",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutBodies omits both request and response bodies from the reporter output\n(`--reporter-skip-body`).").
+							WithSourceMap(dag.SourceMap("redact.go", 87, 1))).
+					WithFunction(
+						dag.Function("WithoutHeaders",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutHeaders omits the named headers from the reporter output\n(`--reporter-skip-headers`), on both sides of each exchange.\n\nMatching is case-insensitive and the header is dropped rather than blanked,\nso \"authorization\" removes an Authorization that was sent and one that came\nback. Call it once with every name, or more than once — the names accumulate.\n\nUse it to keep a report that is still worth reading: everything the run\ncarried survives except the headers named here. WithoutAllHeaders is the\nblunter instrument for when the set of sensitive names is not known.").
+							WithSourceMap(dag.SourceMap("redact.go", 45, 1)).
+							WithArg("names", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{Description: "Header names to omit, matched case-insensitively.", SourceMap: dag.SourceMap("redact.go", 47, 2)})).
+					WithFunction(
+						dag.Function("WithoutRequestBody",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutRequestBody omits every request body from the reporter output\n(`--reporter-skip-request-body`), for the collection that posts credentials\nrather than sending them in a header.").
+							WithSourceMap(dag.SourceMap("redact.go", 69, 1))).
+					WithFunction(
+						dag.Function("WithoutResponseBody",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutResponseBody omits every response body from the reporter output\n(`--reporter-skip-response-body`), for the endpoint that answers with a token\n— a login route being the obvious one, and the one whose report is most\nworth reading and least safe to keep.").
+							WithSourceMap(dag.SourceMap("redact.go", 79, 1))).
+					WithFunction(
+						dag.Function("WithoutTags",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutTags excludes requests carrying any of these tags\n(`--exclude-tags`). It composes with WithTags: a request matching both is\nexcluded.").
+							WithSourceMap(dag.SourceMap("collection.go", 239, 1)).
+							WithArg("tags", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("collection.go", 239, 34)})).
+					WithFunction(
+						dag.Function("WithoutTruststore",
+							dag.TypeDef().WithObject("Collection")).
+							WithDescription("WithoutTruststore verifies peers against the WithCaCert certificate alone\n(`--ignore-truststore`), ignoring the CAs the image ships.\n\nIt only means anything alongside WithCaCert — bru evaluates the flag in\ncombination with `--cacert` only — so on its own it is rejected by the run\nrather than silently doing nothing.").
+							WithSourceMap(dag.SourceMap("tls.go", 102, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

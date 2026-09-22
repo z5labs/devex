@@ -9,39 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type Random
-func (r *Binding) AsRandom() *Random { // random (../../../../../../daggerverse/random/main.go:17:6)
-	q := r.query.Select("asRandom")
-
-	return &Random{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Random in the environment
-func (r *Env) WithRandomInput(name string, value *Random, description string) *Env { // random (../../../../../../daggerverse/random/main.go:17:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withRandomInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Random output to be assigned in the environment
-func (r *Env) WithRandomOutput(name string, description string) *Env { // random (../../../../../../daggerverse/random/main.go:17:6)
-	q := r.query.Select("withRandomOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // Random provides functions for generating random values such as UUIDs and
 // random-derived SHA hashes. Each call returns a fresh value; results are not
 // cached by the Dagger engine.

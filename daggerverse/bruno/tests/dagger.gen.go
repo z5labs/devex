@@ -552,6 +552,264 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main implements the test module for the bruno Dagger module. Each\ntest is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 37, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs every bruno-module test in parallel.").
+							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
+							WithSourceMap(dag.SourceMap("main.go", 43, 1)).
+							WithCheck().
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 46, 2), DefaultValue: dagger.JSON("0")})).
+					WithFunction(
+						dag.Function("CaCertReachesPrivateCaService",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CaCertReachesPrivateCaService checks what WithCaCert is for: a collection whose\ntarget presents a certificate signed by a CA the image has never heard of\nreaches it, and verifies while doing so.\n\nThe negative case is the whole point. Verification against a private CA is\nindistinguishable from no verification at all unless the run without the CA\nfails, so the same collection is run first without WithCaCert — where bru has\nto reject the peer — and then with it.\n\nThe third pass adds WithoutTruststore, which narrows verification to that CA\nalone. It has to still pass: the flag is a no-op that is easy to render into a\nrun that was going to pass anyway, and easy to get wrong in a way that severs\nthe connection.").
+							WithSourceMap(dag.SourceMap("main.go", 1763, 1))).
+					WithFunction(
+						dag.Function("CheckDriftFailsOnAnEndpointAddedToTheSpec",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CheckDriftFailsOnAnEndpointAddedToTheSpec checks the case the whole story\nexists for: the document grew an operation and nobody added a request for it,\nso the endpoint is untested and nothing says so.\n\nThe failure has to name the missing request rather than only report that\nsomething differs — an endpoint nobody noticed is not made findable by being\ntold a count changed.").
+							WithSourceMap(dag.SourceMap("main.go", 1072, 1))).
+					WithFunction(
+						dag.Function("CheckDriftFailsOnBothSidesOfTheRequestSet",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CheckDriftFailsOnBothSidesOfTheRequestSet checks the other direction, and\nthat the two are distinguished.\n\nA request deleted from the collection leaves an endpoint the document declares\nwith nothing testing it. A request the document has no operation for is the\nopposite problem — an endpoint that was renamed or retired upstream, still\nbeing exercised — and it has to read as its own thing rather than as the same\nfinding, because the fix is the opposite one.").
+							WithSourceMap(dag.SourceMap("main.go", 1116, 1))).
+					WithFunction(
+						dag.Function("CiCheckGatesOnFailingAssertion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckGatesOnFailingAssertion checks the other half of the gate: a\ncollection that lints clean and then fails a request, test or assertion fails\nthe pipeline, carrying bru's own account of what failed.\n\nThe lint stage is enabled deliberately, so the failure has to be the\nassertion and not the linter having an opinion about the fixture.").
+							WithSourceMap(dag.SourceMap("main.go", 1403, 1))).
+					WithFunction(
+						dag.Function("CiLintFailsBeforeAnyRequest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiLintFailsBeforeAnyRequest checks the ordering that is the builder's own\ncontribution: the lint stage runs ahead of the collection, so a structural\nerror is reported without spending a request on discovering it.\n\nThe fixture is the one whose {{tenantId}} resolves nowhere — and which bru\nruns perfectly happily, interpolating the literal string and getting a 200\nback. That is what makes the assertion mean something: the un-linted pipeline\nis checked afterwards and passes, so a request count of zero on the first\npass is the lint stage short-circuiting rather than the collection being\nunrunnable.").
+							WithSourceMap(dag.SourceMap("main.go", 1353, 1))).
+					WithFunction(
+						dag.Function("CiReachesMtlsServiceBehindPrivateCa",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiReachesMtlsServiceBehindPrivateCa checks that the pipeline builder's TLS\ncontrols delegate, against the case they exist for: an internal endpoint\nbehind a private CA that wants a client certificate, which is exactly the kind\nof target a repo hangs a CI check on.\n\nA pipeline that reaches it at all is a pipeline that delegated both. bru\nrejects a private-CA peer without the CA, and the responder rejects a client\nwithout the certificate — so the gate passing is the assertion, and the\nreported Common Name says it was the certificate rather than the handshake\nalone.\n\nBoth terminals are exercised, since a report of a run that never connected is\nthe failure this would otherwise hide, and the lint stage is enabled so the\nTLS material has to survive being validated ahead of the run.").
+							WithSourceMap(dag.SourceMap("main.go", 2069, 1))).
+					WithFunction(
+						dag.Function("CiRedactsSecretVarFromItsReports",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRedactsSecretVarFromItsReports checks the redaction where it matters most.\nRun is the terminal that writes the file a CI system archives, and an\narchived report outlives the run that produced it.\n\nBoth directions are exercised, because a builder that dropped the delegation\nentirely would look identical to one that redacts: a report with no headers\nis what the default produces and also what a pipeline that never passed the\ncontrols along would produce if the collection redacted on its own account.\nThe unredacted pass is what tells the two apart — the secret has to come back\nwhen the pipeline asks for it.").
+							WithSourceMap(dag.SourceMap("main.go", 1652, 1))).
+					WithFunction(
+						dag.Function("CiRejectsUnknownReportFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRejectsUnknownReportFormat checks that a reporter format bru has no writer\nfor is caught before anything is started. WithReport has no error return, so\nthe finding belongs to the terminal — and it belongs to Check as much as to\nRun, because a pipeline whose declared artifact cannot be produced is broken\nwhichever terminal is invoked first.").
+							WithSourceMap(dag.SourceMap("main.go", 1313, 1))).
+					WithFunction(
+						dag.Function("CiRunProducesEveryRequestedReport",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunProducesEveryRequestedReport checks the artifact terminal: each format\nWithReport asked for comes back as its own file in the returned directory.\n\nIt also pins that all of them come out of one collection pass. The api\nfixture makes two requests, so a service that served exactly two after a\ntwo-format Run is a pipeline that ran the collection once — and therefore two\nreports describing the same set of responses, rather than two runs of the same\ncollection reporting on different ones.").
+							WithSourceMap(dag.SourceMap("main.go", 1442, 1))).
+					WithFunction(
+						dag.Function("CiRunStillReportsWhenTheCollectionFails",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiRunStillReportsWhenTheCollectionFails pins the split between the two terminals: Run\nhands back the artifact for a run whose assertions failed, and does not fail\nitself.\n\nThis is the whole reason the gate is Check's job. Dagger drops a function's\nvalue when it also returns an error, so a Run that gated would return nothing\non exactly the runs whose report a pipeline needs — the JUnit file a CI system\nturns into a test report names which assertion failed, and it is worthless if\nit only arrives when nothing did.").
+							WithSourceMap(dag.SourceMap("main.go", 1512, 1))).
+					WithFunction(
+						dag.Function("CiSecretVarReachesTheCollection",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiSecretVarReachesTheCollection checks that the pipeline's one secret-passing\nmethod actually delegates: a WithSecretVar secret is readable from the\ncollection as {{process.env.NAME}} and arrives at the service.\n\nA builder that silently dropped the secret would look identical from the\noutside — the collection would send an empty header and the responder would\nanswer 200 either way — so the value is read back off the request rather than\ninferred from the run passing.\n\nIt runs against its own fixture rather than the one SecretVarIsNotOnArgv\nuses, because that one records bru's command line from a pre-request script\nand reading process.argv needs the developer sandbox. The pipeline builder\nwraps no sandbox switch — a collection needing one is assembled through\nCollection — so it gets the same request without the script.").
+							WithSourceMap(dag.SourceMap("main.go", 1609, 1))).
+					WithFunction(
+						dag.Function("CiShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiShouldNotBeCached checks that both terminals re-run within one session.\nA pipeline hits a live API, so a cached pass would report a now-broken API as\ngreen — and it is the second call in a session, not the first, that a CI\nsystem makes when somebody re-runs a failed job.\n\nCounted at the service rather than read out of bru's summary: a replayed run\nprints a perfectly convincing \"1 request, 1 passed\".").
+							WithSourceMap(dag.SourceMap("main.go", 1553, 1))).
+					WithFunction(
+						dag.Function("ClientCertAuthenticatesToMtlsService",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientCertAuthenticatesToMtlsService checks that WithClientCert authenticates\nthe run: the responder demands a certificate signed by the test's CA, and the\ncollection presents one.\n\nWhat is asserted is the certificate and not the handshake. The responder\nrecords the peer certificate's Common Name, so a run that somehow completed a\nTLS handshake without presenting anything would fail here rather than pass on\nthe strength of having connected.\n\nThe first pass is the control: the same collection, verifying the same server,\nwith no client certificate configured. It has to fail, or the second pass says\nnothing about the certificate having been needed.").
+							WithSourceMap(dag.SourceMap("main.go", 1832, 1))).
+					WithFunction(
+						dag.Function("ClientCertMaterialStaysOutOfTheCollection",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientCertMaterialStaysOutOfTheCollection checks the two properties the\nrendered config exists to keep: the key never reaches bru's command line, and\nnothing this module writes lands in the collection the caller handed over.\n\nBoth are checked from inside the run, which is the only vantage point they are\nvisible from. Nothing outside the container can read a finished process's\ncommand line, and the collection bru sees is the mount rather than the\ncaller's directory — so the fixture's pre-request script reports argv and the\ncontents of the working directory back to the responder. That script needs the\ndeveloper sandbox, the safe one having no process and no require.\n\nThe responder demands the certificate, so this is not a run that skipped the\nkey: it reports the peer's Common Name back, and the key was necessary to\nproduce it.").
+							WithSourceMap(dag.SourceMap("main.go", 1918, 1))).
+					WithFunction(
+						dag.Function("ClientCertPassphraseUnlocksTheKey",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ClientCertPassphraseUnlocksTheKey checks WithClientCert's optional argument\nagainst a key that genuinely needs it.\n\nThe passphrase is the one field of the rendered config that is not a path, and\nit is the reason the document travels as a secret rather than a file. It is\nalso the easiest thing in the module to leave out and not notice: an\nunencrypted key ignores it, and every other test here uses one.\n\nSo the same encrypted key is run twice. Without the passphrase the key cannot\nbe loaded and the run fails; with it, the run authenticates to the mTLS\nendpoint and the responder reports the certificate back.").
+							WithSourceMap(dag.SourceMap("main.go", 1995, 1))).
+					WithFunction(
+						dag.Function("CsvDataDrivesOneRunPerRow",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CsvDataDrivesOneRunPerRow checks the point of WithData: one collection, one\nrequest, and a run per row of the data file.\n\nThe count at the service is what says the rows drove iterations rather than\nbru having accepted a flag and ignored it — a data file that was never read\nleaves a collection that runs exactly once and passes. And the last request's\npath is read back, because a run that iterated three times over the same row\nwould count the same.\n\nThe tenants fixture asserts on the row as well: it echoes {{tenant}} back\nthrough the responder and compares it against the row's own expectedEcho, so\na run whose variables did not resolve fails rather than passing with the\nliteral {{tenant}} in the URL.").
+							WithSourceMap(dag.SourceMap("main.go", 766, 1))).
+					WithFunction(
+						dag.Function("DataFileWithoutKnownExtensionIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DataFileWithoutKnownExtensionIsRejected checks that a data file bru has no\nreader for is refused by name, and that the message names both extensions.\n\nThe extension is the whole interface: WithData takes one file and picks\n`--csv-file-path` or `--json-file-path` off it, so a caller holding a data\nfile with the wrong suffix has no other way to be told which two are meant.\nbru's own answer is exit 10 or 11 — \"the CSV data file was not found\" for a\nfile that is sitting right there — after the collection has already been run.").
+							WithSourceMap(dag.SourceMap("main.go", 860, 1))).
+					WithFunction(
+						dag.Function("DriftIgnoresHandWrittenTests",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("DriftIgnoresHandWrittenTests checks the scoping the comparison exists for. A\ncollection generated from the spec matches it — and still matches once one of\nits requests carries a test the document never described.\n\nThe second half is the whole reason the comparison is not a tree diff: a\ngenerated request is where anyone would put the assertions that make the\ncollection worth running, and a check that called that drift would be a check\nnobody could leave switched on.").
+							WithSourceMap(dag.SourceMap("main.go", 1014, 1))).
+					WithFunction(
+						dag.Function("FailingIterationFailsRunAndIsNamedInTheReport",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("FailingIterationFailsRunAndIsNamedInTheReport checks the half of a\ndata-driven run that matters when the matrix is not uniform: one row out of\nseveral behaving differently.\n\nA run over N rows is N runs of the same requests, so a gate that only looked\nat the last of them — or at the first — would pass a suite in which one\ntenant is broken. Run has to fail on the collection as a whole, and the report\nhas to say which row it was, or the caller is left re-running rows by hand to\nfind out.\n\nThe fixture is the same collection the passing tests drive, with only the data\nfile swapped for one whose second row expects the wrong echo. That is what\nmakes the failure the row's and not the collection's: the first iteration of\nthis very run passes.").
+							WithSourceMap(dag.SourceMap("main.go", 796, 1))).
+					WithFunction(
+						dag.Function("GenerateHonoursOpenCollectionFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GenerateHonoursOpenCollectionFormat checks that the format argument reaches\nbru at all: every other assertion in this suite would pass just as well\nagainst a Generate that had \"bru\" hardcoded.\n\nIt also pins the reason the default diverges from upstream's. The\nopencollection shape carries no bruno.json, so it is not something Collection\ncould run — which is why this module defaults to the other one.").
+							WithSourceMap(dag.SourceMap("main.go", 968, 1))).
+					WithFunction(
+						dag.Function("GenerateProducesRunnableCollection",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GenerateProducesRunnableCollection checks the claim the default format is\nchosen for: what Generate hands back is a collection this module can run,\nwith nothing rearranged in between.\n\nStructure alone would not establish that — a tree can hold a bruno.json and\nstill fail at exit 4 — so the generated directory is fed straight into\nCollection and run against the recording responder, which is the host the\nfixture's `servers:` entry names and therefore the baseUrl `bru import`\nwrites into the generated environment.\n\nThe environment's name is read off the generated tree rather than hardcoded:\nbru derives it from the server's description, which is the spec's business\nand not this module's.").
+							WithSourceMap(dag.SourceMap("main.go", 890, 1))).
+					WithFunction(
+						dag.Function("GenerateRejectsUnknownFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GenerateRejectsUnknownFormat checks that a shape `bru import` does not write\nis refused by name. bru refuses one too, but by printing its whole help text\nwith the actual complaint on the last line — and only after a container has\nbeen started to find out.").
+							WithSourceMap(dag.SourceMap("main.go", 988, 1))).
+					WithFunction(
+						dag.Function("JsonDataDrivesOneRunPerRow",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("JsonDataDrivesOneRunPerRow checks the other half of WithData's one argument:\nthe same collection, the same rows and the same result, off a JSON array\nrather than a CSV.\n\nIt is a separate test rather than a second case in the first because the two\ntravel under different flags — bru reads nothing off the contents — so the\nextension is the only thing standing between a JSON data file and\n`--csv-file-path`, which would report it as not found.").
+							WithSourceMap(dag.SourceMap("main.go", 778, 1))).
+					WithFunction(
+						dag.Function("JsonEnvFileKeepsItsExtension",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("JsonEnvFileKeepsItsExtension checks that an environment file is mounted\nunder the extension it arrived with. bru picks its environment parser from\nthat extension and not from the contents, so a JSON environment staged as\n.bru dies inside the Bruno grammar — with a Node stack trace, several layers\naway from anything the caller did.").
+							WithSourceMap(dag.SourceMap("main.go", 728, 1))).
+					WithFunction(
+						dag.Function("LintAcceptsValidCollection",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintAcceptsValidCollection checks that a collection this suite already runs\nagainst a live service is also one the linter is happy with. The api fixture\nis deliberately reused rather than a purpose-built clean one: a linter that\nonly accepts collections written for it is a linter nobody can adopt.\n\nIt is checked under failOnWarnings=true as well, so the fixture has to be\nfree of warnings and not merely free of errors.").
+							WithSourceMap(dag.SourceMap("main.go", 1162, 1))).
+					WithFunction(
+						dag.Function("LintRejectsDuplicateSequence",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintRejectsDuplicateSequence checks that two requests claiming the same seq\nin one folder is a finding, and that the same seq in a different folder is\nnot — seq orders a folder's requests, so it is only ambiguous within one.").
+							WithSourceMap(dag.SourceMap("main.go", 1269, 1))).
+					WithFunction(
+						dag.Function("LintRejectsMissingBrunoJson",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintRejectsMissingBrunoJson checks the finding that stands in for bru's exit\n4. bru reports that one as \"not a collection root\", from inside a container,\nwithout naming the file it wanted.").
+							WithSourceMap(dag.SourceMap("main.go", 1181, 1))).
+					WithFunction(
+						dag.Function("LintRejectsPlaintextSecret",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintRejectsPlaintextSecret checks the rule that catches a leak rather than a\nbreakage: a credential-shaped variable carrying a literal in a file that is\ncommitted.\n\nThe fixture holds two controls beside the violation — a token whose value is\na {{process.env.*}} interpolation, and a name declared in a vars:secret\nblock — so this also pins that the rule accepts the shape it is asking for.").
+							WithSourceMap(dag.SourceMap("main.go", 1245, 1))).
+					WithFunction(
+						dag.Function("LintRejectsUnknownEnvironment",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintRejectsUnknownEnvironment checks that a mistyped --env name is caught\nhere rather than as bru's exit 6, and that the finding lists the names the\ncollection does ship.").
+							WithSourceMap(dag.SourceMap("main.go", 1197, 1))).
+					WithFunction(
+						dag.Function("LintRejectsUnresolvedVariable",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintRejectsUnresolvedVariable checks the finding the whole function exists\nfor: a {{var}} that resolves nowhere, named along with the file it appears\nin, before a request has been issued to discover it.\n\nThe fixture also references two undeclared variables from its docs block,\nwhich bru never interpolates — so this pins that prose is not linted as\nthough it were a request.").
+							WithSourceMap(dag.SourceMap("main.go", 1217, 1))).
+					WithFunction(
+						dag.Function("LintWarnsOnRequestWithoutTests",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("LintWarnsOnRequestWithoutTests checks the one finding that is a warning: a\nrequest that checks nothing passes whatever the API returns, which is worth\nsaying and not worth failing a pipeline over by default.\n\nThe fixture's only assertion is disabled, which is the same as not having\nwritten it — so this also pins that a commented-out assert does not count.").
+							WithSourceMap(dag.SourceMap("main.go", 1291, 1))).
+					WithFunction(
+						dag.Function("PassThroughFlagsAreAccepted",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PassThroughFlagsAreAccepted covers the modifiers whose behaviour is bru's\nrather than this module's: the module's share of them is rendering the right\nflag, and a wrong flag name is a usage error rather than a wrong result. So\nthey are set together on one run, which passes only if bru accepted every\none of them.\n\nThe api fixture tags its root request and leaves the nested one untagged, so\nthe tag filters also have to have selected the right request rather than\nmerely been tolerated.").
+							WithSourceMap(dag.SourceMap("main.go", 689, 1))).
+					WithFunction(
+						dag.Function("RecursiveDefaultReachesSubfolders",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RecursiveDefaultReachesSubfolders checks that the recursive default executes\na request nested one folder deep — the api fixture keeps one request at the\ncollection root and one in nested/, so a run that only reached the root\nwould serve one request instead of two.\n\nThe non-recursive case is not exercised from here: a `cannot be set false through the Go SDK — querybuilder drops the zero value\nand the default wins — so `Recursive: false` would silently assert the\ndefault all over again. It is reachable from the CLI as\n`run --recursive=false`.").
+							WithSourceMap(dag.SourceMap("main.go", 252, 1))).
+					WithFunction(
+						dag.Function("ReportEmitsJunitForFailingRun",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportEmitsJunitForFailingRun checks the half of the Run/Report split that\nmakes Report worth having: a failing collection still hands back its\nartifact, and the artifact says what failed. Run would have raised an error\nhere, and an error forfeits the value — which is why the two are separate\nfunctions rather than one.").
+							WithSourceMap(dag.SourceMap("main.go", 285, 1))).
+					WithFunction(
+						dag.Function("ReportRejectsUnknownFormat",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportRejectsUnknownFormat checks that a format bru does not write is\nrefused by name, before a live collection has been run against a live\nservice to find out.").
+							WithSourceMap(dag.SourceMap("main.go", 312, 1))).
+					WithFunction(
+						dag.Function("ReportShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportShouldNotBeCached checks that two identical Reports each reach the\nservice. A report of a run that never happened describes an API nobody\nasked about.").
+							WithSourceMap(dag.SourceMap("main.go", 334, 1))).
+					WithFunction(
+						dag.Function("ReportWithoutAllHeadersOmitsEveryHeader",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportWithoutAllHeadersOmitsEveryHeader checks the blunt control: nothing\nthat was sent or came back as a header survives into the report, on either\nside of the exchange.\n\nEvery redaction test here sets WithUnredactedReport first. The collection\ncarries a secret — that is what makes it worth redacting — and a secret is\nenough to redact the report on its own, so without the opt-out these tests\nwould pass whether or not the flag under test was rendered at all.").
+							WithSourceMap(dag.SourceMap("main.go", 473, 1))).
+					WithFunction(
+						dag.Function("ReportWithoutBodiesOmitsBothBodies",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportWithoutBodiesOmitsBothBodies checks the three body controls together,\nbecause what each one has to establish is which bodies it left alone.\n\nA flag that dropped both would satisfy the request-only case on its own, so\nthe assertion in every pass is the pair: what went, and what stayed.").
+							WithSourceMap(dag.SourceMap("main.go", 527, 1))).
+					WithFunction(
+						dag.Function("ReportWithoutNamedHeaderKeepsTheOthers",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("ReportWithoutNamedHeaderKeepsTheOthers checks the narrow control, which is\nthe one worth having: the credential goes and the report is still a report.\n\nThe name is given in lower case against a header the collection spells\nAuthorization, because bru matches case-insensitively and a caller should not\nhave to know how the collection capitalised it.").
+							WithSourceMap(dag.SourceMap("main.go", 501, 1))).
+					WithFunction(
+						dag.Function("RunFailsOnAssertionFailure",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunFailsOnAssertionFailure checks that exit 1 — a failing request, test or\nassertion — is an error, and that the error carries bru's own account of\nwhat failed rather than just the exit code.").
+							WithSourceMap(dag.SourceMap("main.go", 159, 1))).
+					WithFunction(
+						dag.Function("RunPassesAgainstBoundService",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunPassesAgainstBoundService checks the whole point of the module: a\ncollection whose environment names a bound service reaches it and passes.").
+							WithSourceMap(dag.SourceMap("main.go", 127, 1))).
+					WithFunction(
+						dag.Function("RunShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RunShouldNotBeCached checks that two identical Runs each reach the service.\nA collection run hits a live API, so a cached pass would report a\nnow-broken API as green.").
+							WithSourceMap(dag.SourceMap("main.go", 215, 1))).
+					WithFunction(
+						dag.Function("SecretVarIsNotOnArgv",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SecretVarIsNotOnArgv checks the reason WithSecretVar exists at all.\n\n`--env-var name=value` puts its value on bru's command line, so a secret\npassed that way is readable by anything that can see the process table and\nlands in any diagnostic that echoes the invocation. WithSecretVar binds it\nas an environment variable instead, reachable from the collection as\n{{process.env.NAME}}.\n\nThe fixture's pre-request script reports bru's own argv back to the\nresponder, which is the only vantage point from which \"it never reached the\ncommand line\" can actually be checked. That script needs the developer\nsandbox — the safe one has no process — which is what makes WithSandbox\npart of this test.").
+							WithSourceMap(dag.SourceMap("main.go", 635, 1))).
+					WithFunction(
+						dag.Function("SecretVarIsRedactedFromReportsByDefault",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("SecretVarIsRedactedFromReportsByDefault checks the module's answer to the\nquestion the redaction story poses: what a report contains when the caller\nhas said nothing about redaction and the collection was handed a secret.\n\nThe first pass is the control, and it is what makes the second one mean\nsomething. bru masks header values by name — Authorization comes back as\n\"Bearer ********\" without anyone having asked — so a default asserted on its\nown could be passing on the strength of upstream's list rather than on\nanything this module did. The control pins how far that list reaches: the\nsame secret in a header the list has never heard of, in the request body, and\nechoed back in the response body is written out verbatim.\n\nThat is why the default is all headers and both bodies rather than something\nnarrower. The module knows the value is sensitive; it does not know where the\ncollection interpolated it, and a partial redaction would be a promise it\ncannot keep.").
+							WithSourceMap(dag.SourceMap("main.go", 383, 1))).
+					WithFunction(
+						dag.Function("TlsControlsAreValidated",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsControlsAreValidated checks the two TLS combinations that cannot mean what\nthey say, both of which bru accepts and then quietly does something else with.\n\n`--cacert` alongside `--insecure` is dropped by bru with a message on stderr,\nleaving a run that verifies nothing when the caller asked for verification\nagainst a named CA. `--ignore-truststore` is evaluated in combination with\n`--cacert` only, so on its own it is a flag that does nothing. Neither is a\nnon-zero exit, which is why they are the module's to catch.").
+							WithSourceMap(dag.SourceMap("main.go", 1712, 1))).
+					WithFunction(
+						dag.Function("UnknownEnvironmentIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("UnknownEnvironmentIsRejected checks that a usage error stays a usage error.\nbru exits 6 when the named environment does not exist; conflating that with\nexit 1 would make \"you typo'd the environment name\" read as \"your API is\nbroken\".").
+							WithSourceMap(dag.SourceMap("main.go", 189, 1))).
+					WithFunction(
+						dag.Function("VersionReportsPinnedRelease",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("VersionReportsPinnedRelease checks that both image variants report the\nrelease the module pins. The Debian variant is not cosmetic — it is the\nescape hatch for the Alpine image's musl/OpenSSL TLS failures — so it has\nto be a tag that exists and ships the same CLI.").
+							WithSourceMap(dag.SourceMap("main.go", 112, 1))).
+					WithFunction(
+						dag.Function("WithVarOverridesEnvironmentValue",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithVarOverridesEnvironmentValue checks that an override beats the value the\nselected environment declares. The fixture puts the variable in the request\npath, so the responder records which of the two won rather than the module\nhaving to trust bru's summary.").
+							WithSourceMap(dag.SourceMap("main.go", 595, 1))).
+					WithFunction(
+						dag.Function("WithoutHeadersRejectsBlankName",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("WithoutHeadersRejectsBlankName checks that a name bru could not act on is\nrefused. The builders have no error return, so the finding belongs to the\nrun — and a blank name renders a flag that consumes whatever follows it,\nwhich is a redaction that silently applies to nothing.").
+							WithSourceMap(dag.SourceMap("main.go", 573, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

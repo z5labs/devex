@@ -9,72 +9,6 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-// Retrieve the binding value, as type Oci
-func (r *Binding) AsOci() *Oci { // oci (../../../../../daggerverse/oci/main.go:31:6)
-	q := r.query.Select("asOci")
-
-	return &Oci{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type OciRegistry
-func (r *Binding) AsOciRegistry() *OciRegistry { // oci (../../../../../daggerverse/oci/main.go:148:6)
-	q := r.query.Select("asOciRegistry")
-
-	return &OciRegistry{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Oci in the environment
-func (r *Env) WithOciInput(name string, value *Oci, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:31:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withOciInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Oci output to be assigned in the environment
-func (r *Env) WithOciOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:31:6)
-	q := r.query.Select("withOciOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type OciRegistry in the environment
-func (r *Env) WithOciRegistryInput(name string, value *OciRegistry, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:148:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withOciRegistryInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired OciRegistry output to be assigned in the environment
-func (r *Env) WithOciRegistryOutput(name string, description string) *Env { // oci (../../../../../daggerverse/oci/main.go:148:6)
-	q := r.query.Select("withOciRegistryOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
 // Oci is the module's entrypoint. It holds no state; every operation is
 // reached through Registry.
 type Oci struct { // oci (../../../../../daggerverse/oci/main.go:31:6)
@@ -299,7 +233,7 @@ type OciRegistry struct { // oci (../../../../../daggerverse/oci/main.go:148:6)
 	query *querybuilder.Selection
 
 	attach            *string
-	copy              *string
+	copy_             *string
 	host              *string
 	id                *ID
 	insecure          *bool
@@ -352,8 +286,8 @@ func (r *OciRegistry) Attach(ctx context.Context, repository string, subject str
 // registry, and anonymously otherwise; cross-registry copies needing source
 // credentials are a follow-up, not a silent reuse of the destination's.
 func (r *OciRegistry) Copy(ctx context.Context, srcRef string, repository string, tag string) (string, error) { // oci (../../../../../daggerverse/oci/image.go:268:1)
-	if r.copy != nil {
-		return *r.copy, nil
+	if r.copy_ != nil {
+		return *r.copy_, nil
 	}
 	q := r.query.Select("copy")
 	q = q.Arg("srcRef", srcRef)
