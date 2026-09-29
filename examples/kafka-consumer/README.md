@@ -103,9 +103,9 @@ that codifies how to run the app, and the build/integration checks.
 ```sh
 cd examples/kafka-consumer
 
-dagger call run-against local        # stand up the local stack + run the app (needs a fixed engine, see below)
+dagger call run-against local        # stand up the local stack + run the app
 dagger call go-ci                    # Go chain gofmt/vet/lint/test -race (+check)
-dagger call mtls-avro-consume        # full mTLS integration — +check, red on the pinned engine (see below)
+dagger call mtls-avro-consume        # full mTLS integration — +check, red until #441 (see below)
 dagger call tls-avro-consume         # server-TLS variant, on demand
 
 # the two +checks CI runs
@@ -126,46 +126,37 @@ The chain is designed to grow a sibling — `run-against non-prod` — that poin
 same consumer container at services already deployed in a non-prod environment
 instead of standing them up locally.
 
-### Known blocker: the pinned engine predates the #147 fix
+### Known blocker: `assertTelemetry` (#441)
 
-`run-against local`, `mtls-avro-consume`, and `tls-avro-consume` all **fail on
-the engine this repository pins**, reproducing
-[#147](https://github.com/z5labs/devex/issues/147). A service given a custom
-hostname is namespaced into the DNS domain of whichever module first *starts*
-it, while the consuming exec searches only its own module domain plus the
-session domain. The alias is therefore never resolvable, and a container that
-binds the service fails at hosts-file setup:
+`mtls-avro-consume` and `tls-avro-consume` stand up the stack, decode every Avro
+record, and then **fail in `assertTelemetry`**: none of Tempo, Mimir or Loki
+reports the consumer's telemetry. That assertion had never executed before this
+module moved to Dagger v1 (see below), and the bug is tracked in
+[#441](https://github.com/z5labs/devex/issues/441). `mtls-avro-consume` stays a
+`+check`, so CI carries a live **red** signal that tracks it; `go-ci` (the build
+check) stays green. `run-against local` asserts no telemetry and passes. The
+consumer's own TLS/mTLS config, Confluent-header parsing, and Avro decoding are
+covered offline by `main_test.go`.
+
+#### History: #147, fixed by the v1 engine
+
+On Dagger v0.21.x all three **failed at hosts-file setup**, reproducing
+[#147](https://github.com/z5labs/devex/issues/147):
 
 ```
 lookup <alias> for hosts file: ... no such host
 ```
 
-All three stand up **Apache Kafka + a separate Confluent Schema Registry**, and
-**both** binds are affected — `Cluster.BindBrokers` for the brokers and
-`SchemaRegistry.BindTo` for the registry. The hosts-file aliases are resolved in
-a nondeterministic order, so which one the error names varies from run to run:
-on this topology a v0.21.8 run reported `broker-…`, while earlier runs reported
-`csr-…`. Do not read the named alias as identifying "the" broken hop.
-
-**The fix exists upstream.** [dagger/dagger#13751](https://github.com/dagger/dagger/pull/13751)
-(merged 2026-08-27) records the FQDN a bound service actually registered under
-and tries it first when building the hosts file. It ships in **v1.0.0-beta.12
-and later**, and in **no v0.21.x release** — this repository pins v0.21.8, so
-these three stay red here. That is an engine-version gap, not an open bug.
-
-The same tree run both ways makes this concrete — only the engine differs:
+A service given a custom hostname is namespaced into the DNS domain of whichever
+module first *starts* it, while the consuming exec searches only its own module
+domain plus the session domain. Both binds were affected —
+`Cluster.BindBrokers` for the brokers and `SchemaRegistry.BindTo` for the
+registry — and which alias the error named varied from run to run.
+[dagger/dagger#13751](https://github.com/dagger/dagger/pull/13751) fixes it in
+**v1.0.0-beta.12 and later** (no v0.21.x release carries it), and this module is
+pinned to v1.0.0-beta.13.
 
 | Engine | `dagger call run-against local` |
 | --- | --- |
-| `v0.21.8` (pinned) | fails at hosts-file setup, `lookup broker-… no such host` |
+| `v0.21.8` | fails at hosts-file setup, `lookup broker-… no such host` |
 | `v1.0.0-beta.13` | passes: all three Avro records decoded, 1m52s |
-
-`mtls-avro-consume` stays a `+check`, so CI carries a live **red** signal that
-tracks the engine gap; `go-ci` (the build check) stays green. The engine bump
-alone will **not** turn it green, though: on `v1.0.0-beta.13` it clears the bind
-and consumes every record, then fails in `assertTelemetry` — an assertion #147
-had always masked, since every earlier run died before reaching it. See
-[#441](https://github.com/z5labs/devex/issues/441). `tls-avro-consume` and
-`run-against local` are the same reproduction, runnable on demand. The consumer's
-own TLS/mTLS config, Confluent-header parsing, and Avro decoding are covered
-offline by `main_test.go`.

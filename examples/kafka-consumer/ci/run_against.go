@@ -41,15 +41,10 @@ func (c *Ci) RunAgainst(
 // topology as the mtls/tls-avro-consume checks — Apache Kafka plus a standalone
 // Confluent Schema Registry — so the registry is its own service reached via
 // SchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.
-// Under #147 the consumer's WithExec fails at hosts-file setup with "lookup
-// <alias> … no such host". Both binds are affected and the hosts-file aliases are
-// resolved in a nondeterministic order, so the alias named in the error varies
-// between runs — observed as "broker-…" on v0.21.8 against this very topology.
-//
-// dagger/dagger#13751 fixes it, in v1.0.0-beta.12 and later and in no v0.21.x
-// release. So Local FAILS by design on the pinned v0.21.8 engine and passes on a
-// fixed one: run against v1.0.0-beta.13 it returned all three decoded records in
-// 1m52s. See the example README for the full write-up.
+// On v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with
+// "lookup <alias> … no such host", on either bind. dagger/dagger#13751 fixes it
+// in v1.0.0-beta.12 and later; on this module's v1.0.0-beta.13 pin Local returns
+// all three decoded records. See the example README for the full write-up.
 //
 // The wire + registry hops are server-TLS (trust-only) to keep a local run
 // simple; the mutual-TLS posture is exercised by the mtls-avro-consume check.
@@ -91,8 +86,8 @@ func (ra *RunAgainst) Local(
 	defer cluster.Stop(ctx)
 
 	// A separate Confluent Schema Registry container (its own csr-… service host),
-	// reached by the external consumer via SchemaRegistry.BindTo — exactly the
-	// cross-module service handle that detaches under #147.
+	// reached by the external consumer via SchemaRegistry.BindTo — one of the two
+	// cross-module binds #147 broke on v0.21.x.
 	srSec := k.TLSSchemaRegistrySecurity(caKs.Pkcs12(), caKs.Password())
 	sr := k.ConfluentSchemaRegistry(cluster, srSec)
 	defer sr.Stop(ctx)
@@ -100,8 +95,8 @@ func (ra *RunAgainst) Local(
 	wireClientSec := k.TLSClientSecurity(ts.Pkcs12(), ts.Password())
 
 	// Register the writer schema and produce recordCount framed Avro records via
-	// the kafka module's Avro producer (module-side register/produce works; the
-	// external app's BindTo hop is what #147 breaks).
+	// the kafka module's Avro producer. This module-side work is what starts the
+	// services first, which is what triggered #147 on v0.21.x.
 	topic, err := randomTopicName(ctx)
 	if err != nil {
 		return "", err
@@ -189,7 +184,7 @@ func (ra *RunAgainst) Local(
 		otelEndpoint: "http://col:4317",
 	})
 	runner = cluster.BindBrokers(runner)
-	// BindTo advertises the registry's own csr-… alias — the #147 detach point.
+	// BindTo advertises the registry's own csr-… alias.
 	runner = sr.BindTo(runner)
 	runner = runner.WithServiceBinding("col", col.Service())
 

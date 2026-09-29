@@ -18,27 +18,19 @@
 //     against the stack, and assert it both decoded the records and exported
 //     telemetry.
 //
-// The end-to-end integration is BLOCKED here by #147 — whose fix has landed
-// upstream, but not in the engine this repository pins. A service given a custom
-// hostname is namespaced into the DNS domain of whichever module first *starts*
-// it, while the consuming exec searches only its own module domain plus the
-// session domain, so the alias never resolves and the consumer dies at hosts-file
-// setup with `lookup <alias> … no such host`. Both hops are affected —
-// Cluster.BindBrokers as well as SchemaRegistry.BindTo — and which alias loses
-// the race is nondeterministic, so the error names `broker-…` on one run and
-// `csr-…` on the next.
+// On v0.21.x the end-to-end integration was blocked by #147: a service given a
+// custom hostname is namespaced into the DNS domain of whichever module first
+// *starts* it, so the consumer died at hosts-file setup with `lookup <alias> … no
+// such host` on either the Cluster.BindBrokers or the SchemaRegistry.BindTo hop.
+// dagger/dagger#13751 fixes it in v1.0.0-beta.12 and later, and this module is
+// pinned to v1.0.0-beta.13, so both binds resolve.
 //
-// dagger/dagger#13751 fixes it (merged 2026-08-27) and ships in v1.0.0-beta.12
-// and later; no v0.21.x release carries it. This module is pinned to v0.21.8, so
-// MtlsAvroConsume is a +check that is RED here by design — tracking an engine
-// gap, not an open upstream bug. Verified by running this exact tree both ways:
-// on v0.21.8 it fails at hosts-file setup, on v1.0.0-beta.13 it decodes all three
-// records. Clearing #147 is necessary but not sufficient for this check, though:
-// on a fixed engine it gets past the bind and consumes every record, then fails
-// in assertTelemetry — which had never executed before, because #147 stopped
-// every run short of it (#441). GoCi (the build check) stays green throughout. TlsAvroConsume and RunAgainst().Local()
-// are the same reproduction in a server-TLS posture / run-configuration shape,
-// runnable on demand. See the example's README for details.
+// MtlsAvroConsume is still a +check that is RED by design, for a different
+// reason: it gets past the binds and consumes every record, then fails in
+// assertTelemetry — which had never executed before, because #147 stopped every
+// run short of it (#441). GoCi (the build check) stays green. TlsAvroConsume
+// shares that telemetry assertion and is runnable on demand; RunAgainst().Local()
+// asserts no telemetry and passes. See the example's README for details.
 //
 // The example source is loaded as a contextual argument (+defaultPath), so the
 // +check function runs under `dagger check` with no CLI arguments.
@@ -88,14 +80,9 @@ func (c *Ci) GoCi(
 // MtlsAvroConsume is the recommended-posture integration check: the whole stack
 // runs with mutual TLS on both the broker and the Schema Registry hops.
 //
-// It is a +check that is RED by design on the pinned engine: it reproduces #147
-// and dies at hosts-file setup with `lookup <alias> … no such host`, naming
-// either the broker or the registry alias depending on which loses the race.
-// dagger/dagger#13751 fixes this and ships in v1.0.0-beta.12 and later; v0.21.8,
-// which this repository pins, predates it. Keeping this a +check makes CI a live
-// tracker for that engine gap. It will not go green on the engine bump alone:
-// past the bind it consumes every record and then fails in assertTelemetry, an
-// assertion #147 had always masked (#441).
+// It is a +check that is RED by design: it consumes every record and then fails
+// in assertTelemetry, an assertion #147 had always masked on v0.21.x (#441).
+// Keeping this a +check makes CI a live tracker for that bug.
 //
 // +check
 // +cache="never"
@@ -111,8 +98,8 @@ func (c *Ci) MtlsAvroConsume(
 }
 
 // TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand. It
-// reproduces the same #147 `bindTo` failure as MtlsAvroConsume but is not a
-// +check — MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
+// shares MtlsAvroConsume's assertTelemetry (#441) but is not a +check —
+// MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
 //
 // +cache="never"
 func (c *Ci) TlsAvroConsume(
@@ -128,7 +115,7 @@ func (c *Ci) TlsAvroConsume(
 
 // All runs the suite sequentially, for local `dagger call all`. In CI, GoCi
 // (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
-// is red until #147 lands.
+// is red until #441 is fixed.
 func (c *Ci) All(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"

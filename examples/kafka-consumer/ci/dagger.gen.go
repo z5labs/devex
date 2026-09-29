@@ -325,6 +325,59 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
+	case "":
+		return dag.Module().
+			WithDescription("Package main is the kafka-consumer-example `ci` Dagger module. It is rooted at\nthe example root (dagger.json lives at examples/kafka-consumer/, source \"ci\")\nso `dagger call` works from anywhere in the example, and it codifies the\nexample's run configuration alongside its checks:\n\n  - RunAgainst().Local() stands up the whole stack locally (a single-node\n    Apache Kafka broker plus a separate Confluent Schema Registry over TLS, and\n    an OpenTelemetry collector) and runs the example consumer against it — a\n    Dagger-native replacement for make+compose.\n\nIt also exercises the runnable example under examples/kafka-consumer/ end to end:\n\n  - GoCi runs it through the z5labs Go chain's standardized check stages:\n    gofmt, go vet, golangci-lint, and `go test ./...` with the race detector.\n  - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka\n    cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired\n    to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer\n    against the stack, and assert it both decoded the records and exported\n    telemetry.\n\nOn v0.21.x the end-to-end integration was blocked by #147: a service given a\ncustom hostname is namespaced into the DNS domain of whichever module first\n*starts* it, so the consumer died at hosts-file setup with `lookup <alias> … no\nsuch host` on either the Cluster.BindBrokers or the SchemaRegistry.BindTo hop.\ndagger/dagger#13751 fixes it in v1.0.0-beta.12 and later, and this module is\npinned to v1.0.0-beta.13, so both binds resolve.\n\nMtlsAvroConsume is still a +check that is RED by design, for a different\nreason: it gets past the binds and consumes every record, then fails in\nassertTelemetry — which had never executed before, because #147 stopped every\nrun short of it (#441). GoCi (the build check) stays green. TlsAvroConsume\nshares that telemetry assertion and is runnable on demand; RunAgainst().Local()\nasserts no telemetry and passes. See the example's README for details.\n\nThe example source is loaded as a contextual argument (+defaultPath), so the\n+check function runs under `dagger check` with no CLI arguments.\n").
+			WithObject(
+				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 47, 6)}).
+					WithFunction(
+						dag.Function("All",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("All runs the suite sequentially, for local `dagger call all`. In CI, GoCi\n(build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume\nis red until #441 is fixed.").
+							WithSourceMap(dag.SourceMap("main.go", 119, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 123, 2), DefaultPath: "/examples/kafka-consumer", Ignore: []string{"ci"}}).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 125, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("GoCi",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GoCi runs the example through the z5labs Go chain's standardized check\nstages: gofmt, go vet, golangci-lint, and `go test ./...` with the race\ndetector. Go.Ci needs no git metadata — only the App terminal does — but the\nloaded source still goes through gitFixture so this check and the\nintegration checks compile the identical tree.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 64, 1)).
+							WithCheck().
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 68, 2), DefaultPath: "/examples/kafka-consumer", Ignore: []string{"ci"}})).
+					WithFunction(
+						dag.Function("MtlsAvroConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("MtlsAvroConsume is the recommended-posture integration check: the whole stack\nruns with mutual TLS on both the broker and the Schema Registry hops.\n\nIt is a +check that is RED by design: it consumes every record and then fails\nin assertTelemetry, an assertion #147 had always masked on v0.21.x (#441).\nKeeping this a +check makes CI a live tracker for that bug.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 89, 1)).
+							WithCheck().
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 93, 2), DefaultPath: "/examples/kafka-consumer", Ignore: []string{"ci"}}).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 95, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithFunction(
+						dag.Function("RunAgainst",
+							dag.TypeDef().WithObject("RunAgainst")).
+							WithDescription("RunAgainst starts the run-configuration chain. The example source is loaded as\na contextual argument so `dagger call run-against local` needs no arguments.").
+							WithSourceMap(dag.SourceMap("run_against.go", 23, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("run_against.go", 26, 2), DefaultPath: "/examples/kafka-consumer", Ignore: []string{"ci"}})).
+					WithFunction(
+						dag.Function("TlsAvroConsume",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand. It\nshares MtlsAvroConsume's assertTelemetry (#441) but is not a +check —\nMtlsAvroConsume is the single tracking check, to avoid a duplicate red.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("main.go", 105, 1)).
+							WithArg("source", dag.TypeDef().WithObject("Directory").WithOptional(true), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 109, 2), DefaultPath: "/examples/kafka-consumer", Ignore: []string{"ci"}}).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 111, 2), DefaultValue: dagger.JSON("\"4.2.0\"")}))).
+			WithObject(
+				dag.TypeDef().WithObject("RunAgainst", dagger.TypeDefWithObjectOpts{Description: "RunAgainst is the example's run-configuration chain. It codifies \"where do I\nrun the consumer\" the way an IDE run configuration would, but in Dagger so it\nis reproducible and shareable across a team. Local() stands the whole stack up\non the local engine (a docker-compose replacement); a future NonProd() will\npoint the same consumer container at an already-deployed non-prod environment\ninstead of spinning services up.", SourceMap: dag.SourceMap("run_against.go", 16, 6)}).
+					WithFunction(
+						dag.Function("Local",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Local stands up a complete local stack — a single-node Apache Kafka broker\n(KRaft) with a *separate* Confluent Schema Registry (server-TLS), plus an\nOpenTelemetry collector fronting Tempo/Mimir/Loki — produces framed Avro\nrecords onto a topic, then builds and runs the example consumer against it,\nreturning the consumer's stdout. It is meant to be a Dagger-native replacement\nfor a docker-compose \"up\": one command brings up every dependency and the app,\nwired together, runnable from anywhere in the example.\n\nThis models exactly how a developer would run the example locally, and is the\nreproduction that validated the #147 fix end to end. It stands up the same\ntopology as the mtls/tls-avro-consume checks — Apache Kafka plus a standalone\nConfluent Schema Registry — so the registry is its own service reached via\nSchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.\nOn v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with\n\"lookup <alias> … no such host\", on either bind. dagger/dagger#13751 fixes it\nin v1.0.0-beta.12 and later; on this module's v1.0.0-beta.13 pin Local returns\nall three decoded records. See the example README for the full write-up.\n\nThe wire + registry hops are server-TLS (trust-only) to keep a local run\nsimple; the mutual-TLS posture is exercised by the mtls-avro-consume check.\nLocal does not assert on telemetry — it just returns the consumer's stdout —\nbut the observability backends run so a developer (or a future dashboard) can\npoint a UI at them.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("run_against.go", 56, 1)).
+							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("run_against.go", 59, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).
+					WithField("Source", dag.TypeDef().WithObject("Directory"), dagger.TypeDefWithFieldOpts{Description: "Source is the example source tree — the app that gets built and run.", SourceMap: dag.SourceMap("run_against.go", 18, 2)})), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

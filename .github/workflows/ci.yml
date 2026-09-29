@@ -125,15 +125,16 @@ jobs:
       #                            broker, a Confluent Schema Registry, Tempo,
       #                            Mimir, Loki and an OTel collector, then builds
       #                            the example and runs it against them. It is red
-      #                            by design on the pinned engine (#147), and the
-      #                            point of a budget here is that it fail with that
-      #                            diagnostic rather than with a timeout, which is
-      #                            the confusion #290's first run already paid for
-      #                            once. Measured on a 32-core workstation: 1m20s
-      #                            to the #147 failure, 1m52s for the full green
-      #                            path on a fixed engine. A 2-core runner is well
-      #                            short of that pace and the 6m default leaves no
-      #                            margin, so this takes z5labs/tests' 12. A bare
+      #                            by design until #441, and the point of a budget
+      #                            here is that it fail with that diagnostic rather
+      #                            than with a timeout, which is the confusion
+      #                            #290's first run already paid for once. Measured
+      #                            on a 32-core workstation at v1.0.0-beta.13: 4m59s
+      #                            to the #441 failure, of which a fixed 3m is
+      #                            assertTelemetry polling. A 2-core runner is well
+      #                            short of that pace for the rest and the 6m
+      #                            default leaves no margin, so this takes
+      #                            z5labs/tests' 12. A bare
       #                            module key, covering go-ci too, which is cheap
       #                            and cannot be hurt by a larger maximum.
       timeouts: >-
