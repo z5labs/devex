@@ -92,7 +92,7 @@ func (m *WorkspaceCi) Generated(
 		if err != nil {
 			return fmt.Errorf("read the engine version to build the stale-module proof at: %w", err)
 		}
-		return staleModuleIsReported(gctx, pin)
+		return staleModuleIsReported(gctx, callingWorkspace, pin)
 	})
 	g.Go(func() error {
 		var err error
@@ -195,29 +195,52 @@ const probeStaleFile = "internal/dagger/dagger.gen.go"
 // proof has a fixed cost and no input from outside this module's own code: a
 // probe that was one of the workspace's modules made the proof's cost and its
 // correctness depend on whichever module that was.
-func staleModuleIsReported(ctx context.Context, pin string) error {
+//
+// It is placed *into* ws, under a hidden directory with a random name, and
+// resolved with ws.moduleSource exactly as every swept module is. Resolving it
+// from a Directory instead would prove the comparison on a DIR_SOURCE while the
+// sweep runs on the CLI's LOCAL_SOURCE, and an engine regression specific to one
+// route would pass on the other — which is the shape #184 had. Workspace.with*
+// returns a new workspace and writes nothing to the caller's checkout, and the
+// sweep reads ws itself, so the probe is never swept or globbed as one of the
+// workspace's own modules. Its bindings are generated in place as well, because
+// they record the module's path relative to its context: bindings generated
+// anywhere else read as drift.
+func staleModuleIsReported(ctx context.Context, ws *dagger.Workspace, pin string) error {
 	config := fmt.Sprintf(`{"name": "generated-probe", "engineVersion": %q, "sdk": {"source": "go"}, "codegen": {"automaticGitignore": false}}`+"\n", pin)
 	src := dag.Directory().
 		WithNewFile("dagger.json", config).
 		WithNewFile("main.go", probeModuleSource)
+
+	suffix, err := uniqueSuffix()
+	if err != nil {
+		return err
+	}
+	path := "/.workspace-ci-generated-probe-" + suffix
+	base := ws.WithNewDirectory(path, src)
 	// generatedContextDirectory holds the config and what codegen wrote, not the
-	// module's own source, so it goes on top of the source rather than replacing
-	// it — the same way hack/regen.sh exports it over a checkout.
-	pristine := src.WithDirectory(".", src.AsModuleSource().GeneratedContextDirectory())
-	contents, err := pristine.File(probeStaleFile).Contents(ctx)
+	// module's own source, rooted where the module's context is rooted, so it
+	// merges over the workspace rather than replacing anything — the same way
+	// hack/regen.sh exports it over a checkout.
+	// Were the workspace's context rooted anywhere else, the bindings would land
+	// beside the module rather than in it and the read below would fail: closed,
+	// with the proof reported as broken rather than passed.
+	pristine := base.WithDirectory("/", base.ModuleSource(path).GeneratedContextDirectory())
+	staleFile := path + "/" + probeStaleFile
+	contents, err := pristine.File(staleFile).Contents(ctx)
 	if err != nil {
 		return fmt.Errorf("stale-module proof: generate the probe module: %w", err)
 	}
-	stale := pristine.WithNewFile(probeStaleFile, contents+"\n// workspace-ci: deliberately stale\n")
+	stale := pristine.WithNewFile(staleFile, contents+"\n// workspace-ci: deliberately stale\n")
 
 	var clean, drifted string
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() (err error) {
-		clean, err = moduleDrift(gctx, pristine.AsWorkspace().ModuleSource("/"))
+		clean, err = moduleDrift(gctx, pristine.ModuleSource(path))
 		return err
 	})
 	g.Go(func() (err error) {
-		drifted, err = moduleDrift(gctx, stale.AsWorkspace().ModuleSource("/"))
+		drifted, err = moduleDrift(gctx, stale.ModuleSource(path))
 		return err
 	})
 	if err := g.Wait(); err != nil {

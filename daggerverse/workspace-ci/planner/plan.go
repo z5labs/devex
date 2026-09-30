@@ -11,12 +11,14 @@ import (
 // runner.
 //
 // Name is the display name, unique across the plan. Module is the repo-relative
-// module to invoke with `-m`, so a leg loads only what it runs rather than the
-// whole workspace. ModuleName is that module's own name, which `dagger check`
+// module to invoke with `-m`, so a leg runs one module's checks rather than the
+// whole workspace's. ModuleName is that module's own name, which `dagger check`
 // needs as `--module`: without it, the CLI also selects the checks of the module
-// at the workspace root, so every leg would run those too. Filter is the check
-// pattern to pass to `dagger check` (`<module-name>:<check>`), empty to run every
-// check the module has. Hash is the
+// at the workspace root, so every leg would run those too. `--module` narrows
+// what a leg selects, not what it loads: on Dagger v1.0.0-beta.15, in a
+// workspace configured by dagger.json, the CLI still loads the root module on
+// every leg (#447). Filter is the check pattern to pass to `dagger check`
+// (`<module-name>:<check>`), empty to run every check the module has. Hash is the
 // input hash a pass may be recorded under, empty when this leg must never be
 // memoized. Timeout is the check step's budget in minutes and JobTimeout the
 // surrounding job's, both so a CI system needs no arithmetic of its own.

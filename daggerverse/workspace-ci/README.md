@@ -40,7 +40,7 @@ run its time, not its coverage.
 | field | meaning |
 | --- | --- |
 | `name` | the leg's display name, unique across the plan |
-| `module` | the repo-relative module to invoke with `-m`, so a leg loads only what it runs |
+| `module` | the repo-relative module to invoke with `-m`, so a leg runs that module's checks and no other's — though on beta.15, in a workspace configured by `dagger.json`, the CLI still *loads* the root module on every leg (#447) |
 | `moduleName` | that module's own name, to pass to `dagger check` as `--module`; without it the CLI also runs the checks of the module at the workspace root |
 | `filter` | the pattern to pass to `dagger check`; **empty** means run every check the module has |
 | `hash` | the input hash a pass may be recorded under; **empty** means never memoize this leg |
@@ -738,7 +738,12 @@ inside it on every run rather than as checks of their own:
   fails. The check this was extracted from silently verified nothing for months —
   it routed through `Workspace.Generators()`, which is empty unless a module
   declares a `+generator` function (#184). The probe is synthetic so that its cost
-  is fixed and nothing outside this module's code is an input to it.
+  is fixed and nothing outside this module's code is an input to it. It is placed
+  into the workspace being checked — under a hidden, randomly named directory,
+  in a copy the engine holds; nothing is written to the checkout — and resolved
+  with `Workspace.moduleSource` like every swept module, so the proof runs on the
+  same route as the sweep (`LOCAL_SOURCE` from the CLI, `DIR_SOURCE` from
+  `Directory.asWorkspace`) rather than on one of its own.
 - **It fails when a module goes unswept.** Every committed generated file must
   belong to a module the sweep covered — found by globbing for the files, not by
   asking the discovery that drove the sweep, and matched on the module's exact
