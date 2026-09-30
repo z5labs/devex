@@ -2,10 +2,10 @@ name: Change-aware CI
 
 # The GitHub Actions half of daggerverse/workspace-ci, published so nobody has to
 # copy it. The planner decides *what* to run; this decides *how* Actions runs it —
-# engine image caching, the dagger/checks fan-out, recording a pass to the Actions
-# cache, and the single status check branch protection can require. None of that is
-# specific to this repository, and all of it used to be ~380 lines a consumer had to
-# clone and then keep in step with the module.
+# engine image caching, the fan-out of one `dagger check` per leg, recording a pass
+# to the Actions cache, and the single status check branch protection can require.
+# None of that is specific to this repository, and all of it used to be ~380 lines a
+# consumer had to clone and then keep in step with the module.
 #
 # Adopting it is one `uses:` and (optionally) one token:
 #
@@ -259,9 +259,9 @@ jobs:
           # token instead.
           GH_TOKEN: ${{ secrets.MEMO_TOKEN || github.token }}
           # Export this plan to Dagger Cloud so a run's leg set can be traced back to
-          # the decision that produced it. A raw `dagger call` reads the token from its
-          # environment, unlike the dagger/checks action the run legs use, which takes
-          # it as a cloud-token input. Empty for fork PRs -> no telemetry, no failure.
+          # the decision that produced it. The CLI reads the token from its
+          # environment, here and in the run legs alike. Empty for fork PRs -> no
+          # telemetry, no failure.
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
@@ -297,7 +297,7 @@ jobs:
     name: ${{ matrix.job.name }}
     needs: [list]
     runs-on: ${{ inputs.runs-on }}
-    # Per matrix leg. This is only a backstop above the leg's dagger/checks step bound
+    # Per matrix leg. This is only a backstop above the leg's check step bound
     # (matrix.job.timeout) + setup, so the step's timeout is what fails a
     # telemetry-drain hang fast, not this job cap. The planner computes it as
     # timeout + headroom, because GitHub expressions have no arithmetic.
@@ -351,11 +351,12 @@ jobs:
             | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # Each leg loads only the module that owns its check, never the workspace, and
-      # runs that module's checks and no other module's. Both halves take `--module`:
-      # without it, in a workspace configured by dagger.json, the CLI also selects
-      # the root module's checks, so every leg would run the root's whole-workspace
-      # checks again. `moduleName` is the module's own name, which the plan reads out
+      # Each leg runs the checks of the module that owns it and no other module's.
+      # Both halves take `--module`: without it, in a workspace configured by
+      # dagger.json, the CLI also selects the root module's checks, so every leg
+      # would run the root's whole-workspace checks again. `--module` narrows what is
+      # selected, not what is loaded — on Dagger v1.0.0-beta.15 a dagger.json
+      # workspace's root module is still loaded on every leg. `moduleName` is the module's own name, which the plan reads out
       # of its config without loading it.
       #
       # A per-check leg passes its pattern, `<module-name>:<check>`, which was read

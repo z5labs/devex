@@ -1,14 +1,23 @@
 name: CI
 
 # This repository's CI is the reusable workflow it publishes, called with this
-# repository's configuration and nothing else. Everything that used to live here —
-# engine image caching, the plan call, the dagger/checks fan-out, recording a pass,
-# the gate — is in change-aware-ci.yml, so the rules exist once and this repo is a
-# consumer of them like any other.
+# repository's configuration, plus one job of its own. Everything that used to live
+# here — engine image caching, the plan call, the fan-out of one `dagger check` per
+# leg, recording a pass, the gate — is in change-aware-ci.yml, so the rules exist
+# once and this repo is a consumer of them like any other.
 #
-# The one thing that is genuinely local: `module` points at the in-tree planner
-# rather than the published git ref, so a pull request that changes the planner is
-# planned by the changed planner.
+# What is genuinely local:
+#
+#   - `module` points at the in-tree planner rather than the published git ref, so
+#     a pull request that changes the planner is planned by the changed planner.
+#   - The planner-tests job below runs workspace-ci's own tests whenever a CI file
+#     changes, decided by a plain `git diff` rather than by that planner.
+#
+# The root module has one check, `ci:generated`. The two it used to carry beside it
+# are gone (#446): `generated-self-test`, because `generated` now proves on every
+# run that it can fail and that it swept every module; and `selection-self-test`,
+# because everything it read is already a global input the plan runs everything
+# for, and planner-tests runs it directly whenever that input changes.
 
 on:
   push:

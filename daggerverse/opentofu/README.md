@@ -337,8 +337,11 @@ ID and reload it, as `tests/main.go`'s `pin` helper does.
 ## Tests
 
 ```sh
-dagger -m daggerverse/opentofu/tests call all
+dagger -m daggerverse/opentofu/tests check --module tests
 ```
+
+`All` is a `+check`, so run it with `dagger check`: `dagger call all` only
+prints the deferred check and exits 0 whether it passes or not.
 
 Fixtures under `tests/fixtures/` use `hashicorp/random` and `hashicorp/local`
 only, so nothing needs a cloud credential. The random provider's resources
