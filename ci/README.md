@@ -9,20 +9,18 @@ owns each one, and which a previous run already proved good is
 [`.github/workflows/change-aware-ci.yml`](../.github/workflows/change-aware-ci.yml)
 calls that module directly — this one is not in the path. It exists because the
 planner always runs the root module's checks and never memoizes them,
-which makes it the right home for the three that read the workspace as a
-whole rather than any one module's closure:
+which makes it the right home for the one check that reads the workspace as
+a whole rather than any one module's closure:
 
 | check | what it proves |
 | --- | --- |
 | `ci:generated` | every committed `dagger.gen.go` and `internal/dagger/*.gen.go` matches what codegen produces at the pinned `engineVersion` |
-| `ci:generated-self-test` | `ci:generated` can actually fail — it makes one module deliberately stale and demands a red |
-| `ci:selection-self-test` | the planner's change → modules → legs mapping still holds against its fixtures |
 
-All three delegate; `ci/main.go` is three one-line calls.
+It delegates; `ci/main.go` is one call.
 
 ```sh
-dagger check                    # run all three
-dagger check 'ci:generated'     # run one
+dagger check                    # run it
+dagger check 'ci:generated'     # the same, by name
 ```
 
 `ci:generated` names each stale module and prints its patch:
@@ -41,8 +39,8 @@ whole tree in dependency order.
 
 ## Running checks locally
 
-There are no toolchains, so `dagger check` at the repo root runs the
-three above and nothing else. A module's own suite is run at that module:
+There are no toolchains, so `dagger check` at the repo root runs
+`ci:generated` and nothing else. A module's own suite is run at that module:
 
 ```sh
 dagger -m daggerverse/kafka/tests check      # one module's checks

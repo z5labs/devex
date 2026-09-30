@@ -8,20 +8,15 @@
 // only the set of checks a plan treats as global: workspace-ci always runs the
 // root module's checks and never memoizes them, because they are the ones that
 // read the workspace as a whole rather than any one module's closure. So this
-// module is three delegations and nothing else.
+// module is one delegation and nothing else.
 package main
 
 import (
 	"context"
+	"errors"
 
 	"dagger/ci/internal/dagger"
 )
-
-// selfTestProbeModule is the module GeneratedSelfTest deliberately makes stale.
-// Left to itself workspace-ci probes the first dependency-free module in the
-// workspace; naming the smallest one keeps the check's cost fixed as the
-// daggerverse grows and alphabetical order moves underneath it.
-const selfTestProbeModule = "daggerverse/random"
 
 // Ci holds no state: every check it declares is workspace-ci's, invoked against
 // the calling workspace.
@@ -30,6 +25,10 @@ type Ci struct{}
 // Generated verifies that every committed dagger.gen.go and
 // internal/dagger/*.gen.go in the workspace matches what codegen produces at
 // the pinned engineVersion, naming each stale module and printing its patch.
+//
+// It also proves, on every run, that it can fail and that it looked at every
+// module: see daggerverse/workspace-ci's Generated. That is why this module no
+// longer carries separate self-test checks of its own.
 //
 // It is declared here rather than left to daggerverse/workspace-ci's own checks
 // because only the root module's checks run for every change. That is also what
@@ -46,33 +45,25 @@ type Ci struct{}
 // +check
 // +cache="never"
 func (ci *Ci) Generated(ctx context.Context, callingWorkspace *dagger.Workspace) error {
-	return dag.WorkspaceCi().Generated(ctx, callingWorkspace)
+	return checkErr(ctx, dag.WorkspaceCi().Generated(callingWorkspace))
 }
 
-// GeneratedSelfTest proves Generated can actually fail: it runs the same
-// comparison against one module twice, pristine and then deliberately made
-// stale, and fails unless the stale copy is reported.
+// checkErr runs a dependency's check and returns its failure as an error.
 //
-// The check this was extracted from silently verified nothing for months (#184),
-// so a green Generated is only worth as much as the proof that a stale module
-// turns it red.
-//
-// +check
-// +cache="never"
-func (ci *Ci) GeneratedSelfTest(ctx context.Context, callingWorkspace *dagger.Workspace) error {
-	return dag.WorkspaceCi().GeneratedSelfTest(ctx, callingWorkspace, dagger.WorkspaceCiGeneratedSelfTestOpts{
-		ProbeModule: selfTestProbeModule,
-	})
-}
-
-// SelectionSelfTest runs the change -> modules -> legs mapping, and the
-// properties a recorded pass depends on, against workspace-ci's fixed fixtures.
-//
-// A regression there under-runs this repository's CI silently, so it is checked
-// on every change rather than only when the planner itself is edited. It needs
-// no engine and no services, which is what makes that affordable.
-//
-// +check
-func (ci *Ci) SelectionSelfTest(ctx context.Context) error {
-	return dag.WorkspaceCi().SelectionSelfTest(ctx)
+// Since Dagger v1.0.0-beta.15 a +check function reaches a consumer as a
+// *dagger.Check, a deferred check, rather than as the error it returns, so the
+// failure has to be read back off it.
+func checkErr(ctx context.Context, check *dagger.Check) error {
+	failure, err := check.Error(ctx)
+	if err != nil {
+		return err
+	}
+	if failure == nil {
+		return nil
+	}
+	msg, err := failure.Message(ctx)
+	if err != nil {
+		return err
+	}
+	return errors.New(msg)
 }

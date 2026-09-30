@@ -69,14 +69,12 @@ jobs:
       #
       # What the entries below are for:
       #
-      #   .                        the root module's `generated` runs codegen for
-      #                            every module in the workspace, paying in one leg
-      #                            the module-build cost the others spread across
-      #                            themselves (#184) — ~5m on a cold engine. This
-      #                            stays a bare module key: the only per-check leg
-      #                            that inherits it is `.:generated`, which does that
-      #                            same sweep, and the two that do not are tightened
-      #                            below it.
+      #   .                        the root module's one check, `generated`, runs
+      #                            codegen for every module in the workspace, paying
+      #                            in one leg the module-build cost the others spread
+      #                            across themselves (#184) — ~5m on a cold engine. A
+      #                            bare module key, because that sweep is every leg
+      #                            the root module has.
       #   daggerverse/workspace-ci declares that same whole-workspace `generated` as
       #                            its own check, so its coarse leg repeats the
       #                            sweep; measured at 5m12s against the 6m default.
@@ -100,15 +98,146 @@ jobs:
       #                            rather than a fix. Splitting the suite so the
       #                            number can come back down is #433.
       timeouts: >-
-        {".": 15, ".:generated-self-test": 8, ".:selection-self-test": 2,
+        {".": 15,
         "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
-        "daggerverse/workspace-ci:generated-self-test": 8,
         "daggerverse/z5labs/tests": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the
     # permissions block above.
     secrets: inherit
+
+  # Whether this change touches the files CI is made of. Decided by a plain
+  # `git diff`, never by the planner, because what it gates is the planner's own
+  # tests: a planner change that stopped scheduling those tests would be planned
+  # by that same changed planner, and nothing would notice. The planner already
+  # treats every one of these paths as global, so this duplicates legs the plan
+  # also runs — on purpose; the point is that this path does not depend on it.
+  #
+  # It is a job in this workflow rather than a workflow of its own with a `paths`
+  # filter. A workflow skipped by `paths` leaves its checks Pending, so it cannot
+  # be a required check and auto-merge.yaml would merge without waiting for it;
+  # ci-auto-rerun.yml only watches the `CI` workflow, so an infra flake there
+  # would never be retried. Here a skip is a real `skipped` that `CI Gate` reads.
+  #
+  # The path list is the CI files: the workflows and their scripts, the root
+  # module (its source and its config in either shape), the workspace config, the
+  # planner itself and the regeneration script. Anything it cannot decide — no
+  # usable base, a diff that fails — runs the tests rather than skipping them.
+  ci-files:
+    name: CI files changed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.diff.outputs.run }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: diff
+        name: Diff against the base
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          run=true
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ]; then
+            echo "no usable base; running the planner tests"
+          elif ! changed="$(git diff --name-only "${BASE}...${HEAD}")"; then
+            echo "cannot diff ${BASE}...${HEAD}; running the planner tests"
+          elif grep -qE '^(\.github/workflows/|\.github/scripts/|ci/|daggerverse/workspace-ci/|hack/)|^(dagger\.json|dagger-module\.toml|dagger\.toml)$' <<<"$changed"; then
+            echo "CI files changed; running the planner tests"
+          else
+            echo "no CI file changed; skipping the planner tests"
+            run=false
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+  # workspace-ci's planner tests, run directly rather than as legs of the plan:
+  # the in-process selection and memo-store self-tests, and the fixture suite in
+  # daggerverse/workspace-ci/tests. See ci-files above for why.
+  planner-tests:
+    name: Planner tests
+    needs: [ci-files]
+    if: ${{ needs.ci-files.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The Dagger version is change-aware-ci.yml's `dagger-version` default, read
+      # rather than repeated, so the one pin update-dagger.yml bumps covers this
+      # job too. The sed is the one update-dagger.yml reads it with.
+      - id: version
+        name: Read the Dagger pin
+        run: |
+          set -euo pipefail
+          version=$(sed -n -E '/^      dagger-version:/,/^      [a-z-]+:/ s/.*default:[[:space:]]*"([^"]+)".*/\1/p' \
+            .github/workflows/change-aware-ci.yml | head -1)
+          [ -n "$version" ] || { echo "::error::cannot read the dagger-version pin from change-aware-ci.yml"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Dagger engine image
+        id: engine-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: engine.tar.gz
+          key: dagger-engine-v${{ steps.version.outputs.version }}
+
+      - name: Load or pull Dagger engine
+        env:
+          CACHE_HIT: ${{ steps.engine-cache.outputs.cache-hit }}
+          DAGGER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          IMAGE="registry.dagger.io/engine:v${DAGGER_VERSION}"
+          if [ "$CACHE_HIT" = "true" ]; then
+            gunzip -c engine.tar.gz | docker load
+          else
+            for i in 1 2 3; do
+              timeout 300 docker pull "$IMAGE" && break
+              echo "engine pull attempt $i failed/timed out; retrying in 5s" >&2
+              sleep 5
+            done
+            docker image inspect "$IMAGE" >/dev/null
+          fi
+
+      - name: Install Dagger CLI
+        env:
+          DAGGER_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          curl -fsSL https://dl.dagger.io/dagger/install.sh \
+            | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      # Named checks, scoped with --module so the root module's checks are not
+      # selected alongside them. One pattern per command: a pattern that matches
+      # nothing fails, which is what turns a renamed or deleted self-test red, but
+      # only when it is alone — patterns in one command are OR'd, so `dagger check
+      # a b` passes on `a` alone when `b` matches nothing (measured on
+      # v1.0.0-beta.15).
+      - name: Selection and memo-store self-tests
+        timeout-minutes: 6
+        env:
+          DAGGER_PROGRESS: dots
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+        run: |
+          set -euo pipefail
+          dagger -m daggerverse/workspace-ci check --module workspace-ci 'workspace-ci:selection-self-test'
+          dagger -m daggerverse/workspace-ci check --module workspace-ci 'workspace-ci:memo-store-self-test'
+
+      # Every check the tests module has. Unlike a coarse plan leg this does not
+      # list first: this module must have checks, and `dagger check` selecting
+      # nothing is an error, which is the right answer here.
+      - name: Fixture suite
+        timeout-minutes: 12
+        env:
+          DAGGER_PROGRESS: dots
+          DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
+        run: dagger -m daggerverse/workspace-ci/tests check --module tests
 
   # The required status check. The called workflow already exposes one, but GitHub
   # names a called job `<caller job name> / <job name>` — `Checks / CI Gate` here —
@@ -117,21 +246,37 @@ jobs:
   # window in which nothing satisfies the rule, so the context stays put and this job
   # republishes the called workflow's verdict under it.
   #
+  # It also carries the planner tests' verdict. A skip there is a pass — no CI file
+  # changed — but only when the job that decided to skip succeeded: a job whose
+  # `needs` failed is reported as skipped too, so ci-files is required on its own.
+  #
   # A repository adopting change-aware-ci.yml fresh needs none of this: require
   # `<your job> / CI Gate` directly and delete the idea.
   gate:
     name: CI Gate
-    needs: [checks]
+    needs: [checks, ci-files, planner-tests]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
-      - name: Verify the called workflow's gate
+      - name: Verify the called workflow's gate and the planner tests
         env:
           CHECKS_RESULT: ${{ needs.checks.result }}
+          CI_FILES_RESULT: ${{ needs.ci-files.result }}
+          PLANNER_RESULT: ${{ needs.planner-tests.result }}
         run: |
-          echo "checks=$CHECKS_RESULT"
+          echo "checks=$CHECKS_RESULT ci-files=$CI_FILES_RESULT planner-tests=$PLANNER_RESULT"
+          rc=0
           if [ "$CHECKS_RESULT" != "success" ]; then
             echo "::error::change-aware CI did not succeed"
-            exit 1
+            rc=1
           fi
-          echo "all planned checks passed"
+          if [ "$CI_FILES_RESULT" != "success" ]; then
+            echo "::error::could not decide whether the planner tests must run"
+            rc=1
+          fi
+          case "$PLANNER_RESULT" in
+            success|skipped) ;;
+            *) echo "::error::the planner tests did not succeed"; rc=1 ;;
+          esac
+          [ "$rc" -eq 0 ] && echo "all planned checks passed"
+          exit "$rc"
