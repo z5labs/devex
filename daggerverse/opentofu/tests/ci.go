@@ -16,12 +16,12 @@ import (
 // without it, a Check that failed unconditionally would satisfy every
 // assertion below.
 func (t *Tests) CiCheckPassesOnCleanConfiguration(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("basic")).
 		Ci().
 		WithFmt().
 		WithValidate().
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.Check on a clean configuration: %w", err)
 	}
@@ -31,12 +31,12 @@ func (t *Tests) CiCheckPassesOnCleanConfiguration(ctx context.Context) error {
 // CiCheckReportsUnformattedConfiguration asserts the fmt stage gates the
 // pipeline: a configuration that validates but is not formatted still fails.
 func (t *Tests) CiCheckReportsUnformattedConfiguration(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("unformatted")).
 		Ci().
 		WithFmt().
 		WithValidate().
-		Check(ctx)
+		Check())
 	return expectErrorContains(err, "not formatted", "main.tf")
 }
 
@@ -46,12 +46,12 @@ func (t *Tests) CiCheckReportsUnformattedConfiguration(ctx context.Context) erro
 // that one green stage would call an unusable configuration sound. Enabling
 // the validate stage must surface tofu's own diagnostic instead.
 func (t *Tests) CiCheckReportsInvalidConfiguration(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("invalid")).
 		Ci().
 		WithFmt().
 		WithValidate().
-		Check(ctx)
+		Check())
 	return expectErrorContains(err, "tofu validate", "random_pet")
 }
 
@@ -61,7 +61,7 @@ func (t *Tests) CiCheckReportsInvalidConfiguration(ctx context.Context) error {
 // fmt-only Check passes on it — the pipeline reports on exactly what the
 // caller asked it to check, and nothing else.
 func (t *Tests) CiCheckWithoutValidateSkipsIt(ctx context.Context) error {
-	if err := opentofu().Config(fixture("invalid")).Ci().WithFmt().Check(ctx); err != nil {
+	if err := checkErr(ctx, opentofu().Config(fixture("invalid")).Ci().WithFmt().Check()); err != nil {
 		return fmt.Errorf("expected an fmt-only Check to pass on the fmt-clean invalid fixture, got: %w", err)
 	}
 	return nil
@@ -73,12 +73,12 @@ func (t *Tests) CiCheckWithoutValidateSkipsIt(ctx context.Context) error {
 // diagnostics in one message proves neither was skipped once the other had
 // already gone red.
 func (t *Tests) CiCheckAggregatesStageFailures(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("ci-bad")).
 		Ci().
 		WithFmt().
 		WithValidate().
-		Check(ctx)
+		Check())
 	return expectErrorContains(err, "not formatted", "tofu validate")
 }
 
@@ -86,7 +86,7 @@ func (t *Tests) CiCheckAggregatesStageFailures(ctx context.Context) error {
 // than a pass. A Check that inspects nothing and returns nil is a green that
 // means nothing at all.
 func (t *Tests) CiCheckWithoutStagesIsRejected(ctx context.Context) error {
-	err := opentofu().Config(fixture("basic")).Ci().Check(ctx)
+	err := checkErr(ctx, opentofu().Config(fixture("basic")).Ci().Check())
 	return expectErrorContains(err, "no stages enabled", "WithFmt")
 }
 
@@ -96,11 +96,11 @@ func (t *Tests) CiCheckWithoutStagesIsRejected(ctx context.Context) error {
 // pipeline into a drift detector: planning the basic fixture against an empty
 // state has two resources to create, and a non-empty plan fails the check.
 func (t *Tests) CiCheckWithPlanDetectsDrift(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("basic")).
 		Ci().
 		WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true}).
-		Check(ctx)
+		Check())
 	return expectErrorContains(err, "pending changes", "random_pet.name")
 }
 
@@ -115,14 +115,14 @@ func (t *Tests) CiCheckWithPlanPassesOnAppliedState(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	err = opentofu().
+	err = checkErr(ctx, opentofu().
 		Config(fixture("basic")).
 		WithState(state).
 		Ci().
 		WithFmt().
 		WithValidate().
 		WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true}).
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.Check with a drift gate against applied state: %w", err)
 	}
@@ -134,12 +134,12 @@ func (t *Tests) CiCheckWithPlanPassesOnAppliedState(ctx context.Context) error {
 // shape a pull-request gate needs, where pending changes are the whole point
 // of the change under review.
 func (t *Tests) CiCheckWithPlanAllowsChangesByDefault(ctx context.Context) error {
-	err := opentofu().
+	err := checkErr(ctx, opentofu().
 		Config(fixture("basic")).
 		Ci().
 		WithFmt().
 		WithPlan().
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("expected a plan stage without failOnChanges to accept a non-empty plan, got: %w", err)
 	}

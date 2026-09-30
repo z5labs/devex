@@ -688,10 +688,10 @@ func (t *Tests) WithVariantIgnoredByChecks(ctx context.Context) error {
 // its own, so a nil return proves the fan-out ran the enabled stages and
 // aggregated no error.
 func (t *Tests) CiCheckRunsErcAndDrc(ctx context.Context) error {
-	err := dag.Kicad().Ci(fixture("blinky")).
+	err := checkErr(ctx, dag.Kicad().Ci(fixture("blinky")).
 		WithErc().
 		WithDrc().
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("expected a clean Ci.Check for blinky, got: %w", err)
 	}
@@ -704,10 +704,10 @@ func (t *Tests) CiCheckRunsErcAndDrc(ctx context.Context) error {
 // pin_not_connected violation and DRC fails with its "DRC violations" report;
 // requiring both signatures proves both jobs ran and both errors propagated.
 func (t *Tests) CiCheckFailsOnViolations(ctx context.Context) error {
-	err := dag.Kicad().Ci(fixture("violations")).
+	err := checkErr(ctx, dag.Kicad().Ci(fixture("violations")).
 		WithErc().
 		WithDrc().
-		Check(ctx)
+		Check())
 	if err == nil {
 		return fmt.Errorf("expected a Ci.Check failure for the violations fixture, got nil")
 	}
