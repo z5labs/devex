@@ -9,11 +9,15 @@
 # ModuleSource.withEngineVersion bumps the pin and generatedContextDirectory runs
 # codegen, exported back over the repository it was read from.
 #
+# A module is a directory holding either config shape: the legacy dagger.json or
+# v1's dagger-module.toml. The query is the same for both, and a module migrated
+# on its own must not silently drop out of the sweep.
+#
 # Order is leaf -> examples -> tests -> root, for the same reason `dagger
 # develop` needed it: a module regenerated before its dependencies embeds their
 # stale type definitions.
 #
-# usage: hack/regen.sh [version]      (default: the version pinned in dagger.json)
+# usage: hack/regen.sh [version]      (default: the version pinned at the root)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,13 +25,20 @@ cd "$root"
 
 version="${1:-}"
 if [ -z "$version" ]; then
-  version="$(sed -n 's/.*"engineVersion": *"\([^"]*\)".*/\1/p' dagger.json | head -1)"
+  # The root's own pin, from whichever config shape it uses. dagger-module.toml
+  # wins when both exist, which is what the engine does too.
+  if [ -f dagger-module.toml ]; then
+    version="$(sed -n 's/^engineVersion *= *"\([^"]*\)".*/\1/p' dagger-module.toml | head -1)"
+  else
+    version="$(sed -n 's/.*"engineVersion": *"\([^"]*\)".*/\1/p' dagger.json | head -1)"
+  fi
 fi
+[ -n "$version" ] || { echo "cannot read the root module's engineVersion; pass a version" >&2; exit 1; }
 echo "regenerating against ${version}"
 
 regen() {
   local dir="$1"
-  [ -f "${dir}/dagger.json" ] || return 0
+  [ -f "${dir}/dagger.json" ] || [ -f "${dir}/dagger-module.toml" ] || return 0
   printf 'regen %s\n' "$dir"
   printf '{ moduleSource(refString: "%s") { withEngineVersion(version: "%s") { generatedContextDirectory { export(path: "%s") } } } }' \
     "$dir" "$version" "$root" \
