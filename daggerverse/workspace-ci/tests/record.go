@@ -177,5 +177,5 @@ func (t *Tests) NewRejectsAnUnknownMemoStore(ctx context.Context) error {
 // CI would, so a regression in recording, idempotence, TTL filtering or scope
 // isolation fails here too rather than only where it is installed.
 func (t *Tests) MemoStoreSelfTestPasses(ctx context.Context) error {
-	return dag.WorkspaceCi().MemoStoreSelfTest(ctx)
+	return checkErr(ctx, dag.WorkspaceCi().MemoStoreSelfTest())
 }

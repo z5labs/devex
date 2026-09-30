@@ -27,11 +27,10 @@ const hashVersion = "z5labs/devex workspace-ci input-hash v1"
 // module's dagger.json, and each dagger.json is in its own module's source
 // context.
 type Hasher struct {
-	srcs         map[string]map[string]bool
-	blobs        map[string]string
-	reattributed map[string][]string
-	global       string
-	memo         map[string]string
+	srcs   map[string]map[string]bool
+	blobs  map[string]string
+	global string
+	memo   map[string]string
 }
 
 // NewHasher builds a Hasher, or reports ok=false when even the global inputs are
@@ -47,33 +46,21 @@ type Hasher struct {
 //     source context, i.e. precisely what Dagger uploads for it (the same
 //     source-context notion Attribute narrows with). It must cover rootClosure.
 //   - blobs maps a repo-relative path to its git blob object id at HEAD.
-//   - bindings is the aggregator-binding reattribution map from
-//     AggregatorBindings, applied here for the same reason Attribute applies it
-//     (#179): a per-toolchain binding is provably owned by one toolchain, and
-//     repo convention requires regenerating it whenever that toolchain's sources
-//     shift line numbers. Folding it into the global inputs instead would make
-//     the routine binding refresh that accompanies almost every module change
-//     perturb every check's hash, and memoization would essentially never hit.
 //   - globalPaths and nonGlobal are the extra global inputs and the subtractions
 //     from them; see GlobalPathsDefault and NonGlobalRootPaths.
 func NewHasher(
 	rootClosure map[string]bool,
 	srcs map[string]map[string]bool,
 	blobs map[string]string,
-	bindings map[string]string,
 	globalPaths []string,
 	nonGlobal []string,
 ) (*Hasher, bool) {
 	h := &Hasher{
-		srcs:         srcs,
-		blobs:        blobs,
-		reattributed: map[string][]string{},
-		memo:         map[string]string{},
+		srcs:  srcs,
+		blobs: blobs,
+		memo:  map[string]string{},
 	}
-	for p, dir := range bindings {
-		h.reattributed[dir] = append(h.reattributed[dir], p)
-	}
-	global, ok := h.globalHash(rootClosure, bindings, globalPaths, nonGlobal)
+	global, ok := h.globalHash(rootClosure, globalPaths, nonGlobal)
 	if !ok {
 		return nil, false
 	}
@@ -83,18 +70,18 @@ func NewHasher(
 
 // NonGlobalRootPaths are the members of the root module's context that are
 // deliberately NOT global inputs, and so neither contribute to the global hash
-// nor make MemoTrusted refuse a recorded pass: the root dagger.json and the core
+// nor make MemoTrusted refuse a recorded pass: the root module's config file —
+// dagger.json, or dagger-module.toml once a workspace is migrated — and the core
 // binding dagger regenerates alongside it.
 //
 // Both change on exactly one kind of PR — adding or removing a module — and
 // neither alters what any existing check computes. Leaving them in would retire
 // every recorded pass on the change that touches least.
 //
-//   - dagger.json's engineVersion is a field in every module's dagger.json, and
-//     each of the others sits in its own module's source context, so an engine
-//     bump already moves every module hash without help from this one. Its
-//     toolchains only decide which checks a *workspace-wide* enumeration finds,
-//     and this planner enumerates per module instead. Its sdk, source, include
+//   - the config's engineVersion is a field in every module's config, and each
+//     of the others sits in its own module's source context, so an engine bump
+//     already moves every module hash without help from this one. Its sdk,
+//     source, include
 //     and codegen scope the root module itself, which is never memoized — and
 //     include and source decide which paths are in the root context at all, so
 //     using them to hide a file from the digest removes that file from the global
@@ -105,7 +92,8 @@ func NewHasher(
 //     content and then matching it against bad. What forecloses that is not the
 //     digest but Generated: it proves every committed generated file equals what
 //     codegen produces, it belongs to the root module so it always runs,
-//     and it is never memoized (and GeneratedSelfTest guards it, after #184). A
+//     and it is never memoized (and it proves on every run that it can fail, after
+//     #184). A
 //     tampered binding is therefore red at the gate on the very push that would
 //     act on it, and reverting to go green restores the honest hash, which the
 //     recorded entry no longer matches. So generated files need not be global
@@ -120,14 +108,20 @@ func NewHasher(
 // untouched: Attribute still reports a change to either path as global and runs
 // everything, because the set of checks really did change.
 func NonGlobalRootPaths(rootSource string) []string {
-	return []string{"dagger.json", CoreBinding(rootSource)}
+	return []string{"dagger.json", "dagger-module.toml", CoreBinding(rootSource)}
 }
 
 // GlobalPathsDefault is the default set of path prefixes that govern how CI runs
 // rather than what any check computes. They belong to no module's source context,
 // so nothing else would attribute them, yet a change to one can invalidate a
 // whole run.
-func GlobalPathsDefault() []string { return []string{".github/workflows/"} }
+//
+// dagger.toml and dagger.lock are a migrated workspace's own config: which
+// modules are installed, and at which pinned versions. Neither is in any module's
+// context, and a change to either can change what every check runs against.
+func GlobalPathsDefault() []string {
+	return []string{".github/workflows/", "dagger.toml", "dagger.lock"}
+}
 
 // globalHash digests the inputs that belong to no check in particular but can
 // invalidate every one of them: the source contexts of the root module's whole
@@ -135,11 +129,9 @@ func GlobalPathsDefault() []string { return []string{".github/workflows/"} }
 // check's hash, because those paths decide how checks are routed and how a pass
 // is recorded — a check's own closure never reaches them.
 //
-// Two subtractions: the per-toolchain aggregator bindings, which live in the root
-// module's context but are attributed to their own toolchain, and nonGlobal.
+// nonGlobal is subtracted from it.
 func (h *Hasher) globalHash(
 	rootClosure map[string]bool,
-	bindings map[string]string,
 	globalPaths []string,
 	nonGlobal []string,
 ) (string, bool) {
@@ -150,9 +142,6 @@ func (h *Hasher) globalHash(
 			return "", false
 		}
 		for p := range set {
-			if _, moved := bindings[p]; moved {
-				continue
-			}
 			if slices.Contains(nonGlobal, p) {
 				continue
 			}
@@ -207,11 +196,7 @@ func (h *Hasher) Check(name string, dirs map[string]bool) (string, bool) {
 //
 // A source path with no object id at HEAD makes the module unhashable: it is an
 // input this cannot see, and hashing it as absent would record a pass under a
-// digest that ignores real content. The reattributed bindings are the exception —
-// they are omitted when untracked rather than fatal, because they are generated
-// *from* the paths above and a consumer who gitignores generated files would
-// otherwise never memoize anything. Omission is deterministic given the tree, and
-// a binding that becomes tracked moves the digest rather than colliding with it.
+// digest that ignores real content.
 func (h *Hasher) moduleHash(dir string) (string, bool) {
 	if cached, seen := h.memo[dir]; seen {
 		return cached, cached != ""
@@ -238,14 +223,6 @@ func (h *Hasher) moduleHash(dir string) (string, bool) {
 		writeField(d, p)
 		writeField(d, oid)
 	}
-	derived := slices.Clone(h.reattributed[dir])
-	sort.Strings(derived)
-	for _, p := range derived {
-		if oid, known := h.blobs[p]; known {
-			writeField(d, p)
-			writeField(d, oid)
-		}
-	}
 	digest := sum(d)
 	h.memo[dir] = digest
 	return digest, true
@@ -265,9 +242,8 @@ func (h *Hasher) moduleHash(dir string) (string, bool) {
 // than matching the forged ones.
 //
 // The predicate is Attribute's own, re-run over the change set with nonGlobal
-// subtracted, so there is no second copy of the rule to drift — deletions, the
-// aggregator-binding reattribution and the source-context test all behave
-// identically here and in selection. Those paths are subtracted for the reasons
+// subtracted, so there is no second copy of the rule to drift — deletions and the
+// source-context test behave identically here and in selection. Those paths are subtracted for the reasons
 // documented on NonGlobalRootPaths, and only from *this* judgement: selection
 // still treats them as global and runs everything, because the set of checks
 // really did change. The two together are what make adding a module run the new
@@ -283,7 +259,6 @@ func MemoTrusted(
 	changes []Change,
 	moduleDirs []string,
 	srcs map[string]map[string]bool,
-	bindings map[string]string,
 	globalPaths []string,
 	nonGlobal []string,
 ) bool {
@@ -297,7 +272,7 @@ func MemoTrusted(
 	if len(rest) == 0 {
 		return true
 	}
-	_, global := Attribute(rest, moduleDirs, srcs, bindings, globalPaths)
+	_, global := Attribute(rest, moduleDirs, srcs, globalPaths)
 	return !global
 }
 

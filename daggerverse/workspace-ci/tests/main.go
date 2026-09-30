@@ -19,6 +19,7 @@ type Tests struct{}
 type leg struct {
 	Name       string `json:"name"`
 	Module     string `json:"module"`
+	ModuleName string `json:"moduleName"`
 	Filter     string `json:"filter"`
 	Hash       string `json:"hash"`
 	Timeout    int    `json:"timeout"`
@@ -112,7 +113,7 @@ func (t *Tests) PlanSelectsAffectedModuleChecks(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if a.Module != fxA || a.Filter != "a:ok" {
+	if a.Module != fxA || a.ModuleName != "a" || a.Filter != "a:ok" {
 		return fmt.Errorf("leg %+v is not routed at its own module with its own check pattern", a)
 	}
 	return nil
@@ -132,6 +133,32 @@ func (t *Tests) PlanIgnoresPathsInNoSourceContext(ctx context.Context) error {
 	}
 	if got.Full {
 		return fmt.Errorf("a change to prose ran everything: %v", names(got.Plan))
+	}
+	return wantLegs(got, ".:root-ok")
+}
+
+// PlanReadsFilteredModuleContexts proves a module's context is what the engine
+// really ships for it — its config, its source subtree and its includes — and not
+// the whole tree it was resolved from.
+//
+// The fixture's root module keeps its source under root/, so the README at the
+// fixture's top level is in no module's context and changing it selects nothing
+// beyond the root module's own checks. Until Dagger v1.0.0-beta.15, a module
+// resolved from a Directory reported the whole Directory as its context; the root
+// module would then own the README, and the same change would run everything. If
+// the engine ever goes back to that, this fails rather than every change quietly
+// going global and every hash quietly widening.
+func (t *Tests) PlanReadsFilteredModuleContexts(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	got, err := explain(ctx, dag.WorkspaceCi(), fx, cTouchReadme, "")
+	if err != nil {
+		return err
+	}
+	if got.Full {
+		return fmt.Errorf("a change to a file outside the root module's source ran everything, so its context is the whole tree: %v", names(got.Plan))
 	}
 	return wantLegs(got, ".:root-ok")
 }
@@ -176,6 +203,11 @@ func (t *Tests) PlanRunsEverythingOnGlobalPathChange(ctx context.Context) error 
 	for _, l := range got.Plan {
 		if l.Filter != "" {
 			return fmt.Errorf("leg %q carries the check filter %q; the run-everything path must emit one leg per module", l.Name, l.Filter)
+		}
+		// A coarse leg still needs the module's name, for --module: without it
+		// the leg would run the root module's checks as well as its own.
+		if want := fxNames[l.Module]; l.ModuleName != want {
+			return fmt.Errorf("leg %q carries module name %q, want %q", l.Name, l.ModuleName, want)
 		}
 	}
 	if len(got.LoadedModules) != 0 {
@@ -311,14 +343,19 @@ func (t *Tests) PlanRunsEverythingOnAnUnresolvableRevision(ctx context.Context) 
 // PlanErrorsOnWorkspaceWithNoModules proves a workspace it cannot read is an
 // error rather than an empty plan. An empty matrix skips the run job and passes the
 // gate having run nothing, which is the one failure mode worth failing closed for.
+//
+// The error names both config files a module can have, so someone whose modules
+// are configured some third way learns what the planner looked for.
 func (t *Tests) PlanErrorsOnWorkspaceWithNoModules(ctx context.Context) error {
 	empty := dag.Directory().WithNewFile("README.md", "no modules here\n")
 	_, err := dag.WorkspaceCi().Plan(ctx, "", "", empty.AsWorkspace())
 	if err == nil {
 		return fmt.Errorf("a workspace with no modules produced a plan")
 	}
-	if !strings.Contains(err.Error(), "no dagger.json") {
-		return fmt.Errorf("a workspace with no modules failed for the wrong reason: %v", err)
+	for _, want := range []string{"no dagger.json", "dagger-module.toml", "run nothing"} {
+		if !strings.Contains(err.Error(), want) {
+			return fmt.Errorf("a workspace with no modules failed without saying %q: %v", want, err)
+		}
 	}
 	return nil
 }
@@ -368,39 +405,44 @@ func (t *Tests) All(ctx context.Context) error {
 	g, ctx := errgroup.WithContext(ctx)
 	g.SetLimit(6)
 	for name, run := range map[string]func(context.Context) error{
-		"plan-selects-affected-module-checks":                    t.PlanSelectsAffectedModuleChecks,
-		"plan-ignores-paths-in-no-source-context":                t.PlanIgnoresPathsInNoSourceContext,
-		"plan-attributes-deleted-paths-to-their-module":          t.PlanAttributesDeletedPathsToTheirModule,
-		"plan-runs-everything-on-global-path-change":             t.PlanRunsEverythingOnGlobalPathChange,
-		"plan-runs-everything-on-an-unusable-diff-range":         t.PlanRunsEverythingOnAnUnusableDiffRange,
-		"plan-accepts-symbolic-revisions":                        t.PlanAcceptsSymbolicRevisions,
-		"plan-runs-everything-on-an-unresolvable-revision":       t.PlanRunsEverythingOnAnUnresolvableRevision,
-		"plan-errors-on-workspace-with-no-modules":               t.PlanErrorsOnWorkspaceWithNoModules,
-		"plan-from-repo-matches-plan-from-workspace":             t.PlanFromRepoMatchesPlanFromWorkspace,
-		"plan-drops-known-good-leg":                              t.PlanDropsKnownGoodLeg,
-		"plan-refuses-recorded-passes-when-global-input-changed": t.PlanRefusesRecordedPassesWhenGlobalInputChanged,
-		"plan-always-runs-unhashable-leg":                        t.PlanAlwaysRunsUnhashableLeg,
-		"plan-global-inputs-are-root-dependency-closure":         t.PlanGlobalInputsAreRootDependencyClosure,
-		"plan-loads-only-affected-modules":                       t.PlanLoadsOnlyAffectedModules,
-		"affected-modules-reports-what-change-reached":           t.AffectedModulesReportsWhatChangeReached,
-		"plan-emits-github-actions-matrix":                       t.PlanEmitsGithubActionsMatrix,
-		"plan-emits-jenkins-parallel-stages":                     t.PlanEmitsJenkinsParallelStages,
-		"plan-records-passes-from-jenkins-branches":              t.PlanRecordsPassesFromJenkinsBranches,
-		"plan-refuses-record-command-for-data-formats":           t.PlanRefusesRecordCommandForDataFormats,
-		"plan-applies-timeout-overrides":                         t.PlanAppliesTimeoutOverrides,
-		"plan-splits-named-modules-on-the-run-everything-path":   t.PlanSplitsNamedModulesOnTheRunEverythingPath,
-		"new-rejects-malformed-timeouts":                         t.NewRejectsMalformedTimeouts,
-		"new-rejects-memo-token-without-repo":                    t.NewRejectsMemoTokenWithoutRepo,
-		"new-rejects-an-unknown-memo-store":                      t.NewRejectsAnUnknownMemoStore,
-		"record-pass-refuses-an-untrusted-ref":                   t.RecordPassRefusesAnUntrustedRef,
-		"record-pass-reaches-the-store-from-trusted-ref":         t.RecordPassReachesTheStoreFromTrustedRef,
-		"record-pass-never-fails-the-passing-check":              t.RecordPassNeverFailsThePassingCheck,
-		"record-pass-skips-an-unhashable-leg":                    t.RecordPassSkipsAnUnhashableLeg,
-		"record-pass-says-the-actions-cache-is-unwritable":       t.RecordPassSaysTheActionsCacheIsUnwritable,
-		"record-pass-skips-with-no-store-configured":             t.RecordPassSkipsWithNoStoreConfigured,
-		"record-pass-needs-the-runs-ref":                         t.RecordPassNeedsTheRunsRef,
-		"memo-store-self-test-passes":                            t.MemoStoreSelfTestPasses,
-		"selection-self-test-passes":                             t.SelectionSelfTestPasses,
+		"plan-selects-affected-module-checks":                        t.PlanSelectsAffectedModuleChecks,
+		"plan-ignores-paths-in-no-source-context":                    t.PlanIgnoresPathsInNoSourceContext,
+		"plan-reads-filtered-module-contexts":                        t.PlanReadsFilteredModuleContexts,
+		"plan-finds-modules-in-every-config-shape":                   t.PlanFindsModulesInEveryConfigShape,
+		"plan-coarse-legs-pass-on-modules-with-no-checks":            t.PlanCoarseLegsPassOnModulesWithNoChecks,
+		"generated-reports-an-unswept-module":                        t.GeneratedReportsAnUnsweptModule,
+		"generated-passes-on-fresh-bindings-and-fails-on-stale-ones": t.GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes,
+		"plan-attributes-deleted-paths-to-their-module":              t.PlanAttributesDeletedPathsToTheirModule,
+		"plan-runs-everything-on-global-path-change":                 t.PlanRunsEverythingOnGlobalPathChange,
+		"plan-runs-everything-on-an-unusable-diff-range":             t.PlanRunsEverythingOnAnUnusableDiffRange,
+		"plan-accepts-symbolic-revisions":                            t.PlanAcceptsSymbolicRevisions,
+		"plan-runs-everything-on-an-unresolvable-revision":           t.PlanRunsEverythingOnAnUnresolvableRevision,
+		"plan-errors-on-workspace-with-no-modules":                   t.PlanErrorsOnWorkspaceWithNoModules,
+		"plan-from-repo-matches-plan-from-workspace":                 t.PlanFromRepoMatchesPlanFromWorkspace,
+		"plan-drops-known-good-leg":                                  t.PlanDropsKnownGoodLeg,
+		"plan-refuses-recorded-passes-when-global-input-changed":     t.PlanRefusesRecordedPassesWhenGlobalInputChanged,
+		"plan-always-runs-unhashable-leg":                            t.PlanAlwaysRunsUnhashableLeg,
+		"plan-global-inputs-are-root-dependency-closure":             t.PlanGlobalInputsAreRootDependencyClosure,
+		"plan-loads-only-affected-modules":                           t.PlanLoadsOnlyAffectedModules,
+		"affected-modules-reports-what-change-reached":               t.AffectedModulesReportsWhatChangeReached,
+		"plan-emits-github-actions-matrix":                           t.PlanEmitsGithubActionsMatrix,
+		"plan-emits-jenkins-parallel-stages":                         t.PlanEmitsJenkinsParallelStages,
+		"plan-records-passes-from-jenkins-branches":                  t.PlanRecordsPassesFromJenkinsBranches,
+		"plan-refuses-record-command-for-data-formats":               t.PlanRefusesRecordCommandForDataFormats,
+		"plan-applies-timeout-overrides":                             t.PlanAppliesTimeoutOverrides,
+		"plan-splits-named-modules-on-the-run-everything-path":       t.PlanSplitsNamedModulesOnTheRunEverythingPath,
+		"new-rejects-malformed-timeouts":                             t.NewRejectsMalformedTimeouts,
+		"new-rejects-memo-token-without-repo":                        t.NewRejectsMemoTokenWithoutRepo,
+		"new-rejects-an-unknown-memo-store":                          t.NewRejectsAnUnknownMemoStore,
+		"record-pass-refuses-an-untrusted-ref":                       t.RecordPassRefusesAnUntrustedRef,
+		"record-pass-reaches-the-store-from-trusted-ref":             t.RecordPassReachesTheStoreFromTrustedRef,
+		"record-pass-never-fails-the-passing-check":                  t.RecordPassNeverFailsThePassingCheck,
+		"record-pass-skips-an-unhashable-leg":                        t.RecordPassSkipsAnUnhashableLeg,
+		"record-pass-says-the-actions-cache-is-unwritable":           t.RecordPassSaysTheActionsCacheIsUnwritable,
+		"record-pass-skips-with-no-store-configured":                 t.RecordPassSkipsWithNoStoreConfigured,
+		"record-pass-needs-the-runs-ref":                             t.RecordPassNeedsTheRunsRef,
+		"memo-store-self-test-passes":                                t.MemoStoreSelfTestPasses,
+		"selection-self-test-passes":                                 t.SelectionSelfTestPasses,
 	} {
 		g.Go(func() error {
 			if err := run(ctx); err != nil {

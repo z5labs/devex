@@ -206,6 +206,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).All(&parent, ctx)
+		case "GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes(&parent, ctx)
+		case "GeneratedReportsAnUnsweptModule":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeneratedReportsAnUnsweptModule(&parent, ctx)
 		case "MemoStoreSelfTestPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -262,6 +276,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanAttributesDeletedPathsToTheirModule(&parent, ctx)
+		case "PlanCoarseLegsPassOnModulesWithNoChecks":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanCoarseLegsPassOnModulesWithNoChecks(&parent, ctx)
 		case "PlanDropsKnownGoodLeg":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -290,6 +311,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanErrorsOnWorkspaceWithNoModules(&parent, ctx)
+		case "PlanFindsModulesInEveryConfigShape":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanFindsModulesInEveryConfigShape(&parent, ctx)
 		case "PlanFromRepoMatchesPlanFromWorkspace":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -318,6 +346,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanLoadsOnlyAffectedModules(&parent, ctx)
+		case "PlanReadsFilteredModuleContexts":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanReadsFilteredModuleContexts(&parent, ctx)
 		case "PlanRecordsPassesFromJenkinsBranches":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -447,8 +482,18 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("All",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("All runs every test.\n\nThe concurrency cap keeps a burst of fixture uploads and module loads from\ncrowding out the engine; the tests themselves are independent.").
-							WithSourceMap(dag.SourceMap("main.go", 367, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 404, 1)).
 							WithCheck()).
+					WithFunction(
+						dag.Function("GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes runs the whole check end to\nend — discovery, the unswept check, the stale-module proof and the sweep —\nagainst a workspace whose bindings are fresh, then against the same workspace\nwith one binding made stale.\n\nThe first half is what shows the proof and the unswept check do not fail a\nworkspace that is fine; the second, that the sweep itself still names the\nmodule and the file.").
+							WithSourceMap(dag.SourceMap("shapes.go", 165, 1))).
+					WithFunction(
+						dag.Function("GeneratedReportsAnUnsweptModule",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratedReportsAnUnsweptModule proves Generated fails when a module goes\nunswept, rather than passing having looked at less than the whole workspace.\n\nThe tree is the mixed config-shape tree plus one module configured by a file\ndiscovery has never heard of, each with a committed dagger.gen.go. Only the\nunknown one may be reported: the others are what shows Generated discovers both\nconfig shapes, since a module it missed would be reported beside it. The check\nruns before any codegen, which is what keeps this test cheap — nothing in the\ntree is ever generated.").
+							WithSourceMap(dag.SourceMap("shapes.go", 113, 1))).
 					WithFunction(
 						dag.Function("MemoStoreSelfTestPasses",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -463,17 +508,17 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("NewRejectsMalformedTimeouts",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("NewRejectsMalformedTimeouts proves a timeout table that cannot be read is an\nerror. A typo'd key already fails quietly — the default applies — so the one\nthing left to catch loudly is a table nothing could be read from.").
-							WithSourceMap(dag.SourceMap("config.go", 494, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 601, 1))).
 					WithFunction(
 						dag.Function("NewRejectsMemoTokenWithoutRepo",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("NewRejectsMemoTokenWithoutRepo proves a credential with nothing to scope it is\nan error rather than a store that silently reads nothing — which would look\nexactly like a workspace with no recorded passes.").
-							WithSourceMap(dag.SourceMap("config.go", 509, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 616, 1))).
 					WithFunction(
 						dag.Function("PlanAcceptsSymbolicRevisions",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanAcceptsSymbolicRevisions proves a range named the way a person names one —\na branch, a tag, HEAD-relative, or a mixture of those and a SHA — plans exactly\nwhat the equivalent pair of SHAs plans. CI passes SHAs because that is what the\nevent payload carries; anyone running Plan by hand has `main` and `HEAD`.\n\nThe range is the single commit that touches mods/a, so the expected plan is a\nstrict subset of the workspace. That matters: a revision that does not resolve\nfalls back to running everything, which an assertion against a full plan could\nnot tell from success.").
-							WithSourceMap(dag.SourceMap("main.go", 230, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 262, 1))).
 					WithFunction(
 						dag.Function("PlanAlwaysRunsUnhashableLeg",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -483,12 +528,17 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("PlanAppliesTimeoutOverrides",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanAppliesTimeoutOverrides proves the timeout table: an override keyed by a\nleg's name beats one keyed by its module, both beat the default, and the job\nbudget always follows the step budget.").
-							WithSourceMap(dag.SourceMap("config.go", 423, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 530, 1))).
 					WithFunction(
 						dag.Function("PlanAttributesDeletedPathsToTheirModule",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanAttributesDeletedPathsToTheirModule proves a deleted file is attributed to\nits module rather than dropped. No source context can contain a path that no\nlonger exists, so a deletion is indistinguishable from a file declared out —\nwhich is why deletions are attributed to their module instead.").
-							WithSourceMap(dag.SourceMap("main.go", 143, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 170, 1))).
+					WithFunction(
+						dag.Function("PlanCoarseLegsPassOnModulesWithNoChecks",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanCoarseLegsPassOnModulesWithNoChecks runs the command the Jenkins form\nrenders for a coarse leg — a whole module's checks, planned without the module\never being loaded — against a stand-in Dagger CLI. Since Dagger\nv1.0.0-beta.15 a `dagger check` that selects nothing is an error, so the command\nhas to decide for itself what a module with nothing to run means:\n\n  - a module that declares no checks passes, and `dagger check` is not run;\n  - a module with checks runs them, and a failing one fails the leg;\n  - a module whose checks cannot even be listed fails the leg, since that is\n    what a module that does not build looks like.\n\nThe command is taken from the rendered plan after Groovy has evaluated it, so\nwhat runs is exactly what a pipeline's `sh` would be handed: `$(...)`, `||` and\nthe quoting all have to survive the trip through a Groovy string.").
+							WithSourceMap(dag.SourceMap("config.go", 289, 1))).
 					WithFunction(
 						dag.Function("PlanDropsKnownGoodLeg",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -502,18 +552,23 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("PlanEmitsJenkinsParallelStages",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
-							WithDescription("PlanEmitsJenkinsParallelStages proves the Jenkins form is what a declarative\npipeline's parallel step actually takes — a Map of branch name to Closure — and\nthat running a branch runs that leg's checks under that leg's budget.\n\nIt evaluates the output in a real Groovy runtime rather than matching it as\ntext, because escaping is the half that breaks: a plan is handed to `parallel`\nunread, so a mis-escaped quote is a pipeline that does not parse, and nothing\nbetween the renderer and Jenkins would report it.").
-							WithSourceMap(dag.SourceMap("config.go", 175, 1))).
+							WithDescription("PlanEmitsJenkinsParallelStages proves the Jenkins form is what a declarative\npipeline's parallel step actually takes — a Map of branch name to Closure — and\nthat running a branch runs that leg's checks under that leg's budget.\n\nIt evaluates the output in a real Groovy runtime rather than matching it as\ntext, because escaping is the half that breaks: a plan is handed to `parallel`\nunread, so a mis-escaped quote is a pipeline that does not parse, and nothing\nbetween the renderer and Jenkins would report it. Both leg shapes are rendered —\na narrow change's per-check legs and the run-everything path's coarse ones —\nbecause the coarse command is the one carrying shell syntax.").
+							WithSourceMap(dag.SourceMap("config.go", 177, 1))).
 					WithFunction(
 						dag.Function("PlanErrorsOnWorkspaceWithNoModules",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
-							WithDescription("PlanErrorsOnWorkspaceWithNoModules proves a workspace it cannot read is an\nerror rather than an empty plan. An empty matrix skips the run job and passes the\ngate having run nothing, which is the one failure mode worth failing closed for.").
-							WithSourceMap(dag.SourceMap("main.go", 314, 1))).
+							WithDescription("PlanErrorsOnWorkspaceWithNoModules proves a workspace it cannot read is an\nerror rather than an empty plan. An empty matrix skips the run job and passes the\ngate having run nothing, which is the one failure mode worth failing closed for.\n\nThe error names both config files a module can have, so someone whose modules\nare configured some third way learns what the planner looked for.").
+							WithSourceMap(dag.SourceMap("main.go", 349, 1))).
+					WithFunction(
+						dag.Function("PlanFindsModulesInEveryConfigShape",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanFindsModulesInEveryConfigShape proves discovery knows both config shapes:\ndagger.json, and the dagger-module.toml a workspace has once it is migrated.\nBefore this, a module migrated to dagger-module.toml simply vanished from the\nplan — its changes planned only the root module's legs, and the gate went green.\n\nEach tree is planned with no usable diff, so everything runs and no module is\nbuilt: what comes back is discovery's answer and the name read from each\nmodule's config, which is also what shows dagger-module.toml winning where a\ndirectory holds both.").
+							WithSourceMap(dag.SourceMap("shapes.go", 83, 1))).
 					WithFunction(
 						dag.Function("PlanFromRepoMatchesPlanFromWorkspace",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanFromRepoMatchesPlanFromWorkspace proves the two ways of naming the\nrepository are the same repository.\n\nThe rest of this suite passes only a workspace, because that is what a module\ncaller can build out of a directory. repo is the other seam — the escape hatch\nfor a caller whose .git is a file rather than a directory — and it overrides\nthe workspace rather than sitting beside it, so the two have to agree.").
-							WithSourceMap(dag.SourceMap("main.go", 333, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 370, 1))).
 					WithFunction(
 						dag.Function("PlanGlobalInputsAreRootDependencyClosure",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -523,22 +578,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("PlanIgnoresPathsInNoSourceContext",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanIgnoresPathsInNoSourceContext proves a change to a file no module ships —\na module's own README, declared out via dagger.json \"include\" — selects nothing.\nOnly the root module's checks, which always run, remain.").
-							WithSourceMap(dag.SourceMap("main.go", 124, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 125, 1))).
 					WithFunction(
 						dag.Function("PlanLoadsOnlyAffectedModules",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanLoadsOnlyAffectedModules proves the performance property the whole design\nrests on, by counting rather than timing: producing a plan for a narrow change\nloads the affected modules and nothing else.").
 							WithSourceMap(dag.SourceMap("config.go", 19, 1))).
 					WithFunction(
+						dag.Function("PlanReadsFilteredModuleContexts",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanReadsFilteredModuleContexts proves a module's context is what the engine\nreally ships for it — its config, its source subtree and its includes — and not\nthe whole tree it was resolved from.\n\nThe fixture's root module keeps its source under root/, so the README at the\nfixture's top level is in no module's context and changing it selects nothing\nbeyond the root module's own checks. Until Dagger v1.0.0-beta.15, a module\nresolved from a Directory reported the whole Directory as its context; the root\nmodule would then own the README, and the same change would run everything. If\nthe engine ever goes back to that, this fails rather than every change quietly\ngoing global and every hash quietly widening.").
+							WithSourceMap(dag.SourceMap("main.go", 151, 1))).
+					WithFunction(
 						dag.Function("PlanRecordsPassesFromJenkinsBranches",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRecordsPassesFromJenkinsBranches proves the memoization half of the Jenkins\nform: a branch records its own leg's hash when the leg passes, and records\nnothing when it fails.\n\nBoth outcomes are asserted because only one of them is a property of what was\nrendered. That the recording runs on success is visible in the text; that it\ndoes *not* run on failure is a property of Groovy — `sh` throws, the closure\nunwinds, the step after it is never reached — and rearranging the render into\nsomething that still looks right would break it silently. So the plan is\nevaluated in a real Groovy runtime with a failing step, exactly as with a\nfailing check.\n\nThe leg the plan refuses to hash is the other half: a plan says \"never memoize\nthis\" with an empty hash, and a branch that recorded one anyway would write an\nentry no later run could ever match — or, worse, one keyed on nothing.").
-							WithSourceMap(dag.SourceMap("config.go", 321, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 431, 1))).
 					WithFunction(
 						dag.Function("PlanRefusesRecordCommandForDataFormats",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRefusesRecordCommandForDataFormats proves the option is not silently\ndropped by the formats that cannot render one. JSON and GITHUB_ACTIONS carry\neach leg's hash as data for a surrounding job to record; accepting a record\ncommand there would hand back a plan that records nothing, which a consumer\nwould discover as a memoization store that never fills up.").
-							WithSourceMap(dag.SourceMap("config.go", 400, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 507, 1))).
 					WithFunction(
 						dag.Function("PlanRefusesRecordedPassesWhenGlobalInputChanged",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -548,27 +608,27 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("PlanRunsEverythingOnAnUnresolvableRevision",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRunsEverythingOnAnUnresolvableRevision proves a revision that names no\ncommit — a typo, a branch that was deleted, a shallow clone that never fetched\nthe base — runs everything rather than erroring or, worse, planning nothing.\n\nIt is the same fail-safe an all-zeros base takes, and it is why resolution\nfailure is deliberately not promoted to an error: a name the repository cannot\nresolve must cost a run its time, never its coverage.").
-							WithSourceMap(dag.SourceMap("main.go", 288, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 320, 1))).
 					WithFunction(
 						dag.Function("PlanRunsEverythingOnAnUnusableDiffRange",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRunsEverythingOnAnUnusableDiffRange proves the fail-safe: a base that cannot\nbe diffed — a new branch, whose before-SHA GitHub sends as all zeros — runs\neverything rather than nothing.\n\nThe all-zeros SHA is a sentinel and not a revision, so it keeps that meaning\nhowever the other side is spelled: it is rejected before the repository is\nconsulted, and a symbolic head cannot turn it into a range worth diffing.").
-							WithSourceMap(dag.SourceMap("main.go", 194, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 226, 1))).
 					WithFunction(
 						dag.Function("PlanRunsEverythingOnGlobalPathChange",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRunsEverythingOnGlobalPathChange proves a change to the paths that govern\nhow CI runs at all runs everything — and does it the cheap way: one leg per\nmodule, with no module loaded to produce the plan.").
-							WithSourceMap(dag.SourceMap("main.go", 161, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 188, 1))).
 					WithFunction(
 						dag.Function("PlanSelectsAffectedModuleChecks",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanSelectsAffectedModuleChecks proves the core promise: a change to one module\nplans that module's checks and every check that legitimately depends on it, and\nnothing else.\n\nThe fixture's b depends on a, so touching a must reach both; c and dirty depend\non neither and must be absent. The root module is always there — its checks\nanswer questions about the workspace as a whole.").
-							WithSourceMap(dag.SourceMap("main.go", 96, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 97, 1))).
 					WithFunction(
 						dag.Function("PlanSplitsNamedModulesOnTheRunEverythingPath",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanSplitsNamedModulesOnTheRunEverythingPath proves the escape hatch for a\nmodule whose checks must not share a leg: named modules are enumerated even when\neverything runs, and every other module still gets one coarse leg and is still\nnever loaded.").
-							WithSourceMap(dag.SourceMap("config.go", 455, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 562, 1))).
 					WithFunction(
 						dag.Function("RecordPassNeedsTheRunsRef",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -608,7 +668,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("SelectionSelfTestPasses",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("SelectionSelfTestPasses runs the module's own check the way a consumer's CI\nwould, so a regression in the pure selection and hashing rules fails here too\nrather than only where it is installed.").
-							WithSourceMap(dag.SourceMap("config.go", 528, 1)))), nil
+							WithSourceMap(dag.SourceMap("config.go", 635, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

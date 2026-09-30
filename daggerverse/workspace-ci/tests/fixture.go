@@ -39,6 +39,7 @@ const (
 	cTouchA      = "touch a"
 	cTouchCProse = "touch c prose"
 	cDeleteCFile = "delete c extra"
+	cTouchReadme = "touch top-level readme"
 	cTouchGlobal = "touch global"
 	cTouchFlow   = "touch workflow"
 	cTouchRoot   = "touch root"
@@ -64,6 +65,16 @@ const (
 	fxC      = "mods/c"
 	fxDirty  = "mods/dirty"
 )
+
+// fxNames is each fixture module's own name, as its dagger.json declares it.
+var fxNames = map[string]string{
+	fxRoot:   "root",
+	fxGlobal: "global",
+	fxA:      "a",
+	fxB:      "b",
+	fxC:      "c",
+	fxDirty:  "dirty",
+}
 
 // fixtureSignature is fixed so the fixture's commit SHAs — and so the whole
 // repository — are the same every time it is built.
@@ -158,6 +169,7 @@ func newFixture(ctx context.Context, variant string) (fixture, error) {
 		{cTouchA, func() error { return write(fxA+"/main.go", checkSource("A", "Ok")+"\n// touched\n") }},
 		{cTouchCProse, func() error { return write(fxC+"/README.md", "# c\n\ntouched\n") }},
 		{cDeleteCFile, func() error { _, err := wt.Remove(fxC + "/extra.go"); return err }},
+		{cTouchReadme, func() error { return write("README.md", "# fixture\n\ntouched\n") }},
 		{cTouchGlobal, func() error {
 			return write(fxGlobal+"/main.go", files[fxGlobal+"/main.go"]+"\n// touched\n")
 		}},
@@ -256,13 +268,17 @@ func (fx fixture) rev(name string) string {
 	return ""
 }
 
-// moduleConfig renders a dagger.json with the pinned engine version, so a fixture
-// module resolves and builds the same way a real one does.
+// fixtureEngineVersion is the engine version every fixture module is pinned to:
+// the one this repository runs, so a fixture module resolves and builds the same
+// way a real one does.
+const fixtureEngineVersion = "v1.0.0-beta.15"
+
+// moduleConfig renders a dagger.json with the pinned engine version.
 func moduleConfig(name, extra string) string {
 	if extra != "" {
 		extra = ", " + extra
 	}
-	return fmt.Sprintf(`{"name": %q, "engineVersion": "v0.21.7", "sdk": {"source": "go"}%s}`+"\n", name, extra)
+	return fmt.Sprintf(`{"name": %q, "engineVersion": %q, "sdk": {"source": "go"}%s}`+"\n", name, fixtureEngineVersion, extra)
 }
 
 // checkSource renders a module whose only function is a check, which is what makes

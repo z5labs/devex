@@ -23,6 +23,62 @@ func SelfCheck() error {
 			errs = append(errs, fmt.Errorf("%s: %w", c.name, err))
 		}
 	}
+	if err := unsweptSelfCheck(); err != nil {
+		errs = append(errs, fmt.Errorf("unswept generated files: %w", err))
+	}
+	return errors.Join(errs...)
+}
+
+// unsweptSelfCheck pins the rule that decides whether a freshness sweep looked at
+// every module: a committed generated file counts as swept only when its source
+// directory is exactly a swept module's. Each case is a way the answer could come
+// back green having missed a module.
+func unsweptSelfCheck() error {
+	generated := []string{
+		"dagger.gen.go",
+		"internal/dagger/dagger.gen.go",
+		"ci/dagger.gen.go",
+		"ci/internal/dagger/dagger.gen.go",
+		"ci/internal/dagger/workspace-ci.gen.go",
+		fxApp + "/dagger.gen.go",
+		fxApp + "/internal/dagger/dagger.gen.go",
+		fxTests + "/dagger.gen.go",
+		fxTests + "/internal/dagger/app.gen.go",
+	}
+	var errs []error
+	for _, tc := range []struct {
+		name  string
+		swept []string
+		want  []string
+	}{
+		{
+			name:  "every module swept",
+			swept: []string{".", "ci", fxApp, fxTests},
+			want:  nil,
+		},
+		{
+			// The root module owns every path by prefix, and a parent's context
+			// may hold a nested module's files; neither may vouch for an unswept
+			// module.
+			name:  "a nested module nobody swept",
+			swept: []string{".", "ci", fxApp},
+			want:  []string{fxTests + "/dagger.gen.go", fxTests + "/internal/dagger/app.gen.go"},
+		},
+		{
+			name:  "a root module whose source is a subdirectory",
+			swept: []string{".", fxApp, fxTests},
+			want:  []string{"ci/dagger.gen.go", "ci/internal/dagger/dagger.gen.go", "ci/internal/dagger/workspace-ci.gen.go"},
+		},
+		{
+			name:  "source subpaths spelled with a leading slash or as empty",
+			swept: []string{"", "/ci", "/" + fxApp + "/", fxTests},
+			want:  nil,
+		},
+	} {
+		if got := Unswept(generated, tc.swept); !slices.Equal(got, tc.want) {
+			errs = append(errs, fmt.Errorf("%s: unswept %q, want %q", tc.name, got, tc.want))
+		}
+	}
 	return errors.Join(errs...)
 }
 
@@ -68,7 +124,7 @@ func selfCheckFixture() fixture {
 		"dagger.json",
 		fx.rootSource+"/main.go",
 		BindingDir(fx.rootSource)+"dagger"+bindingExt,
-		BindingDir(fx.rootSource)+"app-tests"+bindingExt,
+		BindingDir(fx.rootSource)+"shared"+bindingExt,
 	)
 	i := 0
 	for _, set := range fx.srcs {
@@ -78,17 +134,15 @@ func selfCheckFixture() fixture {
 		}
 	}
 	fx.blobs[".github/workflows/ci.yml"] = fmt.Sprintf("%040x", 9999)
+	fx.blobs["dagger.toml"] = fmt.Sprintf("%040x", 9998)
+	fx.blobs["dagger.lock"] = fmt.Sprintf("%040x", 9997)
 	return fx
-}
-
-func (fx fixture) bindings() map[string]string {
-	return AggregatorBindings(fx.rootSource, map[string]string{"app-tests": fxTests})
 }
 
 func (fx fixture) nonGlobal() []string { return NonGlobalRootPaths(fx.rootSource) }
 
 func (fx fixture) selectFor(changes []Change) (kept []string, full bool) {
-	changed, global := Attribute(changes, fx.moduleDirs, fx.srcs, fx.bindings(), fx.globalPaths)
+	changed, global := Attribute(changes, fx.moduleDirs, fx.srcs, fx.globalPaths)
 	return SelectModules(fx.moduleDirs, BuildClosures(fx.adj), changed, global)
 }
 
@@ -122,7 +176,7 @@ func (c selfCheckCase) run() error {
 	if !slices.Equal(kept, want) {
 		return fmt.Errorf("selected %v, want %v", kept, want)
 	}
-	got := MemoTrusted(c.changes, fx.moduleDirs, fx.srcs, fx.bindings(), fx.globalPaths, fx.nonGlobal())
+	got := MemoTrusted(c.changes, fx.moduleDirs, fx.srcs, fx.globalPaths, fx.nonGlobal())
 	if got != c.trusted {
 		return fmt.Errorf("MemoTrusted = %v, want %v", got, c.trusted)
 	}
@@ -187,10 +241,22 @@ func selfCheckCases() []selfCheckCase {
 			trusted: true,
 		},
 		{
-			name:    "a per-toolchain binding is attributed to its toolchain",
-			changes: []Change{{Path: BindingDir("ci") + "app-tests" + bindingExt}},
-			want:    []string{RootModule, fxTests},
-			trusted: true,
+			// A dependency binding under the root module is the root module's own
+			// source, whichever module it was generated from: v1 generates no
+			// per-toolchain aggregator bindings for it to be attributed to.
+			name:    "a dependency binding under the root module runs everything",
+			changes: []Change{{Path: BindingDir("ci") + "shared" + bindingExt}},
+			trusted: false,
+		},
+		{
+			name:    "a migrated workspace's dagger.toml runs everything and retires recorded passes",
+			changes: []Change{{Path: "dagger.toml"}},
+			trusted: false,
+		},
+		{
+			name:    "a migrated workspace's dagger.lock runs everything and retires recorded passes",
+			changes: []Change{{Path: "dagger.lock"}},
+			trusted: false,
 		},
 		{
 			name:    "a module whose dependency graph is unresolved always runs",
@@ -211,7 +277,7 @@ func HashSelfCheck() error {
 	rootClosure := closures[RootModule]
 
 	newHasher := func(f fixture) (*Hasher, bool) {
-		return NewHasher(rootClosure, f.srcs, f.blobs, f.bindings(), f.globalPaths, f.nonGlobal())
+		return NewHasher(rootClosure, f.srcs, f.blobs, f.globalPaths, f.nonGlobal())
 	}
 
 	h, ok := newHasher(fx)
@@ -292,14 +358,14 @@ const jenkinsGolden = `[
   'mods/app/tests:all': {
     stage('mods/app/tests:all') {
       timeout(time: 6, unit: 'MINUTES') {
-        sh 'dagger -m \'mods/app/tests\' check \'tests:all\''
+        sh 'dagger -m \'mods/app/tests\' check --module \'tests\' \'tests:all\''
       }
     }
   },
   'mods/other': {
     stage('mods/other') {
       timeout(time: 6, unit: 'MINUTES') {
-        sh 'dagger -m \'mods/other\' check'
+        sh 'links=$(dagger -m \'mods/other\' check --module \'other\' -l -f link) || exit 1; if [ -z "$links" ]; then echo \'mods/other declares no checks\'; else dagger -m \'mods/other\' check --module \'other\'; fi'
       }
     }
   }
@@ -323,7 +389,7 @@ const jenkinsRecordGolden = `[
   'mods/app/tests:all': {
     stage('mods/app/tests:all') {
       timeout(time: 6, unit: 'MINUTES') {
-        sh 'dagger -m \'mods/app/tests\' check \'tests:all\''
+        sh 'dagger -m \'mods/app/tests\' check --module \'tests\' \'tests:all\''
       }
       sh 'dagger -m workspace-ci --memo-store=GIT_REFS call record-pass --ref="$GIT_REF" --commit="$GIT_COMMIT" --hash=\'abc123\''
     }
@@ -331,7 +397,7 @@ const jenkinsRecordGolden = `[
   'mods/other': {
     stage('mods/other') {
       timeout(time: 6, unit: 'MINUTES') {
-        sh 'dagger -m \'mods/other\' check'
+        sh 'links=$(dagger -m \'mods/other\' check --module \'other\' -l -f link) || exit 1; if [ -z "$links" ]; then echo \'mods/other declares no checks\'; else dagger -m \'mods/other\' check --module \'other\'; fi'
       }
     }
   }
@@ -376,7 +442,7 @@ func RenderSelfCheck() error {
 
 	legs := Timeouts{}.Apply([]Entry{
 		CheckEntry(fxTests, "tests", "all"),
-		ModuleEntry(fxOther),
+		ModuleEntry(fxOther, "other"),
 	}, 6)
 	got, err := Render(legs, FormatJenkins, "")
 	if err != nil {
@@ -391,7 +457,7 @@ func RenderSelfCheck() error {
 	// or fails a branch that passed.
 	recorded := Timeouts{}.Apply([]Entry{
 		withHash(CheckEntry(fxTests, "tests", "all"), "abc123"),
-		ModuleEntry(fxOther),
+		ModuleEntry(fxOther, "other"),
 	}, 6)
 	got, err = Render(recorded, FormatJenkins, selfCheckRecordCommand)
 	if err != nil {

@@ -20,41 +20,46 @@ func (r *Query) Tests() *Tests { // tests (../../../../../:0:0)
 type Tests struct { // tests (../../../../../:0:0)
 	query *querybuilder.Selection
 
-	affectedModulesReportsWhatChangeReached         *Void
-	all                                             *Void
-	id                                              *ID
-	memoStoreSelfTestPasses                         *Void
-	newRejectsAnUnknownMemoStore                    *Void
-	newRejectsMalformedTimeouts                     *Void
-	newRejectsMemoTokenWithoutRepo                  *Void
-	planAcceptsSymbolicRevisions                    *Void
-	planAlwaysRunsUnhashableLeg                     *Void
-	planAppliesTimeoutOverrides                     *Void
-	planAttributesDeletedPathsToTheirModule         *Void
-	planDropsKnownGoodLeg                           *Void
-	planEmitsGithubActionsMatrix                    *Void
-	planEmitsJenkinsParallelStages                  *Void
-	planErrorsOnWorkspaceWithNoModules              *Void
-	planFromRepoMatchesPlanFromWorkspace            *Void
-	planGlobalInputsAreRootDependencyClosure        *Void
-	planIgnoresPathsInNoSourceContext               *Void
-	planLoadsOnlyAffectedModules                    *Void
-	planRecordsPassesFromJenkinsBranches            *Void
-	planRefusesRecordCommandForDataFormats          *Void
-	planRefusesRecordedPassesWhenGlobalInputChanged *Void
-	planRunsEverythingOnAnUnresolvableRevision      *Void
-	planRunsEverythingOnAnUnusableDiffRange         *Void
-	planRunsEverythingOnGlobalPathChange            *Void
-	planSelectsAffectedModuleChecks                 *Void
-	planSplitsNamedModulesOnTheRunEverythingPath    *Void
-	recordPassNeedsTheRunsRef                       *Void
-	recordPassNeverFailsThePassingCheck             *Void
-	recordPassReachesTheStoreFromTrustedRef         *Void
-	recordPassRefusesAnUntrustedRef                 *Void
-	recordPassSaysTheActionsCacheIsUnwritable       *Void
-	recordPassSkipsAnUnhashableLeg                  *Void
-	recordPassSkipsWithNoStoreConfigured            *Void
-	selectionSelfTestPasses                         *Void
+	affectedModulesReportsWhatChangeReached           *Void
+	all                                               *Void
+	generatedPassesOnFreshBindingsAndFailsOnStaleOnes *Void
+	generatedReportsAnUnsweptModule                   *Void
+	id                                                *ID
+	memoStoreSelfTestPasses                           *Void
+	newRejectsAnUnknownMemoStore                      *Void
+	newRejectsMalformedTimeouts                       *Void
+	newRejectsMemoTokenWithoutRepo                    *Void
+	planAcceptsSymbolicRevisions                      *Void
+	planAlwaysRunsUnhashableLeg                       *Void
+	planAppliesTimeoutOverrides                       *Void
+	planAttributesDeletedPathsToTheirModule           *Void
+	planCoarseLegsPassOnModulesWithNoChecks           *Void
+	planDropsKnownGoodLeg                             *Void
+	planEmitsGithubActionsMatrix                      *Void
+	planEmitsJenkinsParallelStages                    *Void
+	planErrorsOnWorkspaceWithNoModules                *Void
+	planFindsModulesInEveryConfigShape                *Void
+	planFromRepoMatchesPlanFromWorkspace              *Void
+	planGlobalInputsAreRootDependencyClosure          *Void
+	planIgnoresPathsInNoSourceContext                 *Void
+	planLoadsOnlyAffectedModules                      *Void
+	planReadsFilteredModuleContexts                   *Void
+	planRecordsPassesFromJenkinsBranches              *Void
+	planRefusesRecordCommandForDataFormats            *Void
+	planRefusesRecordedPassesWhenGlobalInputChanged   *Void
+	planRunsEverythingOnAnUnresolvableRevision        *Void
+	planRunsEverythingOnAnUnusableDiffRange           *Void
+	planRunsEverythingOnGlobalPathChange              *Void
+	planSelectsAffectedModuleChecks                   *Void
+	planSplitsNamedModulesOnTheRunEverythingPath      *Void
+	recordPassNeedsTheRunsRef                         *Void
+	recordPassNeverFailsThePassingCheck               *Void
+	recordPassReachesTheStoreFromTrustedRef           *Void
+	recordPassRefusesAnUntrustedRef                   *Void
+	recordPassSaysTheActionsCacheIsUnwritable         *Void
+	recordPassSkipsAnUnhashableLeg                    *Void
+	recordPassSkipsWithNoStoreConfigured              *Void
+	selectionSelfTestPasses                           *Void
 }
 
 func (r *Tests) WithGraphQLQuery(q *querybuilder.Selection) *Tests {
@@ -84,6 +89,41 @@ func (r *Tests) All(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("all")
+
+	return q.Execute(ctx)
+}
+
+// GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes runs the whole check end to
+// end — discovery, the unswept check, the stale-module proof and the sweep —
+// against a workspace whose bindings are fresh, then against the same workspace
+// with one binding made stale.
+//
+// The first half is what shows the proof and the unswept check do not fail a
+// workspace that is fine; the second, that the sweep itself still names the
+// module and the file.
+func (r *Tests) GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes(ctx context.Context) error {
+	if r.generatedPassesOnFreshBindingsAndFailsOnStaleOnes != nil {
+		return nil
+	}
+	q := r.query.Select("generatedPassesOnFreshBindingsAndFailsOnStaleOnes")
+
+	return q.Execute(ctx)
+}
+
+// GeneratedReportsAnUnsweptModule proves Generated fails when a module goes
+// unswept, rather than passing having looked at less than the whole workspace.
+//
+// The tree is the mixed config-shape tree plus one module configured by a file
+// discovery has never heard of, each with a committed dagger.gen.go. Only the
+// unknown one may be reported: the others are what shows Generated discovers both
+// config shapes, since a module it missed would be reported beside it. The check
+// runs before any codegen, which is what keeps this test cheap — nothing in the
+// tree is ever generated.
+func (r *Tests) GeneratedReportsAnUnsweptModule(ctx context.Context) error {
+	if r.generatedReportsAnUnsweptModule != nil {
+		return nil
+	}
+	q := r.query.Select("generatedReportsAnUnsweptModule")
 
 	return q.Execute(ctx)
 }
@@ -241,6 +281,29 @@ func (r *Tests) PlanAttributesDeletedPathsToTheirModule(ctx context.Context) err
 	return q.Execute(ctx)
 }
 
+// PlanCoarseLegsPassOnModulesWithNoChecks runs the command the Jenkins form
+// renders for a coarse leg — a whole module's checks, planned without the module
+// ever being loaded — against a stand-in Dagger CLI. Since Dagger
+// v1.0.0-beta.15 a `dagger check` that selects nothing is an error, so the command
+// has to decide for itself what a module with nothing to run means:
+//
+//   - a module that declares no checks passes, and `dagger check` is not run;
+//   - a module with checks runs them, and a failing one fails the leg;
+//   - a module whose checks cannot even be listed fails the leg, since that is
+//     what a module that does not build looks like.
+//
+// The command is taken from the rendered plan after Groovy has evaluated it, so
+// what runs is exactly what a pipeline's `sh` would be handed: `$(...)`, `||` and
+// the quoting all have to survive the trip through a Groovy string.
+func (r *Tests) PlanCoarseLegsPassOnModulesWithNoChecks(ctx context.Context) error {
+	if r.planCoarseLegsPassOnModulesWithNoChecks != nil {
+		return nil
+	}
+	q := r.query.Select("planCoarseLegsPassOnModulesWithNoChecks")
+
+	return q.Execute(ctx)
+}
+
 // PlanDropsKnownGoodLeg proves the point of memoization: a leg whose whole input
 // closure hashes to a value some earlier run already passed on is dropped, and
 // only that leg is.
@@ -272,7 +335,9 @@ func (r *Tests) PlanEmitsGithubActionsMatrix(ctx context.Context) error {
 // It evaluates the output in a real Groovy runtime rather than matching it as
 // text, because escaping is the half that breaks: a plan is handed to `parallel`
 // unread, so a mis-escaped quote is a pipeline that does not parse, and nothing
-// between the renderer and Jenkins would report it.
+// between the renderer and Jenkins would report it. Both leg shapes are rendered —
+// a narrow change's per-check legs and the run-everything path's coarse ones —
+// because the coarse command is the one carrying shell syntax.
 func (r *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 	if r.planEmitsJenkinsParallelStages != nil {
 		return nil
@@ -285,11 +350,32 @@ func (r *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 // PlanErrorsOnWorkspaceWithNoModules proves a workspace it cannot read is an
 // error rather than an empty plan. An empty matrix skips the run job and passes the
 // gate having run nothing, which is the one failure mode worth failing closed for.
+//
+// The error names both config files a module can have, so someone whose modules
+// are configured some third way learns what the planner looked for.
 func (r *Tests) PlanErrorsOnWorkspaceWithNoModules(ctx context.Context) error {
 	if r.planErrorsOnWorkspaceWithNoModules != nil {
 		return nil
 	}
 	q := r.query.Select("planErrorsOnWorkspaceWithNoModules")
+
+	return q.Execute(ctx)
+}
+
+// PlanFindsModulesInEveryConfigShape proves discovery knows both config shapes:
+// dagger.json, and the dagger-module.toml a workspace has once it is migrated.
+// Before this, a module migrated to dagger-module.toml simply vanished from the
+// plan — its changes planned only the root module's legs, and the gate went green.
+//
+// Each tree is planned with no usable diff, so everything runs and no module is
+// built: what comes back is discovery's answer and the name read from each
+// module's config, which is also what shows dagger-module.toml winning where a
+// directory holds both.
+func (r *Tests) PlanFindsModulesInEveryConfigShape(ctx context.Context) error {
+	if r.planFindsModulesInEveryConfigShape != nil {
+		return nil
+	}
+	q := r.query.Select("planFindsModulesInEveryConfigShape")
 
 	return q.Execute(ctx)
 }
@@ -348,6 +434,26 @@ func (r *Tests) PlanLoadsOnlyAffectedModules(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("planLoadsOnlyAffectedModules")
+
+	return q.Execute(ctx)
+}
+
+// PlanReadsFilteredModuleContexts proves a module's context is what the engine
+// really ships for it — its config, its source subtree and its includes — and not
+// the whole tree it was resolved from.
+//
+// The fixture's root module keeps its source under root/, so the README at the
+// fixture's top level is in no module's context and changing it selects nothing
+// beyond the root module's own checks. Until Dagger v1.0.0-beta.15, a module
+// resolved from a Directory reported the whole Directory as its context; the root
+// module would then own the README, and the same change would run everything. If
+// the engine ever goes back to that, this fails rather than every change quietly
+// going global and every hash quietly widening.
+func (r *Tests) PlanReadsFilteredModuleContexts(ctx context.Context) error {
+	if r.planReadsFilteredModuleContexts != nil {
+		return nil
+	}
+	q := r.query.Select("planReadsFilteredModuleContexts")
 
 	return q.Execute(ctx)
 }

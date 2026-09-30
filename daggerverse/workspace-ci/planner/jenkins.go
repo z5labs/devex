@@ -114,14 +114,26 @@ func jenkinsBranch(e Entry, recordCommand string) string {
 // check pattern every other format hands to a CI system, assembled here because
 // a closure with no body drives nothing.
 //
-// An empty filter means "every check this module has", which `dagger check` with
-// no pattern already does.
+// Every leg passes `--module <name>`. Without it the CLI also selects the checks
+// of the module at the workspace root, so every leg would run those as well.
+//
+// A per-check leg passes its pattern, and `dagger check` fails when a pattern
+// matches nothing — which is what a check renamed out from under the plan looks
+// like, so that failure is kept. A coarse leg, whose empty filter means "every
+// check this module has", cannot lean on the same command: since Dagger
+// v1.0.0-beta.15 a `dagger check` that selects nothing is an error rather than a
+// pass, and a coarse leg is emitted without its module ever being loaded, so the
+// plan cannot know whether there is anything to select. It lists the module's
+// checks first and runs them only if there are any. A list that fails still fails
+// the branch: that is what a module that does not build looks like.
 func checkCommand(e Entry) string {
-	cmd := "dagger -m " + shellQuote(e.Module) + " check"
+	check := "dagger -m " + shellQuote(e.Module) + " check --module " + shellQuote(e.ModuleName)
 	if e.Filter != "" {
-		cmd += " " + shellQuote(e.Filter)
+		return check + " " + shellQuote(e.Filter)
 	}
-	return cmd
+	return "links=$(" + check + " -l -f link) || exit 1; " +
+		`if [ -z "$links" ]; then echo ` + shellQuote(e.Module+" declares no checks") + "; " +
+		"else " + check + "; fi"
 }
 
 // groovyString renders s as a Groovy single-quoted literal. Single-quoted is

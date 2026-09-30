@@ -15,7 +15,8 @@ type WorkspaceCiOpts struct {
 	// Repo-relative path prefixes that govern how CI runs rather than what any
 	// check computes; a change to one runs everything. They belong to no module's
 	// source context, so nothing else would attribute them. Defaults to
-	// .github/workflows/, which costs nothing in a workspace that has none.
+	// .github/workflows/ plus a migrated workspace's dagger.toml and dagger.lock,
+	// each of which costs nothing in a workspace that has none.
 	GlobalPaths []string
 	// Repo-relative directories of modules whose checks must each get their own leg
 	// even when everything runs. The run-everything path otherwise emits one leg per
@@ -123,7 +124,6 @@ type WorkspaceCi struct { // workspace-ci (../../../../:0:0)
 
 	affectedModules   *string
 	generated         *Void
-	generatedSelfTest *Void
 	id                *ID
 	memoStoreSelfTest *Void
 	plan              *string
@@ -176,7 +176,19 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // produces at each module's pinned engineVersion.
 //
 // Every module in the workspace is checked, including the root one and every
-// tests or examples module.
+// tests or examples module. Two things make that claim more than a hope:
+//
+//   - It fails when a module went unswept. Every committed generated file must
+//     belong to a module the sweep covered, which is found by globbing for the
+//     files rather than by asking the discovery that drove the sweep — so a
+//     module whose config shape discovery does not know is reported instead of
+//     skipped.
+//   - It proves on every run that it can fail. Alongside the sweep it builds a
+//     bare module of its own, deliberately makes that module's bindings stale,
+//     and runs the same comparison on it; unless the drift is reported, naming
+//     the stale file, the check fails. The check this was extracted from
+//     silently verified nothing for months (#184), so a green sweep is only
+//     worth as much as the proof that a stale module turns it red.
 //
 // This check is why generated files need not be global inputs to the memoization
 // hash: it proves they are derived from inputs that are, it belongs to the root
@@ -191,41 +203,6 @@ func (r *WorkspaceCi) Generated(ctx context.Context, callingWorkspace *Workspace
 		return nil
 	}
 	q := r.query.Select("generated")
-	q = q.Arg("callingWorkspace", callingWorkspace)
-
-	return q.Execute(ctx)
-}
-
-// WorkspaceCiGeneratedSelfTestOpts contains options for WorkspaceCi.GeneratedSelfTest
-type WorkspaceCiGeneratedSelfTestOpts struct {
-	// The module to make stale, repo-relative. Defaults to the first
-	// dependency-free module in the workspace, which is the cheapest one to
-	// regenerate.
-	ProbeModule string
-}
-
-// GeneratedSelfTest pins that Generated can actually fail.
-//
-// The check this repo extracted it from silently verified nothing for months (it
-// routed through Workspace.Generators, which is empty unless a module declares a
-// +generator function), so a green Generated is only worth as much as the proof
-// that a stale module turns it red (#184).
-//
-// It runs the same codegen comparison against a single module, first pristine
-// (expecting no drift) and then with that module's committed bindings deliberately
-// made stale (expecting drift naming the file).
-func (r *WorkspaceCi) GeneratedSelfTest(ctx context.Context, callingWorkspace *Workspace, opts ...WorkspaceCiGeneratedSelfTestOpts) error {
-	assertNotNil("callingWorkspace", callingWorkspace)
-	if r.generatedSelfTest != nil {
-		return nil
-	}
-	q := r.query.Select("generatedSelfTest")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `probeModule` optional argument
-		if !querybuilder.IsZeroValue(opts[i].ProbeModule) {
-			q = q.Arg("probeModule", opts[i].ProbeModule)
-		}
-	}
 	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	return q.Execute(ctx)
@@ -345,11 +322,18 @@ type WorkspaceCiPlanOpts struct {
 // Plan returns the legs of CI to run for a change, each already routed to the
 // module that owns it and bounded by a timeout.
 //
-// Each leg is a {name, module, filter, hash, timeout, jobTimeout} object: the
-// display name, the repo-relative module to invoke with `-m`, the check pattern to
-// pass to `dagger check` (empty to run every check the module has), the input hash
-// a pass may be recorded under (empty means never memoize), and the step and job
-// budgets in minutes.
+// Each leg is a {name, module, moduleName, filter, hash, timeout, jobTimeout}
+// object: the display name, the repo-relative module to invoke with `-m`, that
+// module's own name to pass to `dagger check` as `--module`, the check pattern to
+// pass it (empty to run every check the module has), the input hash a pass may be
+// recorded under (empty means never memoize), and the step and job budgets in
+// minutes.
+//
+// `--module` is not optional. Without it the CLI also selects the checks of the
+// module at the workspace root, so every leg would run those as well. And an empty
+// filter needs care: since Dagger v1.0.0-beta.15 a `dagger check` that selects
+// nothing is an error, so a leg that runs a whole module has to list the module's
+// checks first and pass when there are none. README.md has the command.
 //
 // base and head are the revisions to diff, three-dot (merge-base) like a PR's
 // change set. Either may be written in any form git's rev-parse takes — a full or
@@ -365,9 +349,10 @@ type WorkspaceCiPlanOpts struct {
 // source context, a module whose checks cannot be enumerated.
 //
 // The repository read from is repo, or the workspace's own root when repo is
-// omitted. Everything comes out of it: module discovery is a dagger.json walk,
-// source contexts and check enumeration resolve against it, and the change set
-// comes from its .git.
+// omitted. Everything comes out of it: modules are discovered by their config
+// files — dagger.json, or dagger-module.toml once a workspace is migrated — and
+// resolved through the workspace, checks are enumerated against it, and the change
+// set comes from its .git.
 //
 // A Dagger CLI fills callingWorkspace in from the workspace the call was made
 // in, so a person types neither argument. A module calling this one must pass

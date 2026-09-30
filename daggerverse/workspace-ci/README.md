@@ -28,6 +28,7 @@ run its time, not its coverage.
   {
     "name": "daggerverse/pdf/tests:all",
     "module": "daggerverse/pdf/tests",
+    "moduleName": "tests",
     "filter": "tests:all",
     "hash": "9f0c…",
     "timeout": 6,
@@ -40,7 +41,23 @@ run its time, not its coverage.
 | --- | --- |
 | `name` | the leg's display name, unique across the plan |
 | `module` | the repo-relative module to invoke with `-m`, so a leg loads only what it runs |
+| `moduleName` | that module's own name, to pass to `dagger check` as `--module`; without it the CLI also runs the checks of the module at the workspace root |
 | `filter` | the pattern to pass to `dagger check`; **empty** means run every check the module has |
+
+A leg runs as `dagger -m <module> check --module <moduleName> <filter>`. An
+**empty** filter needs one more step: since Dagger v1.0.0-beta.15 a `dagger
+check` that selects nothing is an error rather than a pass, and a leg that runs a
+whole module is planned without the module ever being loaded, so nobody knows
+whether it has checks. List them first and pass when there are none:
+
+```sh
+links=$(dagger -m "$MODULE" check --module "$NAME" -l -f link) || exit 1
+[ -z "$links" ] || dagger -m "$MODULE" check --module "$NAME"
+```
+
+A leg *with* a filter keeps the error: its pattern was read off the module while
+planning, so a pattern that now matches nothing is a check renamed out from under
+the plan, and that leg must not go green.
 | `hash` | the input hash a pass may be recorded under; **empty** means never memoize this leg |
 | `timeout` | the check step's budget, in minutes |
 | `jobTimeout` | the surrounding job's budget: `timeout` plus setup headroom, computed here because most CI expression languages have no arithmetic |
@@ -237,8 +254,8 @@ consumer pinning `change-aware-ci.yml@v1.2.3` should pass
 `module: github.com/z5labs/devex/daggerverse/workspace-ci@v1.2.3` alongside it,
 or the workflow it pinned will plan with whatever the planner has since become.
 
-To also adopt `generated`, `generated-self-test`, `selection-self-test` and
-`memo-store-self-test` as checks of your own, install this module as a
+To also adopt `generated`, `selection-self-test` and `memo-store-self-test` as
+checks of your own, install this module as a
 **dependency of your root module** and declare them there:
 
 ```go
@@ -266,15 +283,15 @@ Declaring them on the **root** module specifically is what makes them work as
 intended — a plan always runs the root module's checks and never memoizes them,
 which is the premise `generated` rests on. Installing this module as a
 *toolchain* instead surfaces those checks to `dagger check`, but not to a plan:
-enumeration reads `Module.checks`, which reports a module's own checks and not
-its toolchains'. A toolchain check is therefore one no plan ever emits a leg for.
+enumeration lists a module's own checks and not its toolchains'. A toolchain check
+is therefore one no plan ever emits a leg for.
 
 ## What the planner will not do
 
 **It will not load a module it does not have to.** Checks are enumerated per
-module (`Module.checks`), never through a root module that installs every suite
-as a toolchain — enumerating that way costs the load of every toolchain in the
-workspace before any planning happens (~5m in this repository, against 12.3s of
+module, never through a root module that installs every suite as a toolchain —
+enumerating that way costs the load of every toolchain in the workspace before
+any planning happens (~5m in this repository, against 12.3s of
 actual planning). Only modules a change could reach are loaded, and the
 run-everything path emits one leg per module rather than one per check, so it
 loads none at all. Fewer, coarser legs there also means fewer simultaneous engine
@@ -337,7 +354,7 @@ else fails safe towards running too much.
 
 | what went wrong | what happens |
 | --- | --- |
-| no `dagger.json` anywhere | **error** |
+| no `dagger.json` or `dagger-module.toml` anywhere | **error** |
 | the diff range is unusable (new branch, all-zeros base) | everything runs |
 | a revision names no commit here (typo, deleted branch, shallow clone) | everything runs |
 | `.git` cannot be read | everything runs, nothing is memoized |
@@ -356,7 +373,12 @@ context is shipped to no engine, so it cannot affect any check the module feeds.
 That is a property Dagger enforces, not one this module asserts about which files
 look like prose.
 
-Narrow a module's inputs with a negated `include` pattern in its `dagger.json`
+A module is any directory holding a `dagger.json` or a `dagger-module.toml`; where
+a directory holds both, the engine reads `dagger-module.toml`, and so does this
+module, since every module is resolved through the engine's
+`Workspace.moduleSource`.
+
+Narrow a module's inputs with a negated `include` pattern in its config
 (`include` unions on top of the source directory, so only `!` subtracts):
 
 ```json
@@ -372,7 +394,7 @@ Attribution then falls out in four cases:
 | --- | --- |
 | in a module's source context | that module and its dependents |
 | in the root module's source context | every module |
-| under a `--global-paths` prefix (default `.github/workflows/`) | every module |
+| under a `--global-paths` prefix (default `.github/workflows/`, `dagger.toml`, `dagger.lock`) | every module |
 | in no module's source context | nothing beyond the root module's own checks |
 
 Two deliberate asymmetries. The **innermost** module owns a path, so
@@ -387,16 +409,16 @@ The root module's checks always run and are never memoized. They are the ones
 that answer questions about the workspace as a whole, and every global input
 belongs to them.
 
-### The aggregator-binding exception
+### The aggregator-binding exception, dropped
 
-If your root module installs toolchains, Dagger generates one binding per
-toolchain under the root module's source
-(`<root-source>/internal/dagger/<toolchain>.gen.go`). Repo convention regenerates
-one on nearly every module change, and left alone each would land in the root
-module's context and run everything. Each is instead attributed to the toolchain
-it was generated from. That mapping is the only place dagger's kebab-casing rule
-lives — it splits letter↔digit boundaries too, so toolchain `z5labs-tests` owns
-`z-5-labs-tests.gen.go`.
+This module used to attribute each per-toolchain aggregator binding
+(`<root-source>/internal/dagger/<toolchain>.gen.go`) back to the toolchain it was
+generated from, so regenerating one did not land in the root module's context and
+run everything (#179). That rule is gone, because there is nothing left for it to
+fire on: Dagger v1 moved toolchains to workspaces, refuses to load a module whose
+config still declares them, and generates no aggregator bindings. A dependency
+binding under the root module's source is now simply part of the root module's
+context.
 
 ## Skipping work a previous run already proved good
 
@@ -412,7 +434,7 @@ plus the leg's own name and the global inputs. Git object ids, not
 `Directory.digest`: Dagger's digest format is explicitly not stable across
 releases, so a persisted set keyed on it would be invalidated wholesale by every
 engine bump. An engine bump still invalidates every leg, correctly —
-`engineVersion` is a field in every module's `dagger.json`, and each one is in its
+`engineVersion` is a field in every module's config, and each one is in its
 own module's source context.
 
 The **global inputs** are the source contexts of the root module's whole
@@ -527,20 +549,17 @@ matching the forged ones.
 Adding a module to a workspace is the change that touches least and, left alone,
 would cost most: it necessarily edits files under the root module, and if all of
 them were global inputs it would retire the entire store. Two are excluded from
-both the global hash and the trust judgement, and the aggregator-binding rule
-above already handles the third:
+both the global hash and the trust judgement:
 
 | file the change touches | treatment |
 | --- | --- |
-| the root `dagger.json` | not a global input |
+| the root module's config, `dagger.json` or `dagger-module.toml` | not a global input |
 | `<root-source>/internal/dagger/dagger.gen.go` (regenerated with it) | not a global input |
-| `<root-source>/internal/dagger/<new>.gen.go` | attributed to the new toolchain |
 
-**The root `dagger.json`** decides which checks *exist*, never what an existing
-check *computes*. Its `engineVersion` is carried by every other module's
-`dagger.json` too, each in its own source context. Its `toolchains` only decide
-what a workspace-wide enumeration finds, and this planner enumerates per module.
-Its `sdk`, `source`, `include` and `codegen` scope the root module, which is
+**The root module's config** decides which checks *exist*, never what an existing
+check *computes*. Its `engineVersion` is carried by every other module's config
+too, each in its own source context. Its `sdk`, `source`, `include` and `codegen`
+scope the root module, which is
 never memoized — and `include`/`source` decide which paths are in the root
 context at all, so hiding a file with them removes it from the global set and
 moves the digest anyway.
@@ -598,8 +617,9 @@ for it and it can never accidentally retire a later run.
 
 `generated` fails when a module's committed `dagger.gen.go` or
 `internal/dagger/*.gen.go` differ from what codegen produces at the
-pinned `engineVersion`. It covers every `dagger.json` in the calling workspace and
-names each stale module, printing its patch:
+pinned `engineVersion`. It covers every module in the calling workspace — every
+directory with a `dagger.json` or a `dagger-module.toml` — and names each stale
+module, printing its patch:
 
 ```
 ==> daggerverse/kafka/tests is not up-to-date:
@@ -611,13 +631,23 @@ Dependency bindings embed the source location of every function, so an edit that
 only shifts line numbers still leaves every dependent module stale. Regenerate
 the module *and* each dependent, dependencies first.
 
-`generated-self-test` guards that check: it runs the same comparison against one
-module twice, pristine and then deliberately made stale, and fails unless the
-stale copy is reported. The check this was extracted from silently verified
-nothing for months — it routed through `Workspace.Generators()`, which is empty
-unless a module declares a `+generator` function — and the self-test is what makes
-that failure mode impossible to repeat silently. It probes the first
-dependency-free module in the workspace, or whichever one `--probe-module` names.
+Two things stop a green `generated` from meaning less than it says, and both run
+inside it on every run rather than as checks of their own:
+
+- **It proves it can fail.** Alongside the sweep it builds a bare module of its
+  own, deliberately makes that module's bindings stale, and runs the same
+  comparison on it; unless the drift is reported, naming the stale file, the check
+  fails. The check this was extracted from silently verified nothing for months —
+  it routed through `Workspace.Generators()`, which is empty unless a module
+  declares a `+generator` function (#184). The probe is synthetic so that its cost
+  is fixed and nothing outside this module's code is an input to it.
+- **It fails when a module goes unswept.** Every committed generated file must
+  belong to a module the sweep covered — found by globbing for the files, not by
+  asking the discovery that drove the sweep, and matched on the module's exact
+  source directory rather than by prefix or context, either of which would let the
+  root module or a parent vouch for a module nobody swept. A module configured in a
+  shape discovery does not know is reported instead of skipped. This check runs
+  first and needs no codegen.
 
 `selection-self-test` runs the change → modules → legs mapping, and the properties
 a recorded pass depends on, against fixed in-process fixtures. It needs no engine
@@ -642,8 +672,8 @@ which a test cannot mutate; any fixture passed as `--repo` changes the argument,
 so the second call has a different cache key and the test would pass even with
 the directive removed. The directive is still correct — a cached plan describes a
 tree the planner never read — but it is unprovable, and a test that proves
-nothing is worse than none. `generated-self-test` remains the real proof for the
-codegen half.
+nothing is worse than none. The stale-module proof inside `generated` remains the
+real proof for the codegen half.
 
 **No end-to-end test against a real store.** The rules that matter on the read
 side — a known-good hash drops its leg, a global input retires every recorded
