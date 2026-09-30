@@ -14,8 +14,7 @@ import (
 type Oci struct { // oci (../../../../daggerverse/oci/main.go:31:6)
 	query *querybuilder.Selection
 
-	credentialResolutionSelfTest *Void
-	id                           *ID
+	id *ID
 }
 
 func (r *Oci) WithGraphQLQuery(q *querybuilder.Selection) *Oci {
@@ -37,13 +36,12 @@ func (r *Oci) WithGraphQLQuery(q *querybuilder.Selection) *Oci {
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Oci) CredentialResolutionSelfTest(ctx context.Context) error { // oci (../../../../daggerverse/oci/main.go:48:1)
-	if r.credentialResolutionSelfTest != nil {
-		return nil
-	}
+func (r *Oci) CredentialResolutionSelfTest() *Check { // oci (../../../../daggerverse/oci/main.go:48:1)
 	q := r.query.Select("credentialResolutionSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // A unique identifier for this Oci.

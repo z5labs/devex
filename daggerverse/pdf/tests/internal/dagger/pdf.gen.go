@@ -17,9 +17,8 @@ import (
 type Pdf struct { // pdf (../../../../../daggerverse/pdf/main.go:272:6)
 	query *querybuilder.Selection
 
-	id                       *ID
-	renderSchedulingSelfTest *Void
-	version                  *string
+	id      *ID
+	version *string
 }
 type WithPdfFunc func(r *Pdf) *Pdf
 
@@ -170,13 +169,12 @@ func (r *Pdf) Merge(sources []*File) *File { // pdf (../../../../../daggerverse/
 //
 // It runs in-process and needs no container, so it is cheap enough to be a check
 // of its own.
-func (r *Pdf) RenderSchedulingSelfTest(ctx context.Context) error { // pdf (../../../../../daggerverse/pdf/main.go:469:1)
-	if r.renderSchedulingSelfTest != nil {
-		return nil
-	}
+func (r *Pdf) RenderSchedulingSelfTest() *Check { // pdf (../../../../../daggerverse/pdf/main.go:469:1)
 	q := r.query.Select("renderSchedulingSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // Version returns the poppler release the assembled image ships, as the bare

@@ -850,8 +850,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns the\nproduced zig-out directory. On stage-1 failure, returns the aggregated error\nfrom Check and a nil directory (stage 2 is skipped).\n\nRun always builds regardless of WithBuild — it must produce the directory it\nreturns. When WithBuild was called, Check also builds (stage 1); that build\nand stage 2 share inputs, so session caching makes stage 2 a cache hit rather\nthan a second compile.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 144, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 143, 1))).
 					WithFunction(
 						dag.Function("WithBuild",
 							dag.TypeDef().WithObject("Ci")).

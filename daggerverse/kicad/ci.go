@@ -107,7 +107,6 @@ func (c *Ci) Check(ctx context.Context) error {
 // aggregated error from Check and a nil directory (stage 2 is skipped), so a
 // failing check short-circuits before any export work.
 //
-// +check
 // +cache="session"
 func (c *Ci) Run(ctx context.Context) (*dagger.Directory, error) {
 	if err := c.Check(ctx); err != nil {

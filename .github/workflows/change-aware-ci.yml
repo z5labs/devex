@@ -65,10 +65,10 @@ on:
           The Dagger CLI and engine version. This is the single pin for both: the
           engine image is cached and docker-loaded under it, and the CLI installed at
           it, so the run legs provision from the local image rather than the registry.
-          A prerelease is spelled the way the release is (1.0.0-beta.13), with no
+          A prerelease is spelled the way the release is (1.0.0-beta.15), with no
           leading v.
         type: string
-        default: "1.0.0-beta.13"
+        default: "1.0.0-beta.15"
       runs-on:
         description: The runner label for every job here.
         type: string

@@ -79,10 +79,9 @@ func (r *Query) Tesseract(opts ...TesseractOpts) *Tesseract { // tesseract (../.
 type Tesseract struct { // tesseract (../../../../../daggerverse/tesseract/main.go:255:6)
 	query *querybuilder.Selection
 
-	batchSchedulingSelfTest *Void
-	id                      *ID
-	parameters              *string
-	version                 *string
+	id         *ID
+	parameters *string
+	version    *string
 }
 type WithTesseractFunc func(r *Tesseract) *Tesseract
 
@@ -134,13 +133,12 @@ func (r *Tesseract) Batch(source *Directory) *TesseractBatch { // tesseract (../
 //
 // It runs in-process and needs no container, so it is cheap enough to be a check
 // of its own.
-func (r *Tesseract) BatchSchedulingSelfTest(ctx context.Context) error { // tesseract (../../../../../daggerverse/tesseract/main.go:474:1)
-	if r.batchSchedulingSelfTest != nil {
-		return nil
-	}
+func (r *Tesseract) BatchSchedulingSelfTest() *Check { // tesseract (../../../../../daggerverse/tesseract/main.go:474:1)
 	q := r.query.Select("batchSchedulingSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // Ci returns a new pipeline builder over a directory of scans. Which files take

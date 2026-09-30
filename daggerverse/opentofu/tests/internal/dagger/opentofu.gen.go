@@ -137,8 +137,7 @@ func (r *Opentofu) AsNode() Node {
 type OpentofuCi struct { // opentofu (../../../../../daggerverse/opentofu/ci.go:25:6)
 	query *querybuilder.Selection
 
-	check *Void
-	id    *ID
+	id *ID
 }
 type WithOpentofuCiFunc func(r *OpentofuCi) *OpentofuCi
 
@@ -167,13 +166,12 @@ func (r *OpentofuCi) WithGraphQLQuery(q *querybuilder.Selection) *OpentofuCi {
 // nothing and reporting success is the purest false green there is — see issue
 // #161, where a Check that skipped the one stage that could fail reported a
 // configuration as sound when it was not.
-func (r *OpentofuCi) Check(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/ci.go:95:1)
-	if r.check != nil {
-		return nil
-	}
+func (r *OpentofuCi) Check() *Check { // opentofu (../../../../../daggerverse/opentofu/ci.go:95:1)
 	q := r.query.Select("check")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // A unique identifier for this OpentofuCi.
@@ -238,7 +236,7 @@ func (r *OpentofuCi) UnmarshalJSON(bs []byte) error {
 // Everything runs in one parallel round, so the returned artifacts come from a
 // pipeline where every stage passed. A failing stage yields the aggregated
 // error and a nil directory.
-func (r *OpentofuCi) Run() *Directory { // opentofu (../../../../../daggerverse/opentofu/ci.go:127:1)
+func (r *OpentofuCi) Run() *Directory { // opentofu (../../../../../daggerverse/opentofu/ci.go:126:1)
 	q := r.query.Select("run")
 
 	return &Directory{

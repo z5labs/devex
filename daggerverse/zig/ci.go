@@ -139,7 +139,6 @@ func (c *Ci) Check(ctx context.Context) error {
 // and stage 2 share inputs, so session caching makes stage 2 a cache hit rather
 // than a second compile.
 //
-// +check
 // +cache="session"
 func (c *Ci) Run(ctx context.Context) (*dagger.Directory, error) {
 	if err := c.Check(ctx); err != nil {

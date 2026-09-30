@@ -122,7 +122,6 @@ func (ci *Ci) Check(ctx context.Context) error {
 // pipeline where every stage passed. A failing stage yields the aggregated
 // error and a nil directory.
 //
-// +check
 // +cache="session"
 func (ci *Ci) Run(ctx context.Context) (*dagger.Directory, error) {
 	var out *dagger.Directory
