@@ -14,10 +14,8 @@ import (
 type Ci struct { // ci (../../../:0:0)
 	query *querybuilder.Selection
 
-	generated         *Void
-	generatedSelfTest *Void
-	id                *ID
-	selectionSelfTest *Void
+	generated *Void
+	id        *ID
 }
 
 func (r *Ci) WithGraphQLQuery(q *querybuilder.Selection) *Ci {
@@ -29,6 +27,10 @@ func (r *Ci) WithGraphQLQuery(q *querybuilder.Selection) *Ci {
 // Generated verifies that every committed dagger.gen.go and
 // internal/dagger/*.gen.go in the workspace matches what codegen produces at
 // the pinned engineVersion, naming each stale module and printing its patch.
+//
+// It also proves, on every run, that it can fail and that it looked at every
+// module: see daggerverse/workspace-ci's Generated. That is why this module no
+// longer carries separate self-test checks of its own.
 //
 // It is declared here rather than left to daggerverse/workspace-ci's own checks
 // because only the root module's checks run for every change. That is also what
@@ -47,24 +49,6 @@ func (r *Ci) Generated(ctx context.Context, callingWorkspace *Workspace) error {
 		return nil
 	}
 	q := r.query.Select("generated")
-	q = q.Arg("callingWorkspace", callingWorkspace)
-
-	return q.Execute(ctx)
-}
-
-// GeneratedSelfTest proves Generated can actually fail: it runs the same
-// comparison against one module twice, pristine and then deliberately made
-// stale, and fails unless the stale copy is reported.
-//
-// The check this was extracted from silently verified nothing for months (#184),
-// so a green Generated is only worth as much as the proof that a stale module
-// turns it red.
-func (r *Ci) GeneratedSelfTest(ctx context.Context, callingWorkspace *Workspace) error {
-	assertNotNil("callingWorkspace", callingWorkspace)
-	if r.generatedSelfTest != nil {
-		return nil
-	}
-	q := r.query.Select("generatedSelfTest")
 	q = q.Arg("callingWorkspace", callingWorkspace)
 
 	return q.Execute(ctx)
@@ -117,21 +101,6 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 	}
 	*r = Ci{query: selectNode(dag.query, id, "Ci")}
 	return nil
-}
-
-// SelectionSelfTest runs the change -> modules -> legs mapping, and the
-// properties a recorded pass depends on, against workspace-ci's fixed fixtures.
-//
-// A regression there under-runs this repository's CI silently, so it is checked
-// on every change rather than only when the planner itself is edited. It needs
-// no engine and no services, which is what makes that affordable.
-func (r *Ci) SelectionSelfTest(ctx context.Context) error {
-	if r.selectionSelfTest != nil {
-		return nil
-	}
-	q := r.query.Select("selectionSelfTest")
-
-	return q.Execute(ctx)
 }
 
 func (r *Query) Ci() *Ci { // ci (../../../:0:0)

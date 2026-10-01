@@ -968,8 +968,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("File")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns\nthe built binary as a *dagger.File. On stage-1 failure, returns the\naggregated error from Check and a nil file (stage 2 is skipped).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 173, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 172, 1))).
 					WithFunction(
 						dag.Function("WithBuild",
 							dag.TypeDef().WithObject("Ci")).

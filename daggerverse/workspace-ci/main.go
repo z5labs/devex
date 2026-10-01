@@ -9,9 +9,9 @@
 // call and at most a format shim.
 //
 // Nothing here loads a module the plan does not need. Checks are enumerated per
-// module (Module.checks), never through a root aggregator that installs every
-// suite as a toolchain, and the run-everything path emits one leg per module so
-// it loads none at all. See README.md for what counts as a change, what is never
+// module, never through a root aggregator that installs every suite as a
+// toolchain, and the run-everything path emits one leg per module so it loads
+// none at all. See README.md for what counts as a change, what is never
 // memoized, and how base-image drift is bounded.
 package main
 
@@ -79,7 +79,8 @@ func New(
 	// Repo-relative path prefixes that govern how CI runs rather than what any
 	// check computes; a change to one runs everything. They belong to no module's
 	// source context, so nothing else would attribute them. Defaults to
-	// .github/workflows/, which costs nothing in a workspace that has none.
+	// .github/workflows/ plus a migrated workspace's dagger.toml and dagger.lock,
+	// each of which costs nothing in a workspace that has none.
 	//
 	// +optional
 	globalPaths []string,
@@ -199,11 +200,18 @@ const (
 // Plan returns the legs of CI to run for a change, each already routed to the
 // module that owns it and bounded by a timeout.
 //
-// Each leg is a {name, module, filter, hash, timeout, jobTimeout} object: the
-// display name, the repo-relative module to invoke with `-m`, the check pattern to
-// pass to `dagger check` (empty to run every check the module has), the input hash
-// a pass may be recorded under (empty means never memoize), and the step and job
-// budgets in minutes.
+// Each leg is a {name, module, moduleName, filter, hash, timeout, jobTimeout}
+// object: the display name, the repo-relative module to invoke with `-m`, that
+// module's own name to pass to `dagger check` as `--module`, the check pattern to
+// pass it (empty to run every check the module has), the input hash a pass may be
+// recorded under (empty means never memoize), and the step and job budgets in
+// minutes.
+//
+// `--module` is not optional. Without it the CLI also selects the checks of the
+// module at the workspace root, so every leg would run those as well. And an empty
+// filter needs care: since Dagger v1.0.0-beta.15 a `dagger check` that selects
+// nothing is an error, so a leg that runs a whole module has to list the module's
+// checks first and pass when there are none. README.md has the command.
 //
 // base and head are the revisions to diff, three-dot (merge-base) like a PR's
 // change set. Either may be written in any form git's rev-parse takes — a full or
@@ -219,9 +227,10 @@ const (
 // source context, a module whose checks cannot be enumerated.
 //
 // The repository read from is repo, or the workspace's own root when repo is
-// omitted. Everything comes out of it: module discovery is a dagger.json walk,
-// source contexts and check enumeration resolve against it, and the change set
-// comes from its .git.
+// omitted. Everything comes out of it: modules are discovered by their config
+// files — dagger.json, or dagger-module.toml once a workspace is migrated — and
+// resolved through the workspace, checks are enumerated against it, and the change
+// set comes from its .git.
 //
 // A Dagger CLI fills callingWorkspace in from the workspace the call was made
 // in, so a person types neither argument. A module calling this one must pass
@@ -426,6 +435,9 @@ func (m *WorkspaceCi) plan(
 
 	affected, full := ws.affected(ctx, base, head)
 	out := &planReport{AffectedModules: affected, Full: full, MemoTrusted: true}
+	if err := ws.resolveNames(ctx, affected); err != nil {
+		return nil, err
+	}
 
 	if full {
 		// One leg per module rather than one per check: the plan never loads a
@@ -433,7 +445,7 @@ func (m *WorkspaceCi) plan(
 		// modules the caller named as splits are the exception, and pay a load each.
 		coarse, split := ws.partitionSplits(affected)
 		for _, dir := range coarse {
-			out.Plan = append(out.Plan, planner.ModuleEntry(dir))
+			out.Plan = append(out.Plan, planner.ModuleEntry(dir, ws.names[dir]))
 		}
 		out.Plan = append(out.Plan, ws.legs(ctx, split)...)
 	} else {
@@ -478,7 +490,7 @@ func (m *WorkspaceCi) memoize(
 	for h := range parseKnownGood(supplied) {
 		known[h] = true
 	}
-	if !planner.MemoTrusted(ws.changes, ws.moduleDirs, ws.srcs, ws.bindings, m.GlobalPaths, ws.nonGlobal()) {
+	if !planner.MemoTrusted(ws.changes, ws.moduleDirs, ws.srcs, m.GlobalPaths, ws.nonGlobal()) {
 		fmt.Fprintf(os.Stderr, "workspace-ci: a global input changed; ignoring recorded passes\n")
 		return hashed, nil, false, len(known), nil
 	}

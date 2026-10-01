@@ -168,7 +168,6 @@ func (c *Ci) Check(ctx context.Context) error {
 // the built binary as a *dagger.File. On stage-1 failure, returns the
 // aggregated error from Check and a nil file (stage 2 is skipped).
 //
-// +check
 // +cache="session"
 func (c *Ci) Run(ctx context.Context) (*dagger.File, error) {
 	if err := c.Check(ctx); err != nil {

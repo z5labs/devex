@@ -701,7 +701,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "":
 		return dag.Module().
-			WithDescription("Package main implements the test module for the opentofu Dagger module.\nEach test is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hermetic: they use hashicorp/random and\nhashicorp/local only, so nothing needs a cloud credential. The random\nprovider's resources exist purely in state, which is what makes the\nstate round-trip assertions meaningful — there is no out-of-band object to\ndrift away underneath them.\n\nThe remote-state fixtures declare an s3 backend, and it too is hermetic: the\nS3 they write to is a MinIO service the suite stands up per test, with a\nroot credential minted at runtime. See backend.go.\n").
+			WithDescription("Package main implements the test module for the opentofu Dagger module.\nEach test is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hermetic: they use hashicorp/random and\nhashicorp/local only, so nothing needs a cloud credential. The random\nprovider's resources exist purely in state, which is what makes the\nstate round-trip assertions meaningful — there is no out-of-band object to\ndrift away underneath them.\n\nThe remote-state fixtures declare an s3 backend, and it too is hermetic: the\nS3 they write to is a Versity Gateway service the suite stands up per test,\nwith a root credential minted at runtime. See backend.go.\n").
 			WithObject(
 				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 27, 6)}).
 					WithFunction(
@@ -741,7 +741,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("BackendConfigFileMatchesBackendConfig",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("BackendConfigFileMatchesBackendConfig asserts the file form of the backend\nsettings selects the same backend as the individual calls: state written\nthrough one is found by the other.\n\nA Plan reporting no changes is the assertion, because the only way this\nConfig can know there is nothing to do is by having read the state the\nflag-configured apply left behind.").
-							WithSourceMap(dag.SourceMap("backend.go", 109, 1))).
+							WithSourceMap(dag.SourceMap("backend.go", 117, 1))).
 					WithFunction(
 						dag.Function("CiCheckAggregatesStageFailures",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -801,7 +801,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("ConcurrentAppliesDoNotCorruptState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ConcurrentAppliesDoNotCorruptState asserts two applies racing for the same\nremote state either serialise or fail on the lock — never both go through as\nif the other had not happened.\n\nThe two accepted outcomes are asserted separately because which one occurs\nis a matter of timing, not of correctness:\n\n  - one apply fails with tofu's state-lock diagnostic, or\n  - both succeed, and exactly one of them created the resources while the\n    other found them already there.\n\nThe second half is what makes this more than a smoke test. A backend without\nworking locking also lets both applies succeed — but then both start from an\nempty state, both report resources added, and the loser's work is silently\ndropped when the winner writes its state.").
-							WithSourceMap(dag.SourceMap("backend.go", 220, 1))).
+							WithSourceMap(dag.SourceMap("backend.go", 228, 1))).
 					WithFunction(
 						dag.Function("ContainerHasGitAndCaCertificates",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -927,12 +927,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("RemoteBackendRoundTripsState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("RemoteBackendRoundTripsState asserts the backend path end to end: an apply\nagainst a real S3 backend hands back no terraform.tfstate, the backend holds\nthe state instead, a second Config reads it back with nothing but the\nbackend settings to go on, and a destroy empties it.\n\nThe file-carried tests can only prove that WithBackendConfig reaches\n`tofu init`; this one proves the state actually goes somewhere else.").
-							WithSourceMap(dag.SourceMap("backend.go", 22, 1))).
+							WithSourceMap(dag.SourceMap("backend.go", 30, 1))).
 					WithFunction(
 						dag.Function("RemoteWorkspacesIsolateState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("RemoteWorkspacesIsolateState asserts WithWorkspace partitions a remote\nbackend: an apply in one workspace is invisible to a plan in another, and\nthe two states are distinct objects in the bucket.\n\nThe local backend makes this awkward to see — each workspace's state comes\nback as the same terraform.tfstate file in a different directory — which is\nwhy the isolation is pinned here rather than alongside the file-carried\nworkspace test.").
-							WithSourceMap(dag.SourceMap("backend.go", 145, 1))).
+							WithSourceMap(dag.SourceMap("backend.go", 153, 1))).
 					WithFunction(
 						dag.Function("SecretVarReachesTofuWithoutLeaking",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

@@ -2,21 +2,20 @@ package planner
 
 import (
 	"path"
+	"sort"
 	"strings"
-	"unicode"
 )
 
 // bindingExt suffixes every generated dependency binding dagger emits.
 const bindingExt = ".gen.go"
 
-// coreBindingStem is the binding for the module's own core API, the one that is
-// attributable to no toolchain at all.
+// coreBindingStem is the binding for the module's own core API.
 const coreBindingStem = "dagger"
 
 // BindingDir returns the directory the root module's generated dependency
 // bindings live in. rootSource is the root module's source subpath from its
-// dagger.json ("ci" in this repo, "" or "." when the module is the repository
-// root itself).
+// config ("ci" in this repo, "" or "." when the module is the repository root
+// itself).
 func BindingDir(rootSource string) string {
 	dir := path.Join(cleanRootSource(rootSource), "internal", "dagger")
 	return dir + "/"
@@ -35,82 +34,55 @@ func cleanRootSource(rootSource string) string {
 	return s
 }
 
-// AggregatorBindings maps each per-toolchain aggregator binding path under the
-// root module to the toolchain module directory it is generated from, so that
-// regenerating a single binding — which repo convention requires whenever a
-// toolchain's sources shift line numbers — is attributed to that toolchain
-// instead of tripping Attribute's root-module fail-safe and forcing everything
-// to run (#179).
+// GeneratedFor returns the source directory a committed generated file was
+// written into by codegen, repo-relative and "." for the repository root: the
+// directory holding a dagger.gen.go, or the one above an internal/dagger/*.gen.go.
+// That directory is a module's source subpath, which is where the Go SDK writes
+// every file it generates. ok is false for a path of neither shape.
+func GeneratedFor(p string) (dir string, ok bool) {
+	p = strings.TrimPrefix(path.Clean(p), "/")
+	parent := path.Dir(p)
+	switch {
+	case strings.HasSuffix(p, bindingExt) && (parent == "internal/dagger" || strings.HasSuffix(parent, "/internal/dagger")):
+		return path.Dir(path.Dir(parent)), true
+	case path.Base(p) == coreBindingStem+bindingExt:
+		return parent, true
+	}
+	return "", false
+}
+
+// Unswept returns, sorted, the committed generated files that belong to no swept
+// module: those whose GeneratedFor directory is not the source subpath of any
+// module in sourceDirs.
 //
-// toolchains maps a toolchain name to its source directory, straight out of the
-// root module's dagger.json. The binding's file name is the toolchain name after
-// dagger's kebab-casing (toolchain z5labs-tests -> internal/dagger/z-5-labs-tests.gen.go),
-// which is why Kebab lives in this package: this is now the only copy of that
-// rule, where the workflow's jq and the check-name prefix each used to hold one.
+// It is the check that a freshness sweep looked at everything, and its whole value
+// is that its two inputs are independent. generated comes from globbing the
+// workspace for the files codegen writes; sourceDirs comes from the module
+// discovery that drove the sweep. A module discovery does not recognise — a config
+// shape it does not know, a marker it was never taught — still has its generated
+// files committed, so it shows up here instead of being skipped in silence.
 //
-// The mapping deliberately covers nothing else. Any other path under the root
-// module's source — including the core binding, which no single toolchain owns —
-// is absent here and so still runs everything.
-func AggregatorBindings(rootSource string, toolchains map[string]string) map[string]string {
-	dir := BindingDir(rootSource)
-	out := make(map[string]string, len(toolchains))
-	ambiguous := map[string]bool{}
-	for name, src := range toolchains {
-		if name == "" || src == "" {
+// Ownership is by exact source directory and never by prefix or by source
+// context. The root module owns every path by prefix, and a module's context can
+// contain a nested module's files, so either test would let the root or a parent
+// quietly account for a module nobody swept.
+func Unswept(generated, sourceDirs []string) []string {
+	swept := make(map[string]bool, len(sourceDirs))
+	for _, dir := range sourceDirs {
+		dir = strings.Trim(path.Clean(dir), "/")
+		if dir == "" {
+			dir = "."
+		}
+		swept[dir] = true
+	}
+	var out []string
+	for _, p := range generated {
+		dir, ok := GeneratedFor(p)
+		if ok && swept[dir] {
 			continue
 		}
-		p := dir + Kebab(name) + bindingExt
-		if prev, seen := out[p]; seen && prev != src {
-			// Two toolchains cannot share a binding; if the config says
-			// otherwise, something is off — fail open rather than guess.
-			ambiguous[p] = true
-		}
-		out[p] = src
+		out = append(out, p)
 	}
-	for p := range ambiguous {
-		delete(out, p)
-	}
-	delete(out, CoreBinding(rootSource))
+	sort.Strings(out)
 	return out
-}
-
-// Kebab applies dagger's kebab-casing to a name: camel-case boundaries and
-// letter<->digit boundaries both become hyphens, and the result is lowercased.
-// It is how a toolchain name (z5labs-tests) becomes the stem of the binding
-// dagger generates for it (z-5-labs-tests.gen.go).
-func Kebab(name string) string {
-	var b strings.Builder
-	runes := []rune(name)
-	for i, r := range runes {
-		var next rune
-		if i+1 < len(runes) {
-			next = runes[i+1]
-		}
-		if i > 0 && needsHyphen(runes[i-1], r, next) {
-			b.WriteRune('-')
-		}
-		b.WriteRune(unicode.ToLower(r))
-	}
-	return b.String()
-}
-
-// needsHyphen reports whether a hyphen belongs before cur, given the rune before
-// it and the one after. An existing separator never gets a second one, and the run
-// of capitals inside an acronym is not split — only a lower->upper transition, a
-// digit boundary, and the tail of an acronym (HTTPServer -> http-server, where the
-// S is upper, follows an upper, and is followed by a lower) do.
-func needsHyphen(prev, cur, next rune) bool {
-	if prev == '-' || cur == '-' {
-		return false
-	}
-	switch {
-	case unicode.IsDigit(cur) != unicode.IsDigit(prev):
-		return unicode.IsLetter(prev) || unicode.IsLetter(cur)
-	case !unicode.IsUpper(cur):
-		return false
-	case !unicode.IsUpper(prev):
-		return true
-	default:
-		return unicode.IsLower(next)
-	}
 }

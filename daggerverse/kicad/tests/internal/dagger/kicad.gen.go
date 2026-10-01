@@ -175,8 +175,7 @@ func (r *Kicad) AsNode() Node {
 type KicadCi struct { // kicad (../../../../../daggerverse/kicad/ci.go:37:6)
 	query *querybuilder.Selection
 
-	check *Void
-	id    *ID
+	id *ID
 }
 type WithKicadCiFunc func(r *KicadCi) *KicadCi
 
@@ -197,13 +196,12 @@ func (r *KicadCi) WithGraphQLQuery(q *querybuilder.Selection) *KicadCi {
 // github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
 // when callers want to run the checks independently of the outputs (for
 // example a PR gate that never needs the fabrication package).
-func (r *KicadCi) Check(ctx context.Context) error { // kicad (../../../../../daggerverse/kicad/ci.go:92:1)
-	if r.check != nil {
-		return nil
-	}
+func (r *KicadCi) Check() *Check { // kicad (../../../../../daggerverse/kicad/ci.go:92:1)
 	q := r.query.Select("check")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // A unique identifier for this KicadCi.
@@ -259,7 +257,7 @@ func (r *KicadCi) UnmarshalJSON(bs []byte) error {
 // enabled outputs merged into one directory. On stage-1 failure, returns the
 // aggregated error from Check and a nil directory (stage 2 is skipped), so a
 // failing check short-circuits before any export work.
-func (r *KicadCi) Run() *Directory { // kicad (../../../../../daggerverse/kicad/ci.go:112:1)
+func (r *KicadCi) Run() *Directory { // kicad (../../../../../daggerverse/kicad/ci.go:111:1)
 	q := r.query.Select("run")
 
 	return &Directory{

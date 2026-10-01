@@ -30,7 +30,8 @@ generate`, which is driven by a workspace `dagger.toml`; this repository's
 modules are still configured the legacy way (one `dagger.json` each, which v1
 reads by inference), so `dagger generate` finds no generators here. Use
 `hack/regen.sh` instead — it drives the API `develop` used to sit on
-(`ModuleSource.generatedContextDirectory`), for every module in the tree, in
+(`ModuleSource.generatedContextDirectory`), for every module in the tree —
+every directory holding a `dagger.json` or a `dagger-module.toml` — in
 dependency order, and bumps each `engineVersion` to the pin:
 
 ```
@@ -47,6 +48,11 @@ printf '{ moduleSource(refString: "%s") { generatedContextDirectory { export(pat
 If module A depends on module B (e.g. `tests/` depends on `..`), regenerate
 **both**, B first, so A picks up B's new API. `hack/regen.sh` already orders
 the whole tree that way.
+
+`dagger check 'ci:generated'` at the repo root is the proof: it regenerates every
+module in memory and fails naming each one whose committed files differ. It also
+fails when a committed `dagger.gen.go` belongs to no module it swept, so a module
+it cannot see is an error rather than a gap.
 
 ## Re-hydrating an object from its ID: `dagger.Ref`, not `LoadXFromID`
 
@@ -78,7 +84,8 @@ until something selects off it.
 - `<module>/dagger.json` — module config: name, engineVersion, sdk, dependencies.
 - `<module>/dagger.gen.go`, `internal/dagger/` — generated; do not edit.
 - `<module>/tests/` — a separate module that depends on `..` and exposes test
-  functions discoverable via `dagger call <test-name>` or `dagger call all`.
+  functions callable as `dagger call <test-name>`, plus an `All` marked
+  `+check` that runs them all under `dagger check --module tests`.
 
 ## SBOM production belongs to the ecosystem module
 
@@ -374,8 +381,16 @@ and CLI names become kebab-case (`Sha256ShouldNotBeCached` → `sha-256-should-n
 
 - `dagger functions -m <dir>` — list functions exposed by a module.
 - `dagger call -m <dir> <fn> [--arg=val]` — invoke a function.
-- `dagger check -m <dir> [pattern]` — run a module's checks (`dagger checks`,
-  plural, was removed in v1).
+- `dagger -m <dir> check --module <name> [pattern]` — run a module's checks
+  (`dagger checks`, plural, was removed in v1). On v1.0.0-beta.15 `--module` is
+  needed: in this repository's `dagger.json`-configured workspace, `-m` alone
+  also selects the root module's checks (`ci:generated`). A pattern is
+  `<name>:<check-kebab>`.
+- `dagger -m <dir> check --module <name> -l` — list them, as a `MODULE  CHECK
+  DESCRIPTION` table; `-f link` prints one `dag+check://…` line per check
+  instead, and nothing at all when there are none. Since beta.15 a `dagger
+  check` that selects nothing — no checks, or a pattern that matches none —
+  exits non-zero rather than passing.
 - `hack/regen.sh` — regenerate SDK bindings after source changes; see above.
 - `dagger version` — engine and CLI version.
 
@@ -383,6 +398,61 @@ and CLI names become kebab-case (`Sha256ShouldNotBeCached` → `sha-256-should-n
 
 These have all bitten this repo at least once. They live here so the
 next module author doesn't lose an hour to them.
+
+### A `+check` returns only `error`, and calling one gives you a `*dagger.Check`
+
+Two rules arrived with Dagger v1.0.0-beta.15 (#446), and both change what a
+check is from the caller's side.
+
+**A check may return nothing but an error.** A `+check` method that also
+returns a value fails the whole module load, for the module and every
+dependent:
+
+```
+failed to add object to module "go": check Ci.run must return Void
+```
+
+That is why the `Run` methods on the `Ci` builders of `go`, `java` (Maven and
+Gradle), `kicad`, `opentofu` and `zig` lost their `+check`: each returns its
+artifact (a `*dagger.Directory`, or a `*dagger.File` for `go`) after running the
+pipeline. Each builder's `Check` method is still a check. If a
+function has to both gate and hand something back, split it.
+
+**Calling a check does not run it.** A dependency's `+check` method reaches a
+caller as a deferred `*dagger.Check`, not as the error it returns, so
+`err := dag.Foo().Ci().Check(ctx)` no longer compiles and there is nothing to
+`if err != nil` on. Each tests module that calls one carries a `checkErr` in
+`checkerr.go`:
+
+```go
+func checkErr(ctx context.Context, check *dagger.Check) error {
+	failure, err := check.Error(ctx)
+	if err != nil {
+		return err
+	}
+	if failure == nil {
+		return nil // passed
+	}
+	msg, err := failure.Message(ctx)
+	if err != nil {
+		return err
+	}
+	return errors.New(msg)
+}
+```
+
+Three measured details are why it has that shape. A passing check's `Error` is
+`nil, nil`. Selecting `Error` twice off one handle runs a never-cached check
+twice — two different messages — so it is selected once and `Message` is read
+off that result. And `Check.Sync` is no substitute: it hands back the lazy
+`*Check`, and resolving that succeeds on a failing check. The message is the
+check's own error text with the usual ` [traceparent:…]` suffix; an exec
+failure's is only `exit code: N`, with stdout and stderr in `Error.Values`
+rather than the message.
+
+The CLI has the same shape: **`dagger call <check>` exits 0 whether the check
+passes or fails**, printing only `Check@xxh3:…`. Only `dagger check` runs one to
+a verdict.
 
 ### Long-running service commands go in `AsService(opts.Args)`, not `WithExec`
 
@@ -709,14 +779,29 @@ the suite; do not even write all tests then implement.
    `<module>/tests` both pick it up.
 4. Run `dagger -m daggerverse/<module>/tests call <test-name-kebab>`
    and confirm it fails for the *expected* reason (compile error,
-   missing factory, validation gap) — not an unrelated reason.
+   missing factory, validation gap) — not an unrelated reason. This
+   works because an individual test is a plain function returning
+   `error`, not a `+check`; if the test you are driving *is* a check,
+   run it with `dagger check` instead (see below).
 5. Implement the **minimum** code in `<module>/main.go` to flip that
    single test green.
 6. Re-run the single test until green.
 7. Only then move to the next test.
 
-Run `dagger -m daggerverse/<module>/tests call all` only at the end,
-after every individual test is green. Reason: a single failure inside
+Run the whole suite only at the end, after every individual test is
+green, and run it as a check:
+
+```
+dagger -m daggerverse/<module>/tests check --module tests
+```
+
+**Not** `dagger call all`. `All` is a `+check`, and on Dagger
+v1.0.0-beta.15 calling a check only prints the deferred `Check@xxh3:…`
+and exits 0 whether it passed or failed, so a red suite reads as green.
+`--module tests` keeps the root module's `ci:generated` from being
+selected alongside it.
+
+Why only at the end: a single failure inside
 the parallel aggregator triggers a cross-feature debugging trip and
 buries the actual root cause under red herrings (a YAML rendering bug
 masquerades as a network-binding bug; a validation-message mismatch

@@ -11,8 +11,13 @@ import (
 // runner.
 //
 // Name is the display name, unique across the plan. Module is the repo-relative
-// module to invoke with `-m`, so a leg loads only what it runs rather than the
-// whole workspace. Filter is the check pattern to pass to `dagger check`
+// module to invoke with `-m`, so a leg runs one module's checks rather than the
+// whole workspace's. ModuleName is that module's own name, which `dagger check`
+// needs as `--module`: without it, the CLI also selects the checks of the module
+// at the workspace root, so every leg would run those too. `--module` narrows
+// what a leg selects, not what it loads: on Dagger v1.0.0-beta.15, in a
+// workspace configured by dagger.json, the CLI still loads the root module on
+// every leg (#447). Filter is the check pattern to pass to `dagger check`
 // (`<module-name>:<check>`), empty to run every check the module has. Hash is the
 // input hash a pass may be recorded under, empty when this leg must never be
 // memoized. Timeout is the check step's budget in minutes and JobTimeout the
@@ -20,6 +25,7 @@ import (
 type Entry struct {
 	Name       string `json:"name"`
 	Module     string `json:"module"`
+	ModuleName string `json:"moduleName"`
 	Filter     string `json:"filter"`
 	Hash       string `json:"hash"`
 	Timeout    int    `json:"timeout"`
@@ -35,26 +41,28 @@ const JobTimeoutHeadroom = 4
 // CheckEntry is a leg that runs a single check.
 //
 // moduleDir is repo-relative and moduleName is the module's own name from its
-// dagger.json; `dagger check` names a check <module-name>:<check>, while the
+// config; `dagger check` names a check <module-name>:<check>, while the
 // display name uses the directory because two modules in a workspace may share a
 // name (every tests module in this repo is called "tests").
 func CheckEntry(moduleDir, moduleName, checkName string) Entry {
 	return Entry{
-		Name:   moduleDir + ":" + checkName,
-		Module: moduleDir,
-		Filter: moduleName + ":" + checkName,
+		Name:       moduleDir + ":" + checkName,
+		Module:     moduleDir,
+		ModuleName: moduleName,
+		Filter:     moduleName + ":" + checkName,
 	}
 }
 
 // ModuleEntry is a leg that runs every check a module has, without the plan ever
 // having loaded it. It is what the run-everything path emits, and what a module
-// whose checks could not be enumerated falls back to.
+// whose checks could not be enumerated falls back to. moduleName is read from the
+// module's config, which needs no build.
 //
 // Its display name is the module directory, because there is no check to name it
 // after. That makes Name and Module the same string, which is the collision
 // Timeouts has a key shape of its own for; see IsCoarse and CoarseKey.
-func ModuleEntry(moduleDir string) Entry {
-	return Entry{Name: moduleDir, Module: moduleDir}
+func ModuleEntry(moduleDir, moduleName string) Entry {
+	return Entry{Name: moduleDir, Module: moduleDir, ModuleName: moduleName}
 }
 
 // IsCoarse reports whether this leg runs a module's whole suite rather than one of

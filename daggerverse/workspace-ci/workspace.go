@@ -4,10 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -30,14 +29,17 @@ const engineConcurrency = 8
 // workspace is the repository a plan is computed from, materialized on disk with
 // everything read off it that does not depend on the diff.
 //
-// It is held two ways because the two things done to it need different handles.
-// go-git reads an os filesystem, so the repository is exported to disk; module
-// sources are resolved off the Directory, because a module runtime cannot load a
-// local module source at all (see moduleSource). Both describe the same tree,
-// which is also what lets a caller plan for a repository that is not their
-// workspace.
+// It is held three ways because the things done to it need different handles.
+// go-git reads an os filesystem, so the repository is exported to disk. Modules
+// are discovered and resolved through a Workspace, which is what reads each
+// module's own config — either shape — and filters its context the way the engine
+// does. And checks are enumerated off a Workspace built from the repository
+// Directory, the one kind that can have a module installed into it (see
+// moduleLegs). All three describe the same tree, which is also what lets a
+// caller plan for a repository that is not their workspace.
 type workspace struct {
 	m       *WorkspaceCi
+	ws      *dagger.Workspace // where module sources resolve
 	dir     *dagger.Directory // the repository
 	root    string            // absolute path of the exported copy
 	cleanup func()
@@ -46,10 +48,11 @@ type workspace struct {
 	// the root module reported as ".".
 	moduleDirs []string
 	sources    map[string]*dagger.ModuleSource
+	// names is each module's own name, read from its config as it is needed.
+	names map[string]string
 	// rootSource is the root module's own source subpath ("ci" in this repo), or
 	// "" when the repository has no root module.
 	rootSource string
-	bindings   map[string]string
 	adj        map[string][]string
 	closures   map[string]map[string]bool
 
@@ -68,156 +71,155 @@ type workspace struct {
 }
 
 // load materializes the repository and reads everything about it that does not
-// depend on the diff: which modules exist, how they depend on each other, and
-// which generated bindings are attributable to a toolchain.
-func (m *WorkspaceCi) load(ctx context.Context, repo *dagger.Directory, ws *dagger.Workspace) (*workspace, error) {
-	if repo == nil {
-		if ws == nil {
-			return nil, fmt.Errorf("neither repo nor workspace was supplied: a Dagger CLI fills workspace in from the caller's own, but a module calling this one has no workspace to offer and has to pass repo")
-		}
+// depend on the diff: which modules exist and how they depend on each other.
+//
+// Modules resolve through callingWorkspace — the one a Dagger CLI fills in — or,
+// when the caller names a repository instead, through that Directory made into a
+// workspace. Either way it is Workspace.moduleSource that reads a module's config,
+// so both config shapes resolve and each module's context is filtered by the
+// engine's own rules rather than by a copy of them here.
+func (m *WorkspaceCi) load(ctx context.Context, repo *dagger.Directory, callingWorkspace *dagger.Workspace) (*workspace, error) {
+	ws := callingWorkspace
+	switch {
+	case repo != nil:
+		ws = repo.AsWorkspace()
+	case callingWorkspace == nil:
+		return nil, fmt.Errorf("neither repo nor workspace was supplied: a Dagger CLI fills workspace in from the caller's own, but a module calling this one has no workspace to offer and has to pass repo")
+	default:
 		// "/" -- an absolute path, which resolves from the workspace boundary. A
 		// relative "." resolves from the workspace's current directory, which is
 		// the module source dir whenever the module is loaded from there.
-		repo = ws.Directory("/")
+		repo = callingWorkspace.Directory("/")
 	}
 
 	root, _, cleanup, err := exportDir(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	out := &workspace{m: m, dir: repo, root: root, cleanup: cleanup, srcs: map[string]map[string]bool{}}
+	out := &workspace{
+		m: m, ws: ws, dir: repo, root: root, cleanup: cleanup,
+		names: map[string]string{},
+		srcs:  map[string]map[string]bool{},
+	}
 
-	if out.moduleDirs, err = moduleRoots(root); err != nil {
+	if out.moduleDirs, err = discoverModules(ctx, ws); err != nil {
 		cleanup()
 		return nil, err
 	}
 	out.sources = make(map[string]*dagger.ModuleSource, len(out.moduleDirs))
 	for _, dir := range out.moduleDirs {
-		out.sources[dir] = moduleSource(repo, dir)
+		out.sources[dir] = moduleSource(ws, dir)
 	}
-	out.rootSource, out.bindings = out.rootConfig(ctx)
+	out.rootSource = out.rootConfig(ctx)
 	out.adj = out.dependencyGraph(ctx)
 	out.closures = planner.BuildClosures(out.adj)
 	return out, nil
 }
 
-// moduleSource resolves the module rooted at dir -- repo-relative, "." for the
-// root module -- out of the repository directory.
+// configFiles are the files that make a directory a module: the legacy
+// dagger.json and the dagger-module.toml a migrated workspace uses. Where a
+// directory holds both, the engine reads dagger-module.toml, and since every
+// module resolves through the engine that is the one that wins here too.
+var configFiles = []string{"dagger.json", "dagger-module.toml"}
+
+// discoverModules returns every module directory in the workspace, repo-relative
+// and sorted, with the root module reported as ".".
 //
-// It is resolved from the Directory rather than from a path under the exported
-// copy because a module runtime cannot load a local module source: the engine
-// serves a local path from the session's own client, which is the host, where
-// this container's scratch directory does not exist. Everything the module needs
-// is in the Directory, and its context is the whole repository, which is what
-// lets a dependency spelled "../../crypto" resolve.
-func moduleSource(repo *dagger.Directory, dir string) *dagger.ModuleSource {
-	if dir == planner.RootModule {
-		return repo.AsModuleSource()
+// It looks for config files rather than reading the dependency graph because the
+// graph only contains modules some other module depends on: a module nothing
+// imports would otherwise be invisible, and its files would fall through to the
+// root module and force everything to run. Plan and Generated both discover
+// through here, so a config shape one of them recognises is one both do.
+//
+// A workspace with no modules is an error rather than an empty plan: an empty
+// matrix skips the run job and passes the gate having run nothing.
+func discoverModules(ctx context.Context, ws *dagger.Workspace) ([]string, error) {
+	// From the workspace root, whatever directory the caller happened to be in:
+	// findRoots answers relative to the workspace's current directory.
+	found, err := ws.WithWorkdir(".").FindRoots(ctx, configFiles, dagger.WorkspaceFindRootsOpts{
+		Exclude: []string{"**/.git/**"},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("discover the workspace's modules: %w", err)
 	}
-	return repo.AsModuleSource(dagger.DirectoryAsModuleSourceOpts{SourceRootPath: dir})
+	seen := map[string]bool{}
+	var modules []string
+	for _, dir := range found {
+		dir = path.Clean(strings.TrimPrefix(dir, "/"))
+		if dir == "" {
+			dir = planner.RootModule
+		}
+		if dir == ".." || strings.HasPrefix(dir, "../") || seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		modules = append(modules, dir)
+	}
+	if len(modules) == 0 {
+		return nil, fmt.Errorf("no %s found in the workspace: a plan with no modules would pass a gate having run nothing", strings.Join(configFiles, " or "))
+	}
+	sort.Strings(modules)
+	return modules, nil
+}
+
+// moduleSource resolves the module rooted at dir -- repo-relative, "." for the
+// root module -- through the workspace.
+func moduleSource(ws *dagger.Workspace, dir string) *dagger.ModuleSource {
+	if dir == planner.RootModule {
+		return ws.ModuleSource("/")
+	}
+	return ws.ModuleSource("/" + dir)
 }
 
 // rootConfig reads what the root module contributes to attribution: where its own
-// sources live, and which generated binding belongs to which toolchain.
+// sources live.
 //
 // A repository with no root module is not an error — plenty of workspaces are a
-// flat collection of modules — it just has no aggregator bindings and no
-// module-shaped global inputs.
-func (ws *workspace) rootConfig(ctx context.Context) (rootSource string, bindings map[string]string) {
+// flat collection of modules — it just has no module-shaped global inputs.
+func (ws *workspace) rootConfig(ctx context.Context) (rootSource string) {
 	src, ok := ws.sources[planner.RootModule]
 	if !ok {
-		return "", nil
+		return ""
 	}
 	rootSource, err := src.SourceSubpath(ctx)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the root module's source subpath (%v); its generated bindings will run everything\n", err)
-		return "", nil
+		return ""
 	}
-	// The context directory is rooted at the repository, so the subpath comes back
-	// repo-relative already; a root module whose source *is* the repository root
-	// reports "".
-	rootSource = strings.TrimPrefix(rootSource, "/")
-
-	return rootSource, planner.AggregatorBindings(rootSource, ws.toolchains())
+	// The subpath comes back repo-relative already; a root module whose source
+	// *is* the repository root reports "" or ".".
+	return strings.TrimPrefix(rootSource, "/")
 }
 
-// toolchains maps each local toolchain the root module installs to its
-// repo-relative source root, read straight out of the root dagger.json.
+// resolveNames reads the name of each module in dirs from its config. Nothing is
+// built: a name is what `dagger check --module` needs, and every leg carries one.
 //
-// It is read from disk rather than through ModuleSource.toolchains because that
-// field no longer exists: Dagger v1 moved toolchains (and blueprints) to
-// workspaces and refuses to load a module whose dagger.json still declares them.
-// The config is still the only place the mapping was ever written down, and the
-// exported tree is already on disk, so reading it here costs no engine round trip
-// and keeps #179's attribution working for the workspaces that do declare
-// toolchains -- a repository whose root module cannot be loaded can still be
-// planned for, since only affected modules are ever loaded.
-//
-// Anything unreadable yields no mapping at all, which is the fail-safe direction:
-// an unattributed binding belongs to the root module and runs everything.
-func (ws *workspace) toolchains() map[string]string {
-	cfg, err := readModuleConfig(filepath.Join(ws.root, planner.RootModule))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the root module's config (%v); its generated bindings will run everything\n", err)
-		return nil
-	}
-	out := make(map[string]string, len(cfg.Toolchains))
-	for _, tc := range cfg.Toolchains {
-		if tc.Source == "" {
+// A name that cannot be read is an error rather than a leg without one. A leg with
+// no name would run the checks of the module at the workspace root as well as its
+// own, and a module whose config cannot be read would fail its leg regardless.
+func (ws *workspace) resolveNames(ctx context.Context, dirs []string) error {
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(engineConcurrency)
+	for _, dir := range dirs {
+		mu.Lock()
+		_, done := ws.names[dir]
+		mu.Unlock()
+		if done {
 			continue
 		}
-		// A toolchain's source is relative to the dagger.json that declares it,
-		// which for the root module is the repository root -- so the cleaned path
-		// is already the repo-relative source root. A git ref has no dagger.json
-		// under the repository and is skipped: a commit here cannot change it, and
-		// so is anything that climbs out of the repository, which no path in a
-		// plan may name.
-		dir := filepath.Clean(tc.Source)
-		if filepath.IsAbs(dir) || dir == ".." || strings.HasPrefix(dir, "../") {
-			continue
-		}
-		sub, err := readModuleConfig(filepath.Join(ws.root, dir))
-		if err != nil {
-			continue
-		}
-		name := tc.Name
-		if name == "" {
-			name = sub.Name
-		}
-		if name == "" {
-			continue
-		}
-		out[name] = dir
+		g.Go(func() error {
+			name, err := ws.sources[dir].ModuleName(gctx)
+			if err != nil {
+				return fmt.Errorf("read the name of module %q: %w", dir, err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			ws.names[dir] = name
+			return nil
+		})
 	}
-	return out
-}
-
-// moduleConfig is the part of a dagger.json this module reads.
-type moduleConfig struct {
-	Name string `json:"name"`
-	// Source is where the module's own code lives, relative to the module root.
-	// Empty means the root itself.
-	Source string `json:"source"`
-	// Include is the module's context patterns, an entry prefixed with "!" being
-	// an exclusion.
-	Include    []string `json:"include"`
-	Toolchains []struct {
-		Name   string `json:"name"`
-		Source string `json:"source"`
-	} `json:"toolchains"`
-}
-
-// readModuleConfig reads the dagger.json of the module rooted at dir.
-func readModuleConfig(dir string) (moduleConfig, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, "dagger.json"))
-	if err != nil {
-		return moduleConfig{}, err
-	}
-	var cfg moduleConfig
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return moduleConfig{}, fmt.Errorf("parse %s: %w", filepath.Join(dir, "dagger.json"), err)
-	}
-	return cfg, nil
+	return g.Wait()
 }
 
 // dependencyGraph returns each module's direct local dependencies, keyed by module
@@ -246,11 +248,12 @@ func (ws *workspace) dependencyGraph(ctx context.Context) map[string][]string {
 				dep := deps[i]
 				// GIT_SOURCE is the one kind to drop, and the test is written that
 				// way round on purpose: a module's dependency reports LOCAL_SOURCE
-				// when the module was resolved from a path and DIR_SOURCE when it was
-				// resolved from a Directory, which is how this module resolves every
-				// one of them. Matching LOCAL_SOURCE instead would quietly empty the
-				// graph, leaving every module with no dependents and a change to a
-				// shared module reaching nothing.
+				// when the module was resolved through the workspace a CLI filled in,
+				// and DIR_SOURCE when it was resolved through a Directory made into
+				// one, which is what --repo and the tests do. Matching LOCAL_SOURCE
+				// instead would quietly empty the graph on the second route, leaving
+				// every module with no dependents and a change to a shared module
+				// reaching nothing.
 				if kind, err := dep.Kind(ctx); err != nil || kind == dagger.ModuleSourceKindGitSource {
 					continue
 				}
@@ -292,7 +295,7 @@ func (ws *workspace) affected(ctx context.Context, base, head string) ([]string,
 	}
 	ws.resolveSources(ctx, need)
 
-	changed, global := planner.Attribute(ws.changes, ws.moduleDirs, ws.srcs, ws.bindings, ws.m.GlobalPaths)
+	changed, global := planner.Attribute(ws.changes, ws.moduleDirs, ws.srcs, ws.m.GlobalPaths)
 	return planner.SelectModules(ws.moduleDirs, ws.closures, changed, global)
 }
 
@@ -341,7 +344,7 @@ func (ws *workspace) legs(ctx context.Context, affected []string) []planner.Entr
 			entries, err := ws.moduleLegs(ctx, dir)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "workspace-ci: cannot enumerate the checks of %q (%v); running all of them in one leg\n", dir, err)
-				entries = []planner.Entry{planner.ModuleEntry(dir)}
+				entries = []planner.Entry{planner.ModuleEntry(dir, ws.names[dir])}
 			}
 			results[i] = result{dir: dir, entries: entries}
 			return nil
@@ -361,24 +364,53 @@ func (ws *workspace) legs(ctx context.Context, affected []string) []planner.Entr
 // moduleLegs loads one module and returns a leg per check it declares. A module
 // with no checks contributes none, which is why a workspace may hold modules that
 // are only ever dependencies.
+//
+// Checks are workspace artifacts on Dagger v1.0.0-beta.15: Module.checks is gone,
+// and what lists a module's checks is Workspace.artifacts over a workspace that has
+// that module installed. Three things about how that is called are load-bearing,
+// and each one fails open — an empty list, no error — if it is got wrong:
+//
+//   - The module is installed with withModule. Artifacts come only from a
+//     workspace's installed modules, so a workspace merely rooted at, or with its
+//     current directory in, the module lists nothing at all.
+//   - The workspace is made from the repository Directory, never the one a CLI
+//     filled in: withModule on that refuses a workspace still configured by
+//     dagger.json.
+//   - The listing is scoped to the module's own name. A migrated workspace's
+//     dagger.toml installs modules of its own, whose checks would otherwise be
+//     listed as this module's.
+//
+// Each check's path is the installed module's name and then the check's own,
+// which is the <module-name>:<check> pattern `dagger check` selects it by.
 func (ws *workspace) moduleLegs(ctx context.Context, dir string) ([]planner.Entry, error) {
-	mod := ws.sources[dir].AsModule()
-	name, err := mod.Name(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("read module name: %w", err)
+	name := ws.names[dir]
+	if name == "" {
+		return nil, fmt.Errorf("the module's name was never read")
 	}
-	checks, err := mod.Checks().List(ctx)
+	items, err := ws.dir.AsWorkspace().
+		WithModule(dir).
+		Artifacts(dagger.WorkspaceArtifactsOpts{Include: []string{name}}).
+		FilterTypes([]string{"Check"}).
+		Items(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list checks: %w", err)
 	}
-	out := make([]planner.Entry, 0, len(checks))
-	for i := range checks {
-		check := checks[i]
-		checkName, err := check.Name(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("read check name: %w", err)
+	out := make([]planner.Entry, 0, len(items))
+	for i := range items {
+		item := items[i]
+		if loadErr, err := item.LoadError(ctx); err != nil {
+			return nil, fmt.Errorf("read a check's load error: %w", err)
+		} else if loadErr != "" {
+			return nil, fmt.Errorf("load: %s", loadErr)
 		}
-		out = append(out, planner.CheckEntry(dir, name, checkName))
+		p, err := item.Path(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read a check's path: %w", err)
+		}
+		if len(p) < 2 || p[0] != name {
+			return nil, fmt.Errorf("check path %q is not under module %q", p, name)
+		}
+		out = append(out, planner.CheckEntry(dir, name, strings.Join(p[1:], ":")))
 	}
 	return out, nil
 }
@@ -413,7 +445,6 @@ func (ws *workspace) hash(legs []planner.Entry) []planner.Entry {
 		ws.closures[planner.RootModule],
 		ws.srcs,
 		ws.blobs,
-		ws.bindings,
 		ws.m.GlobalPaths,
 		ws.nonGlobal(),
 	)
@@ -476,7 +507,7 @@ func (ws *workspace) resolveSources(ctx context.Context, want map[string]bool) {
 			continue
 		}
 		g.Go(func() error {
-			set, err := ws.sourceContext(ctx, dir)
+			set, err := ws.contextFiles(ctx, dir)
 			if err != nil {
 				// Never fatal: the caller's fail-safes cover an unresolved module.
 				fmt.Fprintf(os.Stderr, "workspace-ci: cannot read the source context of %q (%v); treating everything under it as an input\n", dir, err)
@@ -491,65 +522,32 @@ func (ws *workspace) resolveSources(ctx context.Context, want map[string]bool) {
 	g.Wait() //nolint:errcheck // every goroutine returns nil by construction
 }
 
-// sourceContext lists the repo-relative file paths that make up the source of the
+// contextFiles lists the repo-relative file paths that make up the source of the
 // module rooted at dir: its config file, the subtree its config points its source
-// at, and whatever its include patterns add, less whatever they take away.
+// at, and whatever its include patterns add, less whatever they take away. That
+// set is what decides whether a changed path is an input to a module at all.
 //
-// That set is what decides whether a changed path is an input to a module at all,
-// and it is computed here rather than read off ModuleSource.contextDirectory
-// because on Dagger v1 that field cannot answer the question. A module resolved
-// from a Directory — the only kind a module runtime can resolve, see moduleSource
-// — reports the whole Directory as its context, unfiltered and identical for
-// every module in the workspace. Taken at face value the root module would own
-// every path in the repository, which makes every change global and, because an
-// untracked file anywhere would then be one of its inputs, every leg unhashable.
-//
-// The filtering itself is still the engine's: the patterns are handed to
-// Directory.filter rather than matched here. What this reproduces is only how a
-// module config names them — an include entry prefixed with "!" is an exclusion,
-// and paths are relative to the module's own root.
+// It is the engine's own answer, read off ModuleSource.contextDirectory. That was
+// not always safe to trust: before Dagger v1.0.0-beta.15, a module resolved from a
+// Directory reported the whole Directory as its context, and taken at face value
+// the root module would then have owned every path in the repository. The tests
+// pin the filtered answer, so a return to the old one fails there rather than
+// quietly making every change global.
 //
 // Scoping to the module also keeps a module with dependencies from claiming its
 // dependencies' files as its own inputs; the dependency closure is what propagates
 // those.
-func (ws *workspace) sourceContext(ctx context.Context, dir string) (map[string]bool, error) {
-	cfg, err := readModuleConfig(filepath.Join(ws.root, dir))
+func (ws *workspace) contextFiles(ctx context.Context, dir string) (map[string]bool, error) {
+	paths, err := ws.sources[dir].ContextDirectory().Glob(ctx, "**")
 	if err != nil {
 		return nil, err
-	}
-
-	include := []string{"dagger.json"}
-	if src := strings.Trim(filepath.Clean(cfg.Source), "/"); src == "" || src == "." {
-		include = append(include, "**")
-	} else {
-		include = append(include, src+"/**")
-	}
-	var exclude []string
-	for _, pattern := range cfg.Include {
-		if rest, found := strings.CutPrefix(pattern, "!"); found {
-			exclude = append(exclude, rest)
-			continue
-		}
-		include = append(include, pattern)
-	}
-
-	paths, err := ws.dir.Directory(dir).
-		Filter(dagger.DirectoryFilterOpts{Include: include, Exclude: exclude}).
-		Glob(ctx, "**")
-	if err != nil {
-		return nil, err
-	}
-
-	prefix := ""
-	if dir != planner.RootModule {
-		prefix = dir + "/"
 	}
 	set := make(map[string]bool, len(paths))
 	for _, p := range paths {
 		if strings.HasSuffix(p, "/") {
 			continue // directory entry
 		}
-		set[prefix+p] = true
+		set[strings.TrimPrefix(p, "/")] = true
 	}
 	return set, nil
 }
@@ -580,48 +578,6 @@ func exportDir(ctx context.Context, dir *dagger.Directory) (abs, rel string, cle
 		return "", "", func() {}, err
 	}
 	return abs, rel, cleanup, nil
-}
-
-// moduleRoots returns every module source root under root, repo-relative and
-// sorted, with the root module reported as ".".
-//
-// It walks for dagger.json rather than reading the dependency graph because the
-// graph only contains modules some other module depends on: a module nothing
-// imports would otherwise be invisible, and its files would fall through to the
-// root module and force everything to run.
-//
-// A workspace with no modules is an error rather than an empty plan: an empty
-// matrix skips the run job and passes the gate having run nothing.
-func moduleRoots(root string) ([]string, error) {
-	var modules []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			if d.Name() == ".git" {
-				return fs.SkipDir
-			}
-			return nil
-		}
-		if d.Name() != "dagger.json" {
-			return nil
-		}
-		rel, err := filepath.Rel(root, filepath.Dir(path))
-		if err != nil {
-			return err
-		}
-		modules = append(modules, rel)
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk the workspace: %w", err)
-	}
-	if len(modules) == 0 {
-		return nil, fmt.Errorf("no dagger.json found in %s: a plan with no modules would pass a gate having run nothing", root)
-	}
-	sort.Strings(modules)
-	return modules, nil
 }
 
 func uniqueSuffix() (string, error) {

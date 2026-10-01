@@ -123,68 +123,116 @@ jobs:
         # regeneration pass missed keeps its old pin, and since this repository
         # cannot straddle a major (#440) that is a tree nothing can load rather than
         # a module that lags. Assert it here rather than leaving it to review.
+        #
+        # A module is configured by dagger.json or by dagger-module.toml, and the
+        # TOML file wins when a directory has both, because that is the one the
+        # engine reads. Its engineVersion is a top-level key, before any table.
         env:
           VTAG: ${{ steps.resolve.outputs.vtag }}
         run: |
           set -euo pipefail
           rc=0
-          while IFS= read -r cfg; do
-            got=$(jq -r '.engineVersion // "<none>"' "$cfg")
-            if [ "$got" != "$VTAG" ]; then
-              echo "::error file=$cfg::engineVersion is '$got', expected '$VTAG'"
+          while IFS= read -r dir; do
+            if [ -f "$dir/dagger-module.toml" ]; then
+              cfg="$dir/dagger-module.toml"
+              got=$(awk '/^\[/ { exit } /^engineVersion[[:space:]]*=/ { sub(/^engineVersion[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$cfg")
+            else
+              cfg="$dir/dagger.json"
+              got=$(jq -r '.engineVersion // empty' "$cfg")
+            fi
+            if [ "${got:-<none>}" != "$VTAG" ]; then
+              echo "::error file=$cfg::engineVersion is '${got:-<none>}', expected '$VTAG'"
               rc=1
             fi
-          done < <(find . -name dagger.json -not -path './.git/*' | sort)
+          done < <(find . \( -name dagger.json -o -name dagger-module.toml \) -not -path './.git/*' -exec dirname {} \; | sort -u)
           exit "$rc"
 
-      - name: Verify Module.checks still matches `dagger check -l`
+      - name: Verify the planner's check enumeration still matches `dagger check -l`
         # The planner (daggerverse/workspace-ci) builds the CI matrix by asking
-        # each module for its own checks through the Module.checks API, never
-        # through a `dagger check -l` stage. If a Dagger upgrade makes that API
-        # diverge from what the CLI actually runs, CI would silently under-run: a
-        # check the API stops reporting is a check no leg ever runs, and the gate
-        # goes green regardless. Compare the two per module at the new version and
-        # fail the bump PR on any difference, so a human reconciles before it
-        # lands. Same-version tautology today; the guard only bites on a
-        # regression.
+        # each module for its own checks through the API -- a Directory-backed
+        # workspace with that one module installed, its artifacts narrowed to the
+        # module's own name and to Check -- never through a `dagger check -l`
+        # stage. If a Dagger upgrade makes that API diverge from what the CLI
+        # actually runs, CI would silently under-run: a check the API stops
+        # reporting is a check no leg ever runs, and the gate goes green
+        # regardless. Compare the two per module at the new version and fail the
+        # bump PR on any difference, so a human reconciles before it lands.
+        # Same-version tautology today; the guard only bites on a regression.
+        # (It is not hypothetical: the API it used to compare, Module.checks,
+        # was removed outright in v1.0.0-beta.15.)
         #
         # Every module is compared, not a sample, because a divergence could be
-        # specific to how one module declares its checks. Enumeration reads the
-        # SDK's introspection rather than building a module runtime, so this costs
-        # a couple of seconds per module.
+        # specific to how one module declares its checks.
         #
-        # Both sides are compared as bare check names. `dagger check -l` prints
-        # `<name>   # <description>` with no header row and no module prefix -- v1
-        # dropped the `<module>:<check>` spelling the previous shape of this guard
-        # parsed, and a parser that silently matched nothing would have made the
-        # guard pass by finding no checks on either side.
+        # Both sides are scoped the way a CI leg is, with --module: without it, in
+        # a workspace configured by dagger.json, the CLI lists the root module's
+        # checks alongside every module's own.
+        #
+        # The CLI side is read with `-f link`, one `dag+check://<path>` per line,
+        # rather than out of the default table (`MODULE  CHECK  DESCRIPTION`,
+        # whose header is dropped when nothing is selected). A link is one token
+        # whatever the check's description says, and the `-m` module's own checks
+        # come back in its entrypoint shorthand (dag+check://ok, not
+        # dag+check://<name>/ok) -- which is why a leading `<name>/` is also
+        # stripped. The API side is each item's path less its first element, the
+        # module name. Both end up as the check's kebab-case path, joined by `/`.
+        #
+        # A side that cannot be read is an error, not an empty list: a module that
+        # does not load lists nothing on either side, and comparing two empty lists
+        # would call that agreement.
         run: |
           set -uo pipefail
           rc=0
           count=0
-          while IFS= read -r cfg; do
-            mod="$(dirname "$cfg")"
-            stable="$(dagger check -l -m "$mod" 2>/dev/null \
-              | sed 's/\x1b\[[0-9;]*m//g' \
-              | awk 'NF {print $1}' | sort)"
-            enumerated="$(printf '{ moduleSource(refString: "%s") { asModule { checks { list { name } } } } }' "$mod" \
-              | dagger api query \
-              | jq -r '.moduleSource.asModule.checks.list[].name' | sort)"
+          while IFS= read -r mod; do
+            if [ -f "$mod/dagger-module.toml" ]; then
+              name=$(awk '/^\[/ { exit } /^name[[:space:]]*=/ { sub(/^name[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$mod/dagger-module.toml")
+            else
+              name=$(jq -r '.name // empty' "$mod/dagger.json")
+            fi
+            if [ -z "$name" ]; then
+              echo "::error::cannot read the module name of $mod" >&2
+              rc=1
+              continue
+            fi
+            if ! links="$(dagger -m "$mod" check -l --module "$name" -f link)"; then
+              echo "::error::'dagger check -l' cannot list the checks of $mod at this Dagger version" >&2
+              rc=1
+              continue
+            fi
+            stable="$(printf '%s\n' "$links" \
+              | sed -e 's/\x1b\[[0-9;]*m//g' -e 's#^dag+check://##' -e "s#^${name}/##" \
+              | awk 'NF' | sort)"
+            query="$(printf '{ host { directory(path: ".", exclude: [".git"]) { asWorkspace { withModule(ref: "%s") { artifacts(include: ["%s"]) { filterTypes(types: ["Check"]) { items { path } } } } } } } }' "$mod" "$name")"
+            if ! answer="$(printf '%s' "$query" | dagger api query --silent)"; then
+              echo "::error::the API cannot enumerate the checks of $mod at this Dagger version" >&2
+              rc=1
+              continue
+            fi
+            enumerated="$(printf '%s' "$answer" \
+              | jq -r '.host.directory.asWorkspace.withModule.artifacts.filterTypes.items[].path[1:] | join("/")' \
+              | sort)"
             if ! diff <(printf '%s\n' "$stable") <(printf '%s\n' "$enumerated"); then
-              echo "::error::Module.checks for $mod diverges from 'dagger check -l' at this Dagger version; the planner may under-run CI. Reconcile before merging." >&2
+              echo "::error::the planner's check enumeration for $mod diverges from 'dagger check -l' at this Dagger version; the planner may under-run CI. Reconcile before merging." >&2
               rc=1
             fi
             # Plenty of modules legitimately declare no checks of their own --
-            # the root module and every service module keep theirs in a sibling
-            # tests/ module -- so an empty $stable is the normal case, not a
-            # failure. Count with awk rather than `grep -c .`: grep exits 1 when
-            # it matches nothing, that status becomes the status of the
-            # assignment, and the step runs under `bash -e` (a GitHub default
-            # that `set -uo pipefail` does not turn off), so the first
-            # checkless module would abort the whole guard with a bare exit 1 --
-            # no diff, no ::error::, nothing to read. awk always exits 0.
+            # every service module keeps them in a sibling tests/ module -- so an
+            # empty $stable is the normal case, not a failure. Count with awk
+            # rather than `grep -c .`: grep exits 1 when it matches nothing, that
+            # status becomes the status of the assignment, and the step runs under
+            # `bash -e` (a GitHub default that `set -uo pipefail` does not turn
+            # off), so the first checkless module would abort the whole guard with
+            # a bare exit 1 -- no diff, no ::error::, nothing to read. awk always
+            # exits 0.
             count=$(( count + $(printf '%s\n' "$stable" | awk 'NF { n++ } END { print n + 0 }') ))
-          done < <(find . -name dagger.json -not -path './.git/*' | sort)
+          done < <(find . \( -name dagger.json -o -name dagger-module.toml \) -not -path './.git/*' -exec dirname {} \; | sort -u)
+          # Agreement on nothing is not agreement: a tree in which neither side
+          # found a single check means both parsers matched nothing.
+          if [ "$count" -eq 0 ]; then
+            echo "::error::no module listed any check; the guard compared nothing" >&2
+            rc=1
+          fi
           [ "$rc" -eq 0 ] && echo "check enumeration agrees ($count checks)"
           exit "$rc"
 

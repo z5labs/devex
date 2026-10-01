@@ -97,10 +97,6 @@ func closureOf(root string, adj map[string][]string, memo map[string]map[string]
 // A module missing from srcs is treated as owning everything beneath it: when we
 // cannot resolve a source context we decline to narrow.
 //
-// bindings is the aggregator-binding reattribution map from AggregatorBindings;
-// those generated files under the root module's source are provably owned by a
-// single toolchain, so they resolve to it rather than to the root module (#179).
-//
 // globalPaths are the path prefixes that govern how CI runs rather than what any
 // check computes.
 //
@@ -113,7 +109,6 @@ func Attribute(
 	changes []Change,
 	moduleDirs []string,
 	srcs map[string]map[string]bool,
-	bindings map[string]string,
 	globalPaths []string,
 ) (changed map[string]bool, global bool) {
 	if len(changes) == 0 {
@@ -121,10 +116,6 @@ func Attribute(
 	}
 	changed = make(map[string]bool)
 	for _, c := range changes {
-		if dir, ok := bindings[c.Path]; ok {
-			changed[dir] = true
-			continue
-		}
 		if hasAnyPrefix(c.Path, globalPaths) {
 			return nil, true
 		}

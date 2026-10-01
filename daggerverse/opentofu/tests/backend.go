@@ -3,9 +3,17 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
+	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"dagger/tests/internal/dagger"
 )
@@ -276,30 +284,31 @@ func (t *Tests) ConcurrentAppliesDoNotCorruptState(ctx context.Context) error {
 // ------------------------------------------------------------------ fixture
 
 const (
-	// minioImage is the S3-compatible server the backend tests write to. It is
-	// the last community MinIO release, pinned so a suite that passes today
-	// passes tomorrow.
+	// s3ServerImage is the S3-compatible server the backend tests write to:
+	// Versity Gateway serving a plain directory through its posix backend.
+	// Pinned so a suite that passes today passes tomorrow.
 	//
-	// Pulled from quay.io rather than Docker Hub because MinIO withdrew both
-	// images from Docker Hub: `minio/minio` and `minio/mc` now return an empty
-	// tag list there, so the pin resolved to "not found" rather than to an
-	// older release. quay.io is MinIO's own second registry and still carries
-	// these exact tags, so this is a registry change and not a version bump —
-	// the digests are unchanged and the suite tests what it always did.
-	minioImage = "quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z"
-
-	// mcImage is MinIO's own client. It creates the bucket, and it reads the
-	// bucket back from outside tofu — the only way to assert the state landed
-	// in the backend rather than merely that tofu did not complain.
+	// It replaced MinIO, which withdrew its images from Docker Hub and then
+	// from quay.io, so there is no MinIO pin left to pull. This was a change of
+	// server, not a registry move like the one before it.
 	//
-	// Same registry move, and for the same reason, as minioImage above. This
-	// one had not failed yet only because the server is started first.
-	mcImage = "quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z"
+	// v1.8.0 is the floor, not an arbitrary pin. The s3 backend's use_lockfile
+	// takes its lock with a conditional PutObject (If-None-Match: *), and
+	// v1.8.0 is the release that made that check atomic per key on the posix
+	// backend. Before it, two racing applies could both see "no lock" and both
+	// take it, and ConcurrentAppliesDoNotCorruptState would be testing the
+	// gateway's race rather than tofu's locking.
+	s3ServerImage = "versity/versitygw:v1.8.0"
 
-	minioPort = 9000
+	s3Port = 9000
 
-	// backendRegion is arbitrary. MinIO ignores it and the s3 backend insists
-	// on having one.
+	// s3DataDir is the top-level directory the posix backend serves: every
+	// directory under it is a bucket. The posix backend keeps object metadata
+	// in extended attributes, which the container's own filesystem supports.
+	s3DataDir = "/data"
+
+	// backendRegion is arbitrary. The gateway serves whatever region it is
+	// started with, and the s3 backend insists on having one.
 	backendRegion = "us-east-1"
 
 	// stateKey is where the remote-state fixtures keep the default workspace's
@@ -311,8 +320,8 @@ const (
 	workspaceKeyPrefix = "env:"
 )
 
-// backend is a throwaway S3 backend: a MinIO service, a bucket inside it, and
-// the credentials tofu needs to reach both.
+// backend is a throwaway S3 backend: a Versity Gateway service, a bucket
+// inside it, and the credentials tofu needs to reach both.
 //
 // Everything a second fixture could collide on — the binding alias, the
 // bucket, the credential — is derived from fresh randomness, so the backend
@@ -325,10 +334,14 @@ type backend struct {
 	Bucket    string
 	AccessKey *dagger.Secret
 	SecretKey *dagger.Secret
+
+	// s3 is the suite's own view of the bucket, independent of tofu; see
+	// newS3Client.
+	s3 *s3.Client
 }
 
-// newBackend starts a MinIO service with a randomly generated root credential
-// and creates the bucket the fixtures write their state into.
+// newBackend starts a Versity Gateway service with a randomly generated root
+// credential and creates the bucket the fixtures write their state into.
 func newBackend(ctx context.Context, label string) (*backend, error) {
 	id, err := dag.Random().Sha256(ctx)
 	if err != nil {
@@ -338,7 +351,7 @@ func newBackend(ctx context.Context, label string) (*backend, error) {
 
 	// The root credential is minted the same way every other secret in this
 	// suite is, and travels the same way: as a *dagger.Secret, never as a
-	// literal. A throwaway MinIO is no reason to put a password in git.
+	// literal. A throwaway gateway is no reason to put a password in git.
 	_, accessKey, err := testSecret(ctx, label+"-access-key")
 	if err != nil {
 		return nil, err
@@ -349,20 +362,27 @@ func newBackend(ctx context.Context, label string) (*backend, error) {
 	}
 
 	b := &backend{
-		Host:      "minio-" + suffix,
+		Host:      "s3-" + suffix,
 		Bucket:    "tofu-state-" + suffix,
 		AccessKey: accessKey,
 		SecretKey: secretKey,
 	}
 	b.Svc = dag.Container().
-		From(minioImage).
-		WithSecretVariable("MINIO_ROOT_USER", accessKey).
-		WithSecretVariable("MINIO_ROOT_PASSWORD", secretKey).
-		WithExposedPort(minioPort).
+		From(s3ServerImage).
+		WithSecretVariable("ROOT_ACCESS_KEY", accessKey).
+		WithSecretVariable("ROOT_SECRET_KEY", secretKey).
+		// The posix backend refuses to start on a directory that is not there.
+		WithDirectory(s3DataDir, dag.Directory()).
+		WithExposedPort(s3Port).
 		// A server never exits, so it belongs in AsService's args rather than
 		// a WithExec, which would wait for it forever.
 		AsService(dagger.ContainerAsServiceOpts{
-			Args: []string{"minio", "server", "/data", "--address", fmt.Sprintf(":%d", minioPort)},
+			Args: []string{
+				"versitygw",
+				"--port", fmt.Sprintf(":%d", s3Port),
+				"--region", backendRegion,
+				"posix", s3DataDir,
+			},
 		})
 	// Deliberately no WithHostname: a custom hostname is registered in the DNS
 	// domain of the client that starts the service, and the container that has
@@ -371,14 +391,17 @@ func newBackend(ctx context.Context, label string) (*backend, error) {
 	// session-visible, and Host is only ever the alias a binding maps onto it.
 
 	// Started here rather than left to the first WithServiceBinding: a binding
-	// holds the service only for the exec that declares it, and this MinIO
+	// holds the service only for the exec that declares it, and this gateway
 	// keeps its data in a scratch container filesystem. A restart between the
 	// apply and the plan that is supposed to observe it would take the state
 	// with it.
 	if _, err := b.Svc.Start(ctx); err != nil {
-		return nil, fmt.Errorf("start the MinIO backend: %w", err)
+		return nil, fmt.Errorf("start the S3 backend: %w", err)
 	}
-	if _, err := b.mc(ctx, "mb", "--ignore-existing", "local/"+b.Bucket); err != nil {
+	if b.s3, err = b.newS3Client(ctx); err != nil {
+		return nil, err
+	}
+	if err := b.createBucket(ctx); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -391,7 +414,7 @@ func (b *backend) stop(ctx context.Context) {
 }
 
 func (b *backend) endpoint() string {
-	return fmt.Sprintf("http://%s:%d", b.Host, minioPort)
+	return fmt.Sprintf("http://%s:%d", b.Host, s3Port)
 }
 
 // config binds a fixture to the toolchain with everything the backend needs
@@ -401,7 +424,7 @@ func (b *backend) config(name string) *dagger.OpentofuConfig {
 	return opentofu().
 		Config(fixture(name)).
 		// Without this the backend is simply unreachable: tofu runs in its own
-		// container, and MinIO is a service in the session, not on the
+		// container, and the gateway is a service in the session, not on the
 		// internet.
 		WithServiceBinding(b.Host, b.Svc).
 		WithSecretVariable("AWS_ACCESS_KEY_ID", b.AccessKey).
@@ -422,14 +445,14 @@ func (b *backend) settings() [][2]string {
 		{"bucket", b.Bucket},
 		{"key", stateKey},
 		{"region", backendRegion},
-		// MinIO serves one host, not a bucket-per-subdomain wildcard.
+		// The gateway serves one host, not a bucket-per-subdomain wildcard.
 		{"use_path_style", "true"},
 		// Locking through a conditional-write lock object in the bucket
 		// itself. The alternative, a DynamoDB table, has no counterpart here.
 		{"use_lockfile", "true"},
-		// The credential is a MinIO root user: there is no STS to validate it
-		// against, no account ID to request, and no instance metadata service
-		// behind the endpoint.
+		// The credential is the gateway's root user: there is no STS to
+		// validate it against, no account ID to request, and no instance
+		// metadata service behind the endpoint.
 		{"skip_credentials_validation", "true"},
 		{"skip_requesting_account_id", "true"},
 		{"skip_metadata_api_check", "true"},
@@ -493,65 +516,72 @@ func (b *backend) raceApply(ctx context.Context, attempt string) (int, error) {
 	return addedResources(log)
 }
 
-// ------------------------------------------------------------- mc helpers
+// ------------------------------------------------------------- s3 helpers
 
-// mc runs a MinIO client command against the fixture and returns its stdout.
+// newS3Client builds the suite's own S3 client for the gateway. It creates the
+// bucket, and it reads the bucket back from outside tofu — the only way to
+// assert the state landed in the backend rather than merely that tofu did not
+// complain.
 //
-// The alias is assembled from secret environment variables inside the
-// container rather than passed to `mc alias set`, so the credential never
-// enters argv. The run carries a nonce because two identical mc invocations
-// would otherwise be one content-addressed exec, and a listing taken before an
-// apply would be handed back as the listing after it.
-func (b *backend) mc(ctx context.Context, args ...string) (string, error) {
-	nonce, err := dag.Random().UUIDV4(ctx)
+// It runs in this module's own process, which reaches a session service
+// directly through its endpoint, so there is no client container to pin. The
+// credential is read into memory here and goes no further: no argv, no
+// environment, no exec.
+func (b *backend) newS3Client(ctx context.Context) (*s3.Client, error) {
+	endpoint, err := b.Svc.Endpoint(ctx, dagger.ServiceEndpointOpts{Port: s3Port, Scheme: "http"})
 	if err != nil {
-		return "", fmt.Errorf("name an mc run: %w", err)
+		return nil, fmt.Errorf("resolve the S3 backend's endpoint: %w", err)
 	}
-	script := `set -e
-export MC_HOST_local="http://$MC_ACCESS_KEY:$MC_SECRET_KEY@$MC_ADDR"
-ready=
-for _ in $(seq 1 90); do
-  if mc --config-dir /tmp/mc ls local >/dev/null 2>&1; then ready=1; break; fi
-  sleep 1
-done
-[ -n "$ready" ] || { echo "MinIO at $MC_ADDR never became ready" >&2; exit 1; }
-exec mc --config-dir /tmp/mc "$@"`
+	accessKey, err := b.AccessKey.Plaintext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the S3 backend's access key: %w", err)
+	}
+	secretKey, err := b.SecretKey.Plaintext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("read the S3 backend's secret key: %w", err)
+	}
+	return s3.New(s3.Options{
+		BaseEndpoint: aws.String(endpoint),
+		Region:       backendRegion,
+		Credentials:  credentials.NewStaticCredentialsProvider(accessKey, secretKey, ""),
+		UsePathStyle: true,
+	}), nil
+}
 
-	out, err := dag.Container().
-		From(mcImage).
-		WithServiceBinding(b.Host, b.Svc).
-		WithSecretVariable("MC_ACCESS_KEY", b.AccessKey).
-		WithSecretVariable("MC_SECRET_KEY", b.SecretKey).
-		WithEnvVariable("MC_ADDR", fmt.Sprintf("%s:%d", b.Host, minioPort)).
-		WithEnvVariable("MC_RUN_NONCE", nonce).
-		WithExec(append([]string{"sh", "-c", script, "mc"}, args...)).
-		Stdout(ctx)
-	if err != nil {
-		return "", fmt.Errorf("mc %s: %w", strings.Join(args, " "), err)
+// createBucket creates the fixture's bucket, retrying until the gateway
+// answers. Start returning means the port accepts connections, which is not
+// quite the same thing as the gateway serving requests on it.
+func (b *backend) createBucket(ctx context.Context) error {
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		_, err := b.s3.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(b.Bucket)})
+		var owned *types.BucketAlreadyOwnedByYou
+		if err == nil || errors.As(err, &owned) {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("create bucket %s on the S3 backend: %w", b.Bucket, err)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
 	}
-	return out, nil
 }
 
 // objects lists everything in the bucket, sorted, so an assertion does not
-// depend on the order MinIO happens to return.
+// depend on the order the gateway happens to return.
 func (b *backend) objects(ctx context.Context) ([]string, error) {
-	out, err := b.mc(ctx, "ls", "--recursive", "--json", "local/"+b.Bucket)
-	if err != nil {
-		return nil, err
-	}
 	var keys []string
-	for line := range strings.SplitSeq(strings.TrimSpace(out), "\n") {
-		if strings.TrimSpace(line) == "" {
-			continue
+	pages := s3.NewListObjectsV2Paginator(b.s3, &s3.ListObjectsV2Input{Bucket: aws.String(b.Bucket)})
+	for pages.HasMorePages() {
+		page, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list bucket %s: %w", b.Bucket, err)
 		}
-		var entry struct {
-			Key string `json:"key"`
-		}
-		if err := json.Unmarshal([]byte(line), &entry); err != nil {
-			return nil, fmt.Errorf("parse an mc listing entry (%q): %w", line, err)
-		}
-		if entry.Key != "" {
-			keys = append(keys, entry.Key)
+		for _, object := range page.Contents {
+			keys = append(keys, aws.ToString(object.Key))
 		}
 	}
 	slices.Sort(keys)
@@ -560,11 +590,16 @@ func (b *backend) objects(ctx context.Context) ([]string, error) {
 
 // state reads one state object out of the bucket and decodes it.
 func (b *backend) state(ctx context.Context, key string) (stateDocument, error) {
-	raw, err := b.mc(ctx, "cat", "local/"+b.Bucket+"/"+key)
+	object, err := b.s3.GetObject(ctx, &s3.GetObjectInput{Bucket: aws.String(b.Bucket), Key: aws.String(key)})
 	if err != nil {
-		return stateDocument{}, err
+		return stateDocument{}, fmt.Errorf("get %s from bucket %s: %w", key, b.Bucket, err)
 	}
-	return parseState(raw)
+	defer object.Body.Close()
+	raw, err := io.ReadAll(object.Body)
+	if err != nil {
+		return stateDocument{}, fmt.Errorf("read %s from bucket %s: %w", key, b.Bucket, err)
+	}
+	return parseState(string(raw))
 }
 
 // ------------------------------------------------------------------ helpers

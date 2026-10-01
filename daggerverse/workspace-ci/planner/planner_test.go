@@ -29,35 +29,23 @@ func TestRenderSelfCheck(t *testing.T) {
 	}
 }
 
-// TestKebab pins dagger's casing rule, which is what maps a toolchain name onto
-// the binding file dagger generates for it. The digit boundary is the one that
-// surprises: toolchain z5labs-tests becomes z-5-labs-tests.gen.go.
-func TestKebab(t *testing.T) {
+// TestGeneratedFor pins where codegen writes each generated file, which is what
+// Unswept matches against a module's source subpath.
+func TestGeneratedFor(t *testing.T) {
 	for in, want := range map[string]string{
-		"z5labs-tests": "z-5-labs-tests",
-		"pdf-tests":    "pdf-tests",
-		"workspace-ci": "workspace-ci",
-		"RootOk":       "root-ok",
-		"HTTPServer":   "http-server",
+		"dagger.gen.go":                              ".",
+		"internal/dagger/dagger.gen.go":              ".",
+		"ci/dagger.gen.go":                           "ci",
+		"ci/internal/dagger/workspace-ci.gen.go":     "ci",
+		"daggerverse/pdf/tests/dagger.gen.go":        "daggerverse/pdf/tests",
+		"daggerverse/pdf/internal/dagger/pdf.gen.go": "daggerverse/pdf",
 	} {
-		if got := Kebab(in); got != want {
-			t.Errorf("Kebab(%q) = %q, want %q", in, got, want)
+		if got, ok := GeneratedFor(in); !ok || got != want {
+			t.Errorf("GeneratedFor(%q) = %q, %v; want %q", in, got, ok, want)
 		}
 	}
-}
-
-// TestAggregatorBindings pins that a toolchain's binding resolves to the toolchain
-// and that the core binding, which no toolchain owns, does not.
-func TestAggregatorBindings(t *testing.T) {
-	got := AggregatorBindings("ci", map[string]string{
-		"z5labs-tests": "daggerverse/z5labs/tests",
-		"dagger":       "daggerverse/dagger/tests",
-	})
-	if dir := got["ci/internal/dagger/z-5-labs-tests.gen.go"]; dir != "daggerverse/z5labs/tests" {
-		t.Errorf("the z5labs-tests binding resolved to %q", dir)
-	}
-	if _, ok := got[CoreBinding("ci")]; ok {
-		t.Error("the core binding was attributed to a toolchain")
+	if _, ok := GeneratedFor("daggerverse/pdf/main.go"); ok {
+		t.Error("a source file was taken for a generated one")
 	}
 }
 
@@ -84,7 +72,7 @@ func TestParseTimeouts(t *testing.T) {
 // TestTimeoutsApply pins the precedence: a leg's own name beats its module, and
 // both beat the default.
 func TestTimeoutsApply(t *testing.T) {
-	entries := []Entry{CheckEntry("mods/a", "a", "ok"), CheckEntry("mods/a", "a", "slow"), ModuleEntry("mods/b")}
+	entries := []Entry{CheckEntry("mods/a", "a", "ok"), CheckEntry("mods/a", "a", "slow"), ModuleEntry("mods/b", "b")}
 	got := Timeouts{"mods/a": 9, "mods/a:slow": 20}.Apply(entries, 6)
 	want := map[string]int{"mods/a:ok": 9, "mods/a:slow": 20, "mods/b": 6}
 	for _, e := range got {
@@ -100,7 +88,7 @@ func TestTimeoutsApply(t *testing.T) {
 // TestIsCoarse pins the property the coarse key shape rests on: a run-everything leg
 // is exactly a leg whose name is its module, and no per-check leg can be one.
 func TestIsCoarse(t *testing.T) {
-	if !ModuleEntry("mods/a").IsCoarse() {
+	if !ModuleEntry("mods/a", "a").IsCoarse() {
 		t.Error("a run-everything leg did not report as coarse")
 	}
 	if CheckEntry("mods/a", "a", "ok").IsCoarse() {
@@ -120,10 +108,10 @@ func TestTimeoutsApplyCoarseKey(t *testing.T) {
 	// A module that produces both leg shapes at once is not what a single plan
 	// emits, but it is what makes the two resolutions comparable in one table.
 	entries := []Entry{
-		ModuleEntry("mods/a"),
+		ModuleEntry("mods/a", "a"),
 		CheckEntry("mods/a", "a", "ok"),
 		CheckEntry("mods/a", "a", "slow"),
-		ModuleEntry("mods/b"),
+		ModuleEntry("mods/b", "b"),
 	}
 
 	for _, tc := range []struct {

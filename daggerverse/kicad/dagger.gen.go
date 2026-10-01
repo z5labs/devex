@@ -1615,8 +1615,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (outputs). Returns the\nenabled outputs merged into one directory. On stage-1 failure, returns the\naggregated error from Check and a nil directory (stage 2 is skipped), so a\nfailing check short-circuits before any export work.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 112, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 111, 1))).
 					WithFunction(
 						dag.Function("WithDrc",
 							dag.TypeDef().WithObject("Ci")).

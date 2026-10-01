@@ -2,10 +2,10 @@ name: Change-aware CI
 
 # The GitHub Actions half of daggerverse/workspace-ci, published so nobody has to
 # copy it. The planner decides *what* to run; this decides *how* Actions runs it —
-# engine image caching, the dagger/checks fan-out, recording a pass to the Actions
-# cache, and the single status check branch protection can require. None of that is
-# specific to this repository, and all of it used to be ~380 lines a consumer had to
-# clone and then keep in step with the module.
+# engine image caching, the fan-out of one `dagger check` per leg, recording a pass
+# to the Actions cache, and the single status check branch protection can require.
+# None of that is specific to this repository, and all of it used to be ~380 lines a
+# consumer had to clone and then keep in step with the module.
 #
 # Adopting it is one `uses:` and (optionally) one token:
 #
@@ -65,10 +65,10 @@ on:
           The Dagger CLI and engine version. This is the single pin for both: the
           engine image is cached and docker-loaded under it, and the CLI installed at
           it, so the run legs provision from the local image rather than the registry.
-          A prerelease is spelled the way the release is (1.0.0-beta.13), with no
+          A prerelease is spelled the way the release is (1.0.0-beta.15), with no
           leading v.
         type: string
-        default: "1.0.0-beta.13"
+        default: "1.0.0-beta.15"
       runs-on:
         description: The runner label for every job here.
         type: string
@@ -259,9 +259,9 @@ jobs:
           # token instead.
           GH_TOKEN: ${{ secrets.MEMO_TOKEN || github.token }}
           # Export this plan to Dagger Cloud so a run's leg set can be traced back to
-          # the decision that produced it. A raw `dagger call` reads the token from its
-          # environment, unlike the dagger/checks action the run legs use, which takes
-          # it as a cloud-token input. Empty for fork PRs -> no telemetry, no failure.
+          # the decision that produced it. The CLI reads the token from its
+          # environment, here and in the run legs alike. Empty for fork PRs -> no
+          # telemetry, no failure.
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: |
           set -euo pipefail
@@ -297,7 +297,7 @@ jobs:
     name: ${{ matrix.job.name }}
     needs: [list]
     runs-on: ${{ inputs.runs-on }}
-    # Per matrix leg. This is only a backstop above the leg's dagger/checks step bound
+    # Per matrix leg. This is only a backstop above the leg's check step bound
     # (matrix.job.timeout) + setup, so the step's timeout is what fails a
     # telemetry-drain hang fast, not this job cap. The planner computes it as
     # timeout + headroom, because GitHub expressions have no arithmetic.
@@ -351,23 +351,28 @@ jobs:
             | DAGGER_VERSION="$DAGGER_VERSION" BIN_DIR="$HOME/.local/bin" sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
-      # Each leg loads only the module that owns its check, never the workspace. An
-      # empty filter means "every check this module has", which is what the
-      # run-everything path emits (one coarse leg per module, so that path loads no
-      # module while planning); `dagger check` spells that by taking no pattern at
-      # all, which exits 0 on a module that has no checks.
+      # Each leg runs the checks of the module that owns it and no other module's.
+      # Both halves take `--module`: without it, in a workspace configured by
+      # dagger.json, the CLI also selects the root module's checks, so every leg
+      # would run the root's whole-workspace checks again. `--module` narrows what is
+      # selected, not what is loaded — on Dagger v1.0.0-beta.15 a dagger.json
+      # workspace's root module is still loaded on every leg. `moduleName` is the module's own name, which the plan reads out
+      # of its config without loading it.
       #
-      # It must not be spelled '**'. A pattern that matches nothing is an error
-      # rather than a pass ("no checks matched pattern"), and a coarse leg is emitted
-      # without ever loading its module, so the plan cannot know whether the module
-      # has any checks to match. '**' therefore failed every module whose checks all
-      # hang off a non-root object, which is every module `dagger check` sees as
-      # empty.
+      # A per-check leg passes its pattern, `<module-name>:<check>`, which was read
+      # off the module during planning. Nothing matching it is an error ("no checks
+      # matched pattern") and must stay one: it means the check was renamed out from
+      # under the plan, and the leg must not go green.
       #
-      # That error is load-bearing for a per-check leg, though: its pattern was read
-      # off the module during planning, so nothing matching it means the check was
-      # renamed out from under the plan, and the leg must not go green. Hence the
-      # branch rather than always dropping the pattern.
+      # A coarse leg (empty filter) means "every check this module has", which is what
+      # the run-everything path emits — one leg per module, so that path loads no
+      # module while planning and so cannot know whether a module has any checks.
+      # Since Dagger v1.0.0-beta.15, `dagger check` with nothing selected fails ("no
+      # checks selected") rather than passing, and there is no flag to allow it. So a
+      # coarse leg lists first: an empty list is a module with no checks of its own,
+      # which passes; a list that cannot be produced — the module does not load —
+      # fails. (Spelling "everything" as the pattern '**' was never an option either:
+      # a pattern that matches nothing is the same error.)
       #
       # The step is bounded separately from the job to fail fast on the Dagger Cloud
       # telemetry-drain hang. The check itself runs in ~1-4m; a leg still going past
@@ -381,16 +386,27 @@ jobs:
       - name: Run the leg's checks
         timeout-minutes: ${{ matrix.job.timeout }}
         env:
-          DAGGER_MODULE: ${{ matrix.job.module }}
+          MODULE: ${{ matrix.job.module }}
+          MODULE_NAME: ${{ matrix.job.moduleName }}
           DAGGER_PROGRESS: dots
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
           FILTER: ${{ matrix.job.filter }}
         run: |
-          if [ -n "$FILTER" ]; then
-            dagger check "$FILTER"
-          else
-            dagger check
+          set -euo pipefail
+          if [ -z "$MODULE_NAME" ]; then
+            echo "::error::the plan gave leg '$MODULE' no moduleName; the planner and this workflow disagree about the plan's shape"
+            exit 1
           fi
+          if [ -n "$FILTER" ]; then
+            dagger -m "$MODULE" check --module "$MODULE_NAME" "$FILTER"
+            exit 0
+          fi
+          links="$(dagger -m "$MODULE" check -l --module "$MODULE_NAME" -f link)"
+          if [ -z "$links" ]; then
+            echo "$MODULE declares no checks of its own; nothing to run"
+            exit 0
+          fi
+          dagger -m "$MODULE" check --module "$MODULE_NAME"
 
       # Record the pass. The entry's whole meaning is its key: the input hash the
       # planner computed for this leg. A later run that computes the same hash skips

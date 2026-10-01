@@ -105,14 +105,15 @@ Every module has a sibling `tests/` module whose suite is a Dagger check.
 it diffs the commit range, works out which modules the change could reach, and
 returns one leg per check to run — skipping those a previous run already proved
 good — each routed at the module that owns it. The [`ci/`](ci/) module holds only
-the three checks that must run whatever changed.
+the one check that must run whatever changed, `ci:generated`.
 
-The Actions half of that — engine image caching, the `dagger/checks` fan-out,
+The Actions half of that — engine image caching, one `dagger check` per leg,
 recording a pass, and the single status check branch protection requires — is
 [`.github/workflows/change-aware-ci.yml`](.github/workflows/change-aware-ci.yml),
 a `workflow_call` workflow anyone can use. `ci.yml` is a caller of it like any
-other repository would be, differing only in pointing at the in-tree planner so
-that a change to the planner is planned by the changed planner. Adopting it
+other repository would be, differing in pointing at the in-tree planner so that a
+change to the planner is planned by the changed planner, and in one job of its
+own that runs the planner's tests directly whenever a CI file changes. Adopting it
 elsewhere is one `uses:`:
 
 ```yaml

@@ -16,9 +16,10 @@ type WorkspaceCiOpts struct {
 	// Repo-relative path prefixes that govern how CI runs rather than what any
 	// check computes; a change to one runs everything. They belong to no module's
 	// source context, so nothing else would attribute them. Defaults to
-	// .github/workflows/, which costs nothing in a workspace that has none.
+	// .github/workflows/ plus a migrated workspace's dagger.toml and dagger.lock,
+	// each of which costs nothing in a workspace that has none.
 	//
-	GlobalPaths []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:85:2)
+	GlobalPaths []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:86:2)
 	//
 	// Repo-relative directories of modules whose checks must each get their own leg
 	// even when everything runs. The run-everything path otherwise emits one leg per
@@ -27,7 +28,7 @@ type WorkspaceCiOpts struct {
 	// single runner. Splitting a module costs loading it — the one thing that path
 	// exists to avoid — so name only the modules that need it.
 	//
-	SplitModules []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:94:2)
+	SplitModules []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:95:2)
 	//
 	// Per-leg check-step budgets in minutes, as a JSON object keyed by a leg's
 	// display name, by a module directory (which covers every leg of that module),
@@ -38,13 +39,13 @@ type WorkspaceCiOpts struct {
 	//
 	//
 	// Default: "{}"
-	Timeouts string // workspace-ci (../../../daggerverse/workspace-ci/main.go:104:2)
+	Timeouts string // workspace-ci (../../../daggerverse/workspace-ci/main.go:105:2)
 	//
 	// The check-step budget in minutes for a leg with no override.
 	//
 	//
 	// Default: 6
-	DefaultTimeout int // workspace-ci (../../../daggerverse/workspace-ci/main.go:109:2)
+	DefaultTimeout int // workspace-ci (../../../daggerverse/workspace-ci/main.go:110:2)
 	//
 	// Where recorded passes live. ACTIONS_CACHE is read-only from this module and
 	// leaves recording to an actions/cache/save step; GIT_REFS is a store the
@@ -53,23 +54,23 @@ type WorkspaceCiOpts struct {
 	//
 	//
 	// Default: ACTIONS_CACHE
-	MemoStore WorkspaceCiMemoStore // workspace-ci (../../../daggerverse/workspace-ci/main.go:117:2)
+	MemoStore WorkspaceCiMemoStore // workspace-ci (../../../daggerverse/workspace-ci/main.go:118:2)
 	//
 	// A credential for the memoization store: a GitHub token on memoRepo with
 	// actions:read for ACTIONS_CACHE, or contents:read for GIT_REFS — plus
 	// contents:write if this run is to record anything.
 	//
-	MemoToken *Secret // workspace-ci (../../../daggerverse/workspace-ci/main.go:123:2)
+	MemoToken *Secret // workspace-ci (../../../daggerverse/workspace-ci/main.go:124:2)
 	//
 	// The owner/name whose Actions cache, or whose git refs, hold the memoization
 	// store.
 	//
-	MemoRepo string // workspace-ci (../../../daggerverse/workspace-ci/main.go:128:2)
+	MemoRepo string // workspace-ci (../../../daggerverse/workspace-ci/main.go:129:2)
 	//
 	// The GitHub API root the store is reached through. Defaults to
 	// https://api.github.com; set it for GitHub Enterprise Server.
 	//
-	MemoAPI string // workspace-ci (../../../daggerverse/workspace-ci/main.go:133:2)
+	MemoAPI string // workspace-ci (../../../daggerverse/workspace-ci/main.go:134:2)
 	//
 	// The git refs whose scopes may be trusted to hold recorded passes, spelled in
 	// full (refs/heads/main, refs/pull/12/merge). They are the refs a plan reads,
@@ -77,14 +78,14 @@ type WorkspaceCiOpts struct {
 	// nothing and records nothing: a scope a run can write is a scope that must be
 	// chosen deliberately.
 	//
-	MemoRefs []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:141:2)
+	MemoRefs []string // workspace-ci (../../../daggerverse/workspace-ci/main.go:142:2)
 	//
 	// How long, in seconds, a recorded pass may be honoured. This is the answer to
 	// base-image drift, which a source-derived hash cannot see.
 	//
 	//
 	// Default: 86400
-	MemoTTL int // workspace-ci (../../../daggerverse/workspace-ci/main.go:147:2)
+	MemoTTL int // workspace-ci (../../../daggerverse/workspace-ci/main.go:148:2)
 }
 
 // New configures a planner.
@@ -142,14 +143,10 @@ func (r *Query) WorkspaceCi(opts ...WorkspaceCiOpts) *WorkspaceCi { // workspace
 type WorkspaceCi struct { // workspace-ci (../../../daggerverse/workspace-ci/main.go:32:6)
 	query *querybuilder.Selection
 
-	affectedModules   *string
-	generated         *Void
-	generatedSelfTest *Void
-	id                *ID
-	memoStoreSelfTest *Void
-	plan              *string
-	recordPass        *string
-	selectionSelfTest *Void
+	affectedModules *string
+	id              *ID
+	plan            *string
+	recordPass      *string
 }
 
 func (r *WorkspaceCi) WithGraphQLQuery(q *querybuilder.Selection) *WorkspaceCi {
@@ -163,7 +160,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 	//
 	// The repository to plan for, overriding the workspace's own root.
 	//
-	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:330:2)
+	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:339:2)
 }
 
 // AffectedModules returns, as a JSON array of repo-relative directories, the
@@ -172,7 +169,7 @@ type WorkspaceCiAffectedModulesOpts struct {
 // reach" without paying for check enumeration.
 //
 // The arguments mean what they mean on Plan.
-func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:318:1)
+func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiAffectedModulesOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:327:1)
 	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.affectedModules != nil {
 		return *r.affectedModules, nil
@@ -199,7 +196,19 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // produces at each module's pinned engineVersion.
 //
 // Every module in the workspace is checked, including the root one and every
-// tests or examples module.
+// tests or examples module. Two things make that claim more than a hope:
+//
+//   - It fails when a module went unswept. Every committed generated file must
+//     belong to a module the sweep covered, which is found by globbing for the
+//     files rather than by asking the discovery that drove the sweep — so a
+//     module whose config shape discovery does not know is reported instead of
+//     skipped.
+//   - It proves on every run that it can fail. Alongside the sweep it builds a
+//     bare module of its own, deliberately makes that module's bindings stale,
+//     and runs the same comparison on it; unless the drift is reported, naming
+//     the stale file, the check fails. The check this was extracted from
+//     silently verified nothing for months (#184), so a green sweep is only
+//     worth as much as the proof that a stale module turns it red.
 //
 // This check is why generated files need not be global inputs to the memoization
 // hash: it proves they are derived from inputs that are, it belongs to the root
@@ -208,52 +217,14 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // live view of the tree rather than a snapshot argument the cache key can
 // describe, so a cached pass would be a pass for a tree the check never looked
 // at.
-func (r *WorkspaceCi) Generated(ctx context.Context, callingWorkspace *Workspace) error { // workspace-ci (../../../daggerverse/workspace-ci/generated.go:45:1)
+func (r *WorkspaceCi) Generated(callingWorkspace *Workspace) *Check { // workspace-ci (../../../daggerverse/workspace-ci/generated.go:61:1)
 	assertNotNil("callingWorkspace", callingWorkspace)
-	if r.generated != nil {
-		return nil
-	}
 	q := r.query.Select("generated")
 	q = q.Arg("callingWorkspace", callingWorkspace)
 
-	return q.Execute(ctx)
-}
-
-// WorkspaceCiGeneratedSelfTestOpts contains options for WorkspaceCi.GeneratedSelfTest
-type WorkspaceCiGeneratedSelfTestOpts struct {
-	//
-	// The module to make stale, repo-relative. Defaults to the first
-	// dependency-free module in the workspace, which is the cheapest one to
-	// regenerate.
-	//
-	ProbeModule string // workspace-ci (../../../daggerverse/workspace-ci/generated.go:107:2)
-}
-
-// GeneratedSelfTest pins that Generated can actually fail.
-//
-// The check this repo extracted it from silently verified nothing for months (it
-// routed through Workspace.Generators, which is empty unless a module declares a
-// +generator function), so a green Generated is only worth as much as the proof
-// that a stale module turns it red (#184).
-//
-// It runs the same codegen comparison against a single module, first pristine
-// (expecting no drift) and then with that module's committed bindings deliberately
-// made stale (expecting drift naming the file).
-func (r *WorkspaceCi) GeneratedSelfTest(ctx context.Context, callingWorkspace *Workspace, opts ...WorkspaceCiGeneratedSelfTestOpts) error { // workspace-ci (../../../daggerverse/workspace-ci/generated.go:94:1)
-	assertNotNil("callingWorkspace", callingWorkspace)
-	if r.generatedSelfTest != nil {
-		return nil
+	return &Check{
+		query: q,
 	}
-	q := r.query.Select("generatedSelfTest")
-	for i := len(opts) - 1; i >= 0; i-- {
-		// `probeModule` optional argument
-		if !querybuilder.IsZeroValue(opts[i].ProbeModule) {
-			q = q.Arg("probeModule", opts[i].ProbeModule)
-		}
-	}
-	q = q.Arg("callingWorkspace", callingWorkspace)
-
-	return q.Execute(ctx)
 }
 
 // A unique identifier for this WorkspaceCi.
@@ -316,26 +287,25 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 // later run its full time and looks exactly like a workspace nobody has recorded
 // against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
 // runs in-process and needs no network, no credential and no services.
-func (r *WorkspaceCi) MemoStoreSelfTest(ctx context.Context) error { // workspace-ci (../../../daggerverse/workspace-ci/main.go:523:1)
-	if r.memoStoreSelfTest != nil {
-		return nil
-	}
+func (r *WorkspaceCi) MemoStoreSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:535:1)
 	q := r.query.Select("memoStoreSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // WorkspaceCiPlanOpts contains options for WorkspaceCi.Plan
 type WorkspaceCiPlanOpts struct {
 
 	// Default: JSON
-	Format WorkspaceCiFormat // workspace-ci (../../../daggerverse/workspace-ci/main.go:243:2)
+	Format WorkspaceCiFormat // workspace-ci (../../../daggerverse/workspace-ci/main.go:252:2)
 	//
 	// The repository to plan for, overriding the workspace's own root. It is the
 	// escape hatch for a caller whose .git is a file rather than a directory (a
 	// git worktree), which would otherwise degrade to running everything.
 	//
-	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:258:2)
+	Repo *Directory // workspace-ci (../../../daggerverse/workspace-ci/main.go:267:2)
 	//
 	// Input hashes a previous run already proved good, as a JSON array. They are
 	// honoured on the same terms as the ones read from the memoization store, and
@@ -345,7 +315,7 @@ type WorkspaceCiPlanOpts struct {
 	//
 	//
 	// Default: "[]"
-	KnownGood string // workspace-ci (../../../daggerverse/workspace-ci/main.go:267:2)
+	KnownGood string // workspace-ci (../../../daggerverse/workspace-ci/main.go:276:2)
 	//
 	// The command a JENKINS branch runs to record its own pass, with
 	// `--hash=<that leg's hash>` appended — conventionally a `record-pass` call
@@ -365,24 +335,31 @@ type WorkspaceCiPlanOpts struct {
 	// as data for the surrounding job to record, so passing it with those is an
 	// error rather than a silent no-op.
 	//
-	RecordCommand string // workspace-ci (../../../daggerverse/workspace-ci/main.go:287:2)
+	RecordCommand string // workspace-ci (../../../daggerverse/workspace-ci/main.go:296:2)
 	//
 	// Emit a diagnostics object — the plan plus which modules had to be loaded to
 	// produce it, whether everything was selected, which legs a recorded pass
 	// retired, and whether recorded passes were honoured at all — instead of the
 	// bare plan. Intended for tests and for explaining a plan, not for CI.
 	//
-	Diagnostics bool // workspace-ci (../../../daggerverse/workspace-ci/main.go:294:2)
+	Diagnostics bool // workspace-ci (../../../daggerverse/workspace-ci/main.go:303:2)
 }
 
 // Plan returns the legs of CI to run for a change, each already routed to the
 // module that owns it and bounded by a timeout.
 //
-// Each leg is a {name, module, filter, hash, timeout, jobTimeout} object: the
-// display name, the repo-relative module to invoke with `-m`, the check pattern to
-// pass to `dagger check` (empty to run every check the module has), the input hash
-// a pass may be recorded under (empty means never memoize), and the step and job
-// budgets in minutes.
+// Each leg is a {name, module, moduleName, filter, hash, timeout, jobTimeout}
+// object: the display name, the repo-relative module to invoke with `-m`, that
+// module's own name to pass to `dagger check` as `--module`, the check pattern to
+// pass it (empty to run every check the module has), the input hash a pass may be
+// recorded under (empty means never memoize), and the step and job budgets in
+// minutes.
+//
+// `--module` is not optional. Without it the CLI also selects the checks of the
+// module at the workspace root, so every leg would run those as well. And an empty
+// filter needs care: since Dagger v1.0.0-beta.15 a `dagger check` that selects
+// nothing is an error, so a leg that runs a whole module has to list the module's
+// checks first and pass when there are none. README.md has the command.
 //
 // base and head are the revisions to diff, three-dot (merge-base) like a PR's
 // change set. Either may be written in any form git's rev-parse takes — a full or
@@ -398,9 +375,10 @@ type WorkspaceCiPlanOpts struct {
 // source context, a module whose checks cannot be enumerated.
 //
 // The repository read from is repo, or the workspace's own root when repo is
-// omitted. Everything comes out of it: module discovery is a dagger.json walk,
-// source contexts and check enumeration resolve against it, and the change set
-// comes from its .git.
+// omitted. Everything comes out of it: modules are discovered by their config
+// files — dagger.json, or dagger-module.toml once a workspace is migrated — and
+// resolved through the workspace, checks are enumerated against it, and the change
+// set comes from its .git.
 //
 // A Dagger CLI fills callingWorkspace in from the workspace the call was made
 // in, so a person types neither argument. A module calling this one must pass
@@ -408,7 +386,7 @@ type WorkspaceCiPlanOpts struct {
 // the engine resolves that default to the current workspace and a module runtime
 // call has none — and Directory.asWorkspace is how a module with only a
 // directory makes one.
-func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:234:1)
+func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, callingWorkspace *Workspace, opts ...WorkspaceCiPlanOpts) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:243:1)
 	assertNotNil("callingWorkspace", callingWorkspace)
 	if r.plan != nil {
 		return *r.plan, nil
@@ -466,7 +444,7 @@ func (r *WorkspaceCi) Plan(ctx context.Context, base string, head string, callin
 // thing: a call that named no ref, because with no ref there is no scope to judge
 // and refusing silently would be indistinguishable from a scope that was judged
 // and rejected.
-func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:368:1)
+func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, commit string) (string, error) { // workspace-ci (../../../daggerverse/workspace-ci/main.go:377:1)
 	if r.recordPass != nil {
 		return *r.recordPass, nil
 	}
@@ -487,13 +465,12 @@ func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, c
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest(ctx context.Context) error { // workspace-ci (../../../daggerverse/workspace-ci/main.go:500:1)
-	if r.selectionSelfTest != nil {
-		return nil
-	}
+func (r *WorkspaceCi) SelectionSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:512:1)
 	q := r.query.Select("selectionSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // AsNode returns this WorkspaceCi as a Node.
@@ -510,7 +487,7 @@ func (r *WorkspaceCi) AsNode() Node {
 // the *constant identifier* in SCREAMING_SNAKE_CASE, and the CLI takes that member
 // name rather than the value — hence `--format=GITHUB_ACTIONS`. The values here are
 // spelled to match, so there is only ever one spelling to remember.
-type WorkspaceCiFormat string // workspace-ci (../../../daggerverse/workspace-ci/main.go:185:6)
+type WorkspaceCiFormat string // workspace-ci (../../../daggerverse/workspace-ci/main.go:186:6)
 
 func (WorkspaceCiFormat) IsEnum() {}
 
@@ -565,15 +542,15 @@ func (v *WorkspaceCiFormat) UnmarshalJSON(dt []byte) error {
 const (
 	// FormatGithubActions is a single-line JSON array, ready to write to
 	// GITHUB_OUTPUT and expand with fromJSON as a matrix.
-	WorkspaceCiFormatGithubActions WorkspaceCiFormat = "GITHUB_ACTIONS" // workspace-ci (../../../daggerverse/workspace-ci/main.go:192:2)
+	WorkspaceCiFormatGithubActions WorkspaceCiFormat = "GITHUB_ACTIONS" // workspace-ci (../../../daggerverse/workspace-ci/main.go:193:2)
 
 	// FormatJSON is the canonical form: an indented JSON array of legs.
-	WorkspaceCiFormatJson WorkspaceCiFormat = "JSON" // workspace-ci (../../../daggerverse/workspace-ci/main.go:189:2)
+	WorkspaceCiFormatJson WorkspaceCiFormat = "JSON" // workspace-ci (../../../daggerverse/workspace-ci/main.go:190:2)
 
 	// FormatJenkins is Groovy: a map of leg name to closure, which is what a
 	// declarative pipeline's parallel step takes. Write it to a file, `load` it,
 	// and hand the result straight to `parallel`.
-	WorkspaceCiFormatJenkins WorkspaceCiFormat = "JENKINS" // workspace-ci (../../../daggerverse/workspace-ci/main.go:196:2)
+	WorkspaceCiFormatJenkins WorkspaceCiFormat = "JENKINS" // workspace-ci (../../../daggerverse/workspace-ci/main.go:197:2)
 
 )
 

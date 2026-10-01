@@ -171,26 +171,59 @@ type branchReport struct {
 // It evaluates the output in a real Groovy runtime rather than matching it as
 // text, because escaping is the half that breaks: a plan is handed to `parallel`
 // unread, so a mis-escaped quote is a pipeline that does not parse, and nothing
-// between the renderer and Jenkins would report it.
+// between the renderer and Jenkins would report it. Both leg shapes are rendered —
+// a narrow change's per-check legs and the run-everything path's coarse ones —
+// because the coarse command is the one carrying shell syntax.
 func (t *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 	fx, err := newFixture(ctx, "")
 	if err != nil {
 		return err
 	}
+	for _, commit := range []string{cTouchA, cTouchFlow} {
+		got, branches, err := renderJenkins(ctx, fx, commit)
+		if err != nil {
+			return fmt.Errorf("%s: %w", commit, err)
+		}
+		for _, l := range got.Plan {
+			b, ok := branches[l.Name]
+			if !ok {
+				return fmt.Errorf("%s: leg %q has no parallel branch; got %v", commit, l.Name, slices.Sorted(maps.Keys(branches)))
+			}
+			if b.Stage != l.Name {
+				return fmt.Errorf("%s: branch %q opened a stage named %q", commit, l.Name, b.Stage)
+			}
+			if b.Timeout != l.Timeout || b.Unit != "MINUTES" {
+				return fmt.Errorf("%s: branch %q ran under %d %s, want %d MINUTES", commit, l.Name, b.Timeout, b.Unit, l.Timeout)
+			}
+			if want := legCommand(l); !slices.Equal(b.Commands, []string{want}) {
+				return fmt.Errorf("%s: branch %q ran %q, want [%q]", commit, l.Name, b.Commands, want)
+			}
+		}
+		if len(branches) != len(got.Plan) {
+			return fmt.Errorf("%s: the plan has %d legs but rendered %d branches", commit, len(got.Plan), len(branches))
+		}
+	}
+	return nil
+}
+
+// renderJenkins plans the change the named commit introduced, renders it in the
+// Jenkins form, evaluates that in a real Groovy runtime and reports what each
+// branch did, alongside the plan itself.
+func renderJenkins(ctx context.Context, fx fixture, commit string) (report, map[string]branchReport, error) {
 	ci := dag.WorkspaceCi()
-	base, head := fx.before(cTouchA), fx.at(cTouchA)
+	base, head := fx.before(commit), fx.at(commit)
 	raw, err := ci.Plan(ctx, base, head, fx.workspace(), dagger.WorkspaceCiPlanOpts{
 		Format: dagger.WorkspaceCiFormatJenkins,
 	})
 	if err != nil {
-		return err
+		return report{}, nil, err
 	}
 	got, err := explainRange(ctx, ci, fx, base, head, "")
 	if err != nil {
-		return err
+		return report{}, nil, err
 	}
 	if len(got.Plan) == 0 {
-		return fmt.Errorf("the fixture planned no legs, so there is nothing to render")
+		return report{}, nil, fmt.Errorf("the fixture planned no legs, so there is nothing to render")
 	}
 
 	stdout, err := dag.Container().
@@ -202,34 +235,111 @@ func (t *Tests) PlanEmitsJenkinsParallelStages(ctx context.Context) error {
 		WithExec([]string{"groovy", "/w/probe.groovy"}).
 		Stdout(ctx)
 	if err != nil {
-		return fmt.Errorf("the jenkins plan is not usable Groovy: %w\n%s", err, raw)
+		return report{}, nil, fmt.Errorf("the jenkins plan is not usable Groovy: %w\n%s", err, raw)
 	}
 	var branches map[string]branchReport
 	if err := json.Unmarshal([]byte(stdout), &branches); err != nil {
-		return fmt.Errorf("parse the probe's report %q: %w", stdout, err)
+		return report{}, nil, fmt.Errorf("parse the probe's report %q: %w", stdout, err)
 	}
+	return got, branches, nil
+}
 
-	for _, l := range got.Plan {
-		b, ok := branches[l.Name]
-		if !ok {
-			return fmt.Errorf("leg %q has no parallel branch; got %v", l.Name, slices.Sorted(maps.Keys(branches)))
-		}
-		if b.Stage != l.Name {
-			return fmt.Errorf("branch %q opened a stage named %q", l.Name, b.Stage)
-		}
-		if b.Timeout != l.Timeout || b.Unit != "MINUTES" {
-			return fmt.Errorf("branch %q ran under %d %s, want %d MINUTES", l.Name, b.Timeout, b.Unit, l.Timeout)
-		}
-		want := "dagger -m '" + l.Module + "' check"
-		if l.Filter != "" {
-			want += " '" + l.Filter + "'"
-		}
-		if !slices.Equal(b.Commands, []string{want}) {
-			return fmt.Errorf("branch %q ran %q, want [%q]", l.Name, b.Commands, want)
-		}
+// legCommand is the shell command a leg runs, spelled the way README.md gives it:
+// every leg names its module with --module, and a leg with no filter lists the
+// module's checks before running them, because a `dagger check` that selects
+// nothing fails.
+func legCommand(l leg) string {
+	check := "dagger -m '" + l.Module + "' check --module '" + l.ModuleName + "'"
+	if l.Filter != "" {
+		return check + " '" + l.Filter + "'"
 	}
-	if len(branches) != len(got.Plan) {
-		return fmt.Errorf("the plan has %d legs but rendered %d branches", len(got.Plan), len(branches))
+	return "links=$(" + check + " -l -f link) || exit 1; " +
+		`if [ -z "$links" ]; then echo '` + l.Module + ` declares no checks'; else ` + check + "; fi"
+}
+
+// fakeDagger stands in for the Dagger CLI when a rendered leg command is run for
+// real. It answers `check -l` with $FAKE_LINKS, or fails when $FAKE_LIST_FAIL is
+// set; any other call is appended to /tmp/ran and exits with $FAKE_CHECK_EXIT.
+const fakeDagger = `#!/bin/sh
+for a in "$@"; do
+  if [ "$a" = "-l" ]; then
+    [ -n "$FAKE_LIST_FAIL" ] && exit 1
+    [ -n "$FAKE_LINKS" ] && printf '%s\n' "$FAKE_LINKS"
+    exit 0
+  fi
+done
+echo "$*" >> /tmp/ran
+exit "${FAKE_CHECK_EXIT:-0}"
+`
+
+// PlanCoarseLegsPassOnModulesWithNoChecks runs the command the Jenkins form
+// renders for a coarse leg — a whole module's checks, planned without the module
+// ever being loaded — against a stand-in Dagger CLI. Since Dagger
+// v1.0.0-beta.15 a `dagger check` that selects nothing is an error, so the command
+// has to decide for itself what a module with nothing to run means:
+//
+//   - a module that declares no checks passes, and `dagger check` is not run;
+//   - a module with checks runs them, and a failing one fails the leg;
+//   - a module whose checks cannot even be listed fails the leg, since that is
+//     what a module that does not build looks like.
+//
+// The command is taken from the rendered plan after Groovy has evaluated it, so
+// what runs is exactly what a pipeline's `sh` would be handed: `$(...)`, `||` and
+// the quoting all have to survive the trip through a Groovy string.
+func (t *Tests) PlanCoarseLegsPassOnModulesWithNoChecks(ctx context.Context) error {
+	fx, err := newFixture(ctx, "")
+	if err != nil {
+		return err
+	}
+	got, branches, err := renderJenkins(ctx, fx, cTouchFlow)
+	if err != nil {
+		return err
+	}
+	coarse, err := find(got, fxC)
+	if err != nil {
+		return err
+	}
+	if coarse.Filter != "" || len(branches[coarse.Name].Commands) != 1 {
+		return fmt.Errorf("leg %+v did not render as one coarse command: %q", coarse, branches[coarse.Name].Commands)
+	}
+	cmd := branches[coarse.Name].Commands[0]
+
+	base := dag.Container().
+		From("alpine:3.20").
+		WithNewFile("/usr/local/bin/dagger", fakeDagger, dagger.ContainerWithNewFileOpts{Permissions: 0o755})
+	for _, tc := range []struct {
+		name     string
+		env      map[string]string
+		wantFail bool
+		wantRun  bool
+	}{
+		{"no checks", map[string]string{}, false, false},
+		{"passing checks", map[string]string{"FAKE_LINKS": "dag+check://ok"}, false, true},
+		{"a failing check", map[string]string{"FAKE_LINKS": "dag+check://ok", "FAKE_CHECK_EXIT": "1"}, true, true},
+		{"checks that cannot be listed", map[string]string{"FAKE_LIST_FAIL": "1"}, true, false},
+	} {
+		ctr := base
+		for k, v := range tc.env {
+			ctr = ctr.WithEnvVariable(k, v)
+		}
+		// The leg's command runs in a subshell, as `sh` would run it, and the
+		// record of what it called is printed afterwards whatever it exited with.
+		ctr = ctr.WithExec([]string{"sh", "-c", "(" + cmd + "); code=$?; cat /tmp/ran 2>/dev/null; exit $code"},
+			dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+		exit, err := ctr.ExitCode(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+		out, err := ctr.Stdout(ctx)
+		if err != nil {
+			return fmt.Errorf("%s: %w", tc.name, err)
+		}
+		if (exit != 0) != tc.wantFail {
+			return fmt.Errorf("%s: the leg exited %d (output %q)", tc.name, exit, out)
+		}
+		if ran := strings.Contains(out, "check --module "+coarse.ModuleName); ran != tc.wantRun {
+			return fmt.Errorf("%s: dagger check ran=%v, want %v (output %q)", tc.name, ran, tc.wantRun, out)
+		}
 	}
 	return nil
 }
@@ -362,10 +472,7 @@ func (t *Tests) PlanRecordsPassesFromJenkinsBranches(ctx context.Context) error 
 		if !ok {
 			return fmt.Errorf("leg %q has no parallel branch; got %v", l.Name, slices.Sorted(maps.Keys(branches)))
 		}
-		check := "dagger -m '" + l.Module + "' check"
-		if l.Filter != "" {
-			check += " '" + l.Filter + "'"
-		}
+		check := legCommand(l)
 		wantPass := []string{check}
 		if l.Hash != "" {
 			memoizable++
@@ -526,7 +633,7 @@ func (t *Tests) NewRejectsMemoTokenWithoutRepo(ctx context.Context) error {
 // would, so a regression in the pure selection and hashing rules fails here too
 // rather than only where it is installed.
 func (t *Tests) SelectionSelfTestPasses(ctx context.Context) error {
-	return dag.WorkspaceCi().SelectionSelfTest(ctx)
+	return checkErr(ctx, dag.WorkspaceCi().SelectionSelfTest())
 }
 
 // randomSecret mints a throwaway credential at run time, so no test ever carries

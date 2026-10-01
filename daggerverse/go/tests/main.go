@@ -283,13 +283,13 @@ func exampleModuleHygiene(ctx context.Context, ex *dagger.GoExamples) error {
 // fail and surface here as an error. A nil return therefore proves
 // both (a) the checks passed and (b) the build was skipped.
 func (t *Tests) CiCheckRunsEnabledChecksAndSkipsBuild(ctx context.Context, goImageTag string) error {
-	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithFmt().
 		WithVet().
 		WithLint().
 		WithTest(dagger.GoCiWithTestOpts{Race: true}).
 		WithBuild(dagger.GoCiWithBuildOpts{Pkg: "./does-not-exist"}).
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.Check on clean hello: %w", err)
 	}
@@ -366,9 +366,9 @@ func golangciConfig(name string) *dagger.File {
 // golangci-lint v1" — so this test fails outright the moment the pin slips
 // back across the major boundary, which is the failure adopters hit.
 func (t *Tests) CiWithLintAcceptsV2Config(ctx context.Context, goImageTag string) error {
-	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithLint(dagger.GoCiWithLintOpts{Config: golangciConfig("v2.yml")}).
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.WithLint with a v2 config: %w", err)
 	}
@@ -388,9 +388,9 @@ func (t *Tests) CiWithLintAcceptsV2Config(ctx context.Context, goImageTag string
 // v2 binary that merely dislikes the fixture pass for a v1 binary that
 // happily loaded a v1 file.
 func (t *Tests) CiWithLintRejectsV1Config(ctx context.Context, goImageTag string) error {
-	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithLint(dagger.GoCiWithLintOpts{Config: golangciConfig("v1.yml")}).
-		Check(ctx)
+		Check())
 	if err == nil {
 		return fmt.Errorf("expected Ci.WithLint with a v1 config to fail under a v2 golangci-lint, got nil")
 	}
@@ -409,12 +409,12 @@ func (t *Tests) CiWithLintRejectsV1Config(ctx context.Context, goImageTag string
 // on the other side of that boundary — without it, everything below v2 is
 // a path nothing exercises.
 func (t *Tests) CiWithLintRollsBackToV1(ctx context.Context, goImageTag string) error {
-	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithLint(dagger.GoCiWithLintOpts{
 			Version: "v1.64.8",
 			Config:  golangciConfig("v1.yml"),
 		}).
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.WithLint pinned to v1.64.8: %w", err)
 	}
@@ -425,9 +425,9 @@ func (t *Tests) CiWithLintRollsBackToV1(ctx context.Context, goImageTag string) 
 // read a major out of is refused with a message naming it, rather than
 // being guessed at and surfacing later as an unresolvable package.
 func (t *Tests) CiWithLintRejectsUnreadableVersion(ctx context.Context, goImageTag string) error {
-	err := dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: goImageTag}).Ci(helloDir()).
 		WithLint(dagger.GoCiWithLintOpts{Version: "1.64.8"}).
-		Check(ctx)
+		Check())
 	if err == nil {
 		return fmt.Errorf(`expected Ci.WithLint pinned to "1.64.8" to fail, got nil`)
 	}
@@ -450,9 +450,9 @@ func (t *Tests) CiWithLintRejectsUnreadableVersion(ctx context.Context, goImageT
 // goImageTag is the point of the test; a caller-supplied override would
 // defeat it.
 func (t *Tests) CiWithLintBuildsUnderOlderGoToolchain(ctx context.Context) error {
-	err := dag.Go(dagger.GoOpts{Version: "1.23"}).Ci(helloDir()).
+	err := checkErr(ctx, dag.Go(dagger.GoOpts{Version: "1.23"}).Ci(helloDir()).
 		WithLint().
-		Check(ctx)
+		Check())
 	if err != nil {
 		return fmt.Errorf("Ci.WithLint under a pinned go1.23 toolchain: %w", err)
 	}

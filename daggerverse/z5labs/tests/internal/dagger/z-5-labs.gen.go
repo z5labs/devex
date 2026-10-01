@@ -24,15 +24,7 @@ func (r *Query) Z5Labs() *Z5Labs { // z5labs (../../../../../daggerverse/z5labs/
 type Z5Labs struct { // z5labs (../../../../../daggerverse/z5labs/main.go:639:6)
 	query *querybuilder.Selection
 
-	composeSelfTest          *Void
-	contributedTreeSelfTest  *Void
-	contributionPathSelfTest *Void
-	id                       *ID
-	imageConfigSelfTest      *Void
-	imageSbomSelfTest        *Void
-	sourceRedactionSelfTest  *Void
-	variantSetSelfTest       *Void
-	versionTagsSelfTest      *Void
+	id *ID
 }
 
 func (r *Z5Labs) WithGraphQLQuery(q *querybuilder.Selection) *Z5Labs {
@@ -107,13 +99,12 @@ func (r *Z5Labs) App(version string) *Z5LabsAppBuilder { // z5labs (../../../../
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/composeselftest.go:34:1)
-	if r.composeSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ComposeSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/composeselftest.go:34:1)
 	q := r.query.Select("composeSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ContributedTreeSelfTest checks what a contributed tree may hold: directories
@@ -134,13 +125,12 @@ func (r *Z5Labs) ComposeSelfTest(ctx context.Context) error { // z5labs (../../.
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/documentselftest.go:35:1)
-	if r.contributedTreeSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ContributedTreeSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/documentselftest.go:35:1)
 	q := r.query.Select("contributedTreeSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ContributionPathSelfTest checks the rules that decide where a caller may
@@ -171,13 +161,12 @@ func (r *Z5Labs) ContributedTreeSelfTest(ctx context.Context) error { // z5labs 
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ContributionPathSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/contributeselftest.go:40:1)
-	if r.contributionPathSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ContributionPathSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/contributeselftest.go:40:1)
 	q := r.query.Select("contributionPathSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // Z5LabsDirectoryDocumentOpts contains options for Z5Labs.DirectoryDocument
@@ -405,13 +394,12 @@ func (r *Z5Labs) UnmarshalJSON(bs []byte) error {
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) ImageConfigSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:245:1)
-	if r.imageConfigSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ImageConfigSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/selftest.go:245:1)
 	q := r.query.Select("imageConfigSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // ImageSbomSelfTest checks the rule the image-level documents exist to keep:
@@ -432,13 +420,12 @@ func (r *Z5Labs) ImageConfigSelfTest(ctx context.Context) error { // z5labs (../
 //
 // It runs in process over synthesized documents and needs no container, so it
 // is cheap enough to be a check of its own.
-func (r *Z5Labs) ImageSbomSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/sbomselftest.go:36:1)
-	if r.imageSbomSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) ImageSbomSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/sbomselftest.go:36:1)
 	q := r.query.Select("imageSbomSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // SourceRedactionSelfTest checks redactURLCredentials against the rule rather
@@ -470,13 +457,12 @@ func (r *Z5Labs) ImageSbomSelfTest(ctx context.Context) error { // z5labs (../..
 // could not parse would leak by exactly the path this check closes. The
 // assertions below print a row's name and its expectation, and print what
 // came back only after establishing that it does not carry the credential.
-func (r *Z5Labs) SourceRedactionSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/annotationsselftest.go:54:1)
-	if r.sourceRedactionSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) SourceRedactionSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/annotationsselftest.go:54:1)
 	q := r.query.Select("sourceRedactionSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // VariantSetSelfTest checks the rules that decide which sets of prebuilt
@@ -492,13 +478,12 @@ func (r *Z5Labs) SourceRedactionSelfTest(ctx context.Context) error { // z5labs 
 //
 // It runs in process and needs no container, so it is cheap enough to be a
 // check of its own.
-func (r *Z5Labs) VariantSetSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/prebuiltselftest.go:27:1)
-	if r.variantSetSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) VariantSetSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/prebuiltselftest.go:27:1)
 	q := r.query.Select("variantSetSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // VersionTagsSelfTest checks the tag family a release is published under,
@@ -517,13 +502,12 @@ func (r *Z5Labs) VariantSetSelfTest(ctx context.Context) error { // z5labs (../.
 // ImageEnvironmentSelfTest does — the function is unexported — and because a
 // table of thirty versions costs one in-process call here and thirty
 // publishes there.
-func (r *Z5Labs) VersionTagsSelfTest(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/selftest.go:29:1)
-	if r.versionTagsSelfTest != nil {
-		return nil
-	}
+func (r *Z5Labs) VersionTagsSelfTest() *Check { // z5labs (../../../../../daggerverse/z5labs/selftest.go:29:1)
 	q := r.query.Select("versionTagsSelfTest")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // AsNode returns this Z5Labs as a Node.
@@ -1362,7 +1346,6 @@ func (r *Z5LabsAppBuilder) AsNode() Node {
 type Z5LabsGoChain struct { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
 	query *querybuilder.Selection
 
-	ci *Void
 	id *ID
 }
 type WithZ5LabsGoChainFunc func(r *Z5LabsGoChain) *Z5LabsGoChain
@@ -1467,13 +1450,12 @@ func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5Lab
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
-func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:131:1)
-	if r.ci != nil {
-		return nil
-	}
+func (r *Z5LabsGoChain) Ci() *Check { // z5labs (../../../../../daggerverse/z5labs/go.go:131:1)
 	q := r.query.Select("ci")
 
-	return q.Execute(ctx)
+	return &Check{
+		query: q,
+	}
 }
 
 // A unique identifier for this Z5LabsGoChain.

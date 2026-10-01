@@ -643,8 +643,11 @@ tail.
 ## Tests
 
 ```sh
-dagger -m daggerverse/bruno/tests call all
+dagger -m daggerverse/bruno/tests check --module tests
 ```
+
+`All` is a `+check`, so run it with `dagger check`: `dagger call all` only
+prints the deferred check and exits 0 whether it passes or not.
 
 The suite is hermetic: `tests/responder.go` stands up a request-recording HTTP
 service per test and binds it as `api`, which is the host every fixture's

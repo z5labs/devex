@@ -1123,8 +1123,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run performs the same stages as Check and returns the plan artifacts —\nplan.tfplan, plan.json, plan.txt and changes, exactly what Config.Plan\nemits — for downstream consumption: a review gate that renders the plan, an\nApply that consumes the saved plan, an artifact attached to a pull request.\n\nIt plans whether or not WithPlan was called, because it must produce the\ndirectory it returns; WithPlan(failOnChanges: true) additionally makes a\nnon-empty plan fail the run. The plan is run once, not once per role: when\nWithPlan enabled it as a check stage too, that single run is both.\n\nEverything runs in one parallel round, so the returned artifacts come from a\npipeline where every stage passed. A failing stage yields the aggregated\nerror and a nil directory.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 127, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 126, 1))).
 					WithFunction(
 						dag.Function("WithFmt",
 							dag.TypeDef().WithObject("Ci")).

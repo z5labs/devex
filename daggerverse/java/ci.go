@@ -69,7 +69,6 @@ func (c *MavenCi) Check(ctx context.Context) error {
 // returns the aggregated error from Check and a nil directory (packaging is
 // skipped).
 //
-// +check
 // +cache="session"
 func (c *MavenCi) Run(ctx context.Context) (*dagger.Directory, error) {
 	if err := c.Check(ctx); err != nil {
@@ -151,7 +150,6 @@ func (c *GradleCi) Check(ctx context.Context) error {
 // Returns the produced build/libs directory. On stage-1 failure, returns the
 // aggregated error from Check and a nil directory (the build is skipped).
 //
-// +check
 // +cache="session"
 func (c *GradleCi) Run(ctx context.Context) (*dagger.Directory, error) {
 	if err := c.Check(ctx); err != nil {
