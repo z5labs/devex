@@ -77,7 +77,7 @@ naming both modes rather than silently picking a winner.
 A backend standing up inside the same pipeline — a state server, an
 S3-compatible service — is unreachable until it is bound:
 `WithServiceBinding(alias, service)` puts it on the tofu container's network
-under `alias`. That is the seam the suite's own MinIO fixture uses, and it
+under `alias`. That is the seam the suite's own S3 fixture uses, and it
 works for anything else tofu has to dial (a provider's API, a git server
 hosting module sources).
 
@@ -349,7 +349,7 @@ exist purely in state, which is what makes the state round-trip assertions
 meaningful — there is no out-of-band object to drift away underneath them.
 
 The remote-backend half of the suite is hermetic too. `tests/backend.go`
-stands up a MinIO service per test, mints its root credential with
+stands up a Versity Gateway S3 service per test, mints its root credential with
 `dag.Random().Sha256()` and crosses it as a `*Secret`, and points the `s3`
 backend at it through `WithServiceBinding`. Against that it proves state lives
 in the bucket and not in the returned directory, that `WithBackendConfigFile`

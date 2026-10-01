@@ -10,8 +10,8 @@
 // drift away underneath them.
 //
 // The remote-state fixtures declare an s3 backend, and it too is hermetic: the
-// S3 they write to is a MinIO service the suite stands up per test, with a
-// root credential minted at runtime. See backend.go.
+// S3 they write to is a Versity Gateway service the suite stands up per test,
+// with a root credential minted at runtime. See backend.go.
 package main
 
 import (
