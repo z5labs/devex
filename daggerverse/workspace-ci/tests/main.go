@@ -412,6 +412,8 @@ func (t *Tests) All(ctx context.Context) error {
 		"plan-coarse-legs-pass-on-modules-with-no-checks":            t.PlanCoarseLegsPassOnModulesWithNoChecks,
 		"generated-reports-an-unswept-module":                        t.GeneratedReportsAnUnsweptModule,
 		"generated-passes-on-fresh-bindings-and-fails-on-stale-ones": t.GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes,
+		"generated-proves-the-sdk-staleness-check":                   t.GeneratedProvesTheSdkStalenessCheck,
+		"plan-runs-the-checks-of-modules-the-workspace-installs":     t.PlanRunsTheChecksOfModulesTheWorkspaceInstalls,
 		"plan-attributes-deleted-paths-to-their-module":              t.PlanAttributesDeletedPathsToTheirModule,
 		"plan-runs-everything-on-global-path-change":                 t.PlanRunsEverythingOnGlobalPathChange,
 		"plan-runs-everything-on-an-unusable-diff-range":             t.PlanRunsEverythingOnAnUnusableDiffRange,

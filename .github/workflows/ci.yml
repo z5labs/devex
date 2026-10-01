@@ -47,6 +47,13 @@ jobs:
       # request could not test its own selection logic.
       module: daggerverse/workspace-ci
 
+      # dagger.lock is committed (#443): it pins every image digest the suites pull
+      # and the SDK module chain that writes the committed bindings. A pin is only a
+      # pin if it is complete, and nothing else notices a missing entry, because
+      # every job records into its own throwaway checkout — so every job fails if it
+      # left the lockfile changed.
+      check-lockfile: true
+
       # Modules whose checks must each get their own leg even when everything runs.
       # The run-everything path otherwise emits one coarse leg per module, which
       # shares one engine on one runner — free when a module's checks share their
@@ -78,20 +85,21 @@ jobs:
       #
       # What the entries below are for:
       #
-      #   .                        the root module's one check, `generated`, runs
-      #                            codegen for every module in the workspace, paying
-      #                            in one leg the module-build cost the others spread
-      #                            across themselves (#184) — ~5m on a cold engine. A
-      #                            bare module key, because that sweep is every leg
-      #                            the root module has.
-      #   daggerverse/workspace-ci declares that same whole-workspace `generated` as
-      #                            its own check, so its coarse leg repeats the
-      #                            sweep; measured at 5m12s against the 6m default.
-      #                            Here the coarse budget is bound to `:*` and to
-      #                            `:generated`, the two legs that actually sweep, so
-      #                            `:selection-self-test` and `:memo-store-self-test`
-      #                            — both in-process, no engine work — fall back to
-      #                            the default instead of carrying 15.
+      #   dagger-go-sdk (workspace)
+      #                            the Go SDK's `stale` check, which regenerates
+      #                            every module the SDK manages — the sweep
+      #                            `ci:generated` used to run itself (#184, #443),
+      #                            ~5m on a cold engine and ~4m warm locally. The
+      #                            leg has no module directory, so only its own
+      #                            name reaches it.
+      #
+      #                            The root module (`.`) and workspace-ci's coarse
+      #                            leg each carried 15 for that sweep until then.
+      #                            In a workspace that installs its SDK, their
+      #                            `generated` makes no comparison of its own: it
+      #                            proves `stale` can fail on a one-module probe,
+      #                            16s warm locally, so both fall back to the
+      #                            default.
       #   daggerverse/z5labs/tests one check, `all`, which runs a publish suite: two
       #                            registries, an OIDC issuer, a local sigstore, and
       #                            cross-compiles per platform. It had outgrown the
@@ -107,8 +115,7 @@ jobs:
       #                            rather than a fix. Splitting the suite so the
       #                            number can come back down is #433.
       timeouts: >-
-        {".": 15,
-        "daggerverse/workspace-ci:*": 15, "daggerverse/workspace-ci:generated": 15,
+        {"dagger-go-sdk (workspace)": 15,
         "daggerverse/z5labs/tests": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
@@ -130,9 +137,9 @@ jobs:
   # would never be retried. Here a skip is a real `skipped` that `CI Gate` reads.
   #
   # The path list is the CI files: the workflows and their scripts, the root
-  # module (its source and its config in either shape), the workspace config, the
-  # planner itself and the regeneration script. Anything it cannot decide — no
-  # usable base, a diff that fails — runs the tests rather than skipping them.
+  # module (its source and its config), the workspace config and its lockfile, and
+  # the planner itself. Anything it cannot decide — no usable base, a diff that
+  # fails — runs the tests rather than skipping them.
   ci-files:
     name: CI files changed
     runs-on: ubuntu-latest
@@ -157,7 +164,7 @@ jobs:
             echo "no usable base; running the planner tests"
           elif ! changed="$(git diff --name-only "${BASE}...${HEAD}")"; then
             echo "cannot diff ${BASE}...${HEAD}; running the planner tests"
-          elif grep -qE '^(\.github/workflows/|\.github/scripts/|ci/|daggerverse/workspace-ci/|hack/)|^(dagger\.json|dagger-module\.toml|dagger\.toml)$' <<<"$changed"; then
+          elif grep -qE '^(\.github/workflows/|\.github/scripts/|ci/|daggerverse/workspace-ci/)|^(dagger-module\.toml|dagger\.toml|dagger\.lock)$' <<<"$changed"; then
             echo "CI files changed; running the planner tests"
           else
             echo "no CI file changed; skipping the planner tests"
@@ -247,6 +254,21 @@ jobs:
           DAGGER_PROGRESS: dots
           DAGGER_CLOUD_TOKEN: ${{ secrets.DAGGER_CLOUD_TOKEN }}
         run: dagger -m daggerverse/workspace-ci/tests check --module tests
+
+      # The same lockfile guard every job in change-aware-ci.yml runs (see
+      # check-lockfile above), for the commands this job ran.
+      - name: Check dagger.lock records what the planner tests resolved
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          changed="$(git status --porcelain -- dagger.lock)"
+          if [ -z "$changed" ]; then
+            echo "dagger.lock already records everything this job resolved"
+            exit 0
+          fi
+          git --no-pager diff -- dagger.lock
+          echo "::error file=dagger.lock::the planner tests resolved something the committed dagger.lock does not record. Run 'dagger -m daggerverse/workspace-ci/tests check --module tests' locally and commit the dagger.lock it leaves behind."
+          exit 1
 
   # The required status check. The called workflow already exposes one, but GitHub
   # names a called job `<caller job name> / <job name>` — `Checks / CI Gate` here —

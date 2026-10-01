@@ -451,6 +451,11 @@ func (m *WorkspaceCi) plan(
 	} else {
 		out.Plan = ws.legs(ctx, affected)
 	}
+	installed, err := ws.installedLegs(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out.Plan = append(out.Plan, installed...)
 	out.LoadedModules = ws.loaded
 
 	// Hashing needs the source context of every module in every affected module's

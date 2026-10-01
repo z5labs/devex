@@ -1,0 +1,9 @@
+name = "workspace-ci"
+engineVersion = "v1.0.0-beta.15"
+include = ["!README.md"]
+
+[runtime]
+  source = "go"
+
+[codegen]
+  automaticGitignore = false

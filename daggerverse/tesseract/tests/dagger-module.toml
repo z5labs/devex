@@ -1,0 +1,16 @@
+name = "tests"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "pdf"
+  source = "../../pdf"
+
+[[dependencies]]
+  name = "tesseract"
+  source = ".."
+
+[codegen]
+  automaticGitignore = false

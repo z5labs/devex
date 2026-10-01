@@ -12,10 +12,12 @@ import (
 //
 // Name is the display name, unique across the plan. Module is the repo-relative
 // module to invoke with `-m`, so a leg runs one module's checks rather than the
-// whole workspace's. ModuleName is that module's own name, which `dagger check`
-// needs as `--module`: without it, the CLI also selects the checks of the module
-// at the workspace root, so every leg would run those too. `--module` narrows
-// what a leg selects, not what it loads: on Dagger v1.0.0-beta.15, in a
+// whole workspace's; it is empty for a leg that runs a workspace-installed
+// module's checks, which is run without `-m` (see InstalledEntry). ModuleName is
+// that module's own name, which `dagger check` needs as `--module`: without it,
+// the CLI also selects the checks of the module at the workspace root and of the
+// modules the workspace installs, so every leg would run those too. `--module`
+// narrows what a leg selects, not what it loads: on Dagger v1.0.0-beta.15, in a
 // workspace configured by dagger.json, the CLI still loads the root module on
 // every leg (#447). Filter is the check pattern to pass to `dagger check`
 // (`<module-name>:<check>`), empty to run every check the module has. Hash is the
@@ -64,6 +66,32 @@ func CheckEntry(moduleDir, moduleName, checkName string) Entry {
 func ModuleEntry(moduleDir, moduleName string) Entry {
 	return Entry{Name: moduleDir, Module: moduleDir, ModuleName: moduleName}
 }
+
+// InstalledSuffix ends the display name of every InstalledEntry.
+const InstalledSuffix = " (workspace)"
+
+// InstalledEntry is a leg that runs every check of a module the workspace's
+// config installs from somewhere other than a module directory in the
+// repository — an SDK module such as github.com/dagger/go-sdk, whose `stale`
+// check is the one that proves the committed generated code is current.
+//
+// No module directory declares those checks, so no per-module leg can reach
+// them: the leg has no Module, and runs `dagger check --module <name>` from the
+// workspace root without `-m`. It cannot borrow the root module's `-m .` either,
+// because a workspace need not have a root module, and `-m .` fails to load in
+// one that does not.
+//
+// Its display name is the installed name plus InstalledSuffix. A module
+// directory or a <module-dir>:<check> name never ends that way, so the leg can
+// collide with no other.
+func InstalledEntry(moduleName string) Entry {
+	return Entry{Name: moduleName + InstalledSuffix, ModuleName: moduleName}
+}
+
+// IsInstalled reports whether this leg runs the checks of a module the
+// workspace installs rather than one of its module directories: an
+// InstalledEntry.
+func (e Entry) IsInstalled() bool { return e.Module == "" }
 
 // IsCoarse reports whether this leg runs a module's whole suite rather than one of
 // its checks — a ModuleEntry, which is what the run-everything path emits and what
@@ -125,7 +153,7 @@ func ParseTimeouts(raw string) (Timeouts, error) {
 // the table carries a key for:
 //
 //	def                nothing matched
-//	t[<module-dir>]    every leg of that module
+//	t[<module-dir>]    every leg of that module (an InstalledEntry has none)
 //	t[<leg-name>]      that leg alone
 //	t[<module-dir>:*]  a coarse leg only, and only where one exists
 //
@@ -142,7 +170,7 @@ func (t Timeouts) Apply(entries []Entry, def int) []Entry {
 	out := make([]Entry, 0, len(entries))
 	for _, e := range entries {
 		e.Timeout = def
-		if v, ok := t[e.Module]; ok {
+		if v, ok := t[e.Module]; ok && !e.IsInstalled() {
 			e.Timeout = v
 		}
 		if v, ok := t[e.Name]; ok {

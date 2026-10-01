@@ -115,7 +115,9 @@ func jenkinsBranch(e Entry, recordCommand string) string {
 // a closure with no body drives nothing.
 //
 // Every leg passes `--module <name>`. Without it the CLI also selects the checks
-// of the module at the workspace root, so every leg would run those as well.
+// of the module at the workspace root, so every leg would run those as well. A
+// leg with no module — an InstalledEntry — runs from the workspace root without
+// `-m`.
 //
 // A per-check leg passes its pattern, and `dagger check` fails when a pattern
 // matches nothing — which is what a check renamed out from under the plan looks
@@ -127,12 +129,15 @@ func jenkinsBranch(e Entry, recordCommand string) string {
 // checks first and runs them only if there are any. A list that fails still fails
 // the branch: that is what a module that does not build looks like.
 func checkCommand(e Entry) string {
-	check := "dagger -m " + shellQuote(e.Module) + " check --module " + shellQuote(e.ModuleName)
+	check := "dagger check --module " + shellQuote(e.ModuleName)
+	if !e.IsInstalled() {
+		check = "dagger -m " + shellQuote(e.Module) + " check --module " + shellQuote(e.ModuleName)
+	}
 	if e.Filter != "" {
 		return check + " " + shellQuote(e.Filter)
 	}
 	return "links=$(" + check + " -l -f link) || exit 1; " +
-		`if [ -z "$links" ]; then echo ` + shellQuote(e.Module+" declares no checks") + "; " +
+		`if [ -z "$links" ]; then echo ` + shellQuote(e.Name+" declares no checks") + "; " +
 		"else " + check + "; fi"
 }
 

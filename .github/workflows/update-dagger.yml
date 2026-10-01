@@ -1,9 +1,10 @@
 name: Update Dagger
 
-# Manually-triggered mechanical Dagger upgrade: install the target CLI, regenerate
-# every module through hack/regen.sh (which bumps engineVersion + regenerates
-# bindings and go.mod/go.sum), bump the workflow's Dagger pin, and open a PR.
-# Reproduces the by-hand diff of #114 (v0.20.8 -> v0.21.3) with one click.
+# Manually-triggered mechanical Dagger upgrade: install the target CLI, bump
+# engineVersion in every dagger-module.toml, refresh the Go SDK module pins in
+# dagger.lock, regenerate every module with `dagger generate`, bump the workflow's
+# Dagger pin, and open a PR. Reproduces the by-hand diff of #114 (v0.20.8 ->
+# v0.21.3) with one click.
 #
 # A major bump is NOT mechanical: this repository cannot straddle two Dagger
 # majors (#440), and v1 removed API the modules used. Expect this workflow to
@@ -105,47 +106,71 @@ jobs:
           [ "$GOT" = "v${BARE}" ] \
             || { echo "dagger version is '$GOT', expected 'v${BARE}'" >&2; exit 1; }
 
-      - name: Regenerate every module (leaf -> examples -> tests -> root)
-        # hack/regen.sh is this repository's `dagger develop`: v1 removed that
-        # command in favour of `dagger generate`, which is driven by a workspace
-        # dagger.toml this repository does not have, so the script drives the API
-        # underneath it instead. It also owns the ordering (a module regenerated
-        # before its dependencies embeds their stale type definitions) and the
-        # engineVersion bump, and it globs every module shape in the tree --
-        # including daggerverse/*/examples/*/, the pass this step used to be missing,
-        # which is what stranded six modules at v0.21.7.
-        env:
-          VTAG: ${{ steps.resolve.outputs.vtag }}
-        run: hack/regen.sh "$VTAG"
-
-      - name: Verify every module moved to the target version
-        # The upgrade is only mechanical if it reached everything: a module the
-        # regeneration pass missed keeps its old pin, and since this repository
-        # cannot straddle a major (#440) that is a tree nothing can load rather than
-        # a module that lags. Assert it here rather than leaving it to review.
-        #
-        # A module is configured by dagger.json or by dagger-module.toml, and the
-        # TOML file wins when a directory has both, because that is the one the
-        # engine reads. Its engineVersion is a top-level key, before any table.
+      - name: Bump engineVersion in every dagger-module.toml
+        # `dagger generate` regenerates every module but does not move its
+        # engineVersion, so the pin is bumped first, by hand. It is the one
+        # top-level `engineVersion = "..."` line of each manifest; the next step but
+        # one parses every manifest to prove the edit landed and left valid TOML.
         env:
           VTAG: ${{ steps.resolve.outputs.vtag }}
         run: |
           set -euo pipefail
-          rc=0
-          while IFS= read -r dir; do
-            if [ -f "$dir/dagger-module.toml" ]; then
-              cfg="$dir/dagger-module.toml"
-              got=$(awk '/^\[/ { exit } /^engineVersion[[:space:]]*=/ { sub(/^engineVersion[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$cfg")
-            else
-              cfg="$dir/dagger.json"
-              got=$(jq -r '.engineVersion // empty' "$cfg")
-            fi
-            if [ "${got:-<none>}" != "$VTAG" ]; then
-              echo "::error file=$cfg::engineVersion is '${got:-<none>}', expected '$VTAG'"
-              rc=1
-            fi
-          done < <(find . \( -name dagger.json -o -name dagger-module.toml \) -not -path './.git/*' -exec dirname {} \; | sort -u)
-          exit "$rc"
+          find . -name dagger-module.toml -not -path './.git/*' -print0 \
+            | xargs -0 sed -i -E "s/^engineVersion[[:space:]]*=[[:space:]]*\"[^\"]*\"/engineVersion = \"${VTAG}\"/"
+
+      - name: Refresh the Go SDK module pins and regenerate every module
+        # The Go SDK is a module the workspace installs (dagger.toml), resolved
+        # through dagger.lock: github.com/dagger/go-sdk and the sdk-helpers module
+        # it loads. A new engine usually wants a newer SDK, so their pins move in
+        # the same pull request as the engine; every other pin (image digests) is
+        # update-dagger-lock.yml's business and stays put here.
+        #
+        # Then one `dagger generate`, which regenerates every module the SDK
+        # manages in dependency order -- the ordering hack/regen.sh used to own.
+        run: |
+          set -euo pipefail
+          dagger lock update --no-generate \
+            github.com/dagger/go-sdk github.com/dagger/sdk-helpers https://dagger.io/sdk/helpers
+          dagger generate -y
+
+      - name: Verify every module moved to the target version
+        # The upgrade is only mechanical if it reached everything: a module the
+        # bump missed keeps its old pin, and since this repository cannot straddle
+        # a major (#440) that is a tree nothing can load rather than a module that
+        # lags. Assert it here rather than leaving it to review.
+        #
+        # Every manifest is read with a TOML parser rather than pattern-matched, so
+        # a manifest the sed above mangled fails here instead of in the engine. A
+        # dagger.json anywhere is an error too: this repository has none since
+        # #443, and one would be a module configured in a shape the bump skipped.
+        env:
+          VTAG: ${{ steps.resolve.outputs.vtag }}
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF'
+          import os, pathlib, sys, tomllib
+          want, rc = os.environ["VTAG"], 0
+          for legacy in sorted(pathlib.Path(".").rglob("dagger.json")):
+              if ".git" not in legacy.parts:
+                  print(f"::error file={legacy}::a dagger.json module config; this repository uses dagger-module.toml")
+                  rc = 1
+          manifests = sorted(p for p in pathlib.Path(".").rglob("dagger-module.toml") if ".git" not in p.parts)
+          if not manifests:
+              print("::error::no dagger-module.toml found")
+              rc = 1
+          for p in manifests:
+              try:
+                  got = tomllib.loads(p.read_text()).get("engineVersion", "<none>")
+              except tomllib.TOMLDecodeError as e:
+                  print(f"::error file={p}::not valid TOML: {e}")
+                  rc = 1
+                  continue
+              if got != want:
+                  print(f"::error file={p}::engineVersion is '{got}', expected '{want}'")
+                  rc = 1
+          print(f"checked {len(manifests)} manifests")
+          sys.exit(rc)
+          EOF
 
       - name: Verify the planner's check enumeration still matches `dagger check -l`
         # The planner (daggerverse/workspace-ci) builds the CI matrix by asking
@@ -164,9 +189,9 @@ jobs:
         # Every module is compared, not a sample, because a divergence could be
         # specific to how one module declares its checks.
         #
-        # Both sides are scoped the way a CI leg is, with --module: without it, in
-        # a workspace configured by dagger.json, the CLI lists the root module's
-        # checks alongside every module's own.
+        # Both sides are scoped the way a CI leg is, with --module: without it the
+        # CLI lists the root module's checks, and those of every module dagger.toml
+        # installs, alongside every module's own.
         #
         # The CLI side is read with `-f link`, one `dag+check://<path>` per line,
         # rather than out of the default table (`MODULE  CHECK  DESCRIPTION`,
@@ -185,11 +210,7 @@ jobs:
           rc=0
           count=0
           while IFS= read -r mod; do
-            if [ -f "$mod/dagger-module.toml" ]; then
-              name=$(awk '/^\[/ { exit } /^name[[:space:]]*=/ { sub(/^name[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$mod/dagger-module.toml")
-            else
-              name=$(jq -r '.name // empty' "$mod/dagger.json")
-            fi
+            name=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("name", ""))' "$mod/dagger-module.toml") || name=""
             if [ -z "$name" ]; then
               echo "::error::cannot read the module name of $mod" >&2
               rc=1
@@ -226,7 +247,7 @@ jobs:
             # a bare exit 1 -- no diff, no ::error::, nothing to read. awk always
             # exits 0.
             count=$(( count + $(printf '%s\n' "$stable" | awk 'NF { n++ } END { print n + 0 }') ))
-          done < <(find . \( -name dagger.json -o -name dagger-module.toml \) -not -path './.git/*' -exec dirname {} \; | sort -u)
+          done < <(find . -name dagger-module.toml -not -path './.git/*' -exec dirname {} \; | sort -u)
           # Agreement on nothing is not agreement: a tree in which neither side
           # found a single check means both parsers matched nothing.
           if [ "$count" -eq 0 ]; then
@@ -240,8 +261,8 @@ jobs:
         # change-aware-ci.yml is the single source of truth: its `dagger-version`
         # input default is what installs the CLI, keys the engine-image cache and
         # feeds both the list and run jobs, and ci.yml does not override it. One
-        # targeted sed on that default line is all that's needed -- no dagger.json
-        # edits (hack/regen.sh already bumped every engineVersion).
+        # targeted sed on that default line is all that's needed -- the manifests'
+        # engineVersion was bumped above.
         env:
           BARE: ${{ steps.resolve.outputs.bare }}
         run: |
@@ -290,8 +311,9 @@ jobs:
           body: |
             Mechanical Dagger upgrade to `${{ steps.resolve.outputs.vtag }}`,
             generated by `.github/workflows/update-dagger.yml`. Reproduces the
-            shape of #114: bumped `engineVersion` in every `dagger.json`,
-            regenerated `*.gen.go`, refreshed `go.mod`/`go.sum`, and bumped the
+            shape of #114: bumped `engineVersion` in every `dagger-module.toml`,
+            refreshed the Go SDK module pins in `dagger.lock`, regenerated
+            `*.gen.go` and `go.mod`/`go.sum` with `dagger generate`, and bumped the
             Dagger pin in `change-aware-ci.yml`.
 
             CI runs automatically on this PR (opened via the update-dagger GitHub

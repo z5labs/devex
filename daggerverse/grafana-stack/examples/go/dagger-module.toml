@@ -1,0 +1,12 @@
+name = "grafana-stack-examples"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "grafana-stack"
+  source = "../.."
+
+[codegen]
+  automaticGitignore = false

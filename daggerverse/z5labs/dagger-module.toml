@@ -1,0 +1,16 @@
+name = "z5labs"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "go"
+  source = "../go"
+
+[[dependencies]]
+  name = "oci"
+  source = "../oci"
+
+[codegen]
+  automaticGitignore = false

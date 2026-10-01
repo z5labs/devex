@@ -1,0 +1,24 @@
+name = "tests"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "certificate-management"
+  source = "../../certificate-management"
+
+[[dependencies]]
+  name = "crypto"
+  source = "../../crypto"
+
+[[dependencies]]
+  name = "kafka"
+  source = ".."
+
+[[dependencies]]
+  name = "random"
+  source = "../../random"
+
+[codegen]
+  automaticGitignore = false

@@ -4,7 +4,8 @@
 # daggerverse changes, from inside a worktree.
 #
 # The second half of `verify` in .claude/backlog.json. The first half is
-# `dagger check`, the root module's one check (`ci:generated`), which the planner
+# `dagger check`, which at the workspace root runs the root module's one check
+# (`ci:generated`) and the Go SDK's (`dagger-go-sdk:stale`) — the two the planner
 # always runs and never memoizes. This is everything else a worktree can
 # reproduce.
 #
@@ -42,27 +43,23 @@ if [ -z "$modules" ]; then
   exit 0
 fi
 
-# module_name prints the name a module's config gives it, without loading the
-# module. dagger-module.toml wins when a directory holds both config files,
-# because that is the one the engine reads. The TOML name is the top-level
-# `name = "..."`, before the first table header.
+# module_name prints the name a module's dagger-module.toml gives it, without
+# loading the module: the top-level `name = "..."`, before the first table header.
 module_name() {
-  if [ -f "$1/dagger-module.toml" ]; then
-    awk '/^\[/ { exit } /^name[[:space:]]*=/ { sub(/^name[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$1/dagger-module.toml"
-  elif [ -f "$1/dagger.json" ]; then
-    jq -r '.name // empty' "$1/dagger.json"
-  fi
+  awk '/^\[/ { exit } /^name[[:space:]]*=/ { sub(/^name[[:space:]]*=[[:space:]]*"/, ""); sub(/".*$/, ""); print; exit }' "$1/dagger-module.toml"
 }
 
-# is_module reports whether a directory holds a module config of either shape.
+# is_module reports whether a directory is a module: it holds a dagger-module.toml,
+# the only module config this repository has used since #443.
 is_module() {
-  [ -f "$1/dagger.json" ] || [ -f "$1/dagger-module.toml" ]
+  [ -f "$1/dagger-module.toml" ]
 }
 
 # check_module runs every check the module at $1 declares, and only those.
 #
-# `--module` is what keeps it to those: without it, in a workspace configured by
-# dagger.json, the CLI also selects the root module's checks. And since Dagger
+# `--module` is what keeps it to those: without it the CLI also selects the root
+# module's checks and those of every module dagger.toml installs, the Go SDK's
+# `stale` among them. And since Dagger
 # v1.0.0-beta.15 `dagger check` fails when it selects nothing, so a module that
 # declares no checks of its own is listed first and skipped, the same way a
 # coarse leg in .github/workflows/change-aware-ci.yml does it. A module that

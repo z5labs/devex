@@ -34,7 +34,7 @@ Ask the user what the module is for, then propose **two or three** lowercase, ke
 
 With the chosen name in hand, do the research **before** writing any API. Search in parallel:
 
-- `daggerverse/` for the closest existing module — read its `main.go`, `dagger.json`, and `tests/main.go`. Note the topology (single struct vs. nested objects), how it handles services, and what it returned to callers.
+- `daggerverse/` for the closest existing module — read its `main.go`, `dagger-module.toml`, its scope in the root `dagger.toml`, and `tests/main.go`. Note the topology (single struct vs. nested objects), how it handles services, and what it returned to callers.
 - Open PRs and recent story issues with `gh issue list --search "story" --state all --limit 20` and `gh pr list --state merged --limit 10`. Skim the bodies of the two or three most relevant ones for the shape (#11, #16, #17, #23 are good anchors — they show how the team writes proposals).
 - Upstream docs / Docker images for the thing you're wrapping (canonical image name, default ports, security profile shape).
 - Read `daggerverse/CLAUDE.md` once (function caching, regeneration rules, module layout, name mangling).
@@ -179,7 +179,7 @@ These are non-negotiable. Every proposal in steps 3, 5, 7 must respect them; if 
 - **Render YAML with `gopkg.in/yaml.v3`.** Any function that produces YAML (config files, compose-style fragments) uses `yaml.v3`'s `Marshal` or `Encoder` — never `fmt.Fprintf` or string concatenation. Hand-rolled YAML mishandles quoting and escaping of caller-supplied strings.
 - **`+cache=` directives go on their own line in the doc comment block above the function.** Place above the signature; do not inline.
 - **Function name mangling is real.** Go method `Sha256ShouldNotBeCached` becomes `sha-256-should-not-be-cached` on the CLI; `UuidV4` becomes `UUIDV4(ctx)` on the dag client (acronyms uppercase in generated bindings). Account for this when discussing CLI invocation in the issue body.
-- **`hack/regen.sh` regenerates bindings.** Dagger v1 removed `dagger develop`; this repository regenerates through the API underneath it instead. After signature changes, both the module *and* any module that depends on it (`tests/` depends on `..`) need regenerating, dependencies first — which is the order the script uses. Mention this in acceptance criteria when the module has a `tests/` subpackage.
+- **`dagger generate -y` regenerates bindings.** Dagger v1 removed `dagger develop`; this repository is a v1 workspace (a root `dagger.toml`, a `dagger-module.toml` per module, a committed `dagger.lock`), and one `dagger generate -y` at the repo root regenerates every module in dependency order. A new module and its `tests/` each need a scope in `dagger.toml` (`[sdks.go.scopes."daggerverse/<m>"]`, with local dependencies as `clients`) or nothing regenerates them and `ci:generated` fails. The first run of a suite that pulls a new image adds a `dagger.lock` entry that must be committed. Mention all three in acceptance criteria when the module has a `tests/` subpackage.
 
 When asked about external traces or runs, use `dagger trace <id> --progress=plain` — never `curl` against `dagger.cloud`.
 

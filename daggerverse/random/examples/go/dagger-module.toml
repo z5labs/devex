@@ -1,0 +1,12 @@
+name = "random-examples"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "random"
+  source = "../.."
+
+[codegen]
+  automaticGitignore = false

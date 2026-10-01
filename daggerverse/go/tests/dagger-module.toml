@@ -1,0 +1,16 @@
+name = "tests"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "go"
+  source = ".."
+
+[[dependencies]]
+  name = "go-examples"
+  source = "../examples/go"
+
+[codegen]
+  automaticGitignore = false

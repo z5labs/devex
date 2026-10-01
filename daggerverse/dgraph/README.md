@@ -59,7 +59,7 @@ Cert material is caller-supplied PEM (`*dagger.File` for certs / CAs,
 > `--tls` *superflag* (`key=value;`-delimited), not the discrete
 > `--tls.server_cert` flags an earlier draft of this feature assumed. The
 > `certificate-management` / `crypto` dependencies live in
-> `tests/dagger.json` (cert generation is a test-time concern); the module
+> `tests/dagger-module.toml` (cert generation is a test-time concern); the module
 > itself only takes `*dagger.File` / `*dagger.Secret`.
 
 ### Mode coupling

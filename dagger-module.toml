@@ -1,0 +1,14 @@
+name = "ci"
+engineVersion = "v1.0.0-beta.15"
+include = ["!ci/README.md"]
+source = "ci"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "workspace-ci"
+  source = "daggerverse/workspace-ci"
+
+[codegen]
+  automaticGitignore = false
