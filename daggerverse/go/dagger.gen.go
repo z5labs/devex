@@ -961,14 +961,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled check stages (Fmt, Vet, Lint, Test) in\nparallel via github.com/dagger/dagger/util/parallel and returns the\naggregated error. Use when callers want to run the checks\nindependently of the build (for example multi-platform pipelines\nthat share one check run across N platform builds).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 148, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 154, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("File")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns\nthe built binary as a *dagger.File. On stage-1 failure, returns the\naggregated error from Check and a nil file (stage 2 is skipped).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 172, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 178, 1))).
 					WithFunction(
 						dag.Function("WithBuild",
 							dag.TypeDef().WithObject("Ci")).

@@ -82,12 +82,18 @@ func (c *Ci) WithFabricationOutputs() *Ci {
 	return c
 }
 
+// Deliberately not a +check (devex#444). dagger check walks from the module's
+// root object and can supply no arguments, and this builder is reachable only
+// through a constructor that takes the caller's source, so the annotation would
+// declare a check that never runs. It checks an adopter's code, not this module;
+// the module's own coverage of it lives in tests/. Left a plain function, it
+// also returns its error to a caller rather than a deferred *dagger.Check.
+
 // Check runs the enabled check stages (Erc, Drc) in parallel via
 // github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
 // when callers want to run the checks independently of the outputs (for
 // example a PR gate that never needs the fabrication package).
 //
-// +check
 // +cache="session"
 func (c *Ci) Check(ctx context.Context) error {
 	jobs := parallel.New().

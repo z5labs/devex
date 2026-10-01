@@ -1608,14 +1608,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled check stages (Erc, Drc) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of the outputs (for\nexample a PR gate that never needs the fabrication package).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 92, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 98, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (outputs). Returns the\nenabled outputs merged into one directory. On stage-1 failure, returns the\naggregated error from Check and a nil directory (stage 2 is skipped), so a\nfailing check short-circuits before any export work.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 111, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 117, 1))).
 					WithFunction(
 						dag.Function("WithDrc",
 							dag.TypeDef().WithObject("Ci")).

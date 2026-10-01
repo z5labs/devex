@@ -121,12 +121,18 @@ func (g *GoChain) WithBuild(tags []string) *GoChain {
 	return g
 }
 
+// Deliberately not a +check (devex#444). dagger check walks from the module's
+// root object and can supply no arguments, and this builder is reachable only
+// through a constructor that takes the caller's source, so the annotation would
+// declare a check that never runs. It checks an adopter's code, not this module;
+// the module's own coverage of it lives in tests/. Left a plain function, it
+// also returns its error to a caller rather than a deferred *dagger.Check.
+
 // Ci runs the standardized check stages against the source: gofmt, go vet,
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
 //
-// +check
 // +cache="session"
 func (g *GoChain) Ci(ctx context.Context) error {
 	return sharedCheck(ctx, g.Source, g.LintConfig, g.LintVersion, !g.NoRace)

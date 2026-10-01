@@ -1346,6 +1346,7 @@ func (r *Z5LabsAppBuilder) AsNode() Node {
 type Z5LabsGoChain struct { // z5labs (../../../../../daggerverse/z5labs/go.go:36:6)
 	query *querybuilder.Selection
 
+	ci *Void
 	id *ID
 }
 type WithZ5LabsGoChainFunc func(r *Z5LabsGoChain) *Z5LabsGoChain
@@ -1371,12 +1372,12 @@ type Z5LabsGoChainAppOpts struct {
 	//
 	//
 	// Default: "."
-	Pkg string // z5labs (../../../../../daggerverse/z5labs/go.go:196:2)
+	Pkg string // z5labs (../../../../../daggerverse/z5labs/go.go:202:2)
 	//
 	// The platforms to build for, e.g. linux/amd64. Empty takes the
 	// pipeline's pair, linux/amd64 and linux/arm64.
 	//
-	Platforms []Platform // z5labs (../../../../../daggerverse/z5labs/go.go:201:2)
+	Platforms []Platform // z5labs (../../../../../daggerverse/z5labs/go.go:207:2)
 }
 
 // App builds the application at pkg for every platform and returns it.
@@ -1427,7 +1428,7 @@ type Z5LabsGoChainAppOpts struct {
 //
 // pkg is the package to build, in `go build` package syntax, relative to
 // the source root. platforms defaults to linux/amd64 and linux/arm64.
-func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/go.go:185:1)
+func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5LabsApp { // z5labs (../../../../../daggerverse/z5labs/go.go:191:1)
 	q := r.query.Select("app")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `pkg` optional argument
@@ -1450,12 +1451,13 @@ func (r *Z5LabsGoChain) App(version string, opts ...Z5LabsGoChainAppOpts) *Z5Lab
 // golangci-lint against the bundled policy unless WithLint supplied one,
 // and `go test ./...` with the race detector unless WithTest turned it off.
 // The stages run in parallel and their errors are aggregated.
-func (r *Z5LabsGoChain) Ci() *Check { // z5labs (../../../../../daggerverse/z5labs/go.go:131:1)
+func (r *Z5LabsGoChain) Ci(ctx context.Context) error { // z5labs (../../../../../daggerverse/z5labs/go.go:137:1)
+	if r.ci != nil {
+		return nil
+	}
 	q := r.query.Select("ci")
 
-	return &Check{
-		query: q,
-	}
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this Z5LabsGoChain.

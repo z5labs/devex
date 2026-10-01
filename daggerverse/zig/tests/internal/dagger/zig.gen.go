@@ -550,7 +550,8 @@ func (r *Zig) AsNode() Node {
 type ZigCi struct { // zig (../../../../../daggerverse/zig/ci.go:25:6)
 	query *querybuilder.Selection
 
-	id *ID
+	check *Void
+	id    *ID
 }
 type WithZigCiFunc func(r *ZigCi) *ZigCi
 
@@ -581,12 +582,13 @@ func (r *ZigCi) WithGraphQLQuery(q *querybuilder.Selection) *ZigCi {
 // Build is opt-in via WithBuild so callers can still run a build-free Check —
 // for example multi-target pipelines that share one target-independent check
 // run (fmt, test) across N target builds.
-func (r *ZigCi) Check() *Check { // zig (../../../../../daggerverse/zig/ci.go:117:1)
+func (r *ZigCi) Check(ctx context.Context) error { // zig (../../../../../daggerverse/zig/ci.go:123:1)
+	if r.check != nil {
+		return nil
+	}
 	q := r.query.Select("check")
 
-	return &Check{
-		query: q,
-	}
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this ZigCi.
@@ -646,7 +648,7 @@ func (r *ZigCi) UnmarshalJSON(bs []byte) error {
 // returns. When WithBuild was called, Check also builds (stage 1); that build
 // and stage 2 share inputs, so session caching makes stage 2 a cache hit rather
 // than a second compile.
-func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:143:1)
+func (r *ZigCi) Run() *Directory { // zig (../../../../../daggerverse/zig/ci.go:149:1)
 	q := r.query.Select("run")
 
 	return &Directory{

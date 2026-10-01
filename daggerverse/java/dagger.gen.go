@@ -686,7 +686,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("Ci",
 							dag.TypeDef().WithObject("GradleCi")).
 							WithDescription("Ci returns a new pipeline builder bound to this Gradle tool object.").
-							WithSourceMap(dag.SourceMap("ci.go", 114, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 120, 1))).
 					WithFunction(
 						dag.Function("Container",
 							dag.TypeDef().WithObject("Container")).
@@ -754,30 +754,29 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
 							WithSourceMap(dag.SourceMap("maven.go", 121, 1)))).
 			WithObject(
-				dag.TypeDef().WithObject("GradleCi", dagger.TypeDefWithObjectOpts{Description: "GradleCi is a chained builder for a standardized Gradle CI pipeline.\nConstruct via Gradle.Ci(); enable check stages via the With* methods; call\nRun to execute checks-then-assemble, or Check to run only the parallel\nchecks.\n\nStage 1 runs the enabled checks (Test, Check) in parallel via\ngithub.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs\n`gradle assemble` (which never runs tests) and Run returns the produced\nbuild/libs directory for downstream pipelines to compose.\n\nThe builder reuses the parent Gradle lifecycle helpers, so wrapper handling,\nJDK inference, and cache mounts are inherited.", SourceMap: dag.SourceMap("ci.go", 104, 6)}).
+				dag.TypeDef().WithObject("GradleCi", dagger.TypeDefWithObjectOpts{Description: "GradleCi is a chained builder for a standardized Gradle CI pipeline.\nConstruct via Gradle.Ci(); enable check stages via the With* methods; call\nRun to execute checks-then-assemble, or Check to run only the parallel\nchecks.\n\nStage 1 runs the enabled checks (Test, Check) in parallel via\ngithub.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs\n`gradle assemble` (which never runs tests) and Run returns the produced\nbuild/libs directory for downstream pipelines to compose.\n\nThe builder reuses the parent Gradle lifecycle helpers, so wrapper handling,\nJDK inference, and cache mounts are inherited.", SourceMap: dag.SourceMap("ci.go", 110, 6)}).
 					WithFunction(
 						dag.Function("Check",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled check stages (Test, Check) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of the build.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 136, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 148, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (`gradle assemble`).\nReturns the produced build/libs directory. On stage-1 failure, returns the\naggregated error from Check and a nil directory (the build is skipped).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 154, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 166, 1))).
 					WithFunction(
 						dag.Function("WithCheck",
 							dag.TypeDef().WithObject("GradleCi")).
 							WithDescription("WithCheck enables the `gradle check` check stage.").
-							WithSourceMap(dag.SourceMap("ci.go", 125, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 131, 1))).
 					WithFunction(
 						dag.Function("WithTest",
 							dag.TypeDef().WithObject("GradleCi")).
 							WithDescription("WithTest enables the `gradle test` check stage.").
-							WithSourceMap(dag.SourceMap("ci.go", 119, 1)))).
+							WithSourceMap(dag.SourceMap("ci.go", 125, 1)))).
 			WithObject(
 				dag.TypeDef().WithObject("MavenCi", dagger.TypeDefWithObjectOpts{Description: "MavenCi is a chained builder for a standardized Maven CI pipeline. Construct\nvia Maven.Ci(); enable check stages via the With* methods; call Run to\nexecute checks-then-package, or Check to run only the parallel checks.\n\nStage 1 runs the enabled checks (Test, Verify) in parallel via\ngithub.com/dagger/dagger/util/parallel; errors are aggregated. Stage 2 runs\n`mvn package -DskipTests` (the checks already covered testing) and Run\nreturns the produced target/ directory for downstream pipelines to compose.\n\nThe builder reuses the parent Maven lifecycle helpers, so wrapper handling,\nJDK inference, and cache mounts are inherited.", SourceMap: dag.SourceMap("ci.go", 22, 6)}).
 					WithFunction(
@@ -785,14 +784,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled check stages (Test, Verify) in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. Use\nwhen callers want to run the checks independently of packaging.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 54, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 60, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (`mvn package\n-DskipTests`). Returns the produced target/ directory. On stage-1 failure,\nreturns the aggregated error from Check and a nil directory (packaging is\nskipped).").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 73, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 79, 1))).
 					WithFunction(
 						dag.Function("WithTest",
 							dag.TypeDef().WithObject("MavenCi")).
