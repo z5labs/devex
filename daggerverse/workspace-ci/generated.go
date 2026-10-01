@@ -33,6 +33,15 @@ type drift struct {
 // internal/dagger/*.gen.go in the calling workspace matches what codegen
 // produces at each module's pinned engineVersion.
 //
+// How depends on how the workspace is configured. One whose dagger.toml installs
+// its SDKs already has a check that compares the tree — the SDK module's own
+// staleness check, which Plan gives a leg in every plan — so there this check
+// makes no comparison of its own and instead proves what makes that one worth
+// trusting: that every module with generated files is managed by an SDK, and
+// that the Go SDK's staleness check fails on a module made stale on purpose. See
+// sdkGenerated. A workspace configured by dagger.json alone installs no SDK, and
+// gets the sweep described below.
+//
 // Every module in the workspace is checked, including the root one and every
 // tests or examples module. Two things make that claim more than a hope:
 //
@@ -70,6 +79,13 @@ func (m *WorkspaceCi) Generated(
 	if callingWorkspace == nil {
 		return fmt.Errorf("no workspace to check: a Dagger CLI fills one in from the caller's own, but a module calling this one has to pass the workspace the CLI handed it")
 	}
+	sdks, err := callingWorkspace.Sdks(ctx)
+	if err != nil {
+		return fmt.Errorf("list the SDKs the workspace installs: %w", err)
+	}
+	if len(sdks) > 0 {
+		return sdkGenerated(ctx, callingWorkspace, sdks)
+	}
 	modules, err := discoverModules(ctx, callingWorkspace)
 	if err != nil {
 		return err
@@ -81,7 +97,7 @@ func (m *WorkspaceCi) Generated(
 
 	// First, and on its own: it needs no codegen, so a module the sweep would miss
 	// is reported in seconds rather than after it.
-	if err := sweptEverything(ctx, callingWorkspace, modules, sources); err != nil {
+	if err := sweptEverything(ctx, callingWorkspace, modules, sources, unsweptByDiscovery); err != nil {
 		return err
 	}
 
@@ -122,7 +138,9 @@ func (m *WorkspaceCi) Generated(
 // codegen writes, found by globbing the workspace. A module discovery missed —
 // configured in a shape it was never taught — still has those files committed, so
 // it turns this red rather than disappearing from a green run.
-func sweptEverything(ctx context.Context, ws *dagger.Workspace, modules []string, sources map[string]*dagger.ModuleSource) error {
+//
+// hint finishes the error, saying why a module might have been missed.
+func sweptEverything(ctx context.Context, ws *dagger.Workspace, modules []string, sources map[string]*dagger.ModuleSource, hint string) error {
 	seen := map[string]bool{}
 	var generated []string
 	for _, pattern := range generatedGlobs {
@@ -159,11 +177,18 @@ func sweptEverything(ctx context.Context, ws *dagger.Workspace, modules []string
 	}
 
 	if unswept := planner.Unswept(generated, sourceDirs); len(unswept) > 0 {
-		return fmt.Errorf("these generated files belong to no module this check found, so nothing verified them; is their module configured by something other than %s?\n  %s",
-			strings.Join(configFiles, " or "), strings.Join(unswept, "\n  "))
+		return fmt.Errorf("these generated files belong to no module this check found, so nothing verified them; %s\n  %s",
+			hint, strings.Join(unswept, "\n  "))
 	}
 	return nil
 }
+
+// unsweptByDiscovery and unsweptBySDK are the two reasons sweptEverything gives
+// for a module it was never shown.
+var (
+	unsweptByDiscovery = "is their module configured by something other than " + strings.Join(configFiles, " or ") + "?"
+	unsweptBySDK       = "is their module missing from its SDK's scopes in the workspace config? Add [sdks.<sdk>.scopes.\"<dir>\"] with is-module = true"
+)
 
 // probeModuleSource is the synthetic module staleModuleIsReported builds: one
 // object, one function, no dependencies, so its codegen costs the same however
@@ -220,8 +245,8 @@ func staleModuleIsReported(ctx context.Context, ws *dagger.Workspace, pin string
 	base := ws.WithNewDirectory(path, src)
 	// generatedContextDirectory holds the config and what codegen wrote, not the
 	// module's own source, rooted where the module's context is rooted, so it
-	// merges over the workspace rather than replacing anything — the same way
-	// hack/regen.sh exports it over a checkout.
+	// merges over the workspace rather than replacing anything — the same way it
+	// is exported over a checkout to regenerate one by hand.
 	// Were the workspace's context rooted anywhere else, the bindings would land
 	// beside the module rather than in it and the read below would fail: closed,
 	// with the proof reported as broken rather than passed.

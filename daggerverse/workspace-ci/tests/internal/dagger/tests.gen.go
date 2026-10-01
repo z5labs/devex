@@ -23,6 +23,7 @@ type Tests struct { // tests (../../../../../:0:0)
 	affectedModulesReportsWhatChangeReached           *Void
 	all                                               *Void
 	generatedPassesOnFreshBindingsAndFailsOnStaleOnes *Void
+	generatedProvesTheSdkStalenessCheck               *Void
 	generatedReportsAnUnsweptModule                   *Void
 	id                                                *ID
 	memoStoreSelfTestPasses                           *Void
@@ -50,6 +51,7 @@ type Tests struct { // tests (../../../../../:0:0)
 	planRunsEverythingOnAnUnresolvableRevision        *Void
 	planRunsEverythingOnAnUnusableDiffRange           *Void
 	planRunsEverythingOnGlobalPathChange              *Void
+	planRunsTheChecksOfModulesTheWorkspaceInstalls    *Void
 	planSelectsAffectedModuleChecks                   *Void
 	planSplitsNamedModulesOnTheRunEverythingPath      *Void
 	recordPassNeedsTheRunsRef                         *Void
@@ -106,6 +108,24 @@ func (r *Tests) GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes(ctx context.Co
 		return nil
 	}
 	q := r.query.Select("generatedPassesOnFreshBindingsAndFailsOnStaleOnes")
+
+	return q.Execute(ctx)
+}
+
+// GeneratedProvesTheSdkStalenessCheck runs Generated against
+// a workspace that installs the Go SDK. There the comparison belongs to the SDK's
+// own `stale` check, which a plan runs as a leg of its own, and Generated is left
+// with proving that check worth trusting: that the SDK manages every module with
+// generated files, and that the check fails on a module made stale on purpose.
+//
+// So it must pass on a freshly generated workspace — the proof runs inside it —
+// and must fail, naming the file, once a module the SDK does not manage commits
+// generated code.
+func (r *Tests) GeneratedProvesTheSDKStalenessCheck(ctx context.Context) error {
+	if r.generatedProvesTheSdkStalenessCheck != nil {
+		return nil
+	}
+	q := r.query.Select("generatedProvesTheSdkStalenessCheck")
 
 	return q.Execute(ctx)
 }
@@ -549,6 +569,25 @@ func (r *Tests) PlanRunsEverythingOnGlobalPathChange(ctx context.Context) error 
 		return nil
 	}
 	q := r.query.Select("planRunsEverythingOnGlobalPathChange")
+
+	return q.Execute(ctx)
+}
+
+// PlanRunsTheChecksOfModulesTheWorkspaceInstalls proves a plan reaches the checks
+// of a module the workspace's dagger.toml installs from outside the repository —
+// the Go SDK, whose `stale` check is what keeps committed bindings honest in a
+// migrated workspace. No module directory declares those checks, so before this a
+// plan never ran them while `dagger check -l` at the root listed them.
+//
+// The leg must run from the workspace root without -m (the module has no
+// directory), select by the installed name, and never be memoized. And a module
+// the workspace installs from one of its own directories must not get a second
+// leg: the root module, installed as ".", already has its own.
+func (r *Tests) PlanRunsTheChecksOfModulesTheWorkspaceInstalls(ctx context.Context) error {
+	if r.planRunsTheChecksOfModulesTheWorkspaceInstalls != nil {
+		return nil
+	}
+	q := r.query.Select("planRunsTheChecksOfModulesTheWorkspaceInstalls")
 
 	return q.Execute(ctx)
 }

@@ -175,6 +175,15 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // internal/dagger/*.gen.go in the calling workspace matches what codegen
 // produces at each module's pinned engineVersion.
 //
+// How depends on how the workspace is configured. One whose dagger.toml installs
+// its SDKs already has a check that compares the tree — the SDK module's own
+// staleness check, which Plan gives a leg in every plan — so there this check
+// makes no comparison of its own and instead proves what makes that one worth
+// trusting: that every module with generated files is managed by an SDK, and
+// that the Go SDK's staleness check fails on a module made stale on purpose. See
+// sdkGenerated. A workspace configured by dagger.json alone installs no SDK, and
+// gets the sweep described below.
+//
 // Every module in the workspace is checked, including the root one and every
 // tests or examples module. Two things make that claim more than a hope:
 //

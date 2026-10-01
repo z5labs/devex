@@ -415,6 +415,52 @@ func (ws *workspace) moduleLegs(ctx context.Context, dir string) ([]planner.Entr
 	return out, nil
 }
 
+// installedLegs returns one leg for each module the workspace's config installs
+// from somewhere other than one of its module directories — an SDK module such as
+// github.com/dagger/go-sdk, whose `stale` check proves the committed generated
+// code is what `dagger generate` would write.
+//
+// `dagger check -l` at the workspace root lists those checks beside the root
+// module's, but no module directory declares them, so the per-module legs never
+// reach them: a check like that would be one no plan ever ran (#290's trap). They
+// read the workspace as a whole, the way the root module's checks do, so they go
+// into every plan, narrow or full, and are never memoized.
+//
+// Each is one coarse leg, so planning loads nothing: the names come out of the
+// workspace's config. A workspace configured by dagger.json alone installs
+// nothing of this kind and contributes no legs. A config that cannot be read is
+// an error rather than a plan without these legs, which would pass having skipped
+// them.
+func (ws *workspace) installedLegs(ctx context.Context) ([]planner.Entry, error) {
+	installed, err := ws.ws.Modules(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list the modules the workspace installs: %w", err)
+	}
+	local := make(map[string]bool, len(ws.moduleDirs))
+	for _, dir := range ws.moduleDirs {
+		local[dir] = true
+	}
+	var out []planner.Entry
+	for i := range installed {
+		name, err := installed[i].Name(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read the name of an installed module: %w", err)
+		}
+		source, err := installed[i].Source(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read the source of installed module %q: %w", name, err)
+		}
+		// A module the workspace installs from one of its own directories already
+		// has that directory's legs — the root module's entrypoint is installed
+		// as "." — so only the rest need one here.
+		if local[path.Clean(strings.TrimPrefix(source, "/"))] {
+			continue
+		}
+		out = append(out, planner.InstalledEntry(name))
+	}
+	return out, nil
+}
+
 // hashingNeeds returns the module directories whose source contexts must be read
 // to hash the plan: every module in every affected module's closure, plus the root
 // module's closure, which is where the global inputs come from.
@@ -431,12 +477,12 @@ func (ws *workspace) hashingNeeds(affected []string) map[string]bool {
 // hash stamps each leg with the input hash a pass on it may be recorded under.
 //
 // A leg keeps an empty hash — meaning "never memoize" — when it belongs to the
-// root module, when its module's closure is unresolved, or when anything in that
-// closure could not be hashed. A root-module leg is never memoized because its
-// checks are the ones that read state their declared closure does not describe:
-// Generated runs codegen for every module in the workspace, and the guarantee that
-// generated files are derived from inputs that *are* hashed rests on it having run
-// unconditionally.
+// root module or to a module the workspace installs, when its module's closure is
+// unresolved, or when anything in that closure could not be hashed. Root-module and
+// installed-module legs are never memoized because their checks are the ones that
+// read state no declared closure describes: Generated and an SDK's staleness check
+// read every module in the workspace, and the guarantee that generated files are
+// derived from inputs that *are* hashed rests on them having run unconditionally.
 func (ws *workspace) hash(legs []planner.Entry) []planner.Entry {
 	if len(ws.blobs) == 0 {
 		return legs
@@ -455,7 +501,7 @@ func (ws *workspace) hash(legs []planner.Entry) []planner.Entry {
 	unhashable := map[string]bool{}
 	out := make([]planner.Entry, 0, len(legs))
 	for _, leg := range legs {
-		if leg.Module != planner.RootModule {
+		if leg.Module != planner.RootModule && !leg.IsInstalled() {
 			if closure, resolved := ws.closures[leg.Module]; !resolved {
 				unhashable[leg.Module] = true
 			} else if h, ok := hasher.Check(leg.Name, closure); !ok {

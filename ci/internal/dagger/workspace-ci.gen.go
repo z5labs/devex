@@ -195,6 +195,15 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // internal/dagger/*.gen.go in the calling workspace matches what codegen
 // produces at each module's pinned engineVersion.
 //
+// How depends on how the workspace is configured. One whose dagger.toml installs
+// its SDKs already has a check that compares the tree — the SDK module's own
+// staleness check, which Plan gives a leg in every plan — so there this check
+// makes no comparison of its own and instead proves what makes that one worth
+// trusting: that every module with generated files is managed by an SDK, and
+// that the Go SDK's staleness check fails on a module made stale on purpose. See
+// sdkGenerated. A workspace configured by dagger.json alone installs no SDK, and
+// gets the sweep described below.
+//
 // Every module in the workspace is checked, including the root one and every
 // tests or examples module. Two things make that claim more than a hope:
 //
@@ -217,7 +226,7 @@ func (r *WorkspaceCi) AffectedModules(ctx context.Context, base string, head str
 // live view of the tree rather than a snapshot argument the cache key can
 // describe, so a cached pass would be a pass for a tree the check never looked
 // at.
-func (r *WorkspaceCi) Generated(callingWorkspace *Workspace) *Check { // workspace-ci (../../../daggerverse/workspace-ci/generated.go:61:1)
+func (r *WorkspaceCi) Generated(callingWorkspace *Workspace) *Check { // workspace-ci (../../../daggerverse/workspace-ci/generated.go:70:1)
 	assertNotNil("callingWorkspace", callingWorkspace)
 	q := r.query.Select("generated")
 	q = q.Arg("callingWorkspace", callingWorkspace)
@@ -287,7 +296,7 @@ func (r *WorkspaceCi) UnmarshalJSON(bs []byte) error {
 // later run its full time and looks exactly like a workspace nobody has recorded
 // against yet, and a scope that leaks costs correctness. Like SelectionSelfTest it
 // runs in-process and needs no network, no credential and no services.
-func (r *WorkspaceCi) MemoStoreSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:535:1)
+func (r *WorkspaceCi) MemoStoreSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:540:1)
 	q := r.query.Select("memoStoreSelfTest")
 
 	return &Check{
@@ -465,7 +474,7 @@ func (r *WorkspaceCi) RecordPass(ctx context.Context, hash string, ref string, c
 // under-running a consumer's checks or handing their CI system something it cannot
 // parse. It runs in-process and needs no services, so it is cheap enough to run on
 // every leg set.
-func (r *WorkspaceCi) SelectionSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:512:1)
+func (r *WorkspaceCi) SelectionSelfTest() *Check { // workspace-ci (../../../daggerverse/workspace-ci/main.go:517:1)
 	q := r.query.Select("selectionSelfTest")
 
 	return &Check{

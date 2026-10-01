@@ -104,8 +104,15 @@ Every module has a sibling `tests/` module whose suite is a Dagger check.
 [`daggerverse/workspace-ci`](daggerverse/workspace-ci), which plans each change:
 it diffs the commit range, works out which modules the change could reach, and
 returns one leg per check to run — skipping those a previous run already proved
-good — each routed at the module that owns it. The [`ci/`](ci/) module holds only
-the one check that must run whatever changed, `ci:generated`.
+good — each routed at the module that owns it. Two checks run whatever changed:
+the Go SDK's `dagger-go-sdk:stale`, which proves every committed binding is what
+`dagger generate` writes, and the [`ci/`](ci/) module's `ci:generated`, which
+proves that check covers every module and can fail.
+
+The repository is a Dagger v1 workspace: a root `dagger.toml`, a
+`dagger-module.toml` per module, and a committed `dagger.lock` that pins every
+image digest and the SDK module chain. Every CI job fails if it leaves
+`dagger.lock` changed, so commit whatever entries a new image adds.
 
 The Actions half of that — engine image caching, one `dagger check` per leg,
 recording a pass, and the single status check branch protection requires — is
@@ -142,6 +149,11 @@ dedicated **update-dagger GitHub App** via two repository secrets:
 Install the App on this repo with `Contents`, `Pull requests`, and `Workflows`
 all set to **Read and write** (`Workflows: write` is what `GITHUB_TOKEN` can't
 have). The short-lived token is minted per run, so nothing needs rotating.
+
+The scheduled [`update-dagger-lock.yml`](.github/workflows/update-dagger-lock.yml)
+workflow runs `dagger lock update` every Monday and opens a PR with the refreshed
+pins, through the same App: a pull request opened with `GITHUB_TOKEN` triggers no
+CI, and running every suite against the new pins is the point of it.
 
 ## License
 

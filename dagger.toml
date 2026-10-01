@@ -1,0 +1,215 @@
+[modules.ci]
+source = "."
+entrypoint = true
+
+[modules.dagger-go-sdk]
+source = "github.com/dagger/go-sdk"
+
+[sdks.go]
+module = "dagger-go-sdk"
+
+[sdks.go.scopes."."]
+clients = ["./daggerverse/workspace-ci"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/workspace-ci"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/bruno"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/bruno/tests"]
+clients = ["./daggerverse/bruno", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/certificate-management"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/certificate-management/examples/go"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/random", "./daggerverse/crypto"]
+is-module = true
+name = "certificate-management-examples"
+
+[sdks.go.scopes."daggerverse/certificate-management/tests"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/random", "./daggerverse/crypto", "./daggerverse/certificate-management/examples/go"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/crypto/examples/go"]
+clients = ["./daggerverse/crypto"]
+is-module = true
+name = "crypto-examples"
+
+[sdks.go.scopes."daggerverse/crypto/tests"]
+clients = ["./daggerverse/crypto", "./daggerverse/crypto/examples/go"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/dgraph"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/dgraph/tests"]
+clients = ["./daggerverse/dgraph", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/envoy"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/crypto", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/envoy/tests"]
+clients = ["./daggerverse/envoy", "./daggerverse/certificate-management", "./daggerverse/crypto", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/flash"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/flash/tests"]
+clients = ["./daggerverse/flash", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/go"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/go/examples/go"]
+clients = ["./daggerverse/go"]
+is-module = true
+name = "go-examples"
+
+[sdks.go.scopes."daggerverse/go/tests"]
+clients = ["./daggerverse/go", "./daggerverse/go/examples/go"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/grafana-stack"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/grafana-stack/examples/go"]
+clients = ["./daggerverse/grafana-stack"]
+is-module = true
+name = "grafana-stack-examples"
+
+[sdks.go.scopes."daggerverse/grafana-stack/tests"]
+clients = ["./daggerverse/grafana-stack", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/java"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/java/tests"]
+clients = ["./daggerverse/java"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/kafka"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/crypto", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/kafka/tests"]
+clients = ["./daggerverse/kafka", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/kicad"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/kicad/tests"]
+clients = ["./daggerverse/kicad"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/oci"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/oci/tests"]
+clients = ["./daggerverse/oci", "./daggerverse/random", "./daggerverse/crypto", "./daggerverse/certificate-management"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/opentofu"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/opentofu/tests"]
+clients = ["./daggerverse/opentofu", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/otel"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/otel/examples/go"]
+clients = ["./daggerverse/otel", "./daggerverse/grafana-stack"]
+is-module = true
+name = "otel-examples"
+
+[sdks.go.scopes."daggerverse/otel/tests"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/crypto", "./daggerverse/grafana-stack", "./daggerverse/otel", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/pdf"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/pdf/tests"]
+clients = ["./daggerverse/pdf", "./daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/postgres"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/postgres/tests"]
+clients = ["./daggerverse/postgres", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/qemu"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/qemu/tests"]
+clients = ["./daggerverse/qemu", "./daggerverse/random", "./daggerverse/zig"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/random"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/random/examples/go"]
+clients = ["./daggerverse/random"]
+is-module = true
+name = "random-examples"
+
+[sdks.go.scopes."daggerverse/random/tests"]
+clients = ["./daggerverse/random", "./daggerverse/random/examples/go"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/skill-gen"]
+clients = ["./daggerverse/postgres"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/skill-gen/tests"]
+clients = ["./daggerverse/skill-gen", "./daggerverse/postgres", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/tesseract"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/tesseract/tests"]
+clients = ["./daggerverse/tesseract", "./daggerverse/pdf"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/valkey"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/valkey/tests"]
+clients = ["./daggerverse/valkey", "./daggerverse/random", "./daggerverse/certificate-management", "./daggerverse/crypto"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/workspace-ci/tests"]
+clients = ["./daggerverse/workspace-ci"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/z5labs"]
+clients = ["./daggerverse/go", "./daggerverse/oci"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/z5labs/tests"]
+clients = ["./daggerverse/go", "./daggerverse/oci", "./daggerverse/random", "./daggerverse/z5labs"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/zig"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/zig/tests"]
+clients = ["./daggerverse/zig"]
+is-module = true

@@ -213,6 +213,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes(&parent, ctx)
+		case "GeneratedProvesTheSdkStalenessCheck":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).GeneratedProvesTheSdkStalenessCheck(&parent, ctx)
 		case "GeneratedReportsAnUnsweptModule":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -395,6 +402,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanRunsEverythingOnGlobalPathChange(&parent, ctx)
+		case "PlanRunsTheChecksOfModulesTheWorkspaceInstalls":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRunsTheChecksOfModulesTheWorkspaceInstalls(&parent, ctx)
 		case "PlanSelectsAffectedModuleChecks":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -489,6 +503,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("GeneratedPassesOnFreshBindingsAndFailsOnStaleOnes runs the whole check end to\nend — discovery, the unswept check, the stale-module proof and the sweep —\nagainst a workspace whose bindings are fresh, then against the same workspace\nwith one binding made stale.\n\nThe first half is what shows the proof and the unswept check do not fail a\nworkspace that is fine; the second, that the sweep itself still names the\nmodule and the file.").
 							WithSourceMap(dag.SourceMap("shapes.go", 165, 1))).
+					WithFunction(
+						dag.Function("GeneratedProvesTheSdkStalenessCheck",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("GeneratedProvesTheSdkStalenessCheck runs Generated against\na workspace that installs the Go SDK. There the comparison belongs to the SDK's\nown `stale` check, which a plan runs as a leg of its own, and Generated is left\nwith proving that check worth trusting: that the SDK manages every module with\ngenerated files, and that the check fails on a module made stale on purpose.\n\nSo it must pass on a freshly generated workspace — the proof runs inside it —\nand must fail, naming the file, once a module the SDK does not manage commits\ngenerated code.").
+							WithSourceMap(dag.SourceMap("sdk.go", 85, 1))).
 					WithFunction(
 						dag.Function("GeneratedReportsAnUnsweptModule",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -619,6 +638,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanRunsEverythingOnGlobalPathChange proves a change to the paths that govern\nhow CI runs at all runs everything — and does it the cheap way: one leg per\nmodule, with no module loaded to produce the plan.").
 							WithSourceMap(dag.SourceMap("main.go", 188, 1))).
+					WithFunction(
+						dag.Function("PlanRunsTheChecksOfModulesTheWorkspaceInstalls",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRunsTheChecksOfModulesTheWorkspaceInstalls proves a plan reaches the checks\nof a module the workspace's dagger.toml installs from outside the repository —\nthe Go SDK, whose `stale` check is what keeps committed bindings honest in a\nmigrated workspace. No module directory declares those checks, so before this a\nplan never ran them while `dagger check -l` at the root listed them.\n\nThe leg must run from the workspace root without -m (the module has no\ndirectory), select by the installed name, and never be memoized. And a module\nthe workspace installs from one of its own directories must not get a second\nleg: the root module, installed as \".\", already has its own.").
+							WithSourceMap(dag.SourceMap("sdk.go", 39, 1))).
 					WithFunction(
 						dag.Function("PlanSelectsAffectedModuleChecks",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

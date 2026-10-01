@@ -485,6 +485,15 @@ func RenderSelfCheck() error {
 		fail("JENKINS", errors.New("a leg with no budget still rendered a timeout"))
 	}
 
+	// A leg for a module the workspace installs has no module directory to load
+	// with -m, and `-m .` fails outright in a workspace with no root module. Its
+	// command must select by --module from the workspace root, and list first like
+	// any other leg that runs a whole module.
+	sdkCmd := checkCommand(InstalledEntry("dagger-go-sdk"))
+	if want := `links=$(dagger check --module 'dagger-go-sdk' -l -f link) || exit 1; if [ -z "$links" ]; then echo 'dagger-go-sdk (workspace) declares no checks'; else dagger check --module 'dagger-go-sdk'; fi`; sdkCmd != want {
+		fail("JENKINS", fmt.Errorf("an installed module's leg runs\n%s\nwant\n%s", sdkCmd, want))
+	}
+
 	// The two escapers, which is where a leg name carrying a quote or a backslash
 	// stops being data and starts being syntax.
 	for _, tc := range []struct{ name, got, want string }{

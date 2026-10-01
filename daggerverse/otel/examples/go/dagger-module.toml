@@ -1,0 +1,16 @@
+name = "otel-examples"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "grafana-stack"
+  source = "../../../grafana-stack"
+
+[[dependencies]]
+  name = "otel"
+  source = "../.."
+
+[codegen]
+  automaticGitignore = false

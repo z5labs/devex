@@ -154,6 +154,18 @@ on:
           daggerverse/workspace-ci/README.md.
         type: number
         default: 86400
+      check-lockfile:
+        description: >-
+          Fail any job that leaves dagger.lock different from the commit it checked
+          out, naming the command to run locally before committing the result. A
+          Dagger engine records every image and git ref it resolves into the
+          workspace's dagger.lock and never prunes it, so a committed lockfile is
+          only a pin if it is complete -- and each job here records into its own
+          throwaway checkout, so nothing else would notice a missing entry. Turn it
+          on once the lockfile is committed; a workspace that ignores its lockfile
+          has nothing to check.
+        type: boolean
+        default: false
     secrets:
       MEMO_TOKEN:
         description: >-
@@ -293,6 +305,27 @@ jobs:
           echo "planned legs: $jobs"
           echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
 
+      # See the check-lockfile input. Planning loads the planner module, and with it
+      # whatever its SDK resolves, so this job can miss an entry as surely as a leg.
+      # The guard is inline rather than a script because this workflow runs in the
+      # caller's checkout, which has none of this repository's scripts; the run job
+      # repeats it for the same reason.
+      - name: Check dagger.lock records what planning resolved
+        if: ${{ !cancelled() && inputs.check-lockfile }}
+        env:
+          COMMAND: dagger -m ${{ inputs.module }} call plan --base=<base> --head=HEAD
+        run: |
+          set -euo pipefail
+          changed="$(git status --porcelain -- dagger.lock)"
+          if [ -z "$changed" ]; then
+            echo "dagger.lock already records everything this job resolved"
+            exit 0
+          fi
+          git --no-pager diff -- dagger.lock
+          case "$changed" in '??'*) cat dagger.lock ;; esac
+          echo "::error file=dagger.lock::this job resolved something the committed dagger.lock does not record. Run '$COMMAND' locally and commit the dagger.lock it leaves behind."
+          exit 1
+
   run:
     name: ${{ matrix.job.name }}
     needs: [list]
@@ -352,12 +385,18 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       # Each leg runs the checks of the module that owns it and no other module's.
-      # Both halves take `--module`: without it, in a workspace configured by
-      # dagger.json, the CLI also selects the root module's checks, so every leg
-      # would run the root's whole-workspace checks again. `--module` narrows what is
-      # selected, not what is loaded — on Dagger v1.0.0-beta.15 a dagger.json
-      # workspace's root module is still loaded on every leg. `moduleName` is the module's own name, which the plan reads out
+      # Both halves take `--module`: without it the CLI also selects the root
+      # module's checks, and in a workspace configured by dagger.toml those of every
+      # module it installs too, so every leg would run the whole-workspace checks
+      # again. `--module` narrows what is selected, not what is loaded — on Dagger
+      # v1.0.0-beta.15 a dagger.json workspace's root module is still loaded on
+      # every leg. `moduleName` is the module's own name, which the plan reads out
       # of its config without loading it.
+      #
+      # A leg with no `module` runs the checks of a module the workspace's
+      # dagger.toml installs from outside the repository — an SDK's staleness
+      # check, say. No directory holds it, so the leg runs from the workspace root
+      # without `-m`.
       #
       # A per-check leg passes its pattern, `<module-name>:<check>`, which was read
       # off the module during planning. Nothing matching it is an error ("no checks
@@ -386,6 +425,7 @@ jobs:
       - name: Run the leg's checks
         timeout-minutes: ${{ matrix.job.timeout }}
         env:
+          LEG: ${{ matrix.job.name }}
           MODULE: ${{ matrix.job.module }}
           MODULE_NAME: ${{ matrix.job.moduleName }}
           DAGGER_PROGRESS: dots
@@ -394,19 +434,42 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$MODULE_NAME" ]; then
-            echo "::error::the plan gave leg '$MODULE' no moduleName; the planner and this workflow disagree about the plan's shape"
+            echo "::error::the plan gave leg '$LEG' no moduleName; the planner and this workflow disagree about the plan's shape"
             exit 1
           fi
+          load=()
+          if [ -n "$MODULE" ]; then
+            load=(-m "$MODULE")
+          fi
           if [ -n "$FILTER" ]; then
-            dagger -m "$MODULE" check --module "$MODULE_NAME" "$FILTER"
+            dagger "${load[@]}" check --module "$MODULE_NAME" "$FILTER"
             exit 0
           fi
-          links="$(dagger -m "$MODULE" check -l --module "$MODULE_NAME" -f link)"
+          links="$(dagger "${load[@]}" check -l --module "$MODULE_NAME" -f link)"
           if [ -z "$links" ]; then
-            echo "$MODULE declares no checks of its own; nothing to run"
+            echo "$LEG declares no checks of its own; nothing to run"
             exit 0
           fi
-          dagger -m "$MODULE" check --module "$MODULE_NAME"
+          dagger "${load[@]}" check --module "$MODULE_NAME"
+
+      # See the check-lockfile input. Before recording a pass, so a leg that leaves
+      # the lockfile incomplete records nothing.
+      - name: Check dagger.lock records what the leg resolved
+        if: ${{ !cancelled() && inputs.check-lockfile }}
+        env:
+          COMMAND: >-
+            dagger ${{ matrix.job.module && format('-m {0} ', matrix.job.module) || '' }}check --module ${{ matrix.job.moduleName }} ${{ matrix.job.filter }}
+        run: |
+          set -euo pipefail
+          changed="$(git status --porcelain -- dagger.lock)"
+          if [ -z "$changed" ]; then
+            echo "dagger.lock already records everything this job resolved"
+            exit 0
+          fi
+          git --no-pager diff -- dagger.lock
+          case "$changed" in '??'*) cat dagger.lock ;; esac
+          echo "::error file=dagger.lock::this job resolved something the committed dagger.lock does not record. Run '$COMMAND' locally and commit the dagger.lock it leaves behind."
+          exit 1
 
       # Record the pass. The entry's whole meaning is its key: the input hash the
       # planner computed for this leg. A later run that computes the same hash skips

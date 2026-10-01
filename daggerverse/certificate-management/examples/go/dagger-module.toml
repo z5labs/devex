@@ -1,0 +1,20 @@
+name = "certificate-management-examples"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "certificate-management"
+  source = "../.."
+
+[[dependencies]]
+  name = "crypto"
+  source = "../../../crypto"
+
+[[dependencies]]
+  name = "random"
+  source = "../../../random"
+
+[codegen]
+  automaticGitignore = false

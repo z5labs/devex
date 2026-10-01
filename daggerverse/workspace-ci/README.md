@@ -40,8 +40,8 @@ run its time, not its coverage.
 | field | meaning |
 | --- | --- |
 | `name` | the leg's display name, unique across the plan |
-| `module` | the repo-relative module to invoke with `-m`, so a leg runs that module's checks and no other's — though on beta.15, in a workspace configured by `dagger.json`, the CLI still *loads* the root module on every leg (#447) |
-| `moduleName` | that module's own name, to pass to `dagger check` as `--module`; without it the CLI also runs the checks of the module at the workspace root |
+| `module` | the repo-relative module to invoke with `-m`, so a leg runs that module's checks and no other's — though on beta.15, in a workspace configured by `dagger.json`, the CLI still *loads* the root module on every leg (#447). **Empty** for a module `dagger.toml` installs from outside the repository, which runs without `-m` (see [Checks no module directory declares](#checks-no-module-directory-declares)) |
+| `moduleName` | that module's own name, to pass to `dagger check` as `--module`; without it the CLI also runs the checks of the module at the workspace root, and of every module `dagger.toml` installs |
 | `filter` | the pattern to pass to `dagger check`; **empty** means run every check the module has |
 | `hash` | the input hash a pass may be recorded under; **empty** means never memoize this leg |
 | `timeout` | the check step's budget, in minutes |
@@ -49,13 +49,15 @@ run its time, not its coverage.
 
 ### Running a leg
 
-A leg runs as `dagger -m <module> check --module <moduleName> <filter>`.
+A leg runs as `dagger -m <module> check --module <moduleName> <filter>`, or
+without `-m <module>` when `module` is empty.
 
 `--module` is not optional. On Dagger v1.0.0-beta.15 `dagger check` selects more
-than `-m` names: in a workspace still configured by `dagger.json` it also selects
-the checks of the module at the workspace root, and in one configured by
-`dagger.toml` the SDK's own staleness checks — so without it every leg would also
-run those. `--module` narrows what is *selected*, not what is *loaded*: in a
+than `-m` names: it also selects the checks of the module at the workspace root,
+and in a workspace configured by `dagger.toml` those of every module it installs
+— the SDK's own staleness check among them — so without it every leg would also
+run those (measured in a migrated workspace: `dagger -m <dir> check -l` lists
+the root's `generated` and `dagger-go-sdk`'s `stale` beside the module's own). `--module` narrows what is *selected*, not what is *loaded*: in a
 `dagger.json` workspace the root module is still loaded on every leg (measured on
 beta.15 against a root that took 45s to start: every leg paid it).
 
@@ -124,11 +126,19 @@ one changes nothing in the consumer's repository.
 
 Everything on the constructor is an input of the same name in kebab-case
 (`split-modules`, `timeouts`, `default-timeout`, `memo-refs`, `memo-ttl`), plus
-four the workflow owns rather than the planner: `module` (which planner to call,
+five the workflow owns rather than the planner: `module` (which planner to call,
 so a repository developing one can point at its own), `dagger-version`,
-`runs-on`, and `max-parallel`. `base` and `head` are derived from the event — a
+`runs-on`, `max-parallel`, and `check-lockfile`. `base` and `head` are derived from the event — a
 pull request's base and head, else the push's before/after — and are inputs only
 so a trigger the workflow does not recognise can supply them.
+
+`check-lockfile` is off by default. Turn it on once your `dagger.lock` is
+committed: every job then fails if it left `dagger.lock` different from the
+commit it checked out, and names the command to run locally before committing
+the result. The engine adds an entry for anything it resolves that the lockfile
+does not record, and every job records into its own throwaway checkout, so
+without it a lockfile that pins most of what CI resolves looks the same as one
+that pins all of it.
 
 Memoization is on by default and needs no configuration: the workflow trusts
 exactly the two Actions cache scopes GitHub itself confines — the default branch,
@@ -332,10 +342,11 @@ called does not propagate to the one calling it.
 Declaring it on the **root** module specifically is what makes it work as
 intended — a plan always runs the root module's checks and never memoizes them,
 which is the premise `generated` rests on. Installing this module into a
-workspace's `dagger.toml` instead surfaces its checks to `dagger check`, but not
-to a plan: a plan enumerates the modules it finds in the repository, one at a
-time and scoped to each one's own name, so a check that belongs to an installed
-module living somewhere else is one no plan ever emits a leg for.
+workspace's `dagger.toml` by git ref also reaches a plan — every module installed
+from outside the repository gets a leg of its own in every plan (see [Checks no
+module directory declares](#checks-no-module-directory-declares)) — but that leg
+runs every check this module has, its self-tests included, so the root-module
+wrapper is still the narrower choice.
 
 ## What the planner will not do
 
@@ -374,6 +385,40 @@ and no error, which is a plan that runs nothing for that module:
 A check that fails to load comes back as an item with a `loadError`, which the
 planner treats like any other enumeration failure: one coarse leg runs the whole
 module.
+
+### Checks no module directory declares
+
+A workspace configured by `dagger.toml` installs modules of its own, and some
+come from outside the repository — the Go SDK above all, whose `stale` check is
+what keeps committed bindings honest. `dagger check -l` at the workspace root
+lists their checks beside the root module's, but no module directory declares
+them, so enumerating module by module never finds them: a check like that is
+one no plan ever runs, which is the trap a toolchain check was (#290).
+
+So every plan, narrow or full, also carries one leg per module the workspace
+installs from somewhere other than one of its module directories (a module
+installed from a directory, like the root module at `.`, already has that
+directory's legs):
+
+```json
+{ "name": "dagger-go-sdk (workspace)", "module": "", "moduleName": "dagger-go-sdk", "filter": "", "hash": "" }
+```
+
+- **`module` is empty**, and the leg runs from the workspace root without
+  `-m`: `dagger check --module dagger-go-sdk`. There is no directory to load,
+  and `-m .` fails outright in a workspace with no root module ("module name
+  must be set").
+- **It is coarse** — listed first and passed when empty, like any leg with no
+  filter — so planning reads the names out of the workspace config and loads
+  nothing.
+- **It is never memoized.** Like the root module's checks, these read the whole
+  workspace.
+- **Its budget comes from its own name.** It has no module directory, so no
+  `<module-dir>` or `<module-dir>:*` key reaches it; key it as
+  `"dagger-go-sdk (workspace)"`.
+
+A workspace configured by `dagger.json` alone installs nothing of the kind and
+gets no such legs.
 
 ### When one coarse leg is too coarse
 
@@ -703,6 +748,7 @@ Same rule as selection: never skip a check a change could plausibly affect.
 | condition | result |
 | --- | --- |
 | a root-module leg | always runs — its checks read the whole workspace, which its closure does not describe |
+| a leg for a module `dagger.toml` installs (`<name> (workspace)`) | always runs, for the same reason — an SDK's staleness check regenerates every module it manages |
 | a module's source context unreadable | it and its dependents are unhashable, so they run |
 | a source path absent from `HEAD` (untracked, dirty tree) | its module is unhashable, so its dependents run |
 | a global input changed | recorded passes are ignored wholesale |
@@ -712,6 +758,42 @@ A leg that cannot be hashed reports an empty hash, so a CI system records nothin
 for it and it can never accidentally retire a later run.
 
 ## Codegen freshness
+
+What `generated` does depends on how the workspace is configured.
+
+### In a workspace whose `dagger.toml` installs its SDKs
+
+A migrated workspace installs its SDK as a module (`dagger workspace migrate`
+installs `github.com/dagger/go-sdk` as `dagger-go-sdk`), and that module
+declares a staleness check of its own — `dagger-go-sdk:stale`, which regenerates
+every module the SDK manages in memory and fails when the committed tree
+differs, bindings and `dagger-module.toml` manifests alike. Measured on
+v1.0.0-beta.15 against devex's 55 modules: it passes on a clean tree and fails
+on a stale binding and on a stale manifest, in about four minutes each. A plan
+gives it a leg in every plan (see [Checks no module directory
+declares](#checks-no-module-directory-declares)), so `generated` makes no
+comparison of its own there — that would pay for the same codegen twice — and
+instead proves what makes a green `stale` worth trusting:
+
+- **That every module is managed.** Every committed generated file must belong
+  to a module some SDK in `dagger.toml` manages, found by globbing for the files
+  rather than by asking the SDK. A module left out of every
+  `[sdks.<sdk>.scopes."<dir>"]` is regenerated by nothing, and is reported
+  rather than silently dropping out of a green `stale`.
+- **That the staleness check can fail.** It builds a bare module of its own
+  inside the workspace being checked — under a hidden, randomly named directory,
+  in a copy the engine holds; nothing is written to the checkout — with the
+  workspace's config replaced by one that installs only the Go SDK, from the
+  same reference, and manages only that module. The SDK therefore resolves the
+  way it does for the real leg, but its check regenerates one module rather than
+  the whole workspace: seconds, not a second sweep. The SDK's checks must pass on
+  the module as the SDK generated it and fail once its bindings are made stale.
+
+`stale` reports only "generated files are not up to date", without naming the
+module; `dagger generate -y` and a diff do. The proof is written in Go, so a
+workspace that installs SDKs but no `go` SDK is an error rather than a pass.
+
+### In a workspace configured by `dagger.json`
 
 `generated` fails when a module's committed `dagger.gen.go` or
 `internal/dagger/*.gen.go` differ from what codegen produces at the

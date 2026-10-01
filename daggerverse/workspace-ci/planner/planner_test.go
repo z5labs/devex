@@ -85,6 +85,31 @@ func TestTimeoutsApply(t *testing.T) {
 	}
 }
 
+// TestInstalledEntry pins an installed module's leg: it has no module directory,
+// so only its own name reaches its budget — not a module key, not even one
+// spelled as the empty string — and it is not mistaken for a coarse leg of any
+// module directory.
+func TestInstalledEntry(t *testing.T) {
+	e := InstalledEntry("dagger-go-sdk")
+	if !e.IsInstalled() || e.Module != "" || e.ModuleName != "dagger-go-sdk" || e.Filter != "" {
+		t.Fatalf("unexpected installed leg %+v", e)
+	}
+	if e.IsCoarse() {
+		t.Error("an installed module's leg reported as a module directory's coarse leg")
+	}
+	if CheckEntry(".", "ci", "generated").IsInstalled() || ModuleEntry("mods/a", "a").IsInstalled() {
+		t.Error("a module directory's leg reported as an installed module's")
+	}
+	got := Timeouts{"": 30, ".": 20, ":*": 40}.Apply([]Entry{e}, 6)
+	if got[0].Timeout != 6 {
+		t.Errorf("an installed module's leg took a budget of %d from a module key, want the default 6", got[0].Timeout)
+	}
+	got = Timeouts{"dagger-go-sdk (workspace)": 15}.Apply([]Entry{e}, 6)
+	if got[0].Timeout != 15 {
+		t.Errorf("an installed module's leg got %d from its own name, want 15", got[0].Timeout)
+	}
+}
+
 // TestIsCoarse pins the property the coarse key shape rests on: a run-everything leg
 // is exactly a leg whose name is its module, and no per-check leg can be one.
 func TestIsCoarse(t *testing.T) {

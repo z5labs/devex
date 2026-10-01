@@ -1,0 +1,12 @@
+name = "tests"
+engineVersion = "v1.0.0-beta.15"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "workspace-ci"
+  source = ".."
+
+[codegen]
+  automaticGitignore = false
