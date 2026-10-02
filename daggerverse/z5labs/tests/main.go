@@ -356,7 +356,7 @@ func curlManifestDigest(ctx context.Context, svc *dagger.Service, host, user, pw
 // other's config files outright, so a v1 config reaching a v2 binary — or
 // the reverse — fails this test before any linter runs.
 func (t *Tests) GoCiPassesForValidSource(ctx context.Context) error {
-	if err := checkErr(ctx, dag.Z5Labs().Go(helloLibDir()).Ci()); err != nil {
+	if err := dag.Z5Labs().Go(helloLibDir()).Ci(ctx); err != nil {
 		return fmt.Errorf("Go.Ci on hello-lib: %w", err)
 	}
 	return nil
@@ -371,9 +371,9 @@ func (t *Tests) GoCiPassesForValidSource(ctx context.Context) error {
 // and a pin that *is* valid is exercised where the behaviour lives, in the
 // `go` module's own suite.
 func (t *Tests) GoCiRoutesLintVersion(ctx context.Context) error {
-	err := checkErr(ctx, dag.Z5Labs().Go(helloLibDir()).
+	err := dag.Z5Labs().Go(helloLibDir()).
 		WithLint(dagger.Z5LabsGoChainWithLintOpts{Version: "1.64.8"}).
-		Ci())
+		Ci(ctx)
 	if err == nil {
 		return fmt.Errorf(`expected Go.Ci with lint version "1.64.8" to fail, got nil`)
 	}
@@ -394,7 +394,7 @@ func (t *Tests) GoCiRoutesLintVersion(ctx context.Context) error {
 // than of whoever constructed it: a GoChain built without the detector set
 // would pass every other test in this suite.
 func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
-	err := checkErr(ctx, dag.Z5Labs().Go(raceLibDir()).Ci())
+	err := dag.Z5Labs().Go(raceLibDir()).Ci(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Go.Ci on race-lib to fail with the race detector on by default, got nil")
 	}
@@ -402,7 +402,7 @@ func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
 		return fmt.Errorf("expected a test-stage failure on race-lib, got: %s", msg)
 	}
 
-	if err := checkErr(ctx, dag.Z5Labs().Go(raceLibDir()).WithTest(false).Ci()); err != nil {
+	if err := dag.Z5Labs().Go(raceLibDir()).WithTest(false).Ci(ctx); err != nil {
 		return fmt.Errorf("Go.Ci on race-lib with WithTest(false): %w", err)
 	}
 	return nil
@@ -415,11 +415,11 @@ func (t *Tests) GoCiRunsWithRaceByDefault(ctx context.Context) error {
 // that supplying them neither errors nor disturbs the checks. That they
 // reach the compiler is AppBuildTagsReachTheCompiler.
 func (t *Tests) GoCiChainsEveryWithMethod(ctx context.Context) error {
-	err := checkErr(ctx, dag.Z5Labs().Go(helloLibDir()).
+	err := dag.Z5Labs().Go(helloLibDir()).
 		WithLint(dagger.Z5LabsGoChainWithLintOpts{}).
 		WithTest(true).
 		WithBuild([]string{"integration"}).
-		Ci())
+		Ci(ctx)
 	if err != nil {
 		return fmt.Errorf("Go.Ci on a fully configured chain: %w", err)
 	}
@@ -450,9 +450,9 @@ func (t *Tests) GoCiLintConfigOverridesBundledPolicy(ctx context.Context) error 
 		WithNewFile(".golangci.yml", "version: \"2\"\n\nlinters:\n  default: none\n  enable:\n    - nosuchlinterexists\n").
 		File(".golangci.yml")
 
-	err := checkErr(ctx, dag.Z5Labs().Go(helloLibDir()).
+	err := dag.Z5Labs().Go(helloLibDir()).
 		WithLint(dagger.Z5LabsGoChainWithLintOpts{Config: cfg}).
-		Ci())
+		Ci(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Go.Ci with a config naming an unknown linter to fail, got nil")
 	}
@@ -469,7 +469,7 @@ func (t *Tests) GoCiLintConfigOverridesBundledPolicy(ctx context.Context) error 
 // at all — so a library whose tests fail cannot pass the check by simply
 // not asking for tests.
 func (t *Tests) GoCiFailsForFailingTest(ctx context.Context) error {
-	err := checkErr(ctx, dag.Z5Labs().Go(failingLibDir()).Ci())
+	err := dag.Z5Labs().Go(failingLibDir()).Ci(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Go.Ci on failing-lib to error, got nil")
 	}

@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -84,33 +83,13 @@ func sharedCheck(ctx context.Context, source *dagger.Directory, lintOverride *da
 	if err != nil {
 		return err
 	}
-	return checkErr(ctx, dag.Go().
+	return dag.Go().
 		Ci(source).
 		WithFmt().
 		WithVet().
 		WithLint(dagger.GoCiWithLintOpts{Config: cfg, Version: lintVersion}).
 		WithTest(dagger.GoCiWithTestOpts{Race: race}).
-		Check())
-}
-
-// checkErr runs a dependency's check and returns its failure as an error.
-//
-// Since Dagger v1.0.0-beta.15 a +check function reaches a consumer as a
-// *dagger.Check, a deferred check, rather than as the error it returns, so the
-// failure has to be read back off it.
-func checkErr(ctx context.Context, check *dagger.Check) error {
-	failure, err := check.Error(ctx)
-	if err != nil {
-		return err
-	}
-	if failure == nil {
-		return nil
-	}
-	msg, err := failure.Message(ctx)
-	if err != nil {
-		return err
-	}
-	return errors.New(msg)
+		Check(ctx)
 }
 
 // parseModuleDirective scans go.mod for the top-level `module <path>`

@@ -77,6 +77,13 @@ func (ci *Ci) WithPlan(
 	return ci
 }
 
+// Deliberately not a +check (devex#444). dagger check walks from the module's
+// root object and can supply no arguments, and this builder is reachable only
+// through a constructor that takes the caller's source, so the annotation would
+// declare a check that never runs. It checks an adopter's code, not this module;
+// the module's own coverage of it lives in tests/. Left a plain function, it
+// also returns its error to a caller rather than a deferred *dagger.Check.
+
 // Check runs the enabled stages in parallel via
 // github.com/dagger/dagger/util/parallel and returns the aggregated error.
 //
@@ -90,7 +97,6 @@ func (ci *Ci) WithPlan(
 // #161, where a Check that skipped the one stage that could fail reported a
 // configuration as sound when it was not.
 //
-// +check
 // +cache="session"
 func (ci *Ci) Check(ctx context.Context) error {
 	if !ci.FmtEnabled && !ci.ValidateEnabled && !ci.PlanEnabled {

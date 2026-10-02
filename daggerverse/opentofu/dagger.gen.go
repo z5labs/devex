@@ -1116,14 +1116,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled stages in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error.\n\nEvery enabled stage runs even when an earlier one has already failed, and\nevery failure reaches the caller: an unformatted *and* invalid configuration\nreports both, rather than hiding the validation error behind the formatting\none until the next round trip.\n\nA pipeline with no stages enabled is an error rather than a pass. Checking\nnothing and reporting success is the purest false green there is — see issue\n#161, where a Check that skipped the one stage that could fail reported a\nconfiguration as sound when it was not.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 95, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 101, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run performs the same stages as Check and returns the plan artifacts —\nplan.tfplan, plan.json, plan.txt and changes, exactly what Config.Plan\nemits — for downstream consumption: a review gate that renders the plan, an\nApply that consumes the saved plan, an artifact attached to a pull request.\n\nIt plans whether or not WithPlan was called, because it must produce the\ndirectory it returns; WithPlan(failOnChanges: true) additionally makes a\nnon-empty plan fail the run. The plan is run once, not once per role: when\nWithPlan enabled it as a check stage too, that single run is both.\n\nEverything runs in one parallel round, so the returned artifacts come from a\npipeline where every stage passed. A failing stage yields the aggregated\nerror and a nil directory.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 126, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 132, 1))).
 					WithFunction(
 						dag.Function("WithFmt",
 							dag.TypeDef().WithObject("Ci")).

@@ -589,10 +589,10 @@ func (t *Tests) CiRunAllStagesProducesBinary(ctx context.Context) error {
 // reports a false green (see CiCheckWithoutBuildIsFmtOnly). Adding WithBuild
 // must make Check run the build stage and surface the compile error.
 func (t *Tests) CiCheckWithBuildCatchesCompileError(ctx context.Context) error {
-	err := checkErr(ctx, dag.Zig().Ci(noCompileDir()).
+	err := dag.Zig().Ci(noCompileDir()).
 		WithFmt().
 		WithBuild().
-		Check())
+		Check(ctx)
 	if err == nil {
 		return fmt.Errorf("expected Ci.WithFmt.WithBuild.Check to fail on a non-compiling project, got nil (false green)")
 	}
@@ -606,7 +606,7 @@ func (t *Tests) CiCheckWithBuildCatchesCompileError(ctx context.Context) error {
 // project does not build. This preserves the documented build-free Check for
 // multi-target pipelines that share one check run across N target builds.
 func (t *Tests) CiCheckWithoutBuildIsFmtOnly(ctx context.Context) error {
-	if err := checkErr(ctx, dag.Zig().Ci(noCompileDir()).WithFmt().Check()); err != nil {
+	if err := dag.Zig().Ci(noCompileDir()).WithFmt().Check(ctx); err != nil {
 		return fmt.Errorf("expected Fmt-only Check to pass on the fmt-clean no-compile fixture, got: %w", err)
 	}
 	return nil
@@ -619,11 +619,11 @@ func (t *Tests) CiCheckWithoutBuildIsFmtOnly(ctx context.Context) error {
 // a compile error) this proves the build stage genuinely runs under Check when
 // requested, rather than being silently skipped.
 func (t *Tests) CiCheckWithBuildPassesOnCleanProject(ctx context.Context) error {
-	err := checkErr(ctx, dag.Zig().Ci(helloDir()).
+	err := dag.Zig().Ci(helloDir()).
 		WithFmt().
 		WithTest().
 		WithBuild().
-		Check())
+		Check(ctx)
 	if err != nil {
 		return fmt.Errorf("Ci all-stages Check on clean hello: %w", err)
 	}

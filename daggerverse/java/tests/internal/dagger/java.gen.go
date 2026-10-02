@@ -251,7 +251,7 @@ func (r *JavaGradle) Build() *Directory { // java (../../../../../daggerverse/ja
 }
 
 // Ci returns a new pipeline builder bound to this Gradle tool object.
-func (r *JavaGradle) Ci() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:114:1)
+func (r *JavaGradle) Ci() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:120:1)
 	q := r.query.Select("ci")
 
 	return &JavaGradleCi{
@@ -379,10 +379,11 @@ func (r *JavaGradle) AsNode() Node {
 //
 // The builder reuses the parent Gradle lifecycle helpers, so wrapper handling,
 // JDK inference, and cache mounts are inherited.
-type JavaGradleCi struct { // java (../../../../../daggerverse/java/ci.go:104:6)
+type JavaGradleCi struct { // java (../../../../../daggerverse/java/ci.go:110:6)
 	query *querybuilder.Selection
 
-	id *ID
+	check *Void
+	id    *ID
 }
 type WithJavaGradleCiFunc func(r *JavaGradleCi) *JavaGradleCi
 
@@ -402,12 +403,13 @@ func (r *JavaGradleCi) WithGraphQLQuery(q *querybuilder.Selection) *JavaGradleCi
 // Check runs the enabled check stages (Test, Check) in parallel via
 // github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
 // when callers want to run the checks independently of the build.
-func (r *JavaGradleCi) Check() *Check { // java (../../../../../daggerverse/java/ci.go:136:1)
+func (r *JavaGradleCi) Check(ctx context.Context) error { // java (../../../../../daggerverse/java/ci.go:148:1)
+	if r.check != nil {
+		return nil
+	}
 	q := r.query.Select("check")
 
-	return &Check{
-		query: q,
-	}
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this JavaGradleCi.
@@ -462,7 +464,7 @@ func (r *JavaGradleCi) UnmarshalJSON(bs []byte) error {
 // Run executes the pipeline: stage 1 (Check) → stage 2 (`gradle assemble`).
 // Returns the produced build/libs directory. On stage-1 failure, returns the
 // aggregated error from Check and a nil directory (the build is skipped).
-func (r *JavaGradleCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:154:1)
+func (r *JavaGradleCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:166:1)
 	q := r.query.Select("run")
 
 	return &Directory{
@@ -471,7 +473,7 @@ func (r *JavaGradleCi) Run() *Directory { // java (../../../../../daggerverse/ja
 }
 
 // WithCheck enables the `gradle check` check stage.
-func (r *JavaGradleCi) WithCheck() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:125:1)
+func (r *JavaGradleCi) WithCheck() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:131:1)
 	q := r.query.Select("withCheck")
 
 	return &JavaGradleCi{
@@ -480,7 +482,7 @@ func (r *JavaGradleCi) WithCheck() *JavaGradleCi { // java (../../../../../dagge
 }
 
 // WithTest enables the `gradle test` check stage.
-func (r *JavaGradleCi) WithTest() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:119:1)
+func (r *JavaGradleCi) WithTest() *JavaGradleCi { // java (../../../../../daggerverse/java/ci.go:125:1)
 	q := r.query.Select("withTest")
 
 	return &JavaGradleCi{
@@ -691,7 +693,8 @@ func (r *JavaMaven) AsNode() Node {
 type JavaMavenCi struct { // java (../../../../../daggerverse/java/ci.go:22:6)
 	query *querybuilder.Selection
 
-	id *ID
+	check *Void
+	id    *ID
 }
 type WithJavaMavenCiFunc func(r *JavaMavenCi) *JavaMavenCi
 
@@ -711,12 +714,13 @@ func (r *JavaMavenCi) WithGraphQLQuery(q *querybuilder.Selection) *JavaMavenCi {
 // Check runs the enabled check stages (Test, Verify) in parallel via
 // github.com/dagger/dagger/util/parallel and returns the aggregated error. Use
 // when callers want to run the checks independently of packaging.
-func (r *JavaMavenCi) Check() *Check { // java (../../../../../daggerverse/java/ci.go:54:1)
+func (r *JavaMavenCi) Check(ctx context.Context) error { // java (../../../../../daggerverse/java/ci.go:60:1)
+	if r.check != nil {
+		return nil
+	}
 	q := r.query.Select("check")
 
-	return &Check{
-		query: q,
-	}
+	return q.Execute(ctx)
 }
 
 // A unique identifier for this JavaMavenCi.
@@ -772,7 +776,7 @@ func (r *JavaMavenCi) UnmarshalJSON(bs []byte) error {
 // -DskipTests`). Returns the produced target/ directory. On stage-1 failure,
 // returns the aggregated error from Check and a nil directory (packaging is
 // skipped).
-func (r *JavaMavenCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:73:1)
+func (r *JavaMavenCi) Run() *Directory { // java (../../../../../daggerverse/java/ci.go:79:1)
 	q := r.query.Select("run")
 
 	return &Directory{

@@ -443,14 +443,13 @@ failed to add object to module "go": check Ci.run must return Void
 That is why the `Run` methods on the `Ci` builders of `go`, `java` (Maven and
 Gradle), `kicad`, `opentofu` and `zig` lost their `+check`: each returns its
 artifact (a `*dagger.Directory`, or a `*dagger.File` for `go`) after running the
-pipeline. Each builder's `Check` method is still a check. If a
-function has to both gate and hand something back, split it.
+pipeline. If a function has to both gate and hand something back, split it.
 
 **Calling a check does not run it.** A dependency's `+check` method reaches a
 caller as a deferred `*dagger.Check`, not as the error it returns, so
-`err := dag.Foo().Ci().Check(ctx)` no longer compiles and there is nothing to
-`if err != nil` on. Each tests module that calls one carries a `checkErr` in
-`checkerr.go`:
+`err := dag.Foo().Bar(ctx)` no longer compiles and there is nothing to
+`if err != nil` on. A tests module that calls one carries a `checkErr` in
+`checkerr.go` (`workspace-ci/tests` is the one today):
 
 ```go
 func checkErr(ctx context.Context, check *dagger.Check) error {
@@ -481,6 +480,28 @@ rather than the message.
 The CLI has the same shape: **`dagger call <check>` exits 0 whether the check
 passes or fails**, printing only `Check@xxh3:…`. Only `dagger check` runs one to
 a verdict.
+
+### A builder's gate is not a `+check`
+
+The `Ci` builders — `Go.Ci(source)`, `Java.Maven(source).Ci()`,
+`OpentofuConfig.Ci()`, `Kicad.Ci(source)`, `Zig.Ci(source)`,
+`Z5labs.Go(source).Ci()` — end in a method that runs an adopter's checks, and
+none of those methods is annotated `+check`. Each carries a comment saying so;
+don't re-add it, and don't add it to a new builder's gate.
+
+`dagger check` walks from a module's root object and can call only what it can
+supply every argument for. A builder is reachable only through a constructor
+that takes the *caller's* source, which the engine has no way to synthesise,
+so the annotation declares a check that never runs: `dagger check -l` in
+`daggerverse/go` listed nothing with two of them in `ci.go` (devex#444). And it
+was never a check *of the module* — it checks somebody else's code. The
+module's own coverage of the builder lives in its `tests/`, which `Tests.All`
+runs under `dagger check`. `bruno` and `tesseract` had this shape from the
+start.
+
+Leaving it a plain function has two side benefits: a consumer gets its error
+back from `Check(ctx)` rather than a deferred `*dagger.Check` to unpack, and
+`dagger call … ci … check` fails when the checks do.
 
 ### Long-running service commands go in `AsService(opts.Args)`, not `WithExec`
 

@@ -843,14 +843,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled check stages in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error. The\nenabled stages are Fmt (WithFmt), Test (WithTest), and Build (WithBuild).\n\nThe Build stage compiles the source (`zig build`) and discards the artifact —\nit exists so Check gates on \"does it compile?\", the fundamental correctness\ncheck for a compiled language. Without it, a project whose only failure is a\ncompile error passes Check on the strength of fmt alone (a false green): fmt\nchecks syntax, not types, and firmware projects frequently have no test step.\nSee issue #161.\n\nBuild is opt-in via WithBuild so callers can still run a build-free Check —\nfor example multi-target pipelines that share one target-independent check\nrun (fmt, test) across N target builds.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 117, 1)).
-							WithCheck()).
+							WithSourceMap(dag.SourceMap("ci.go", 123, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns the\nproduced zig-out directory. On stage-1 failure, returns the aggregated error\nfrom Check and a nil directory (stage 2 is skipped).\n\nRun always builds regardless of WithBuild — it must produce the directory it\nreturns. When WithBuild was called, Check also builds (stage 1); that build\nand stage 2 share inputs, so session caching makes stage 2 a cache hit rather\nthan a second compile.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 143, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 149, 1))).
 					WithFunction(
 						dag.Function("WithBuild",
 							dag.TypeDef().WithObject("Ci")).

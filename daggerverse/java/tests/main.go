@@ -426,7 +426,7 @@ func (t *Tests) MavenCiRunAllStagesProducesJar(ctx context.Context) error {
 // passed. Packaging is not part of Check's implementation, so there is no
 // artifact to observe here.
 func (t *Tests) MavenCiCheckRunsChecksAndSkipsPackage(ctx context.Context) error {
-	if err := checkErr(ctx, dag.Java().Maven(mavenHelloDir()).Ci().WithTest().WithVerify().Check()); err != nil {
+	if err := dag.Java().Maven(mavenHelloDir()).Ci().WithTest().WithVerify().Check(ctx); err != nil {
 		return fmt.Errorf("Maven Ci.Check on clean hello: %w", err)
 	}
 	return nil
@@ -473,7 +473,7 @@ func (t *Tests) GradleCiRunAllStagesProducesJar(ctx context.Context) error {
 // The build (assemble) is not part of Check's implementation, so there is no
 // artifact to observe here.
 func (t *Tests) GradleCiCheckRunsChecksAndSkipsBuild(ctx context.Context) error {
-	if err := checkErr(ctx, dag.Java().Gradle(gradleHelloDir()).Ci().WithTest().WithCheck().Check()); err != nil {
+	if err := dag.Java().Gradle(gradleHelloDir()).Ci().WithTest().WithCheck().Check(ctx); err != nil {
 		return fmt.Errorf("Gradle Ci.Check on clean hello: %w", err)
 	}
 	return nil
