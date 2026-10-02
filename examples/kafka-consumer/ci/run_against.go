@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"dagger/ci/internal/dagger"
+	"dagger/kafka-consumer/internal/dagger"
 )
 
 // RunAgainst is the example's run-configuration chain. It codifies "where do I
@@ -20,7 +20,7 @@ type RunAgainst struct {
 
 // RunAgainst starts the run-configuration chain. The example source is loaded as
 // a contextual argument so `dagger call run-against local` needs no arguments.
-func (c *Ci) RunAgainst(
+func (c *KafkaConsumer) RunAgainst(
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]
 	source *dagger.Directory,
@@ -43,7 +43,7 @@ func (c *Ci) RunAgainst(
 // SchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.
 // On v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with
 // "lookup <alias> … no such host", on either bind. dagger/dagger#13751 fixes it
-// in v1.0.0-beta.12 and later; on this module's v1.0.0-beta.13 pin Local returns
+// in v1.0.0-beta.12 and later; measured on v1.0.0-beta.13, Local returned
 // all three decoded records. See the example README for the full write-up.
 //
 // The wire + registry hops are server-TLS (trust-only) to keep a local run

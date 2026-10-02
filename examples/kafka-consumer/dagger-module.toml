@@ -1,0 +1,42 @@
+name = "kafka-consumer"
+engineVersion = "v1.0.0-beta.15"
+include = ["!README.md"]
+source = "ci"
+
+[runtime]
+  source = "go"
+
+[[dependencies]]
+  name = "certificate-management"
+  source = "../../daggerverse/certificate-management"
+
+[[dependencies]]
+  name = "crypto"
+  source = "../../daggerverse/crypto"
+
+[[dependencies]]
+  name = "go"
+  source = "../../daggerverse/go"
+
+[[dependencies]]
+  name = "grafana-stack"
+  source = "../../daggerverse/grafana-stack"
+
+[[dependencies]]
+  name = "kafka"
+  source = "../../daggerverse/kafka"
+
+[[dependencies]]
+  name = "otel"
+  source = "../../daggerverse/otel"
+
+[[dependencies]]
+  name = "random"
+  source = "../../daggerverse/random"
+
+[[dependencies]]
+  name = "z5labs"
+  source = "../../daggerverse/z5labs"
+
+[codegen]
+  automaticGitignore = false

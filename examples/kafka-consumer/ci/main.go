@@ -1,5 +1,5 @@
-// Package main is the kafka-consumer-example `ci` Dagger module. It is rooted at
-// the example root (dagger.json lives at examples/kafka-consumer/, source "ci")
+// Package main is the kafka-consumer example's Dagger module. It is rooted at
+// the example root (dagger-module.toml lives at examples/kafka-consumer/, source "ci")
 // so `dagger call` works from anywhere in the example, and it codifies the
 // example's run configuration alongside its checks:
 //
@@ -23,7 +23,7 @@
 // *starts* it, so the consumer died at hosts-file setup with `lookup <alias> … no
 // such host` on either the Cluster.BindBrokers or the SchemaRegistry.BindTo hop.
 // dagger/dagger#13751 fixes it in v1.0.0-beta.12 and later, and this module is
-// pinned to v1.0.0-beta.13, so both binds resolve.
+// pinned to v1.0.0-beta.15, so both binds resolve.
 //
 // MtlsAvroConsume is still a +check that is RED by design, for a different
 // reason: it gets past the binds and consumes every record, then fails in
@@ -41,10 +41,10 @@ import (
 	"fmt"
 	"strings"
 
-	"dagger/ci/internal/dagger"
+	"dagger/kafka-consumer/internal/dagger"
 )
 
-type Ci struct{}
+type KafkaConsumer struct{}
 
 // recordCount is how many framed Avro records the harness produces and the
 // consumer is asked to decode before it flushes telemetry and exits.
@@ -61,7 +61,7 @@ const avroSchema = `{"type":"record","name":"Event","namespace":"com.z5labs.deve
 //
 // +check
 // +cache="never"
-func (c *Ci) GoCi(
+func (c *KafkaConsumer) GoCi(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]
@@ -86,7 +86,7 @@ func (c *Ci) GoCi(
 //
 // +check
 // +cache="never"
-func (c *Ci) MtlsAvroConsume(
+func (c *KafkaConsumer) MtlsAvroConsume(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]
@@ -102,7 +102,7 @@ func (c *Ci) MtlsAvroConsume(
 // MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
 //
 // +cache="never"
-func (c *Ci) TlsAvroConsume(
+func (c *KafkaConsumer) TlsAvroConsume(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]
@@ -116,7 +116,7 @@ func (c *Ci) TlsAvroConsume(
 // All runs the suite sequentially, for local `dagger call all`. In CI, GoCi
 // (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
 // is red until #441 is fixed.
-func (c *Ci) All(
+func (c *KafkaConsumer) All(
 	ctx context.Context,
 	// +defaultPath="/examples/kafka-consumer"
 	// +ignore=["ci"]

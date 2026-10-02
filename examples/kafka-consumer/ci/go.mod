@@ -1,4 +1,4 @@
-module dagger/ci
+module dagger/kafka-consumer
 
 go 1.26.2
 

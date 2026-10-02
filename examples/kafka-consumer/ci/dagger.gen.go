@@ -17,7 +17,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.40.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"dagger/ci/internal/dagger"
+	"dagger/kafka-consumer/internal/dagger"
 
 	"github.com/dagger/querybuilder"
 )
@@ -59,12 +59,12 @@ func convertSlice[I any, O any](in []I, f func(I) O) []O {
 	return out
 }
 
-func (r Ci) MarshalJSON() ([]byte, error) {
+func (r KafkaConsumer) MarshalJSON() ([]byte, error) {
 	var concrete struct{}
 	return json.Marshal(&concrete)
 }
 
-func (r *Ci) UnmarshalJSON(bs []byte) error {
+func (r *KafkaConsumer) UnmarshalJSON(bs []byte) error {
 	var concrete struct{}
 	err := json.Unmarshal(bs, &concrete)
 	if err != nil {
@@ -210,10 +210,10 @@ func dispatch(ctx context.Context) (rerr error) {
 func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName string, inputArgs map[string][]byte) (_ any, err error) {
 	_ = inputArgs
 	switch parentName {
-	case "Ci":
+	case "KafkaConsumer":
 		switch fnName {
 		case "All":
-			var parent Ci
+			var parent KafkaConsumer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -232,9 +232,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Ci).All(&parent, ctx, source, kafkaImageTag)
+			return nil, (*KafkaConsumer).All(&parent, ctx, source, kafkaImageTag)
 		case "GoCi":
-			var parent Ci
+			var parent KafkaConsumer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -246,9 +246,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
 				}
 			}
-			return nil, (*Ci).GoCi(&parent, ctx, source)
+			return nil, (*KafkaConsumer).GoCi(&parent, ctx, source)
 		case "MtlsAvroConsume":
-			var parent Ci
+			var parent KafkaConsumer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -267,9 +267,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Ci).MtlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+			return nil, (*KafkaConsumer).MtlsAvroConsume(&parent, ctx, source, kafkaImageTag)
 		case "RunAgainst":
-			var parent Ci
+			var parent KafkaConsumer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -281,9 +281,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg source", err))
 				}
 			}
-			return (*Ci).RunAgainst(&parent, source), nil
+			return (*KafkaConsumer).RunAgainst(&parent, source), nil
 		case "TlsAvroConsume":
-			var parent Ci
+			var parent KafkaConsumer
 			err = json.Unmarshal(parentJSON, &parent)
 			if err != nil {
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
@@ -302,7 +302,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					panic(fmt.Errorf("%s: %w", "failed to unmarshal input arg kafkaImageTag", err))
 				}
 			}
-			return nil, (*Ci).TlsAvroConsume(&parent, ctx, source, kafkaImageTag)
+			return nil, (*KafkaConsumer).TlsAvroConsume(&parent, ctx, source, kafkaImageTag)
 		default:
 			return nil, fmt.Errorf("unknown function %s", fnName)
 		}
@@ -327,9 +327,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "":
 		return dag.Module().
-			WithDescription("Package main is the kafka-consumer-example `ci` Dagger module. It is rooted at\nthe example root (dagger.json lives at examples/kafka-consumer/, source \"ci\")\nso `dagger call` works from anywhere in the example, and it codifies the\nexample's run configuration alongside its checks:\n\n  - RunAgainst().Local() stands up the whole stack locally (a single-node\n    Apache Kafka broker plus a separate Confluent Schema Registry over TLS, and\n    an OpenTelemetry collector) and runs the example consumer against it — a\n    Dagger-native replacement for make+compose.\n\nIt also exercises the runnable example under examples/kafka-consumer/ end to end:\n\n  - GoCi runs it through the z5labs Go chain's standardized check stages:\n    gofmt, go vet, golangci-lint, and `go test ./...` with the race detector.\n  - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka\n    cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired\n    to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer\n    against the stack, and assert it both decoded the records and exported\n    telemetry.\n\nOn v0.21.x the end-to-end integration was blocked by #147: a service given a\ncustom hostname is namespaced into the DNS domain of whichever module first\n*starts* it, so the consumer died at hosts-file setup with `lookup <alias> … no\nsuch host` on either the Cluster.BindBrokers or the SchemaRegistry.BindTo hop.\ndagger/dagger#13751 fixes it in v1.0.0-beta.12 and later, and this module is\npinned to v1.0.0-beta.13, so both binds resolve.\n\nMtlsAvroConsume is still a +check that is RED by design, for a different\nreason: it gets past the binds and consumes every record, then fails in\nassertTelemetry — which had never executed before, because #147 stopped every\nrun short of it (#441). GoCi (the build check) stays green. TlsAvroConsume\nshares that telemetry assertion and is runnable on demand; RunAgainst().Local()\nasserts no telemetry and passes. See the example's README for details.\n\nThe example source is loaded as a contextual argument (+defaultPath), so the\n+check function runs under `dagger check` with no CLI arguments.\n").
+			WithDescription("Package main is the kafka-consumer example's Dagger module. It is rooted at\nthe example root (dagger-module.toml lives at examples/kafka-consumer/, source \"ci\")\nso `dagger call` works from anywhere in the example, and it codifies the\nexample's run configuration alongside its checks:\n\n  - RunAgainst().Local() stands up the whole stack locally (a single-node\n    Apache Kafka broker plus a separate Confluent Schema Registry over TLS, and\n    an OpenTelemetry collector) and runs the example consumer against it — a\n    Dagger-native replacement for make+compose.\n\nIt also exercises the runnable example under examples/kafka-consumer/ end to end:\n\n  - GoCi runs it through the z5labs Go chain's standardized check stages:\n    gofmt, go vet, golangci-lint, and `go test ./...` with the race detector.\n  - MtlsAvroConsume / TlsAvroConsume stand up a TLS (or mTLS) Apache Kafka\n    cluster, a Confluent Schema Registry, and an OpenTelemetry collector wired\n    to Tempo/Mimir/Loki, produce framed Avro records, run the example consumer\n    against the stack, and assert it both decoded the records and exported\n    telemetry.\n\nOn v0.21.x the end-to-end integration was blocked by #147: a service given a\ncustom hostname is namespaced into the DNS domain of whichever module first\n*starts* it, so the consumer died at hosts-file setup with `lookup <alias> … no\nsuch host` on either the Cluster.BindBrokers or the SchemaRegistry.BindTo hop.\ndagger/dagger#13751 fixes it in v1.0.0-beta.12 and later, and this module is\npinned to v1.0.0-beta.15, so both binds resolve.\n\nMtlsAvroConsume is still a +check that is RED by design, for a different\nreason: it gets past the binds and consumes every record, then fails in\nassertTelemetry — which had never executed before, because #147 stopped every\nrun short of it (#441). GoCi (the build check) stays green. TlsAvroConsume\nshares that telemetry assertion and is runnable on demand; RunAgainst().Local()\nasserts no telemetry and passes. See the example's README for details.\n\nThe example source is loaded as a contextual argument (+defaultPath), so the\n+check function runs under `dagger check` with no CLI arguments.\n").
 			WithObject(
-				dag.TypeDef().WithObject("Ci", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 47, 6)}).
+				dag.TypeDef().WithObject("KafkaConsumer", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 47, 6)}).
 					WithFunction(
 						dag.Function("All",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -373,7 +373,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("Local",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
-							WithDescription("Local stands up a complete local stack — a single-node Apache Kafka broker\n(KRaft) with a *separate* Confluent Schema Registry (server-TLS), plus an\nOpenTelemetry collector fronting Tempo/Mimir/Loki — produces framed Avro\nrecords onto a topic, then builds and runs the example consumer against it,\nreturning the consumer's stdout. It is meant to be a Dagger-native replacement\nfor a docker-compose \"up\": one command brings up every dependency and the app,\nwired together, runnable from anywhere in the example.\n\nThis models exactly how a developer would run the example locally, and is the\nreproduction that validated the #147 fix end to end. It stands up the same\ntopology as the mtls/tls-avro-consume checks — Apache Kafka plus a standalone\nConfluent Schema Registry — so the registry is its own service reached via\nSchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.\nOn v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with\n\"lookup <alias> … no such host\", on either bind. dagger/dagger#13751 fixes it\nin v1.0.0-beta.12 and later; on this module's v1.0.0-beta.13 pin Local returns\nall three decoded records. See the example README for the full write-up.\n\nThe wire + registry hops are server-TLS (trust-only) to keep a local run\nsimple; the mutual-TLS posture is exercised by the mtls-avro-consume check.\nLocal does not assert on telemetry — it just returns the consumer's stdout —\nbut the observability backends run so a developer (or a future dashboard) can\npoint a UI at them.").
+							WithDescription("Local stands up a complete local stack — a single-node Apache Kafka broker\n(KRaft) with a *separate* Confluent Schema Registry (server-TLS), plus an\nOpenTelemetry collector fronting Tempo/Mimir/Loki — produces framed Avro\nrecords onto a topic, then builds and runs the example consumer against it,\nreturning the consumer's stdout. It is meant to be a Dagger-native replacement\nfor a docker-compose \"up\": one command brings up every dependency and the app,\nwired together, runnable from anywhere in the example.\n\nThis models exactly how a developer would run the example locally, and is the\nreproduction that validated the #147 fix end to end. It stands up the same\ntopology as the mtls/tls-avro-consume checks — Apache Kafka plus a standalone\nConfluent Schema Registry — so the registry is its own service reached via\nSchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.\nOn v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with\n\"lookup <alias> … no such host\", on either bind. dagger/dagger#13751 fixes it\nin v1.0.0-beta.12 and later; measured on v1.0.0-beta.13, Local returned\nall three decoded records. See the example README for the full write-up.\n\nThe wire + registry hops are server-TLS (trust-only) to keep a local run\nsimple; the mutual-TLS posture is exercised by the mtls-avro-consume check.\nLocal does not assert on telemetry — it just returns the consumer's stdout —\nbut the observability backends run so a developer (or a future dashboard) can\npoint a UI at them.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
 							WithSourceMap(dag.SourceMap("run_against.go", 56, 1)).
 							WithArg("kafkaImageTag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("run_against.go", 59, 2), DefaultValue: dagger.JSON("\"4.2.0\"")})).

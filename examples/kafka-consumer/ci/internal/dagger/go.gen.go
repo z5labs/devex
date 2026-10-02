@@ -626,7 +626,7 @@ func (r *GoCi) WithGraphQLQuery(q *querybuilder.Selection) *GoCi {
 // aggregated error. Use when callers want to run the checks
 // independently of the build (for example multi-platform pipelines
 // that share one check run across N platform builds).
-func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../daggerverse/go/ci.go:148:1)
+func (r *GoCi) Check(ctx context.Context) error { // go (../../../../../daggerverse/go/ci.go:154:1)
 	if r.check != nil {
 		return nil
 	}
@@ -687,7 +687,7 @@ func (r *GoCi) UnmarshalJSON(bs []byte) error {
 // Run executes the pipeline: stage 1 (Check) → stage 2 (build). Returns
 // the built binary as a *dagger.File. On stage-1 failure, returns the
 // aggregated error from Check and a nil file (stage 2 is skipped).
-func (r *GoCi) Run() *File { // go (../../../../../daggerverse/go/ci.go:173:1)
+func (r *GoCi) Run() *File { // go (../../../../../daggerverse/go/ci.go:178:1)
 	q := r.query.Select("run")
 
 	return &File{

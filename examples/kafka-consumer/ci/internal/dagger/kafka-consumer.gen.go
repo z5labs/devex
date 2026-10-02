@@ -9,7 +9,7 @@ import (
 	"github.com/dagger/querybuilder"
 )
 
-type Ci struct { // ci (../../../../../:0:0)
+type KafkaConsumer struct { // kafka-consumer (../../../../../:0:0)
 	query *querybuilder.Selection
 
 	all             *Void
@@ -19,14 +19,14 @@ type Ci struct { // ci (../../../../../:0:0)
 	tlsAvroConsume  *Void
 }
 
-func (r *Ci) WithGraphQLQuery(q *querybuilder.Selection) *Ci {
-	return &Ci{
+func (r *KafkaConsumer) WithGraphQLQuery(q *querybuilder.Selection) *KafkaConsumer {
+	return &KafkaConsumer{
 		query: q,
 	}
 }
 
-// CiAllOpts contains options for Ci.All
-type CiAllOpts struct {
+// KafkaConsumerAllOpts contains options for KafkaConsumer.All
+type KafkaConsumerAllOpts struct {
 	Source *Directory
 
 	// Default: "4.2.0"
@@ -36,7 +36,7 @@ type CiAllOpts struct {
 // All runs the suite sequentially, for local `dagger call all`. In CI, GoCi
 // (build) and MtlsAvroConsume (integration) both run as +checks; MtlsAvroConsume
 // is red until #441 is fixed.
-func (r *Ci) All(ctx context.Context, opts ...CiAllOpts) error {
+func (r *KafkaConsumer) All(ctx context.Context, opts ...KafkaConsumerAllOpts) error {
 	if r.all != nil {
 		return nil
 	}
@@ -55,8 +55,8 @@ func (r *Ci) All(ctx context.Context, opts ...CiAllOpts) error {
 	return q.Execute(ctx)
 }
 
-// CiGoCiOpts contains options for Ci.GoCi
-type CiGoCiOpts struct {
+// KafkaConsumerGoCiOpts contains options for KafkaConsumer.GoCi
+type KafkaConsumerGoCiOpts struct {
 	Source *Directory
 }
 
@@ -65,7 +65,7 @@ type CiGoCiOpts struct {
 // detector. Go.Ci needs no git metadata — only the App terminal does — but the
 // loaded source still goes through gitFixture so this check and the
 // integration checks compile the identical tree.
-func (r *Ci) GoCi(ctx context.Context, opts ...CiGoCiOpts) error {
+func (r *KafkaConsumer) GoCi(ctx context.Context, opts ...KafkaConsumerGoCiOpts) error {
 	if r.goCi != nil {
 		return nil
 	}
@@ -80,8 +80,8 @@ func (r *Ci) GoCi(ctx context.Context, opts ...CiGoCiOpts) error {
 	return q.Execute(ctx)
 }
 
-// A unique identifier for this Ci.
-func (r *Ci) ID(ctx context.Context) (ID, error) {
+// A unique identifier for this KafkaConsumer.
+func (r *KafkaConsumer) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
@@ -94,17 +94,17 @@ func (r *Ci) ID(ctx context.Context) (ID, error) {
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *Ci) XXX_GraphQLType() string {
-	return "Ci"
+func (r *KafkaConsumer) XXX_GraphQLType() string {
+	return "KafkaConsumer"
 }
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *Ci) XXX_GraphQLIDType() string {
+func (r *KafkaConsumer) XXX_GraphQLIDType() string {
 	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *Ci) XXX_GraphQLID(ctx context.Context) (string, error) {
+func (r *KafkaConsumer) XXX_GraphQLID(ctx context.Context) (string, error) {
 	id, err := r.ID(ctx)
 	if err != nil {
 		return "", err
@@ -112,25 +112,25 @@ func (r *Ci) XXX_GraphQLID(ctx context.Context) (string, error) {
 	return string(id), nil
 }
 
-func (r *Ci) MarshalJSON() ([]byte, error) {
+func (r *KafkaConsumer) MarshalJSON() ([]byte, error) {
 	id, err := r.ID(marshalCtx)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(id)
 }
-func (r *Ci) UnmarshalJSON(bs []byte) error {
+func (r *KafkaConsumer) UnmarshalJSON(bs []byte) error {
 	var id string
 	err := json.Unmarshal(bs, &id)
 	if err != nil {
 		return err
 	}
-	*r = Ci{query: selectNode(dag.query, id, "Ci")}
+	*r = KafkaConsumer{query: selectNode(dag.query, id, "KafkaConsumer")}
 	return nil
 }
 
-// CiMtlsAvroConsumeOpts contains options for Ci.MtlsAvroConsume
-type CiMtlsAvroConsumeOpts struct {
+// KafkaConsumerMtlsAvroConsumeOpts contains options for KafkaConsumer.MtlsAvroConsume
+type KafkaConsumerMtlsAvroConsumeOpts struct {
 	Source *Directory
 
 	// Default: "4.2.0"
@@ -143,7 +143,7 @@ type CiMtlsAvroConsumeOpts struct {
 // It is a +check that is RED by design: it consumes every record and then fails
 // in assertTelemetry, an assertion #147 had always masked on v0.21.x (#441).
 // Keeping this a +check makes CI a live tracker for that bug.
-func (r *Ci) MtlsAvroConsume(ctx context.Context, opts ...CiMtlsAvroConsumeOpts) error {
+func (r *KafkaConsumer) MtlsAvroConsume(ctx context.Context, opts ...KafkaConsumerMtlsAvroConsumeOpts) error {
 	if r.mtlsAvroConsume != nil {
 		return nil
 	}
@@ -162,14 +162,14 @@ func (r *Ci) MtlsAvroConsume(ctx context.Context, opts ...CiMtlsAvroConsumeOpts)
 	return q.Execute(ctx)
 }
 
-// CiRunAgainstOpts contains options for Ci.RunAgainst
-type CiRunAgainstOpts struct {
+// KafkaConsumerRunAgainstOpts contains options for KafkaConsumer.RunAgainst
+type KafkaConsumerRunAgainstOpts struct {
 	Source *Directory
 }
 
 // RunAgainst starts the run-configuration chain. The example source is loaded as
 // a contextual argument so `dagger call run-against local` needs no arguments.
-func (r *Ci) RunAgainst(opts ...CiRunAgainstOpts) *CiRunAgainst {
+func (r *KafkaConsumer) RunAgainst(opts ...KafkaConsumerRunAgainstOpts) *KafkaConsumerRunAgainst {
 	q := r.query.Select("runAgainst")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `source` optional argument
@@ -178,13 +178,13 @@ func (r *Ci) RunAgainst(opts ...CiRunAgainstOpts) *CiRunAgainst {
 		}
 	}
 
-	return &CiRunAgainst{
+	return &KafkaConsumerRunAgainst{
 		query: q,
 	}
 }
 
-// CiTLSAvroConsumeOpts contains options for Ci.TLSAvroConsume
-type CiTLSAvroConsumeOpts struct {
+// KafkaConsumerTLSAvroConsumeOpts contains options for KafkaConsumer.TLSAvroConsume
+type KafkaConsumerTLSAvroConsumeOpts struct {
 	Source *Directory
 
 	// Default: "4.2.0"
@@ -194,7 +194,7 @@ type CiTLSAvroConsumeOpts struct {
 // TlsAvroConsume is the server-TLS (trust-only) variant, runnable on demand. It
 // shares MtlsAvroConsume's assertTelemetry (#441) but is not a +check —
 // MtlsAvroConsume is the single tracking check, to avoid a duplicate red.
-func (r *Ci) TLSAvroConsume(ctx context.Context, opts ...CiTLSAvroConsumeOpts) error {
+func (r *KafkaConsumer) TLSAvroConsume(ctx context.Context, opts ...KafkaConsumerTLSAvroConsumeOpts) error {
 	if r.tlsAvroConsume != nil {
 		return nil
 	}
@@ -219,21 +219,21 @@ func (r *Ci) TLSAvroConsume(ctx context.Context, opts ...CiTLSAvroConsumeOpts) e
 // on the local engine (a docker-compose replacement); a future NonProd() will
 // point the same consumer container at an already-deployed non-prod environment
 // instead of spinning services up.
-type CiRunAgainst struct { // ci (../../../../../:0:0)
+type KafkaConsumerRunAgainst struct { // kafka-consumer (../../../../../:0:0)
 	query *querybuilder.Selection
 
 	id    *ID
 	local *string
 }
 
-func (r *CiRunAgainst) WithGraphQLQuery(q *querybuilder.Selection) *CiRunAgainst {
-	return &CiRunAgainst{
+func (r *KafkaConsumerRunAgainst) WithGraphQLQuery(q *querybuilder.Selection) *KafkaConsumerRunAgainst {
+	return &KafkaConsumerRunAgainst{
 		query: q,
 	}
 }
 
-// A unique identifier for this CiRunAgainst.
-func (r *CiRunAgainst) ID(ctx context.Context) (ID, error) {
+// A unique identifier for this KafkaConsumerRunAgainst.
+func (r *KafkaConsumerRunAgainst) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
@@ -246,17 +246,17 @@ func (r *CiRunAgainst) ID(ctx context.Context) (ID, error) {
 }
 
 // XXX_GraphQLType is an internal function. It returns the native GraphQL type name
-func (r *CiRunAgainst) XXX_GraphQLType() string {
-	return "CiRunAgainst"
+func (r *KafkaConsumerRunAgainst) XXX_GraphQLType() string {
+	return "KafkaConsumerRunAgainst"
 }
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
-func (r *CiRunAgainst) XXX_GraphQLIDType() string {
+func (r *KafkaConsumerRunAgainst) XXX_GraphQLIDType() string {
 	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
-func (r *CiRunAgainst) XXX_GraphQLID(ctx context.Context) (string, error) {
+func (r *KafkaConsumerRunAgainst) XXX_GraphQLID(ctx context.Context) (string, error) {
 	id, err := r.ID(ctx)
 	if err != nil {
 		return "", err
@@ -264,25 +264,25 @@ func (r *CiRunAgainst) XXX_GraphQLID(ctx context.Context) (string, error) {
 	return string(id), nil
 }
 
-func (r *CiRunAgainst) MarshalJSON() ([]byte, error) {
+func (r *KafkaConsumerRunAgainst) MarshalJSON() ([]byte, error) {
 	id, err := r.ID(marshalCtx)
 	if err != nil {
 		return nil, err
 	}
 	return json.Marshal(id)
 }
-func (r *CiRunAgainst) UnmarshalJSON(bs []byte) error {
+func (r *KafkaConsumerRunAgainst) UnmarshalJSON(bs []byte) error {
 	var id string
 	err := json.Unmarshal(bs, &id)
 	if err != nil {
 		return err
 	}
-	*r = CiRunAgainst{query: selectNode(dag.query, id, "CiRunAgainst")}
+	*r = KafkaConsumerRunAgainst{query: selectNode(dag.query, id, "KafkaConsumerRunAgainst")}
 	return nil
 }
 
-// CiRunAgainstLocalOpts contains options for CiRunAgainst.Local
-type CiRunAgainstLocalOpts struct {
+// KafkaConsumerRunAgainstLocalOpts contains options for KafkaConsumerRunAgainst.Local
+type KafkaConsumerRunAgainstLocalOpts struct {
 
 	// Default: "4.2.0"
 	KafkaImageTag string
@@ -303,7 +303,7 @@ type CiRunAgainstLocalOpts struct {
 // SchemaRegistry.BindTo, and the brokers are reached via Cluster.BindBrokers.
 // On v0.21.x #147 made the consumer's WithExec fail at hosts-file setup with
 // "lookup <alias> … no such host", on either bind. dagger/dagger#13751 fixes it
-// in v1.0.0-beta.12 and later; on this module's v1.0.0-beta.13 pin Local returns
+// in v1.0.0-beta.12 and later; measured on v1.0.0-beta.13, Local returned
 // all three decoded records. See the example README for the full write-up.
 //
 // The wire + registry hops are server-TLS (trust-only) to keep a local run
@@ -311,7 +311,7 @@ type CiRunAgainstLocalOpts struct {
 // Local does not assert on telemetry — it just returns the consumer's stdout —
 // but the observability backends run so a developer (or a future dashboard) can
 // point a UI at them.
-func (r *CiRunAgainst) Local(ctx context.Context, opts ...CiRunAgainstLocalOpts) (string, error) {
+func (r *KafkaConsumerRunAgainst) Local(ctx context.Context, opts ...KafkaConsumerRunAgainstLocalOpts) (string, error) {
 	if r.local != nil {
 		return *r.local, nil
 	}
@@ -330,7 +330,7 @@ func (r *CiRunAgainst) Local(ctx context.Context, opts ...CiRunAgainstLocalOpts)
 }
 
 // Source is the example source tree — the app that gets built and run.
-func (r *CiRunAgainst) Source() *Directory {
+func (r *KafkaConsumerRunAgainst) Source() *Directory {
 	q := r.query.Select("source")
 
 	return &Directory{
@@ -338,10 +338,10 @@ func (r *CiRunAgainst) Source() *Directory {
 	}
 }
 
-func (r *Query) Ci() *Ci { // ci (../../../../../:0:0)
-	q := r.query.Select("ci")
+func (r *Query) KafkaConsumer() *KafkaConsumer { // kafka-consumer (../../../../../:0:0)
+	q := r.query.Select("kafkaConsumer")
 
-	return &Ci{
+	return &KafkaConsumer{
 		query: q,
 	}
 }

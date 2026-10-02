@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"dagger/ci/internal/dagger"
+	"dagger/kafka-consumer/internal/dagger"
 )
 
 // Pinned image tags for the integration stack. Never :latest — a moving tag

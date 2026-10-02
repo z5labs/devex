@@ -92,13 +92,18 @@ go run . \
 # OTEL_EXPORTER_OTLP_ENDPOINT set in the environment.
 ```
 
-## Run it via Dagger — the `ci` module
+## Run it via Dagger — the `kafka-consumer` module
 
 The example ships its own Dagger module, rooted at the example directory so
 `dagger call` works from anywhere inside `examples/kafka-consumer/` as if it were
-its own repo. Its `dagger.json` lives at the example root (`source: "ci"`, code in
-`ci/`); the module object is `Ci`. It provides two things: a `run-against` chain
-that codifies how to run the app, and the build/integration checks.
+its own repo. Its `dagger-module.toml` lives at the example root (`source = "ci"`,
+code in `ci/`); the module object is `KafkaConsumer`. It provides two things: a
+`run-against` chain that codifies how to run the app, and the build/integration
+checks.
+
+It is named `kafka-consumer` rather than `ci` because the repository's root module
+is already `ci`: a Dagger workspace that loads both renames this one after its
+directory, and then finds no `Ci` main object under that name.
 
 ```sh
 cd examples/kafka-consumer
@@ -154,7 +159,7 @@ domain plus the session domain. Both binds were affected —
 registry — and which alias the error named varied from run to run.
 [dagger/dagger#13751](https://github.com/dagger/dagger/pull/13751) fixes it in
 **v1.0.0-beta.12 and later** (no v0.21.x release carries it), and this module is
-pinned to v1.0.0-beta.13.
+pinned to v1.0.0-beta.15.
 
 | Engine | `dagger call run-against local` |
 | --- | --- |
