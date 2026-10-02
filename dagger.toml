@@ -213,3 +213,7 @@ is-module = true
 [sdks.go.scopes."daggerverse/zig/tests"]
 clients = ["./daggerverse/zig"]
 is-module = true
+
+[sdks.go.scopes."examples/kafka-consumer"]
+clients = ["./daggerverse/certificate-management", "./daggerverse/crypto", "./daggerverse/go", "./daggerverse/grafana-stack", "./daggerverse/kafka", "./daggerverse/otel", "./daggerverse/random", "./daggerverse/z5labs"]
+is-module = true

@@ -29,6 +29,7 @@
 ["","oci-sha",["docker.io/library/eclipse-temurin:17-jdk"],"sha256:b64592d40959b4d13b218f6b06b9ab219ff8aa3dad61efd3b5f519ba4d72ef92"]
 ["","oci-sha",["docker.io/library/eclipse-temurin:21-jdk"],"sha256:4d06038800655fe1211760cd561de70ef2ed7a47f5d69255e9834414602b7026"]
 ["","oci-sha",["docker.io/library/golang:1.23"],"sha256:60deed95d3888cc5e4d9ff8a10c54e5edc008c6ae3fba6187be6fb592e19e8c0"]
+["","oci-sha",["docker.io/library/golang:1.26.2"],"sha256:b54cbf583d390341599d7bcbc062425c081105cc5ef6d170ced98ef9d047c716"]
 ["","oci-sha",["docker.io/library/golang:latest"],"sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190"]
 ["","oci-sha",["docker.io/library/gradle:8.14.5-jdk17"],"sha256:8005c303e05700a18d57000c1617621fd672f2021d5a1732582dbb25b23604d7"]
 ["","oci-sha",["docker.io/library/gradle:8.14.5-jdk21"],"sha256:68e94b44fa717b894a559f555aaa491b855f94a0de689080f73e56da6c4a7479"]
