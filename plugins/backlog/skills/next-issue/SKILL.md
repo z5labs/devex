@@ -499,6 +499,15 @@ One blocking `Bash` call, the same shape as step 6's, with the Bash tool's `time
 This is the longest wait in the cycle and the one that has attracted busy-waiting. Step 6's
 rules hold here unchanged: not `Monitor`, not `run_in_background`, and not turns of your own.
 
+Copilot can also **error**: it posts a review saying it "encountered an error and was unable
+to review this pull request". That review is neither a refusal nor a completed review. The
+gate does not read its wording, because Copilot rewords its reviews. It reads the
+`copilot-pull-request-reviewer` check run that Copilot's Actions workflow leaves on the
+reviewed commit. A failed run gets one re-request, inside the same call. A failure that
+survives the re-request is exit 6. **Do not re-request Copilot yourself**: the gate counts its
+retry in check runs, so a request of yours would use up that retry and look like a second
+failure.
+
 ### `bot:<login>`
 
 Any review bot already installed on the repository, named by its full GitHub login. The call
@@ -631,7 +640,8 @@ becomes something you assert at the end of the longest part of the cycle.
 | 2 | the bound was up with no review yet | **run it again**, in the same turn. It resumes: a review already requested is not requested twice, and one already posted is classified immediately. After **four** re-runs — about twenty minutes with nothing posted — this rung is unavailable *for this pull request*: advance the roster. Do **not** report it as having refused, and do not tell the driver to retire it. Silence is exactly what a slow-but-working reviewer looks like |
 | 3 | **UNAVAILABLE**, synchronously — the request was refused, the login is not a bot or is not installed, or the rung's preconditions are absent | advance the roster, and **record the rung** with the reason. Your report names it, and the driver carries it into the next iteration so ten iterations do not each spend a minute rediscovering it |
 | 4 | usage or precondition failure — including a `local` reviewer credential that is half-set, a `--id-env`/`--key-env` pair passed half, or an environment still carrying only the merge App's `BACKLOG_APP_*` | `BLOCKED`; the plugin or the environment is wrong, not the pull request. Quote the message, which names the variable to set — the *configured* one, so pass it on unchanged. Do **not** advance the roster: a credential configured wrong is not a rung that is down |
-| 5 | **ESCALATION** — a review landed from a `bot:<login>` rung whose refusal wording is not configured, so it may be a refusal and the gate cannot tell; stdout is the review body | exactly what you do on 1: `BLOCKED`, do **not** label and do **not** advance the roster. Report it as *unclassifiable*, never as a refusal, and quote what the review said so its reader can judge |
+| 5 | **ESCALATION** — a review landed from a `bot:<login>` rung whose refusal wording is not configured, so it may be a refusal and the gate cannot tell; or a `copilot` review landed with no `copilot-pull-request-reviewer` check run on its commit to read the verdict from. stdout is the review body | exactly what you do on 1: `BLOCKED`, do **not** label and do **not** advance the roster. Report it as *unclassifiable*, never as a refusal, and quote what the review said so its reader can judge |
+| 6 | **ERRORED**, `copilot` only — Copilot's own review run failed on this commit and failed again after the one re-request the gate placed. Nothing reviewed the work, and nothing refused it. stdout is the review body | advance the roster, but do **not** record the rung as unavailable. It is unavailable for *this pull request*, not for the run: on the run that found this, Copilot reviewed the pull requests either side normally. Your report says Copilot errored on this pull request |
 
 **Only exit 0 lets you label the pull request in step 9** — on some rung, or the roster
 reaching `none`.
@@ -686,6 +696,12 @@ session:
 - The refusal wording is **per rung**, and absent means escalate rather than complete. This is
   the finding the generic rung was held back for: an unrecognised refusal matches nothing,
   falls through to the success path and returns as a completed review, which is a merge.
+- Whether Copilot reviewed at all is read from its **check run**, not from its review body.
+  Copilot's error review matched no wording the gate knew. On z5labs/humus it was read as a
+  completed review four pull requests in a row (#747 to #750). Copilot's ordinary review body
+  has changed shape too, between August and October 2026. The check run's conclusion is the
+  verdict instead: `success` beside every real review observed, and `failure` beside every
+  error. The gate matches a review to its run by commit and by time.
 
 `scripts/await-review_test.sh` is the offline fixture corpus for the classification and for
 the unavailable/refused/nothing-yet split; a change to those rules belongs there, not here.
@@ -950,6 +966,13 @@ scoped backlog says nothing about the rest of it.
 
   A rung that merely went **silent** does not go on that line. Silence is what a slow reviewer
   looks like, and retiring one on it costs every remaining iteration its best reviewer.
+
+  A Copilot run that **errored** (exit 6) is reported, but never with the word *unavailable*.
+  The driver retires every rung it reads as unavailable, and Copilot is not down for the run:
+
+  ```
+  Reviewer: local (copilot errored on this pull request)
+  ```
 - When the roster reached `none`: say plainly that **the pull request merged without a
   review**, and name every rung tried and why each was unavailable. Do not leave that to be
   inferred from the absence of a review line.

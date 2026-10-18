@@ -248,8 +248,16 @@ Two failures read alike in a report and are not alike, and only the first is rem
   minutes across ten iterations — so it is re-probed every iteration anyway, and never
   recorded.
 
-A worker that says a rung went silent is not reporting a rung that is down. If a report is
-ambiguous, do not record the rung: the cost of an extra probe is seconds and the cost of a
+There is a third case, and it is not remembered either:
+
+- **Copilot errored on one pull request.** The gate's exit 6: Copilot's own review run failed,
+  and failed again after one re-request. The worker reports it as `copilot errored on this
+  pull request`. That is a fault in one run, not an outage. On the run that found it, Copilot
+  errored on z5labs/humus #747 to #750 and reviewed #745, #746 and #756 normally. Recording
+  it would retire a working reviewer after one transient error.
+
+A worker that says a rung went silent or errored is not reporting a rung that is down. If a
+report is ambiguous, do not record the rung: the cost of an extra probe is seconds and the cost of a
 wrong retirement is every remaining iteration's review quality.
 
 ### A worker that comes back mid-cycle

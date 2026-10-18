@@ -100,7 +100,8 @@ check read as pending is a wait that times out; read as settled, it is a merge.
 The review gate is
 [`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request from one
 rung, wait, and classify what landed, as `0 completed / 1 refused / 2 nothing
-yet / 3 unavailable`. "Did the reviewer review this?" looks like one question
+yet / 3 unavailable / 5 unclassifiable / 6 Copilot errored on this pull
+request`. "Did the reviewer review this?" looks like one question
 and is two, and the two used to sit sixty lines apart: the wait exited on the
 first `reviewed` event, while whether that review had *declined* the work was a
 separate command under its own heading. Copilot declines a pull request over 300
@@ -109,6 +110,14 @@ files with a review whose body says so, and that decline satisfies any
 merge label is the assertion that a review completed, so the assertion is now an
 exit code, pinned offline by
 [`scripts/await-review_test.sh`](backlog/scripts/await-review_test.sh).
+
+Copilot also posts a review when its own run crashes ("encountered an error
+and was unable to review"). That wording matched nothing, so z5labs/humus
+#747 to #750 each exited 0 on a review that never happened. The fix does not
+match wording, because Copilot rewords its reviews. The gate reads the
+`copilot-pull-request-reviewer` check run on the reviewed commit instead,
+re-requests once on a failure, and exits 6 if the failure repeats. Exit 6
+advances the roster without retiring Copilot for the run.
 
 `review.reviewers` makes that gate an ordered roster — `["copilot", "local",
 "none"]` — tried in order and failing over on **availability alone**. It
