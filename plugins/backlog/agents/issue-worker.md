@@ -109,5 +109,11 @@ not a conversation.
   remaining iteration its best reviewer. Neither does a Copilot run that *errored* on this
   pull request (the gate's exit 6). Say `Reviewer: local (copilot errored on this pull
   request)`, and never use the word *unavailable* for it.
+- Name **each post-merge criterion** — an acceptance criterion beginning `After merge:` — and
+  its outcome, one line apiece, exactly as the skill's report writes them: `done`,
+  `FAILED: <error>`, or `not attempted`. They run after the merge, so they are the part of the
+  run your caller cannot infer from `MERGED`. If one failed, your report begins `BLOCKED` and
+  says the pull request merged and the issue is closed — a person has the follow-up to finish,
+  not the story.
 - Keep it to a handful of lines. Detail belongs in the pull request, not in the caller's
   context.

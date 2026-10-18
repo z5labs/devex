@@ -157,6 +157,20 @@ registers and nothing acts on it — and an issue left open is one the next
 iteration selects again. One call with a meaningful exit code cannot be
 forgotten and asserts the close instead of trusting it.
 
+Some criteria can only be met once that merge has landed — comment on the bug
+report's discussion with a link to the merged pull request, then close it as
+resolved. A criterion whose text begins `After merge:` is one of those, and
+[`scripts/post-merge-criteria.sh`](backlog/scripts/post-merge-criteria.sh)
+extracts them, pinned offline by
+[`scripts/post-merge-criteria_test.sh`](backlog/scripts/post-merge-criteria_test.sh).
+The pull request lists them unchecked, and the worker carries them out in order
+once `finish-issue.sh` exits 0, records what each did in one comment on the
+closed issue, and ends `BLOCKED` on the first that fails. The cycle is the
+place for this because it is already waiting for the merge; a job in the merge
+workflow would run only for App-token merges and be overwritten every time the
+workflow is reinstalled. The issue still closes the moment the merge lands:
+holding it open for a follow-up would get the merged work selected again.
+
 Setting up the App token matters more than it looks. GitHub creates no workflow
 run from an event triggered by `GITHUB_TOKEN`, so a workflow that merges with
 its own token emits a `closed` event that starts nothing — and every job hanging

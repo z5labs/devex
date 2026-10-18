@@ -1,6 +1,6 @@
 ---
 name: next-issue
-description: Take exactly one eligible story issue from the backlog through the full development cycle — select it, branch a worktree, implement the acceptance criteria, run the repository's verify commands, open a pull request, wait for checks, get a review from the configured roster and answer it, then label the pull request for GitHub to auto merge, close the issue and clean up. Use this whenever the user asks to "work the backlog", "take the next issue", "do the next story", "pick up the next ticket", or runs the backlog loop; it is also what the `issue-worker` agent invokes on every iteration of `backlog:run-backlog`. Everything repository-specific comes from `.claude/backlog.json`. Skip this when the user names a specific issue to explore rather than to land, or when they want the backlog bootstrapped rather than worked — that is `backlog:setup-backlog`.
+description: Take exactly one eligible story issue from the backlog through the full development cycle — select it, branch a worktree, implement the acceptance criteria, run the repository's verify commands, open a pull request, wait for checks, get a review from the configured roster and answer it, then label the pull request for GitHub to auto merge, close the issue, clean up and carry out any `After merge:` criteria. Use this whenever the user asks to "work the backlog", "take the next issue", "do the next story", "pick up the next ticket", or runs the backlog loop; it is also what the `issue-worker` agent invokes on every iteration of `backlog:run-backlog`. Everything repository-specific comes from `.claude/backlog.json`. Skip this when the user names a specific issue to explore rather than to land, or when they want the backlog bootstrapped rather than worked — that is `backlog:setup-backlog`.
 allowed-tools: Agent, Bash, Read, Write, Edit, Glob, Grep, TaskCreate, TaskUpdate, EnterWorktree, ExitWorktree
 ---
 
@@ -254,10 +254,38 @@ continues, so one unreadable reference does not starve a backlog whose other iss
 workable. Under `native` a dependency query that fails outright is treated the same way: that
 issue is ineligible with the error recorded, never eligible-by-default.
 
+**Post-merge criteria** — read under every style, because they are not about ordering. Some
+work can only happen once the pull request has merged: commenting on a discussion with a link
+to the merged pull request, closing a bug report as resolved. A criterion like that is written
+as a task-list item whose text **begins** `After merge:`:
+
+```
+- [ ] After merge: comment on #757 with a link to the merged pull request and what changed, then close #757 as Resolved.
+```
+
+`After merge:` has to open the item — case does not matter, and `**After merge:**` counts —
+because a criterion that merely mentions the phrase is an ordinary one. As everywhere else
+here, an item inside a fence is example text. A post-merge criterion acts on GitHub, not on the
+repository: by the time it runs the worktree is gone, so anything that changes code or docs is
+an ordinary criterion that belongs in the pull request. `scripts/post-merge-criteria.sh`
+extracts them, and `scripts/post-merge-criteria_test.sh` is the fixture corpus for what does
+and does not count.
+
 ### Read the issue
 
 Read the whole issue body. The **Acceptance Criteria** checklist is the spec — every box
-must be genuinely satisfied before you open the pull request.
+must be genuinely satisfied before you open the pull request, **except a post-merge
+criterion**, which only the merge can satisfy and which you carry out in step 10. Ask the
+script which ones those are rather than reading for them by eye:
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/post-merge-criteria.sh" <n>
+```
+
+It prints a JSON array of the post-merge criteria, verbatim and in order — `[]` for most
+stories, and then nothing below changes. Exit 4 means the body could not be read; that is
+`BLOCKED`, not an empty list, because a follow-up the cycle never learned about is one that
+silently never happens.
 
 ## 2. Worktree
 
@@ -296,7 +324,8 @@ issues assume.
 
 ## 3. Implement
 
-Work through the acceptance criteria in order. Follow the conventions already established
+Work through the acceptance criteria in order, passing over the post-merge ones — step 10
+carries those out. Follow the conventions already established
 in the repository — the package layout, naming and test style of code that has already
 landed — rather than inventing new ones. Where the issue names a structural model, mirror
 that.
@@ -339,6 +368,23 @@ The pull request body must include `Closes #<n>`, the acceptance criteria checke
 one, a note on any judgment call that shaped the public API, and how it was verified. Keep
 the standard attribution your harness adds to commits and pull request bodies.
 
+Post-merge criteria are not checked off with the rest — nothing has done them yet, and a body
+that ticks them claims otherwise. List them **unchecked**, verbatim, under a heading of their
+own that says when they run, and inside a fence:
+
+````
+### After merge — carried out once this pull request has merged
+
+```text
+- [ ] After merge: comment on #757 with a link to the merged pull request and what changed, then close #757 as Resolved.
+```
+````
+
+The fence is not decoration. `close #757` is a GitHub closing keyword, and written as plain
+text in this body it would make the merge close #757 — early, before the comment the
+criterion asks for, and as *completed* rather than whatever the criterion says. Leave the
+heading out when the script printed `[]`.
+
 Then assert that the closing reference actually registered:
 
 ```
@@ -346,9 +392,12 @@ gh pr view <pr> --repo <repo> --json closingIssuesReferences \
   --jq '[.closingIssuesReferences[].number]'
 ```
 
-It must contain `<n>`. An empty array means GitHub did not parse the keyword — usually
+It must be exactly `[<n>]`. An empty array means GitHub did not parse the keyword — usually
 because the line is missing, misspelled, or names a cross-repository issue — and the link is
-established at creation time, so fixing the body later is the moment to re-check.
+established at creation time, so fixing the body later is the moment to re-check. Any number
+besides `<n>` is an issue the merge would close that this story did not set out to close —
+most often one a post-merge criterion names, written outside its fence. Edit the body and
+check again.
 
 This check costs one call and it is diagnostic, not preventive. It is expected to *pass* and
 for the issue to stay open anyway after the merge: the reference registers correctly and
@@ -443,6 +492,9 @@ five minutes.
 the blocking call. The no-polling rule above is about not polling *alongside* a live wait;
 with no wait running, that single query is exactly the right move, and doing nothing is the
 one response that cannot be right.
+
+Step 10's post-merge criteria are the one thing past the merge that is **not** guarded that
+way. Read "If you are resumed here" under step 10 before repeating one.
 
 ## 7. The review — walk the roster
 
@@ -841,10 +893,12 @@ on a check. A `failure` conclusion means the workflow itself is broken — repor
 output of `gh run view <id> --log-failed`, rather than falling back to a manual merge, which
 is what this whole step exists to avoid.
 
-## 10. Finish — one call
+## 10. Finish — one call, then the post-merge criteria
 
-Everything after the label is mechanism, not judgment: wait for the merge, close the issue,
-verify it closed, drop the worktree, delete the local branch. Run it as one script rather than
+Everything after the label up to the merge's cleanup is mechanism, not judgment: wait for the
+merge, close the issue, verify it closed, drop the worktree, delete the local branch. The
+post-merge criteria, if the issue has any, come after that and are the one piece of judgment
+left; see below. Run the mechanism as one script rather than
 as five steps — a blocking `Bash` call with the tool's `timeout` set to `330000`, the script
 bounding itself at five minutes. Step 6's rules hold here too: not `Monitor`, not
 `run_in_background`, no sleeps of your own, and no reading the pull request or the worktree to
@@ -858,7 +912,7 @@ Read its exit code. It is the assertion, and each value means one thing:
 
 | exit | meaning | what you do |
 | --- | --- | --- |
-| 0 | merged, issue confirmed `CLOSED`, local cleanup done | continue to the report |
+| 0 | merged, issue confirmed `CLOSED`, local cleanup done | carry out the post-merge criteria, below, then the report. With none, straight to the report |
 | 1 | the pull request closed without merging | `BLOCKED`, naming the pull request |
 | 2 | the five minutes were up and the merge had not landed | **run it again**, in the same turn; every step is guarded, so it resumes. After three re-runs — a quarter of an hour with the pull request still open — go back to step 9's run list to find out why, and `BLOCKED` if nothing is running |
 | 3 | the issue would not close | `BLOCKED` — this is the one that makes the next iteration redo merged work |
@@ -871,9 +925,76 @@ Re-running after a timeout is safe: every step is guarded, so an already-merged 
 skips the wait, an already-closed issue skips the close, and an absent worktree or branch
 skips its removal.
 
+### Carry out the post-merge criteria
+
+**Only after `finish-issue.sh` exits 0.** On any other exit, carry out none of them — not
+even one that looks independent of the merge — and report as the table says. A criterion
+written `After merge:` was written on the promise that the work had landed, and "the pull
+request closed without merging" or "the merge has not landed yet" breaks that promise for
+every one of them.
+
+Re-run the script for the list rather than relying on what you noted at step 1; the issue
+body is the source, and a resumed run has no step 1 to remember:
+
+```
+"${CLAUDE_PLUGIN_ROOT}/scripts/post-merge-criteria.sh" <n>
+```
+
+`[]` means there is nothing to do here: go to the report. Otherwise you need two values the
+criteria are written against, both in `finish-issue.sh`'s last line — the merged pull
+request's number and its merge commit:
+
+```
+finish-issue: OK — PR #<pr> MERGED as <sha>, issue #<n> CLOSED, local cleanup done
+```
+
+If that line carries no `as <sha>`, GitHub had not reported the merge commit yet; read it
+with `gh pr view <pr> --repo <repo> --json mergeCommit -q .mergeCommit.oid`.
+
+Then carry out each criterion **in order**, one at a time, exactly as written. "A link to
+the merged pull request" is `https://github.com/<repo>/pull/<pr>`; "what changed" is a
+sentence or two from the pull request body, not the diff. You are now in the main checkout
+— the worktree is gone — so a criterion acts on GitHub, through `gh`. A discussion is
+reached through `gh api graphql`: `addDiscussionComment` to comment, `closeDiscussion` with
+`reason: RESOLVED` to close it as resolved, and the discussion's node ID from
+`repository.discussion(number:)`.
+
+This step ends one of two ways, and neither leaves the issue open. The issue stays
+`CLOSED` whatever happens here: reopening it, or never having closed it, puts merged work
+back in front of the next iteration's selection, which implements it again.
+
+- **Every criterion succeeded.** Post **one** comment on the closed issue recording what each
+  one did, with its link where it left one:
+
+  ```
+  gh issue comment <n> --repo <repo> --body "<record>"
+  ```
+
+  ```
+  Post-merge criteria, carried out after #<pr> merged as <sha>:
+
+  - [x] After merge: comment on #757 … — commented: <link to the comment>
+  - [x] After merge: … — <what it did>
+  ```
+
+- **A criterion failed.** Stop there: do not carry out the ones after it, which were written
+  in order and may depend on it. Post the same one comment, recording what the ones before it
+  did, the one that failed with its error, and every one left — unchecked, so a person can
+  pick them up from the comment alone. Then report `BLOCKED`, naming the criterion and quoting
+  its error. The pull request has merged and the issue is closed; what needs a person is the
+  follow-up, and the report has to say so, because "BLOCKED" alone reads as unmerged work.
+
+If the record comment itself will not post, the outcome does not change — report it, and put
+the record in the report instead, since the report is now the only place it exists.
+
+**If you are resumed here**, a criterion may already have been carried out by the turn that
+was interrupted. Read the issue's comments first: a record comment means this step is done.
+With none, look for each criterion's effect before repeating it — a second identical comment
+on a discussion is exactly the noise this step must not make.
+
 ### Why this is a script
 
-Three of those steps have been rediscovered from first principles on cycle after cycle, and
+Three of the script's five steps have been rediscovered from first principles on cycle after cycle, and
 the close is the expensive one. **A `Closes #<n>` line does not close the issue when a token
 rather than a person performs the merge.** Across five consecutive merges the closing
 reference registered correctly every time — step 5's assertion would have passed on all
@@ -976,8 +1097,18 @@ scoped backlog says nothing about the rest of it.
 - When the roster reached `none`: say plainly that **the pull request merged without a
   review**, and name every rung tried and why each was unavailable. Do not leave that to be
   inferred from the absence of a review line.
+- **Each post-merge criterion and its outcome**, one line apiece — `done`, `FAILED: <error>`,
+  or `not attempted` for those after a failure — and a link to the record comment on the
+  issue. Leave the lines out when the issue had none.
 
-If you stopped early, say exactly where and why, beginning the report with `BLOCKED`.
+  ```
+  After merge: comment on #757 … — done: <link to the comment>
+  After merge: close #757 as Resolved — FAILED: <error>
+  ```
+
+If you stopped early, say exactly where and why, beginning the report with `BLOCKED`. A run
+blocked on a post-merge criterion says, as well, that the pull request **merged** and the issue
+is **closed**, so its reader does not go looking for unmerged work.
 
 ### If you have to hand back control unfinished
 
@@ -1025,6 +1156,9 @@ Stop and report — do not push through — if any of these happen:
   for the same reason: it may be that refusal. Report it as unclassifiable rather than as a
   refusal, and quote the review.
 - The roster is exhausted without a completed review and without reaching `none`.
+- `post-merge-criteria.sh` exited 4 — the issue body could not be read.
+- A post-merge criterion failed. Stop at it; carry out none after it, leave the issue closed,
+  and post the record comment naming what is left.
 - A wait's exit 2 outlasts its re-run budget: six for `await-checks.sh`, four for
   `await-review.sh`, three for `finish-issue.sh`. An exit 2 on its own is not a stop
   condition — it is the wait asking to be called again, in the same turn — but a gate that
