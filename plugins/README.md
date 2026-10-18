@@ -38,6 +38,20 @@ The cycle never runs `gh pr merge`. It labels the pull request and
 GitHub, gated by the default branch's protection rules — which is what puts the
 merge policy somewhere readable and what lets the loop run unattended at all.
 
+Native auto merge does not exist everywhere. A private repository on GitHub
+Free cannot turn it on, and branch protection and rulesets answer `403: Upgrade
+to GitHub Pro or make this repository public`. Zaba505/backup's operator had to
+fork the merge step by hand to get past it. The workflow therefore reads
+`autoMergeAllowed` over GraphQL at merge time. REST `allow_auto_merge` is
+omitted for a token without push access, so its absence means nothing. Where the
+setting is `false`, the workflow waits for every other check on the pull request,
+for at most fifteen minutes, then merges with `--match-head-commit` using the App
+token, so the `closed` jobs still fire. It reads the checks with `GITHUB_TOKEN`
+under `checks`, `statuses` and `actions` read, because the App's Contents / Pull
+requests / Issues grant cannot read them. Both steps are run straight out of the
+asset against a fake `gh` by
+[`scripts/auto-merge_test.sh`](backlog/scripts/auto-merge_test.sh).
+
 Four parts of the cycle are scripts rather than numbered steps, for the same
 reason: they carry no judgment, and a procedure an agent retypes cannot be
 tested.
@@ -203,9 +217,11 @@ when they are absent.
 `setup-backlog` bootstraps a target repository: it writes the config with
 `verify` and `dependencies.style` inferred from the repository rather than
 asked, installs the workflow, creates the labels, and then *verifies* the
-environment — squash-only merging, the default branch's required status checks,
-and whether Copilot code review is really enabled — reporting what it cannot fix
-without repository-admin rights, and offering a second reviewer rung rather than
+environment — squash-only merging, whether native auto merge is available, the
+default branch's required status checks, and whether Copilot code review is
+really enabled — reporting what it cannot fix without repository-admin rights,
+and telling a `403` that means missing admin rights from one that names a plan
+limit no admin can lift, and offering a second reviewer rung rather than
 a downgrade when Copilot is not there.
 
 The reviewer credential it verifies by **minting a token**, not by checking that

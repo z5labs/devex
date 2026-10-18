@@ -1,6 +1,6 @@
 ---
 name: setup-backlog
-description: Bootstrap a repository for the unattended backlog cycle and verify the environment it depends on — write `.claude/backlog.json` with the label, dependency convention and verify commands inferred from the repository, install the auto-merge workflow, create the backlog and merge labels, and check squash-only merging, the default branch's required status checks and whether Copilot code review is actually enabled. Use this whenever the user wants to set up, bootstrap, install, onboard or enable the backlog loop on a repository, when `backlog:next-issue` stops because `.claude/backlog.json` is missing, or when the user wants to know why an unattended run keeps stalling. Skip this when the repository is already configured and the user simply wants work done — that is `backlog:next-issue` or `backlog:run-backlog`.
+description: Bootstrap a repository for the unattended backlog cycle and verify the environment it depends on — write `.claude/backlog.json` with the label, dependency convention and verify commands inferred from the repository, install the auto-merge workflow, create the backlog and merge labels, and check squash-only merging, whether native auto merge is available, the default branch's required status checks (telling a plan limit from missing admin rights) and whether Copilot code review is actually enabled. Use this whenever the user wants to set up, bootstrap, install, onboard or enable the backlog loop on a repository, when `backlog:next-issue` stops because `.claude/backlog.json` is missing, or when the user wants to know why an unattended run keeps stalling. Skip this when the repository is already configured and the user simply wants work done — that is `backlog:next-issue` or `backlog:run-backlog`.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
 
@@ -13,7 +13,8 @@ before anyone notices.
 Copying a workflow file in is easy. The failures that cost a run are environmental: Copilot
 code review not enabled for the organisation, a merge method other than squash still
 allowed, a default branch with no required status check so the merge label lands the pull
-request instantly and unverified. Those are the point of steps 4 and 5, and several of them
+request instantly and unverified, a private repository on GitHub Free where native auto
+merge and branch protection do not exist at all. Those are the point of steps 4 and 5, and several of them
 you can only *report*, because fixing them takes repository-admin rights this agent does not
 have.
 
@@ -244,8 +245,17 @@ existing file may carry a local change that matters, and the comments in the ass
 reasoning behind every clause in it — silently replacing one with the other destroys
 whichever of the two was the considered version.
 
-Two differences are worth calling out by name if the existing file is an older copy:
+Three differences are worth calling out by name if the existing file is an older copy:
 
+- **No `Read whether native auto merge is allowed` step.** An older copy runs only
+  `gh pr merge --auto`, which fails outright on a repository whose `autoMergeAllowed` is
+  `false` (see "Native auto merge" in step 5). There every merge fails and the pull request
+  stays open. Where the setting is `false`, this difference is **load bearing**. The current
+  asset reads the setting at merge time and gates the merge itself when native auto merge is
+  unavailable. A hand-forked merge step that calls `gh pr checks` with the App token is
+  the same problem in another form. It fails with `Resource not accessible by integration`,
+  because the App has no Checks permission. The asset reads checks with `GITHUB_TOKEN`
+  instead, under `checks: read`, `statuses: read` and `actions: read`.
 - **No `close-linked-issues` job.** A `Closes #N` line does not close the issue when a token
   performs the merge, even though `closingIssuesReferences` registers correctly. Granting
   `issues: write` was tested as the explanation on a real merge and did not fix it, so the
@@ -287,6 +297,14 @@ and mark each result **ok**, **needs a change**, or **needs admin rights**.
 A `403` is **needs admin rights**, not a failure. It means the endpoint exists and the token
 cannot read it — report the check as unverified and name what the user needs to look at.
 Reporting it as a failure sends someone chasing a problem that may not be there.
+
+**Except when the message says the plan is the reason.** Read the message, never just the
+status code. `Upgrade to GitHub Pro or make this repository public to enable this feature`
+is a `403` too, and it means no admin can turn the feature on at all. A private repository
+on GitHub Free answers branch protection and rulesets this way. Reporting that as "needs
+admin rights" sends the operator to find an admin who cannot help. It is **needs a change**,
+and its remedies are the plan or the visibility, not a permission. `gh api` prints the
+message on stderr as `gh: <message> (HTTP 403)`, so capture it with `2>&1`.
 
 ### The App credentials — check these first
 
@@ -354,6 +372,12 @@ entirely to the cycle's own `finish-issue` step — and give the setup, which ne
    **Read and write**.
 3. Add its App ID as the repository secret `BACKLOG_APP_ID` and its PEM private key as
    `BACKLOG_APP_KEY`.
+
+Those three are all the App needs on either merge path. With them alone it **cannot read
+checks**: `gh pr checks` under its token fails with `Resource not accessible by
+integration`. That is why the gated path reads checks with `GITHUB_TOKEN`, and uses the App
+token only for the merge. Do not add Checks to the App to work around a hand-forked step.
+Install the current asset instead.
 
 Check the symptom directly too, since it is the thing an operator will actually notice:
 
@@ -543,14 +567,50 @@ blocker. Report it as one.
 gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed,deleteBranchOnMerge
 ```
 
-- `squashMergeAllowed: false` → **needs a change**, and it is load bearing: the workflow runs
-  `gh pr merge --squash --auto`, which fails outright.
+- `squashMergeAllowed: false` → **needs a change**, and it is load bearing: both of the
+  workflow's merge paths pass `--squash`, which fails outright.
 - `mergeCommitAllowed` or `rebaseMergeAllowed` true → hygiene. The workflow always squashes,
   so nothing breaks; it just means a human can land history in another shape.
 - `deleteBranchOnMerge` either way → note it and move on. It does **not** cover this cycle:
   it fires for a merge a person performs, not for one the workflow performs with its
   `GITHUB_TOKEN`, which is exactly why the workflow carries its own `delete-merged-branch`
   job.
+
+### Native auto merge
+
+The workflow has two merge paths, and this setting decides which one runs. Read it the way
+the workflow does, over GraphQL. `gh repo view` has no field for it, and REST
+`allow_auto_merge` is left out of the response for a token without push access, so a missing
+key there cannot be told apart from `false`:
+
+```
+gh api graphql -f owner=<owner> -f name=<name> -f query='
+  query($owner: String!, $name: String!) {
+    repository(owner: $owner, name: $name) { autoMergeAllowed isPrivate }
+  }' --jq .data.repository
+```
+
+- `autoMergeAllowed: true` → **ok**. The workflow arms native auto merge, and GitHub merges
+  once the default branch's required checks pass.
+- `autoMergeAllowed: false` → the workflow gates the merge itself. It waits for every check
+  reported on the pull request, at most fifteen minutes, then merges with the App token.
+  Nothing merges while a check is failing or still running. Spell out how this differs from
+  native auto merge. A failing check **fails the merge run** rather than staying armed, so
+  after the fix is pushed the merge label has to be removed and added again. The wait costs
+  Actions minutes, which count against a private repository's quota. And it waits on every
+  reported check, not a required set, so a check that never registers is never waited for.
+  Which mark the row gets depends on whether anyone can turn the setting on:
+  - **Public, or private on a paid plan** → **needs a change**. Turning on *Settings →
+    General → Allow auto-merge* needs an admin, and is one checkbox. The gated path works in
+    the meantime.
+  - **Private, and the required-checks section below meets the plan-limit `403`** → **ok**,
+    with the gated path named. This is a private repository on GitHub Free. No setting can
+    turn native auto merge on there, and the gated path is the supported way to run the loop.
+    Name the remedies anyway, in case the operator wants native auto merge back: upgrade the
+    plan, or make the repository public.
+  - The installed workflow is an older copy without the `Read whether native auto merge is
+    allowed` step (see step 3) → **needs a change**, and it is load bearing whichever case
+    above applies. That copy only runs `gh pr merge --auto`, which fails here on every merge.
 
 ### Required status checks on the default branch
 
@@ -561,7 +621,7 @@ Classic branch protection (admin-only to read):
 
 ```
 gh api repos/<repo>/branches/<default-branch>/protection \
-  --jq '.required_status_checks.contexts'
+  --jq '.required_status_checks.contexts' 2>&1
 ```
 
 Rulesets — `rules/branches` returns the rules *in effect* for a branch and needs no admin
@@ -570,16 +630,29 @@ rights, which makes it the one to lead with:
 ```
 gh api repos/<repo>/rules/branches/<default-branch> \
   --jq '[.[] | select(.type=="required_status_checks")
-        | .parameters.required_status_checks[].context]'
+        | .parameters.required_status_checks[].context]' 2>&1
 ```
 
+`2>&1` is there because the message is how the next list tells one `403` from another.
+
 - Checks found in either → **ok**. Name them.
-- `403` on protection with an empty ruleset result → **needs admin rights**. Say the check
-  is unverified.
+- Either call answers `Upgrade to GitHub Pro or make this repository public` → **the plan
+  forbids both mechanisms**. This is not a permissions problem, and no admin can fix it. On a
+  private repository on GitHub Free, protection and rulesets both answer this way. Report it
+  as **needs a change** with the three real remedies: upgrade the plan, make the repository
+  public, or let the workflow gate the merge. The third needs nothing more from the operator
+  if the installed workflow is the current asset. The same plan leaves `autoMergeAllowed`
+  `false`, so the gated path in "Native auto merge" above already runs there. Say what it does
+  *not* replace. A human can still merge anything by hand, because nothing on the branch
+  enforces a check.
+- Any other `403` on protection, with an empty ruleset result → **needs admin rights**. Say
+  the check is unverified.
 - Nothing anywhere, both readable → **needs a change**, and explain the consequence rather
-  than just the fact: with no required check, the merge label arms auto merge and GitHub
-  merges the pull request immediately, so the cycle's own local verification is the only
-  thing that ever looked at the code.
+  than just the fact. On the native path, with no required check, the merge label arms auto
+  merge and GitHub merges the pull request immediately. The cycle's own local verification is
+  then the only thing that ever looked at the code. On the gated path the workflow still
+  waits for every check that has been reported, so the gap there is narrower: a check that
+  has not registered when the workflow reads is not waited for.
 
 ### Copilot code review
 
@@ -725,11 +798,18 @@ One report, covering:
    `verify` and `dependencies.style` with the evidence each came from.
 2. The workflow — copied, identical, or differing (with the diff).
 3. Labels — created or already present.
-4. The environment table: squash-only, required status checks, the reviewer roster, and the
-   two App credentials as **two rows with two consequences**. Never one row for both: they can
-   be one App and they are still two rows, because they are configured, exposed, rotated —
-   and, as of this check, *verified* — separately. Each **ok**, **needs a change**, or **needs
-   admin rights**, with the consequence spelled out for anything not ok.
+4. The environment table: squash-only, native auto merge, required status checks, the
+   reviewer roster, and the two App credentials as **two rows with two consequences**. Never
+   one row for both: they can be one App and they are still two rows, because they are
+   configured, exposed, rotated — and, as of this check, *verified* — separately. Each row
+   **ok**, **needs a change**, or **needs admin rights**, with the consequence spelled out for
+   anything not ok.
+
+   **Native auto merge** — `autoMergeAllowed`, and which merge path that selects. On the
+   gated path, give the three differences: a failing check fails the run and needs the label
+   added again, the wait costs Actions minutes, and every reported check is waited on rather
+   than a required set. Where a `403` said `Upgrade to GitHub Pro`, quote it and name it as a
+   plan limit, not as missing admin rights, in this row and in the required-checks row.
 
    **The merge credential** — `BACKLOG_APP_ID`/`BACKLOG_APP_KEY` as repository secrets;
    Contents, Pull requests and Issues at write; absent, it costs branch cleanup and the

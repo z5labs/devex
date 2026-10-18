@@ -832,7 +832,11 @@ gh pr edit <pr> --add-label <merge.label>
 
 `.github/workflows/<merge.workflow>` picks up the `labeled` event and enables native auto
 merge. GitHub squash-merges the pull request once every required status check passes — or
-immediately, if they have already passed — and leaves it open if one fails.
+immediately, if they have already passed — and leaves it open if one fails. A repository
+without native auto merge takes the workflow's gated path instead. A private repository on
+GitHub Free is one, and so is any repository with the setting off. On that path the run
+waits for every check on the pull request, then squash-merges it. If a check fails, the run
+fails and the pull request stays open.
 
 Apply the label only when **both** hold:
 
@@ -843,7 +847,8 @@ Apply the label only when **both** hold:
 This is not a formality to route around: the label **is** the assertion that you verified
 both conditions, and adding it without having done so is the same failure as merging
 unreviewed work by hand. Condition 1 is enforced by branch protection whatever you do;
-condition 2 is enforced by nothing but you.
+condition 2 is enforced by nothing but you. (On the gated path, condition 1 is enforced by
+the workflow's own wait instead of by branch protection.)
 
 Keeping the merge in a workflow puts the policy somewhere it can be read and changed — the
 label gate plus the branch protection rule — rather than in a decision made mid-cycle and
@@ -877,6 +882,9 @@ gh pr view <pr> --json state,autoMergeRequest -q '"\(.state) \(.autoMergeRequest
   checks have already passed, and since this cycle labels only after they pass, this is the
   usual result. `not-armed` beside `MERGED` is correct, not a fault.
 - `OPEN <timestamp>` — auto merge is armed and waiting on a check still running.
+- `OPEN not-armed` with the merge run still in progress, on a repository without native auto
+  merge — the gated path is waiting for checks. It never arms anything, so `not-armed` is all
+  it will ever show before `MERGED`.
 - `OPEN not-armed` — **usually just means the workflow has not started yet.** The run is
   queued for a few seconds after the label lands, and reading the pull request immediately
   will show this every time. It is not evidence of a failure on its own.
@@ -905,9 +913,11 @@ gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit
 ```
 
 A `success` conclusion with the pull request still open means auto merge is armed and waiting
-on a check. A `failure` conclusion means the workflow itself is broken — report it, with the
-output of `gh run view <id> --log-failed`, rather than falling back to a manual merge, which
-is what this whole step exists to avoid.
+on a check. (The gated path succeeds only by merging, so there it means the merge has just
+landed.) A `failure` conclusion means the workflow itself is broken, or, on the gated path,
+that a check failed or the head moved while it waited; its `::error` line says which. Report
+it, with the output of `gh run view <id> --log-failed`, rather than falling back to a manual
+merge, which is what this whole step exists to avoid.
 
 ## 10. Finish — one call, then the post-merge criteria
 
@@ -1075,7 +1085,9 @@ against an existing branch, and the retry then reports `BLOCKED` on a name colli
 than on anything real. The remote side needs nothing from you.
 
 If a required check fails, auto merge stays armed and the pull request stays open; fix the
-failure, push, and it merges when the rerun is green. If it stays `OPEN` with nothing
+failure, push, and it merges when the rerun is green. On the gated path nothing stays armed.
+The merge run fails, `finish-issue.sh` exits 5, and the merge label must be removed and
+added again once the fix is green. If it stays `OPEN` with nothing
 running, report it rather than merging by hand. If the pull request did not merge at all,
 leave the worktree in place and report `BLOCKED` with the pull request number and the last
 state you saw.
