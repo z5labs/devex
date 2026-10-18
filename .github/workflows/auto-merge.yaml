@@ -19,6 +19,13 @@ name: Auto merge
 # it. The label decides *when* the merge is attempted, not *whether* the rule
 # applies.
 #
+# Where native auto merge does not exist, the same holds by other means. A
+# private repository on GitHub Free cannot turn auto merge on at all, and any
+# repository can have it switched off; `gh pr merge --auto` fails outright on
+# both. There this workflow waits for the pull request's checks itself and merges
+# only once every one has passed, failing the run if one does not. See the
+# `Merge once checks pass` step for what that path does differently.
+#
 # Adding the label is itself a permission boundary: it takes write access to the
 # repository, so a pull request from a fork cannot trigger this by labelling
 # itself.
@@ -54,10 +61,21 @@ on:
 # `issues: write` is for the explicit `gh issue close` in `close-linked-issues`
 # below. It is NOT there to make GitHub's own auto-close work: that was tested on
 # a real merge and does not. See the comment on that job.
+#
+# The three reads are for `Merge once checks pass`, which reads the pull
+# request's checks with GITHUB_TOKEN. `checks: read` and `statuses: read` cover
+# check runs and commit statuses. `actions: read` is needed too: `gh pr checks
+# --json workflow` resolves `checkSuite.workflowRun`, and without it the call
+# fails with `Resource not accessible by integration`. The App token cannot stand
+# in here. It carries Contents / Pull requests / Issues, and with those alone it
+# cannot read checks either.
 permissions:
   contents: write
   pull-requests: write
   issues: write
+  checks: read
+  statuses: read
+  actions: read
 
 jobs:
   enable-auto-merge:
@@ -113,7 +131,39 @@ jobs:
           events, so close-linked-issues and delete-merged-branch will NOT run and the \
           head branch will survive the merge."
 
+      # Which of the two merge steps below runs is the repository's own setting,
+      # read at merge time rather than chosen at install time. A repository that
+      # changes plan or visibility needs no edit here, and an install cannot pick
+      # the wrong variant.
+      #
+      # Read over GraphQL, not `gh api repos/<repo>`. REST omits
+      # `allow_auto_merge` for a token without push access, so a missing key
+      # cannot be told apart from `false`. Measured: an installation token with
+      # Pull requests only got no key at all, while GraphQL `autoMergeAllowed`
+      # answered for the same token. Anything but `true` or `false` fails the
+      # run. Guessing a path would choose a merge policy on nobody's behalf.
+      - name: Read whether native auto merge is allowed
+        id: auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          allowed=$(gh api graphql -f owner="${REPO%%/*}" -f name="${REPO#*/}" \
+            -f query='query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { autoMergeAllowed } }' \
+            --jq '.data.repository.autoMergeAllowed') || allowed=''
+          case $allowed in
+            true)
+              echo "native auto merge is allowed; arming it" ;;
+            false)
+              echo "::notice title=No native auto merge::$REPO does not allow auto merge, so this run waits for the pull request's checks itself and merges once they pass." ;;
+            *)
+              echo "::error title=Cannot read the auto merge setting::autoMergeAllowed for $REPO read as '${allowed}', not true or false; not merging."
+              exit 1 ;;
+          esac
+          echo "allowed=$allowed" >> "$GITHUB_OUTPUT"
+
       - name: Enable auto merge
+        if: steps.auto-merge.outputs.allowed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
@@ -124,6 +174,107 @@ jobs:
         # `backlog:setup-backlog` checks that and reports if another merge method
         # is still permitted.
         run: gh pr merge "$PR" --repo "$REPO" --squash --auto
+
+      # The path for a repository without native auto merge. It keeps the
+      # properties the native path has: nothing merges while a check is failing
+      # or still running, and the merge is made with the App token so the
+      # `closed` jobs below still fire.
+      #
+      # Three things work differently, and each one is deliberate:
+      #
+      # - It waits on EVERY check reported on the pull request except this
+      #   workflow's own, not on a required set. A repository that cannot have
+      #   branch protection has no required set to read, and on one that does,
+      #   the merge below is still refused if it would break that protection.
+      # - The wait is bounded, by WAIT_MINUTES, because a run that waits costs
+      #   Actions minutes. The cycle labels only after its checks have settled,
+      #   so on its normal path this finds them settled on the first read.
+      # - A failing check fails this run and leaves the pull request open. It
+      #   does NOT stay armed the way native auto merge does: push the fix, then
+      #   remove the label and add it again. `finish-issue.sh` reads the failed
+      #   run and stops at once rather than waiting out its budget.
+      #
+      # No checks at all, once GRACE_SECONDS have passed, merges with a warning.
+      # Native auto merge with no required check does the same, and does it at
+      # once. The grace is there for a label added straight after a push, before
+      # anything has registered.
+      #
+      # Checks are read with GITHUB_TOKEN, which has the three reads granted at
+      # the top of this file. The merge itself uses the App token.
+      # `--match-head-commit` makes GitHub refuse the merge if a commit landed
+      # after the checks were read.
+      - name: Merge once checks pass
+        if: steps.auto-merge.outputs.allowed == 'false'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SELF: ${{ github.workflow }}
+          WAIT_MINUTES: 15
+          GRACE_SECONDS: 60
+          POLL_SECONDS: 20
+        run: |
+          start=$(date +%s)
+          deadline=$(( start + WAIT_MINUTES * 60 ))
+          err=$(mktemp)
+          while :; do
+            head=$(GH_TOKEN="$READ_TOKEN" gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>"$err") || head=''
+            if [ -z "$head" ]; then
+              echo "::error title=Cannot read the pull request::gh pr view failed for #$PR: $(tr '\n' ' ' <"$err")"
+              exit 1
+            fi
+            if [ "$head" != "$HEAD_SHA" ]; then
+              echo "::error title=Head moved::#$PR was labelled at $HEAD_SHA and its head is now $head; not merging. Remove the label and add it again to merge the new head."
+              exit 1
+            fi
+
+            # `gh pr checks` exits non-zero while anything is pending or failing,
+            # so its exit code is ignored and the JSON is the answer. Anything
+            # that is not a JSON array is a real error, reported as one rather
+            # than read as "no checks yet".
+            checks=$(GH_TOKEN="$READ_TOKEN" gh pr checks "$PR" --repo "$REPO" --json workflow,name,bucket 2>"$err" || true)
+            if ! jq -e 'type == "array"' <<<"$checks" >/dev/null 2>&1; then
+              if grep -qi 'no checks reported' "$err"; then
+                checks='[]'
+              else
+                echo "::error title=Cannot read checks::gh pr checks failed for #$PR: $(tr '\n' ' ' <"$err")"
+                exit 1
+              fi
+            fi
+
+            # A commit status has no workflow, so it is never mistaken for this
+            # one. A bucket gh does not name below counts as pending.
+            others=$(jq -c --arg self "$SELF" '[.[] | select(.workflow != $self)
+              | .label = (if (.workflow // "") == "" then .name else "\(.workflow) / \(.name)" end)]' <<<"$checks")
+            total=$(jq 'length' <<<"$others")
+            bad=$(jq -r '[.[] | select(.bucket | IN("fail", "cancel")) | .label] | join(", ")' <<<"$others")
+            pending=$(jq -r '[.[] | select(.bucket | IN("pass", "skipping", "fail", "cancel") | not) | .label] | join(", ")' <<<"$others")
+            now=$(date +%s)
+
+            if [ -n "$bad" ]; then
+              echo "::error title=Checks failed::not merging #$PR: $bad"
+              exit 1
+            fi
+            if [ "$total" -gt 0 ] && [ -z "$pending" ]; then
+              break
+            fi
+            if [ "$total" -eq 0 ] && [ "$now" -ge $(( start + GRACE_SECONDS )) ]; then
+              echo "::warning title=No checks reported::#$PR has no checks besides this workflow's own after ${GRACE_SECONDS}s, so nothing gated this merge."
+              break
+            fi
+            if [ "$now" -ge "$deadline" ]; then
+              echo "::error title=Checks not finished::not merging #$PR: still pending after $WAIT_MINUTES minutes: ${pending:-nothing reported yet}"
+              exit 1
+            fi
+            sleep "$POLL_SECONDS"
+          done
+
+          jq -r '.[] | "\(.bucket)\t\(.label)"' <<<"$others"
+          # `--squash` assumes squash merges are allowed, as the native path
+          # does; `backlog:setup-backlog` reports when they are not.
+          gh pr merge "$PR" --repo "$REPO" --squash --match-head-commit "$HEAD_SHA"
 
   close-linked-issues:
     name: close linked issues
