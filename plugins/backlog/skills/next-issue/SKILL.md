@@ -894,8 +894,11 @@ queued hands you their result, and it reads as a verdict on yours.
 
 If it has not completed, **do not build a wait of your own for it** — no sleeps, no polling
 loop in turns of yours. Step 10 is a bounded wait for the merge itself, which is the outcome
-this run is only a proxy for: go there and read its exit code. Come back here if it exits 2
-more than twice — then read the run list once more, and its conclusion is the answer:
+this run is only a proxy for: go there and read its exit code. That wait reads this run too,
+on the pull request's head commit, and exits 5 naming it the moment it fails, so a dead merge
+run does not have to be found by hand. Its exit-2 message also names the latest run's state.
+Come back here only if it exits 2 more than twice — then read the run list once more, and
+its conclusion is the answer:
 
 ```
 gh run list --repo <repo> --workflow <merge.workflow> --branch issue-<n> --limit 1 --json status,conclusion
@@ -930,6 +933,7 @@ Read its exit code. It is the assertion, and each value means one thing:
 | 2 | the five minutes were up and the merge had not landed | **run it again**, in the same turn; every step is guarded, so it resumes. After three re-runs — a quarter of an hour with the pull request still open — go back to step 9's run list to find out why, and `BLOCKED` if nothing is running |
 | 3 | the issue would not close | `BLOCKED` — this is the one that makes the next iteration redo merged work |
 | 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
+| 5 | the `merge.workflow` run on the pull request's head failed or was cancelled, so auto merge was never armed | `BLOCKED` at once — do not re-run it. Quote the run URL from stderr and the output of the `gh run view <id> --log-failed` it names. Do not merge by hand; the workflow or the repository's merge settings need a person |
 
 Warnings on stderr (`WARN`) are untidiness, not failure — a worktree that would not remove,
 a main checkout too dirty to update. Repeat them in the report and carry on.
@@ -1169,6 +1173,8 @@ Stop and report — do not push through — if any of these happen:
   for the same reason: it may be that refusal. Report it as unclassifiable rather than as a
   refusal, and quote the review.
 - The roster is exhausted without a completed review and without reaching `none`.
+- `finish-issue.sh` exited 5 — the merge workflow's run failed, so the pull request will not
+  merge however long the wait runs.
 - `post-merge-criteria.sh` exited 4 — the issue body could not be read.
 - A post-merge criterion failed. Stop at it; carry out none after it, leave the issue closed,
   and post the record comment naming what is left.

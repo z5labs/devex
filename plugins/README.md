@@ -168,6 +168,16 @@ registers and nothing acts on it — and an issue left open is one the next
 iteration selects again. One call with a meaningful exit code cannot be
 forgotten and asserts the close instead of trusting it.
 
+Its wait reads the merge workflow's runs as well as the pull request. A run
+that fails arms nothing, so the pull request stays OPEN for ever. Reading only
+its state, that looked exactly like a merge queued behind a slow check:
+Zaba505/backup #13 spent its whole re-run budget waiting on a run that had
+already failed. Each poll now classifies the `merge.workflow` runs on the
+pull request's head commit. A failed or cancelled run is exit 5, at once,
+naming the run. The classification is exposed as `--classify-runs` on stdin
+and pinned offline by
+[`scripts/finish-issue_test.sh`](backlog/scripts/finish-issue_test.sh).
+
 Some criteria can only be met once that merge has landed — comment on the bug
 report's discussion with a link to the merged pull request, then close it as
 resolved. A criterion whose text begins `After merge:` is one of those, and
