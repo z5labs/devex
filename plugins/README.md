@@ -97,6 +97,17 @@ answer — exposed as `--classify` on stdin and pinned offline by
 [`scripts/await-checks_test.sh`](backlog/scripts/await-checks_test.sh). A red
 check read as pending is a wait that times out; read as settled, it is a merge.
 
+The wait is tied to one commit, the one just pushed. It used to read `gh pr
+checks <pr>`, which names no commit. Right after a push, before anything had
+registered for the new head, that read returned the previous head's settled
+runs, and z5labs/humus #676 exited 0 on them straight after its review fix. The
+script now confirms the pull request's head is the pushed SHA (exit 5 if it
+never becomes it). It reads that commit's check runs and statuses and drops
+any check that ran on another commit. It also treats a required status check
+of the base branch that has not registered yet as pending. Those are the set
+GitHub waits for anyway, which closes the second window: the fast checks are
+green before the slow ones exist.
+
 The review gate is
 [`scripts/await-review.sh`](backlog/scripts/await-review.sh) — request from one
 rung, wait, and classify what landed, as `0 completed / 1 refused / 2 nothing

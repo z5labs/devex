@@ -414,23 +414,33 @@ The wait is an ordinary **blocking `Bash` call**. Its result comes back in that 
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-checks.sh" <pr>
 ```
 
+Run it **from the worktree**, after the push. It waits on one commit — the one
+`git rev-parse HEAD` names there, which is the one you just pushed — and judges only checks
+that ran on that commit. It does not report the pull request's checks in general: right after
+a push, those can still be the *previous* commit's settled runs, and a stale green looks
+exactly like a real one. That happened on z5labs/humus #676. A second argument,
+`await-checks.sh <pr> <sha>`, names the commit explicitly when you are not in the worktree.
+
 Give the Bash tool a `timeout` of `330000`. The script bounds itself at five minutes, so that
 number only has to outlive it.
 
 | exit | meaning | what you do |
 | --- | --- | --- |
-| 0 | every check has settled and none failed | continue to step 7 |
+| 0 | every check on the pushed commit has settled, none failed, and every required check is among them | continue to step 7 |
 | 1 | a check failed or was cancelled; stdout names it with its link | read the logs (`gh run view <id> --log-failed`), fix, push, and wait again. After **three** failed attempts on the same root cause, stop and report instead of looping |
-| 2 | still running when the five minutes were up | **run the same command again.** Nothing failed and nothing was lost — the script only reads GitHub. Each re-run is one more tool call in the turn you are already in. After six consecutive 2s — half an hour of checks that will not settle — stop and report `BLOCKED` naming the pull request |
-| 3 | no checks were ever reported | nothing gates this pull request. Record `no checks reported` in the report and continue — do not silently treat it as a pass. This is the same gap `backlog:setup-backlog` reports when the default branch has no required status check, seen from the other side: with no required check, the label in step 9 merges the pull request the instant it lands |
+| 2 | still running, or a required check has not registered on the commit yet, when the five minutes were up; stderr names what is outstanding | **run the same command again.** Nothing failed and nothing was lost — the script only reads GitHub. Each re-run is one more tool call in the turn you are already in. After six consecutive 2s — half an hour of checks that will not settle — stop and report `BLOCKED` naming the pull request and the outstanding checks. A required check that never registers is also what GitHub will wait on forever, so it is a real block, not a slow one |
+| 3 | no checks were ever reported on the commit, and the base branch requires none | nothing gates this pull request. Record `no checks reported` in the report and continue — do not silently treat it as a pass. This is the same gap `backlog:setup-backlog` reports when the default branch has no required status check, seen from the other side: with no required check, the label in step 9 merges the pull request the instant it lands |
 | 4 | usage or precondition failure | `BLOCKED`; the plugin or the environment is wrong, not the pull request |
+| 5 | the pull request's head never became the commit being waited on | the push did not land, went to another branch, or you ran it outside the worktree. `git status` and `git log origin/<branch> -1` in the worktree say which; push, or pass the pushed SHA, and run it again. A second 5 after that is `BLOCKED` |
 
 Exit 2 is the normal case on a repository with real CI, and it is **not** a failure to be
 reported, retried differently, or worked around. It is the wait saying "ask again".
 
 The verdict the script gives is not one you should second-guess by reading the checks
-yourself: a failed check beside a still-pending one is exit 1, not exit 2, and a `skipping`
-check is settled rather than outstanding. `scripts/await-checks_test.sh` is the offline
+yourself: a failed check beside a still-pending one is exit 1, not exit 2, a `skipping`
+check is settled rather than outstanding, a check from an earlier commit neither passes nor
+fails this one, and a required check that has not registered yet is outstanding even when
+everything that has registered is green. `scripts/await-checks_test.sh` is the offline
 fixture corpus for those rules; a change to them belongs there, not here.
 
 ### How to wait — and the three ways not to
@@ -478,7 +488,7 @@ So do not hold, and do not report that you are waiting. Make **one** direct stat
 the gate you had reached —
 
 ```
-"${CLAUDE_PLUGIN_ROOT}/scripts/await-checks.sh" <pr>          # step 6
+"${CLAUDE_PLUGIN_ROOT}/scripts/await-checks.sh" <pr>          # step 6 — from the worktree
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> <rung>   # step 7 — idempotent
 gh pr view <pr> --repo <repo> --json state,autoMergeRequest   # step 9
 "${CLAUDE_PLUGIN_ROOT}/scripts/finish-issue.sh" <n> <pr> issue-<n>   # step 10 — guarded
@@ -801,7 +811,10 @@ The `pulls/<pr>/` segment belongs there. Copilot has claimed that the route is
 reply rebutting it was posted with the command exactly as written. The shorter path is the
 `GET`/`PATCH`/`DELETE` route for a single review comment, not the reply route.
 
-If you push fixes, go back to step 6 and let checks re-run before labelling.
+If you push fixes, go back to step 6 and let checks re-run before labelling. Run the wait
+from the worktree after the push, so it waits on the fix commit. Do not trust an exit 0 that
+arrived before the fix's checks could have registered — the script now refuses to give one,
+and that refusal is the fix for z5labs/humus #676, so do not route around it.
 
 ## 9. Label the pull request — never merge it yourself
 
