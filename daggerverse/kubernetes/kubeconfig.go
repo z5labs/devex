@@ -28,7 +28,7 @@ import (
 //
 // The file is fetched by curl'ing `http://<host>:9999/admin.conf`
 // from a sidecar container — the control-plane's bootstrap unit
-// publishes /etc/kubernetes/ via python3's builtin http.server so
+// publishes a copy of admin.conf via python3's builtin http.server so
 // kubeadm's output is accessible without docker-exec (Dagger has no
 // cross-service exec primitive). The fetched bytes are YAML-parsed,
 // the server URL is replaced, and the result is written to the

@@ -20,25 +20,58 @@ capabilities** (containerd + kubelet require cgroup delegation), and
 **a working snapshotter** for the in-node containerd to unpack
 kube-apiserver / etcd / nginx images.
 
-Three engine-level prerequisites:
+Prerequisites:
 
 1. **InsecureRootCapabilities + NoInit are required** — both are set
    automatically by `KindCluster`; you don't need to configure them.
-2. **`/dev/fuse` is not propagated by Dagger into service
-   containers**, so if the engine runs in a non-initial user namespace
-   (rootless podman, etc.) the in-node containerd cannot use
-   `fuse-overlayfs`. The module works around this by forcing
-   `KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER=native` — native
-   snapshotter copies files between layers, slower but no `/dev/fuse`
-   needed.
-3. **kube-proxy + CNI image pulls are slow under native snapshotter**
-   (~30–90s per image). Image-pulling workload tests (`WaitForReady`
-   on real Deployments) need very generous timeouts on a rootless
-   engine, or a rootful engine (docker, `sudo podman run` for the
-   engine). The kubeadm bootstrap itself completes in ~1 minute.
+2. **On a rootless engine, delegate the `cpuset` cgroup controller**
+   to the engine's user. This module has only been verified with it
+   delegated, and k3s refuses to start without it (`failed to find
+   cpuset cgroup (v2)`). Check with
+   `cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers`;
+   a stock `user@.service` does not include `cpuset`, and a drop-in
+   with `Delegate=cpu cpuset io memory pids` (then a re-login) adds it.
 
-Same constraints affect the Talos backend (#87) — see #87 for the
-shared analysis.
+Everything else a rootless engine (rootless podman, verified) gets in
+the way of is handled inside the module:
+
+- **containerd uses the kernel overlayfs snapshotter.** kind would
+  pick `fuse-overlayfs` in a user namespace, and Dagger does not
+  propagate `/dev/fuse`; `native` works but copies every layer (~5×
+  slower unpacks). overlayfs cannot put its upper dir on an exec's
+  own overlay rootfs, so each node mounts an empty cache volume
+  (btrfs/ext4 on the engine host), seeds it from the image's
+  preloaded `/var/lib/containerd` on boot, and binds it in place.
+  The volume name carries a random per-cluster key so no run inherits
+  another's containerd state.
+- **iptables is nft.** kind's entrypoint breaks a tie between the
+  legacy and nft backends in favour of legacy, and a fresh netns has
+  no rules in either; legacy then cannot even open its tables in a
+  user namespace. The module patches the tie to go to nft.
+- **kube-proxy leaves `nf_conntrack_max` alone**
+  (`conntrack.maxPerCore: 0`), since a user namespace cannot write
+  that sysctl and kube-proxy would otherwise exit at startup.
+
+A cluster boots, with its node Ready, in about a minute.
+
+**Mind the kernel key quota when running several clusters.** Every
+container in every node is the same host UID, whose quota defaults to
+200 keys (`kernel.keys.maxkeys`). With runc's per-container session
+keyring left on, a few clusters exhausted it and pods failed with
+`unable to create session key: disk quota exceeded`; the module now
+sets containerd's `NoNewKeyring`, after which eleven clusters at once
+peaked at about 150 keys (the engine's own runc keyrings and systemd's
+per-unit invocation IDs remain).
+
+**The tighter limit is inotify.** `fs.inotify.max_user_instances` is
+also per host UID (512 on the machine this was measured on, 128 on
+many distributions), and each cluster's systemd, kubelet and
+containerd take roughly 40. With eleven clusters alive at once,
+kubelets failed with `unable to create inotify: too many open files`
+and nodes never went Ready. The test suite stops every cluster when
+its test ends and boots at most three at a time; to run more
+clusters concurrently, raise `fs.inotify.max_user_instances` on the
+host, as kind recommends for multi-cluster use.
 
 ## Cluster
 
@@ -82,19 +115,31 @@ its own line so any data-returning call re-executes per invocation.
 
 - Kind's stock entrypoint patched to skip `enable_network_magic`
   (which tries to write to read-only `/etc/resolv.conf` in nested
-  user namespaces).
+  user namespaces) and to prefer nft iptables (see above).
+- A PID 1 wrapper that seeds and binds the containerd volume, then
+  execs kind's entrypoint, which execs systemd.
 - A oneshot systemd unit `/etc/systemd/system/kind-bootstrap.service`
   symlinked from `multi-user.target.wants/` so systemd boots it after
   containerd is up.
 - The unit runs `kubeadm init` on the control-plane node, applies
   kindnet CNI (templated since the kind CLI normally substitutes
-  `{{.PodSubnet}}`), removes the control-plane taint, and then serves
-  `/etc/kubernetes/` over `python3 -m http.server` on port 9999 so the
-  module runtime can curl `admin.conf` without `docker exec` (Dagger
-  has no cross-service exec primitive).
+  `{{ .PodSubnet }}`), waits for the node to report Ready, removes
+  the control-plane taint, and then serves a copy of `admin.conf`
+  (never `/etc/kubernetes/` itself, which holds the CA's keys) over
+  `python3 -m http.server` on port 9999 so the module runtime can
+  curl it without `docker exec` (Dagger has no cross-service exec
+  primitive).
 - Workers run the same unit with `role=worker`, which waits for the
   control-plane's API port and then runs `kubeadm join` with
   `--discovery-token-unsafe-skip-ca-verification`.
+
+**A failed bootstrap is an error, not a hang.** Port 9999 is the only
+port `Service.Start` waits on, and the control-plane opens it on
+failure too, serving `bootstrap-failed.log` (the script's output plus
+the kubelet/containerd journal and, when the node never goes Ready,
+kindnet and kube-proxy logs) in place of `admin.conf`. `KindCluster`'s
+methods return that log as their error. Dagger does not surface a
+service's systemd journal, so this is the only place it appears.
 
 The bootstrap script is rendered as a Go string constant; both
 control-plane and worker variants share the same script with role
@@ -125,7 +170,8 @@ as YAML; `List` returns `metadata.name` only.
 
 `WaitForReady` polls the resource's `Ready` condition (or
 `Available` for Deployments). Timeout is parsed via
-`time.ParseDuration`.
+`time.ParseDuration`. On timeout the error carries the resource's
+last observed `status.conditions`.
 
 ### Naming caveats — deliberate deviations from the story spec
 
@@ -139,8 +185,8 @@ as YAML; `List` returns `metadata.name` only.
 
 ## Tests
 
-After `dagger develop` in both `daggerverse/kubernetes` and
-`daggerverse/kubernetes/tests`, run any of the individual tests:
+After `dagger generate -y` at the repo root, run any of the
+individual tests:
 
 ```sh
 # Validation (no service plumbing — fast)
@@ -148,43 +194,24 @@ dagger -m daggerverse/kubernetes/tests call control-planes-not-one-rejected
 dagger -m daggerverse/kubernetes/tests call client-apply-rejects-malformed-manifest
 dagger -m daggerverse/kubernetes/tests call client-get-unknown-gvrrejected
 
-# Cluster (boots a real Kind cluster — slow on first run, ~30s on subsequent)
+# Cluster (each boots a real Kind cluster, ~1 minute)
 dagger -m daggerverse/kubernetes/tests call defaults-produce-working-cluster
 dagger -m daggerverse/kubernetes/tests call kubeconfig-yaml-server-urlmatches-endpoint
 dagger -m daggerverse/kubernetes/tests call client-list-namespaces-includes-defaults
 dagger -m daggerverse/kubernetes/tests call client-apply-get-delete-namespace-round-trip
 dagger -m daggerverse/kubernetes/tests call client-wait-for-ready-nonexistent-image-errors
 dagger -m daggerverse/kubernetes/tests call remote-client-can-list-namespaces
-
-# Workload tests (require fast image pull — best on a rootful engine)
 dagger -m daggerverse/kubernetes/tests call client-wait-for-ready-nginx-deployment
 dagger -m daggerverse/kubernetes/tests call workers-join-and-list-as-nodes
 dagger -m daggerverse/kubernetes/tests call bind-apiserver-allows-healthz
 ```
 
-`dagger -m daggerverse/kubernetes/tests call all` runs every test
-serially in one engine session.
+Run the whole suite as a check — `dagger call` on a `+check` exits 0
+whether it passes or not:
 
-### Known env-dependent tests
-
-These three tests require a Dagger engine that supports unprivileged
-overlayfs in nested userns (rootful docker / `sudo podman` for the
-engine, or kernel with userns overlayfs enabled):
-
-- **`bind-apiserver-allows-healthz`** — DNS resolution from a
-  consumer container's exec needs the service binding to propagate
-  across the kubernetes-module → test session boundary; this works in
-  kafka but trips on something specific to the privileged
-  kindest/node service in this story.
-- **`client-wait-for-ready-nginx-deployment`** — needs nginx:alpine
-  to be pulled inside the cluster's containerd. Under native
-  snapshotter on a rootless engine this can take 8+ minutes per pull;
-  the test's 8-minute timeout is borderline.
-- **`workers-join-and-list-as-nodes`** — same pull constraint
-  applies to kube-proxy on the worker; join can stall on the
-  CNI/kindnet rollout when the control-plane CNI itself is shaky.
-
-The remaining 9 tests pass on a rootless engine.
+```sh
+dagger -m daggerverse/kubernetes/tests check --module tests
+```
 
 ## Follow-ups
 
@@ -196,5 +223,3 @@ Out of scope in this story; tracked separately:
 - **Custom CA injection** for talking to private registries.
 - **Ingress TLS** beyond kubeadm's auto-generated apiserver cert.
 - **HA control-plane** — HAProxy LB in front of N kube-apiservers.
-- **Engine `/dev/fuse` propagation** — would let us use
-  fuse-overlayfs and speed up image unpacking ~5×.

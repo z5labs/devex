@@ -225,7 +225,10 @@ func (c *Client) WaitForReady(ctx context.Context, resource string,
 	if gvr.Group == "apps" && gvr.Resource == "deployments" {
 		conditionType = "Available"
 	}
-	return wait.PollUntilContextTimeout(ctx, 2*time.Second, dur, true,
+	// last is the most recent observation, so a timeout can say what
+	// the object was doing instead of only that the deadline passed.
+	var last *unstructured.Unstructured
+	err = wait.PollUntilContextTimeout(ctx, 2*time.Second, dur, true,
 		func(pollCtx context.Context) (bool, error) {
 			obj, err := ri.Get(pollCtx, name, metav1.GetOptions{})
 			if err != nil {
@@ -234,8 +237,14 @@ func (c *Client) WaitForReady(ctx context.Context, resource string,
 				}
 				return false, err
 			}
+			last = obj
 			return hasCondition(obj, conditionType, string(corev1.ConditionTrue)), nil
 		})
+	if err != nil && last != nil {
+		return fmt.Errorf("%s %q did not report %s=True within %s: %w; last conditions: %s",
+			resource, name, conditionType, timeout, err, describeConditions(last))
+	}
+	return err
 }
 
 // load returns a dynamic client + RESTMapper backed by a fresh REST
@@ -379,6 +388,28 @@ func namespacedResource(dyn dynamic.Interface, gvr schema.GroupVersionResource, 
 // hasCondition checks whether the object's
 // status.conditions contains an entry with the given type set to the
 // given status.
+// describeConditions renders status.conditions as
+// `Type=Status (Reason: Message)` entries for error messages.
+func describeConditions(obj *unstructured.Unstructured) string {
+	conds, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
+	if err != nil || !found || len(conds) == 0 {
+		return "none reported"
+	}
+	parts := make([]string, 0, len(conds))
+	for _, c := range conds {
+		cm, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := cm["type"].(string)
+		s, _ := cm["status"].(string)
+		reason, _ := cm["reason"].(string)
+		msg, _ := cm["message"].(string)
+		parts = append(parts, fmt.Sprintf("%s=%s (%s: %s)", t, s, reason, msg))
+	}
+	return strings.Join(parts, "; ")
+}
+
 func hasCondition(obj *unstructured.Unstructured, condType, condStatus string) bool {
 	conds, found, err := unstructured.NestedSlice(obj.Object, "status", "conditions")
 	if err != nil || !found {

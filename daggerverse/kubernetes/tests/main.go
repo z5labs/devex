@@ -19,6 +19,10 @@ import (
 
 type Tests struct{}
 
+// clusterParallelism caps how many Cluster tests boot a cluster at
+// once; see Tests.Cluster.
+const clusterParallelism = 3
+
 // All runs every kubernetes test as a convenience for local `dagger
 // call all` invocations. CI does NOT call All: Validation + Cluster
 // each carry their own +check directive, so GH Actions schedules each
@@ -74,6 +78,19 @@ func (t *Tests) Validation(
 // KindCluster's session-cache key so concurrent tests boot
 // independent backing services.
 //
+// Unlike the other aggregators, parallel <= 0 here means
+// clusterParallelism, never unbounded, and the cap is applied in code
+// rather than through +default: `dagger check` started all nine
+// clusters (plus Validation's two) at once with +default=3 declared.
+//
+// The cap, together with every test stopping its own cluster, keeps
+// a rootless engine under the host's per-UID inotify instance limit
+// (fs.inotify.max_user_instances): every node's systemd, kubelet and
+// containerd count against the one UID, at roughly 40 instances per
+// cluster. With all eleven clusters alive at once, kubelets failed
+// with "unable to create inotify: too many open files" and nodes
+// never went Ready.
+//
 // +check
 // +cache="session"
 func (t *Tests) Cluster(
@@ -81,12 +98,13 @@ func (t *Tests) Cluster(
 	// +default=0
 	parallel int,
 ) error {
+	if parallel <= 0 {
+		parallel = clusterParallelism
+	}
 	jobs := par.New().
 		WithRollupLogs(true).
-		WithRollupSpans(true)
-	if parallel > 0 {
-		jobs = jobs.WithLimit(parallel)
-	}
+		WithRollupSpans(true).
+		WithLimit(parallel)
 	jobs = jobs.WithJob("defaults-produce-working-cluster", t.DefaultsProduceWorkingCluster)
 	jobs = jobs.WithJob("kubeconfig-yaml-server-url-matches-endpoint", t.KubeconfigYamlServerURLMatchesEndpoint)
 	jobs = jobs.WithJob("client-list-namespaces-includes-defaults", t.ClientListNamespacesIncludesDefaults)
@@ -114,10 +132,19 @@ func randName(ctx context.Context, prefix string) (string, error) {
 // per-test value so parallel tests don't collapse onto one shared
 // cluster.
 func freshCluster(_ context.Context, name string, workers int) *dagger.KubernetesCluster {
+	// Every caller defers stopCluster: services otherwise live until
+	// the session ends, so the suite's clusters accumulate.
 	return dag.Kubernetes().KindCluster(dagger.KubernetesKindClusterOpts{
 		ClusterName: name,
 		Workers:     workers,
 	})
+}
+
+// stopCluster tears a test's cluster down. It ignores the caller's
+// cancellation so a failing test still stops its services, and drops
+// Stop's error: teardown failing must not mask the test's own result.
+func stopCluster(ctx context.Context, cluster *dagger.KubernetesCluster) {
+	_ = cluster.Stop(context.WithoutCancel(ctx))
 }
 
 // -----------------------------------------------------------------------------
@@ -154,6 +181,7 @@ func (t *Tests) ControlPlanesNotOneRejected(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) DefaultsProduceWorkingCluster(ctx context.Context) error {
 	cluster := freshCluster(ctx, "defaults-produce-working-cluster", 0)
+	defer stopCluster(ctx, cluster)
 	ep, err := cluster.ApiserverEndpoint(ctx)
 	if err != nil {
 		return fmt.Errorf("api server endpoint: %w", err)
@@ -175,6 +203,7 @@ func (t *Tests) DefaultsProduceWorkingCluster(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) KubeconfigYamlServerURLMatchesEndpoint(ctx context.Context) error {
 	cluster := freshCluster(ctx, "kubeconfig-yaml-server-url-matches-endpoint", 0)
+	defer stopCluster(ctx, cluster)
 	ep, err := cluster.ApiserverEndpoint(ctx)
 	if err != nil {
 		return fmt.Errorf("api server endpoint: %w", err)
@@ -227,6 +256,7 @@ func (t *Tests) KubeconfigYamlServerURLMatchesEndpoint(ctx context.Context) erro
 // +cache="never"
 func (t *Tests) ClientApplyRejectsMalformedManifest(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-apply-rejects-malformed-manifest", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	// `{not: valid: yaml: here}` — colon-after-colon is rejected by
 	// the YAML decoder; pick something that's syntactically broken
@@ -253,6 +283,7 @@ func (t *Tests) ClientApplyRejectsMalformedManifest(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) ClientGetUnknownGVRRejected(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-get-unknown-gvr-rejected", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	_, err := client.Get(ctx, "widgets", "anything")
 	if err == nil {
@@ -274,6 +305,7 @@ func (t *Tests) ClientGetUnknownGVRRejected(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) ClientListNamespacesIncludesDefaults(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-list-namespaces-includes-defaults", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	names, err := client.List(ctx, "namespaces")
 	if err != nil {
@@ -300,6 +332,7 @@ func (t *Tests) ClientListNamespacesIncludesDefaults(ctx context.Context) error 
 // +cache="never"
 func (t *Tests) ClientApplyGetDeleteNamespaceRoundTrip(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-apply-get-delete-namespace-round-trip", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	name, err := randName(ctx, "test-ns-")
 	if err != nil {
@@ -364,6 +397,7 @@ func containsString(haystack []string, needle string) bool {
 // +cache="never"
 func (t *Tests) ClientWaitForReadyNginxDeployment(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-wait-for-ready-nginx", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	name, err := randName(ctx, "nginx-")
 	if err != nil {
@@ -411,6 +445,7 @@ spec:
 // +cache="never"
 func (t *Tests) ClientWaitForReadyNonexistentImageErrors(ctx context.Context) error {
 	cluster := freshCluster(ctx, "client-wait-for-ready-nonexistent-image", 0)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
 	name, err := randName(ctx, "bad-")
 	if err != nil {
@@ -456,10 +491,15 @@ spec:
 // +cache="never"
 func (t *Tests) WorkersJoinAndListAsNodes(ctx context.Context) error {
 	cluster := freshCluster(ctx, "workers-join-and-list-as-nodes", 1)
+	defer stopCluster(ctx, cluster)
 	client := cluster.Client()
-	// Worker join can take a while inside the native snapshotter:
-	// the worker has to pull kube-proxy + kindnet images via the
-	// CNI-less host network before kubelet finishes registering.
+	// The worker's binding to the control-plane holds its boot until
+	// the control-plane is healthy, so the first List — which starts
+	// the cluster — is not part of the join budget: under the suite's
+	// parallel fan-out the control-plane alone can take minutes.
+	if _, err := client.List(ctx, "nodes"); err != nil {
+		return fmt.Errorf("list nodes: %w", err)
+	}
 	deadline := time.Now().Add(300 * time.Second)
 	for time.Now().Before(deadline) {
 		nodes, err := client.List(ctx, "nodes")
@@ -479,6 +519,7 @@ func (t *Tests) WorkersJoinAndListAsNodes(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) RemoteClientCanListNamespaces(ctx context.Context) error {
 	cluster := freshCluster(ctx, "remote-client-can-list-namespaces", 0)
+	defer stopCluster(ctx, cluster)
 	kc := cluster.Kubeconfig()
 	remote := dag.Kubernetes().Client(kc)
 	names, err := remote.List(ctx, "namespaces")
@@ -500,6 +541,7 @@ func (t *Tests) RemoteClientCanListNamespaces(ctx context.Context) error {
 // +cache="never"
 func (t *Tests) BindAPIServerAllowsHealthz(ctx context.Context) error {
 	cluster := freshCluster(ctx, "bind-api-server-allows-healthz-v4", 0)
+	defer stopCluster(ctx, cluster)
 	out, err := cluster.HealthzResponse(ctx)
 	if err != nil {
 		return fmt.Errorf("healthz response: %w", err)

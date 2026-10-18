@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -14,7 +15,7 @@ import (
 )
 
 // adminConfPort is the TCP port the control-plane bootstrap unit
-// exposes via socat to serve /etc/kubernetes/admin.conf — the module
+// serves a copy of /etc/kubernetes/admin.conf on — the module
 // runtime fetches the admin kubeconfig from this port because Dagger
 // has no cross-service exec primitive that could otherwise extract a
 // file from a running Service.
@@ -27,6 +28,14 @@ const adminConfPort = 9999
 // in-engine cross-container traffic — there is no off-host attack
 // surface.
 const fixedBootstrapToken = "abcdef.0123456789abcdef"
+
+// containerdSeedPath is where each node mounts the cache volume that
+// backs its containerd state; see buildNodeService.
+const containerdSeedPath = "/var/lib/containerd-volume"
+
+// seedEntrypointPath is the node's PID 1 wrapper; see
+// renderSeedEntrypoint.
+const seedEntrypointPath = "/usr/local/bin/kind-seed-entrypoint.sh"
 
 // Cluster represents a running Kubernetes cluster: a single
 // control-plane node plus N worker nodes, each backed by a privileged
@@ -111,8 +120,17 @@ func (k *Kubernetes) KindCluster(
 	))
 	hostSuffix := hex.EncodeToString(keyBytes[:6]) // 12 hex chars
 
+	// Random, unlike hostSuffix, so each cluster instance gets fresh
+	// containerd volumes; +cache="session" keeps it stable for chained
+	// calls within one session.
+	volumeBytes := make([]byte, 8)
+	if _, err := rand.Read(volumeBytes); err != nil {
+		return nil, fmt.Errorf("generate containerd volume key: %w", err)
+	}
+	volumeKey := hex.EncodeToString(volumeBytes)
+
 	cpHost := "k8s-cp-" + hostSuffix
-	cpSvc := buildNodeService(image, "control-plane", cpHost, cpHost, nil, "").
+	cpSvc := buildNodeService(image, "control-plane", cpHost, cpHost, volumeKey, nil, "").
 		WithHostname(cpHost)
 
 	workerHosts := make([]string, workers)
@@ -120,7 +138,7 @@ func (k *Kubernetes) KindCluster(
 	for i := 0; i < workers; i++ {
 		wHost := fmt.Sprintf("k8s-w%d-%s", i, hostSuffix)
 		workerHosts[i] = wHost
-		workerSvcs[i] = buildNodeService(image, "worker", wHost, cpHost, cpSvc, cpHost).
+		workerSvcs[i] = buildNodeService(image, "worker", wHost, cpHost, volumeKey, cpSvc, cpHost).
 			WithHostname(wHost)
 	}
 
@@ -142,18 +160,32 @@ func (k *Kubernetes) KindCluster(
 // itself PID 1, and kubeadm relies on systemd for kubelet + cgroup
 // setup. Running kubeadm as a oneshot unit lets us reuse the same
 // systemd that kubelet uses.
-func buildNodeService(image, role, nodeHost, cpHost string, bindSvc *dagger.Service, bindHost string) *dagger.Service {
+func buildNodeService(image, role, nodeHost, cpHost, volumeKey string, bindSvc *dagger.Service, bindHost string) *dagger.Service {
 	script := renderBootstrapScript()
 	unit := renderBootstrapUnit(role, nodeHost, cpHost)
 	ctr := dag.Container().
 		From(image).
-		// Force native snapshotter inside the node's containerd.
-		// Default selection switches to fuse-overlayfs when running
-		// in a user namespace, but /dev/fuse isn't propagated into
-		// nested Dagger service containers — fuse-overlayfs then
-		// crash-loops and no images unpack. Native snapshotter copies
-		// files between layers (slower, but no /dev/fuse needed).
-		WithEnvVariable("KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER", "native").
+		// Pin the node's containerd to the kernel overlayfs
+		// snapshotter. kind's entrypoint would otherwise pick
+		// fuse-overlayfs inside a user namespace, and /dev/fuse is
+		// not propagated into Dagger execs, so it crash-loops; the
+		// native snapshotter works but copies every layer, which made
+		// image unpacks ~5x slower.
+		//
+		// overlayfs needs its upper/work dirs on a filesystem that is
+		// not itself overlay, and an exec's rootfs (and a cache volume
+		// seeded with Source) is overlay. An empty cache volume is not,
+		// so containerdSeedPath holds containerd's state and
+		// seedEntrypointPath copies the image's preloaded images into
+		// it and binds it over /var/lib/containerd before kind's
+		// entrypoint runs.
+		WithEnvVariable("KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER", "overlayfs").
+		// volumeKey is unique per cluster instance: hostnames are
+		// deterministic per clusterName, and reusing a volume across
+		// sessions would boot a fresh kubeadm against the previous
+		// run's containerd state.
+		WithMountedCache(containerdSeedPath, dag.CacheVolume("kubernetes-containerd-"+nodeHost+"-"+volumeKey)).		WithNewFile(seedEntrypointPath, renderSeedEntrypoint(),
+			dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
 		// Patch kind's entrypoint to skip enable_network_magic (which
 		// tries to rewrite /etc/resolv.conf — read-only when running
 		// in a nested user namespace). Kind's network magic is for
@@ -161,6 +193,24 @@ func buildNodeService(image, role, nodeHost, cpHost string, bindSvc *dagger.Serv
 		// comes from the engine's service DNS, not docker, so the
 		// magic is unnecessary.
 		WithExec([]string{"sed", "-i", "s/^enable_network_magic$/log_info \"[patched] skipping enable_network_magic in nested userns\"/", "/usr/local/bin/entrypoint"}).
+		// Patch kind's iptables mode detection so a tie goes to nft.
+		// It counts existing rules per backend and picks legacy when
+		// they are equal, and a Dagger exec's fresh netns has none in
+		// either. Legacy then fails outright — the host kernel has no
+		// ip_tables tables loaded and a user namespace cannot load
+		// them — so kube-proxy programs nothing, the kubernetes Service
+		// VIP is unreachable, kindnet never writes its CNI config, and
+		// the node stays NotReady. The grep fails the build if a new
+		// kindest/node release reworded the line.
+		WithExec([]string{"sh", "-c", `sed -i 's/if \[ "${num_legacy_lines}" -ge "${num_nft_lines}" \]; then/if [ "${num_legacy_lines}" -gt "${num_nft_lines}" ]; then/' /usr/local/bin/entrypoint && grep -q '"${num_legacy_lines}" -gt "${num_nft_lines}"' /usr/local/bin/entrypoint`}).
+		// Stop runc creating a session keyring per container. On a
+		// rootless engine every container of every node is the same
+		// host UID, whose kernel key quota defaults to 200; a few
+		// clusters at once exhaust it and runc fails with "unable to
+		// create session key: disk quota exceeded" (measured with the
+		// test suite's parallel fan-out). Kubernetes workloads don't
+		// rely on a fresh session keyring.
+		WithExec([]string{"sh", "-c", `sed -i 's/^\( *\)SystemdCgroup = true$/&\n\1NoNewKeyring = true/' /etc/containerd/config.toml && grep -q 'NoNewKeyring = true' /etc/containerd/config.toml`}).
 		WithNewFile("/usr/local/bin/kind-bootstrap.sh", script,
 			dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
 		WithNewFile("/etc/systemd/system/kind-bootstrap.service", unit,
@@ -172,24 +222,50 @@ func buildNodeService(image, role, nodeHost, cpHost string, bindSvc *dagger.Serv
 		WithExec([]string{"ln", "-sf",
 			"/etc/systemd/system/kind-bootstrap.service",
 			"/etc/systemd/system/multi-user.target.wants/kind-bootstrap.service"})
-	// Only the control-plane listens on 6443 (kube-apiserver) and
-	// adminConfPort (the python http.server that exports admin.conf).
-	// Workers never bind either port; declaring them as exposed makes
-	// Service.Start block in the engine port-poller until the session
-	// is cancelled — observed as a 13m+ hang in CI.
+	// adminConfPort gates Service.Start on every node: each node's
+	// bootstrap opens it when it finishes, on success and on failure
+	// alike (see renderBootstrapScript), so Start returns once the
+	// node has joined or failed, and Cluster.start then reads which.
+	// A port a node never binds must not be declared — that is what
+	// once left a worker's Start polling until the session was
+	// cancelled (a 13m+ hang in CI) — so 6443, which only the
+	// control-plane serves and which never opens if kubeadm init
+	// fails, skips the health check; waitForHealthz checks it instead.
 	if role == "control-plane" {
-		ctr = ctr.
-			WithExposedPort(6443).
-			WithExposedPort(adminConfPort)
+		ctr = ctr.WithExposedPort(6443, dagger.ContainerWithExposedPortOpts{ExperimentalSkipHealthcheck: true})
 	}
+	ctr = ctr.WithExposedPort(adminConfPort)
 	if bindSvc != nil {
 		ctr = ctr.WithServiceBinding(bindHost, bindSvc)
 	}
+	// The seed script execs kind's own entrypoint, which execs
+	// /sbin/init, so systemd still ends up as PID 1.
 	return ctr.AsService(dagger.ContainerAsServiceOpts{
+		Args:                     []string{seedEntrypointPath},
 		InsecureRootCapabilities: true,
 		NoInit:                   true,
-		UseEntrypoint:            true,
 	})
+}
+
+// renderSeedEntrypoint returns the node's PID 1 wrapper: on a fresh
+// volume it copies the image's /var/lib/containerd (content store,
+// metadata and the overlayfs snapshots of kind's preloaded images)
+// into containerdSeedPath, binds that over /var/lib/containerd, and
+// execs kind's stock entrypoint.
+func renderSeedEntrypoint() string {
+	return fmt.Sprintf(`#!/usr/bin/env bash
+set -euo pipefail
+
+SEED=%q
+
+if [[ -z "$(ls -A "$SEED")" ]]; then
+    echo "INFO: seeding containerd state into $SEED"
+    cp -a /var/lib/containerd/. "$SEED"/
+fi
+mount --bind "$SEED" /var/lib/containerd
+
+exec /usr/local/bin/entrypoint /sbin/init
+`, containerdSeedPath)
 }
 
 // APIServerEndpoint returns the host:port pair the cluster's
@@ -269,16 +345,46 @@ func (c *Cluster) start(ctx context.Context) error {
 		if _, err := c.ControlPlaneSvc.Start(ctx); err != nil {
 			return fmt.Errorf("start control-plane: %w", err)
 		}
+		if err := bootstrapFailure(ctx, "control-plane", c.ControlPlaneHost, c.ControlPlaneSvc); err != nil {
+			return err
+		}
 	}
 	for i, svc := range c.WorkerSvcs {
 		if _, err := svc.Start(ctx); err != nil {
 			return fmt.Errorf("start worker %d: %w", i, err)
+		}
+		if err := bootstrapFailure(ctx, fmt.Sprintf("worker %d", i), c.WorkerHosts[i], svc); err != nil {
+			return err
 		}
 	}
 	if err := waitForHealthz(ctx, c.ControlPlaneSvc, c.ControlPlaneHost); err != nil {
 		return fmt.Errorf("control-plane (%s) not ready: %w", c.ControlPlaneHost, err)
 	}
 	return nil
+}
+
+// bootstrapFailure returns a node's bootstrap log as an error when
+// its bootstrap failed. A failed bootstrap serves bootstrap-failed.log
+// in place of admin.conf (control-plane) or the joined marker
+// (worker), and adminConfPort only opens once it has finished either
+// way, so a single probe after Service.Start is conclusive.
+func bootstrapFailure(ctx context.Context, role, host string, svc *dagger.Service) error {
+	out, err := dag.Container().
+		From("curlimages/curl:8.10.1").
+		WithServiceBinding(host, svc).
+		WithEnvVariable("CACHEBUST", strconv.FormatInt(time.Now().UnixNano(), 10)).
+		WithExec([]string{"sh", "-c", fmt.Sprintf(
+			"curl -sf --max-time 10 http://%s:%d/bootstrap-failed.log || true",
+			host, adminConfPort,
+		)}).
+		Stdout(ctx)
+	if err != nil {
+		return fmt.Errorf("probe %s bootstrap status: %w", role, err)
+	}
+	if out == "" {
+		return nil
+	}
+	return fmt.Errorf("%s (%s) bootstrap failed:\n%s", role, host, out)
 }
 
 // waitForHealthz polls `https://<host>:6443/healthz` from a sidecar
@@ -331,14 +437,15 @@ func waitForHealthz(ctx context.Context, svc *dagger.Service, host string) error
 //
 //   - Control-plane: renders /kind/kubeadm.conf, runs kubeadm init,
 //     applies the CNI manifest shipped with kindest/node, untaints
-//     the control-plane, then serves /etc/kubernetes/admin.conf over
-//     a TCP socket via socat so the dagger module runtime can extract
-//     the kubeconfig without docker-exec.
+//     the control-plane, then serves a copy of admin.conf over HTTP
+//     on adminConfPort so the dagger module runtime can extract the
+//     kubeconfig without docker-exec.
 //   - Worker: waits for the control-plane API port to open, then
 //     runs kubeadm join.
 //
-// On failure the script dumps recent kubelet/containerd logs to make
-// post-mortem debugging tractable.
+// On failure the script appends recent kubelet/containerd logs to its
+// own log, and the control-plane serves that log as
+// bootstrap-failed.log in place of admin.conf (see Cluster.start).
 func renderBootstrapScript() string {
 	return fmt.Sprintf(`#!/usr/bin/env bash
 set -uo pipefail
@@ -350,6 +457,34 @@ TOKEN=%q
 ADMIN_PORT=%d
 
 log() { echo "[kind-bootstrap] $*" >&2; }
+
+# Everything this script prints also lands in LOG, so a failure can be
+# handed back to the module runtime: Dagger surfaces none of a
+# service's systemd journal.
+LOG=/var/log/kind-bootstrap.log
+exec > >(tee -a "$LOG") 2>&1
+
+# serve_export publishes EXPORT_DIR, and nothing else, on ADMIN_PORT.
+# The module treats the port opening as "bootstrap finished": it then
+# finds either admin.conf or bootstrap-failed.log there.
+EXPORT_DIR=/kind/export
+serve_export() {
+    cd "$EXPORT_DIR"
+    exec python3 -m http.server $ADMIN_PORT --bind 0.0.0.0
+}
+
+# fail records why the bootstrap stopped plus the kubelet/containerd
+# journal, and serves that log in place of admin.conf (control-plane)
+# or the joined marker (worker) so the module returns it as its error
+# rather than timing out on a port that never opens.
+fail() {
+    log "FATAL: $*"
+    journalctl -u kubelet --no-pager -n 200 || true
+    journalctl -u containerd --no-pager -n 100 || true
+    mkdir -p "$EXPORT_DIR"
+    cp "$LOG" "$EXPORT_DIR/bootstrap-failed.log"
+    serve_export
+}
 
 # Make sure containerd is ready before kubeadm tries to use it.
 log "waiting for containerd"
@@ -410,67 +545,79 @@ cgroupDriver: systemd
 # to start.
 featureGates:
   KubeletInUserNamespace: true
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+# kube-proxy otherwise raises net/netfilter/nf_conntrack_max at
+# startup, which a user namespace may not write, and exits; with no
+# kube-proxy the kubernetes Service VIP is unreachable and the node
+# never goes Ready. 0 leaves the sysctl alone, as kind does rootless.
+conntrack:
+  maxPerCore: 0
 EOF
 
     log "running kubeadm init"
     if ! kubeadm init --config=/kind/kubeadm.conf --skip-phases=preflight --ignore-preflight-errors=all; then
-        log "kubeadm init failed; dumping recent kubelet/containerd journal"
-        journalctl -u kubelet --no-pager -n 200 || true
-        journalctl -u containerd --no-pager -n 100 || true
-        exit 1
+        fail "kubeadm init failed"
     fi
 
     if [[ ! -f /kind/manifests/default-cni.yaml ]]; then
-        log "FATAL: kindest/node image is missing /kind/manifests/default-cni.yaml"
-        exit 1
+        fail "kindest/node image is missing /kind/manifests/default-cni.yaml"
     fi
     log "templating + applying default CNI manifest"
     # kind's default-cni.yaml ships with Go-template placeholders
-    # (e.g. {{.PodSubnet}}) that the kind CLI normally renders. We
-    # don't have the kind CLI; substitute the same value our
-    # kubeadm.conf declares.
-    sed "s|{{.PodSubnet}}|10.244.0.0/16|g" /kind/manifests/default-cni.yaml > /kind/manifests/default-cni.rendered.yaml
+    # (kindest/node v1.31.0 spells it {{ .PodSubnet }}) that the kind
+    # CLI normally renders. We don't have the kind CLI; substitute the
+    # same value our kubeadm.conf declares, with or without the spaces.
+    sed 's|{{ *\.PodSubnet *}}|10.244.0.0/16|g' /kind/manifests/default-cni.yaml > /kind/manifests/default-cni.rendered.yaml
+    if grep -q '{{' /kind/manifests/default-cni.rendered.yaml; then
+        fail "default-cni.yaml has template placeholders left unrendered: $(grep -o '{{[^}]*}}' /kind/manifests/default-cni.rendered.yaml | sort -u | tr '\n' ' ')"
+    fi
     if ! kubectl --kubeconfig=/etc/kubernetes/admin.conf apply -f /kind/manifests/default-cni.rendered.yaml; then
-        log "FATAL: kubectl apply default-cni.yaml failed"
-        exit 1
+        fail "kubectl apply default-cni.yaml failed"
     fi
 
-    log "waiting for kindnet DaemonSet to report >=1 ready pod"
-    # kindnet pulls a container image after install; under a contended
-    # runner the pull can take 30-60s. Generous 2-minute ceiling so a
-    # slow pull doesn't mask a real install failure.
-    for i in $(seq 1 60); do
-        ready=$(kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system \
-            get ds kindnet -o jsonpath='{.status.numberReady}' 2>/dev/null || echo 0)
-        if [[ "${ready:-0}" -ge 1 ]]; then
-            log "kindnet ready (numberReady=$ready)"
-            break
-        fi
-        sleep 2
-    done
+    log "waiting for node $NODE_HOST to report Ready"
+    # A ready kindnet pod is not enough: the node stays NotReady
+    # ("cni plugin not initialized") until kindnet has written its CNI
+    # config, and nothing schedules onto it until then. Waiting on the
+    # node itself is the condition every caller actually needs.
+    if ! kubectl --kubeconfig=/etc/kubernetes/admin.conf wait \
+        --for=condition=Ready "node/$NODE_HOST" --timeout=180s; then
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system logs ds/kindnet --tail=100 || true
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf -n kube-system logs ds/kube-proxy --previous --tail=50 || true
+        kubectl --kubeconfig=/etc/kubernetes/admin.conf describe node "$NODE_HOST" || true
+        ls -la /etc/cni/net.d || true
+        fail "node $NODE_HOST never became Ready"
+    fi
 
     log "removing control-plane taint"
     kubectl --kubeconfig=/etc/kubernetes/admin.conf taint nodes --all node-role.kubernetes.io/control-plane- || true
 
-    chmod 644 /etc/kubernetes/admin.conf
-
     log "serving admin.conf on tcp/$ADMIN_PORT via python3 http.server"
     # kindest/node ships python3 but not socat/ncat; use python's
-    # builtin http.server to expose /etc/kubernetes/ over HTTP so the
-    # module runtime can curl admin.conf from a sidecar container.
-    cd /etc/kubernetes
-    exec python3 -m http.server $ADMIN_PORT --bind 0.0.0.0
+    # builtin http.server so the module runtime can curl admin.conf
+    # from a sidecar container. Only a copy of admin.conf is exported,
+    # never /etc/kubernetes itself, which holds the cluster CA's keys.
+    mkdir -p "$EXPORT_DIR"
+    install -m 644 /etc/kubernetes/admin.conf "$EXPORT_DIR/admin.conf"
+    serve_export
 else
     log "worker: waiting for control-plane $CP_HOST:6443"
+    reachable=0
     for i in $(seq 1 360); do
         if (exec 3<>/dev/tcp/$CP_HOST/6443) 2>/dev/null; then
             exec 3<&- || true
             exec 3>&- || true
             log "control-plane reachable, joining"
+            reachable=1
             break
         fi
         sleep 2
     done
+    if [[ "$reachable" != 1 ]]; then
+        fail "control-plane $CP_HOST:6443 never became reachable"
+    fi
 
     # Pre-write kubelet extra flags so kubelet won't refuse on swap.
     mkdir -p /var/lib/kubelet
@@ -481,11 +628,31 @@ else
         --discovery-token-unsafe-skip-ca-verification \
         --node-name $NODE_HOST \
         --ignore-preflight-errors=all; then
-        log "kubeadm join failed; dumping recent journal"
-        journalctl -u kubelet --no-pager -n 200 || true
-        exit 1
+        fail "kubeadm join failed"
     fi
-    log "worker join complete"
+
+    log "waiting for node $NODE_HOST to report Ready"
+    # The node's own credentials may read its own Node object, which is
+    # all this needs; the control-plane's admin.conf never leaves it.
+    ready=""
+    for i in $(seq 1 90); do
+        ready=$(kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$NODE_HOST" \
+            -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
+        if [[ "$ready" == "True" ]]; then
+            break
+        fi
+        sleep 2
+    done
+    if [[ "$ready" != "True" ]]; then
+        kubectl --kubeconfig=/etc/kubernetes/kubelet.conf get node "$NODE_HOST" -o yaml || true
+        ls -la /etc/cni/net.d || true
+        fail "node $NODE_HOST never became Ready (last Ready=$ready)"
+    fi
+
+    log "worker joined; serving joined marker on tcp/$ADMIN_PORT"
+    mkdir -p "$EXPORT_DIR"
+    echo "$NODE_HOST" > "$EXPORT_DIR/joined"
+    serve_export
 fi
 `, fixedBootstrapToken, adminConfPort)
 }
@@ -497,10 +664,9 @@ fi
 // (the second path simulates `systemctl enable` so the unit fires at
 // boot without an interactive enable step).
 //
-// For the control-plane the unit stays alive via socat-serving the
-// admin.conf (Type=simple with `exec socat ...` in the script). For
-// workers, kubeadm join exits 0 and the unit completes; RemainAfterExit
-// keeps systemd from restarting it.
+// Every node's unit ends by exec'ing python3's http.server on
+// adminConfPort (Type=simple), success or failure; RemainAfterExit
+// keeps systemd from restarting it if that ever exits.
 func renderBootstrapUnit(role, nodeHost, cpHost string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Kind cluster bootstrap (%s)

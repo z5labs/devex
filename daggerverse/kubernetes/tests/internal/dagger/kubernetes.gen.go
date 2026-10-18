@@ -6,116 +6,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"dagger.io/dagger/querybuilder"
+	"github.com/dagger/querybuilder"
 )
-
-// The `KubernetesClientID` scalar type represents an identifier for an object of type KubernetesClient.
-type KubernetesClientID string // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
-
-// The `KubernetesClusterID` scalar type represents an identifier for an object of type KubernetesCluster.
-type KubernetesClusterID string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
-
-// The `KubernetesID` scalar type represents an identifier for an object of type Kubernetes.
-type KubernetesID string // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
-
-// Retrieve the binding value, as type Kubernetes
-func (r *Binding) AsKubernetes() *Kubernetes { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
-	q := r.query.Select("asKubernetes")
-
-	return &Kubernetes{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type KubernetesClient
-func (r *Binding) AsKubernetesClient() *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
-	q := r.query.Select("asKubernetesClient")
-
-	return &KubernetesClient{
-		query: q,
-	}
-}
-
-// Retrieve the binding value, as type KubernetesCluster
-func (r *Binding) AsKubernetesCluster() *KubernetesCluster { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
-	q := r.query.Select("asKubernetesCluster")
-
-	return &KubernetesCluster{
-		query: q,
-	}
-}
-
-// Create or update a binding of type KubernetesClient in the environment
-func (r *Env) WithKubernetesClientInput(name string, value *KubernetesClient, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withKubernetesClientInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired KubernetesClient output to be assigned in the environment
-func (r *Env) WithKubernetesClientOutput(name string, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
-	q := r.query.Select("withKubernetesClientOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type KubernetesCluster in the environment
-func (r *Env) WithKubernetesClusterInput(name string, value *KubernetesCluster, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withKubernetesClusterInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired KubernetesCluster output to be assigned in the environment
-func (r *Env) WithKubernetesClusterOutput(name string, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
-	q := r.query.Select("withKubernetesClusterOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Create or update a binding of type Kubernetes in the environment
-func (r *Env) WithKubernetesInput(name string, value *Kubernetes, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
-	assertNotNil("value", value)
-	q := r.query.Select("withKubernetesInput")
-	q = q.Arg("name", name)
-	q = q.Arg("value", value)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
-
-// Declare a desired Kubernetes output to be assigned in the environment
-func (r *Env) WithKubernetesOutput(name string, description string) *Env { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
-	q := r.query.Select("withKubernetesOutput")
-	q = q.Arg("name", name)
-	q = q.Arg("description", description)
-
-	return &Env{
-		query: q,
-	}
-}
 
 // Kubernetes is the root namespace for every exported function in
 // this module. All cluster constructors and the remote-client factory
@@ -124,7 +16,7 @@ func (r *Env) WithKubernetesOutput(name string, description string) *Env { // ku
 type Kubernetes struct { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
 	query *querybuilder.Selection
 
-	id *KubernetesID
+	id *ID
 }
 
 func (r *Kubernetes) WithGraphQLQuery(q *querybuilder.Selection) *Kubernetes {
@@ -149,13 +41,13 @@ func (r *Kubernetes) Client(kubeconfig *File) *KubernetesClient { // kubernetes 
 }
 
 // A unique identifier for this Kubernetes.
-func (r *Kubernetes) ID(ctx context.Context) (KubernetesID, error) {
+func (r *Kubernetes) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KubernetesID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -168,7 +60,7 @@ func (r *Kubernetes) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *Kubernetes) XXX_GraphQLIDType() string {
-	return "KubernetesID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -193,24 +85,24 @@ func (r *Kubernetes) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKubernetesFromID(KubernetesID(id))
+	*r = Kubernetes{query: selectNode(dag.query, id, "Kubernetes")}
 	return nil
 }
 
 // KubernetesKindClusterOpts contains options for Kubernetes.KindCluster
 type KubernetesKindClusterOpts struct {
-	ClusterName string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:77:2)
+	ClusterName string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:86:2)
 
 	// Default: 1
-	ControlPlanes int // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:79:2)
+	ControlPlanes int // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:88:2)
 
-	Workers int // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:81:2)
+	Workers int // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:90:2)
 
 	// Default: "docker.io"
-	Registry string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:83:2)
+	Registry string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:92:2)
 
 	// Default: "v1.31.0"
-	Tag string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:85:2)
+	Tag string // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:94:2)
 }
 
 // KindCluster spins up a Kubernetes cluster of one control-plane node
@@ -237,7 +129,7 @@ type KubernetesKindClusterOpts struct {
 // the session cache key. Parallel test suites should pass a unique
 // value per test (e.g. the test function name) so each test gets its
 // own backing services.
-func (r *Kubernetes) KindCluster(opts ...KubernetesKindClusterOpts) *KubernetesCluster { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:74:1)
+func (r *Kubernetes) KindCluster(opts ...KubernetesKindClusterOpts) *KubernetesCluster { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:83:1)
 	q := r.query.Select("kindCluster")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `clusterName` optional argument
@@ -267,6 +159,14 @@ func (r *Kubernetes) KindCluster(opts ...KubernetesKindClusterOpts) *KubernetesC
 	}
 }
 
+// AsNode returns this Kubernetes as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *Kubernetes) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Client is a client-go-backed Kubernetes client. Each method opens a
 // fresh REST + dynamic client per call so the function is stateless
 // from Dagger's perspective.
@@ -274,9 +174,9 @@ type KubernetesClient struct { // kubernetes (../../../../../daggerverse/kuberne
 	query *querybuilder.Selection
 
 	apply        *Void
-	delete       *Void
+	delete_      *Void
 	get          *string
-	id           *KubernetesClientID
+	id           *ID
 	waitForReady *Void
 }
 
@@ -309,7 +209,7 @@ func (r *KubernetesClient) Apply(ctx context.Context, manifest *File) error { //
 // post-condition of Delete is "this resource does not exist".
 func (r *KubernetesClient) Delete(ctx context.Context, manifest *File) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:107:1)
 	assertNotNil("manifest", manifest)
-	if r.delete != nil {
+	if r.delete_ != nil {
 		return nil
 	}
 	q := r.query.Select("delete")
@@ -352,13 +252,13 @@ func (r *KubernetesClient) Get(ctx context.Context, resource string, name string
 }
 
 // A unique identifier for this KubernetesClient.
-func (r *KubernetesClient) ID(ctx context.Context) (KubernetesClientID, error) {
+func (r *KubernetesClient) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KubernetesClientID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -371,7 +271,7 @@ func (r *KubernetesClient) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KubernetesClient) XXX_GraphQLIDType() string {
-	return "KubernetesClientID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -396,7 +296,7 @@ func (r *KubernetesClient) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKubernetesClientFromID(KubernetesClientID(id))
+	*r = KubernetesClient{query: selectNode(dag.query, id, "KubernetesClient")}
 	return nil
 }
 
@@ -467,17 +367,25 @@ func (r *KubernetesClient) WaitForReady(ctx context.Context, resource string, na
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KubernetesClient as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KubernetesClient) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Cluster represents a running Kubernetes cluster: a single
 // control-plane node plus N worker nodes, each backed by a privileged
 // kindest/node Dagger Service. Holds references to every service so
 // callers can bind them into their own containers or open a client-go
 // Client against them.
-type KubernetesCluster struct { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
+type KubernetesCluster struct { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:45:6)
 	query *querybuilder.Selection
 
 	apiserverEndpoint *string
 	healthzResponse   *string
-	id                *KubernetesClusterID
+	id                *ID
 	stop              *Void
 }
 
@@ -491,7 +399,7 @@ func (r *KubernetesCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kuberne
 // kube-apiserver advertises on its external HTTPS listener (port
 // 6443). The hostname is a per-cluster Dagger WithHostname alias,
 // reachable from any container in the same engine session.
-func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:201:1)
+func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:277:1)
 	if r.apiserverEndpoint != nil {
 		return *r.apiserverEndpoint, nil
 	}
@@ -528,7 +436,7 @@ func (r *KubernetesCluster) Client() *KubernetesClient { // kubernetes (../../..
 // returned through GraphQL boundaries do not preserve the binding
 // state needed for cross-module WithServiceBinding — the binding
 // must be applied in the same chain that produces the exec.
-func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:224:1)
+func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:300:1)
 	if r.healthzResponse != nil {
 		return *r.healthzResponse, nil
 	}
@@ -541,13 +449,13 @@ func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error)
 }
 
 // A unique identifier for this KubernetesCluster.
-func (r *KubernetesCluster) ID(ctx context.Context) (KubernetesClusterID, error) {
+func (r *KubernetesCluster) ID(ctx context.Context) (ID, error) {
 	if r.id != nil {
 		return *r.id, nil
 	}
 	q := r.query.Select("id")
 
-	var response KubernetesClusterID
+	var response ID
 
 	q = q.Bind(&response)
 	return response, q.Execute(ctx)
@@ -560,7 +468,7 @@ func (r *KubernetesCluster) XXX_GraphQLType() string {
 
 // XXX_GraphQLIDType is an internal function. It returns the native GraphQL type name for the ID of this object
 func (r *KubernetesCluster) XXX_GraphQLIDType() string {
-	return "KubernetesClusterID"
+	return "ID"
 }
 
 // XXX_GraphQLID is an internal function. It returns the underlying type ID
@@ -585,7 +493,7 @@ func (r *KubernetesCluster) UnmarshalJSON(bs []byte) error {
 	if err != nil {
 		return err
 	}
-	*r = *dag.LoadKubernetesClusterFromID(KubernetesClusterID(id))
+	*r = KubernetesCluster{query: selectNode(dag.query, id, "KubernetesCluster")}
 	return nil
 }
 
@@ -602,7 +510,7 @@ func (r *KubernetesCluster) UnmarshalJSON(bs []byte) error {
 //
 // The file is fetched by curl'ing `http://<host>:9999/admin.conf`
 // from a sidecar container — the control-plane's bootstrap unit
-// publishes /etc/kubernetes/ via python3's builtin http.server so
+// publishes a copy of admin.conf via python3's builtin http.server so
 // kubeadm's output is accessible without docker-exec (Dagger has no
 // cross-service exec primitive). The fetched bytes are YAML-parsed,
 // the server URL is replaced, and the result is written to the
@@ -618,7 +526,7 @@ func (r *KubernetesCluster) Kubeconfig() *File { // kubernetes (../../../../../d
 // Stop tears down every service container backing this cluster (the
 // control-plane plus every worker). SIGKILL skips graceful shutdown
 // — kubeadm drain timeouts a torn-down test cluster doesn't need.
-func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:243:1)
+func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:319:1)
 	if r.stop != nil {
 		return nil
 	}
@@ -627,42 +535,20 @@ func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../
 	return q.Execute(ctx)
 }
 
+// AsNode returns this KubernetesCluster as a Node.
+// This is a local type conversion — no GraphQL call.
+func (r *KubernetesCluster) AsNode() Node {
+	return &NodeClient{
+		query: r.query,
+	}
+}
+
 // Kubernetes is the root namespace for every exported function in
 // this module. All cluster constructors and the remote-client factory
 // hang off *Kubernetes so the generated Dagger SDK surfaces them
 // under `dag.Kubernetes().<Func>(...)`.
 func (r *Query) Kubernetes() *Kubernetes { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
 	q := r.query.Select("kubernetes")
-
-	return &Kubernetes{
-		query: q,
-	}
-}
-
-// Load a KubernetesClient from its ID.
-func (r *Query) LoadKubernetesClientFromID(id KubernetesClientID) *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
-	q := r.query.Select("loadKubernetesClientFromID")
-	q = q.Arg("id", id)
-
-	return &KubernetesClient{
-		query: q,
-	}
-}
-
-// Load a KubernetesCluster from its ID.
-func (r *Query) LoadKubernetesClusterFromID(id KubernetesClusterID) *KubernetesCluster { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:36:6)
-	q := r.query.Select("loadKubernetesClusterFromID")
-	q = q.Arg("id", id)
-
-	return &KubernetesCluster{
-		query: q,
-	}
-}
-
-// Load a Kubernetes from its ID.
-func (r *Query) LoadKubernetesFromID(id KubernetesID) *Kubernetes { // kubernetes (../../../../../daggerverse/kubernetes/main.go:30:6)
-	q := r.query.Select("loadKubernetesFromID")
-	q = q.Arg("id", id)
 
 	return &Kubernetes{
 		query: q,
