@@ -114,9 +114,19 @@ jobs:
       #                            nothing for it and why this is a budget increase
       #                            rather than a fix. Splitting the suite so the
       #                            number can come back down is #433.
+      #   daggerverse/kubernetes/tests
+      #                            `cluster` boots nine kind clusters, three at a
+      #                            time (the cap is an inotify limit, see
+      #                            Tests.Cluster), and `validation` two more:
+      #                            5m04s locally, 5m36s passing on PR #88 and a
+      #                            6m timeout on the very next commit. Splitting
+      #                            would not help — `cluster` alone is ~5m — so
+      #                            this is a budget, keyed by module so the coarse
+      #                            leg and any per-check leg both get it.
       timeouts: >-
         {"dagger-go-sdk (workspace)": 15,
-        "daggerverse/z5labs/tests": 12}
+        "daggerverse/z5labs/tests": 12,
+        "daggerverse/kubernetes/tests": 12}
 
     # Only DAGGER_CLOUD_TOKEN is actually consumed; MEMO_TOKEN is left unset so the
     # called workflow falls back to this run's own GITHUB_TOKEN, scoped by the

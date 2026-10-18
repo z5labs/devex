@@ -114,6 +114,13 @@ is-module = true
 clients = ["./daggerverse/kicad"]
 is-module = true
 
+[sdks.go.scopes."daggerverse/kubernetes"]
+is-module = true
+
+[sdks.go.scopes."daggerverse/kubernetes/tests"]
+clients = ["./daggerverse/kubernetes", "./daggerverse/random"]
+is-module = true
+
 [sdks.go.scopes."daggerverse/oci"]
 is-module = true
 
