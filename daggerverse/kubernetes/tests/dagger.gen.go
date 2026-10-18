@@ -329,7 +329,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("All",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
-							WithDescription("All runs every kubernetes test as a convenience for local `dagger\ncall all` invocations. CI does NOT call All: Validationeach carry their own +check directive, so GH Actions schedules each\nonto its own runner in parallel — running All on top would\ndouble-bill the same work.").
+							WithDescription("All runs every kubernetes test as a convenience for local `dagger\ncall all` invocations. CI does NOT call All: Validation and Cluster\nare each a check of their own, so GH Actions schedules each\nonto its own runner in parallel — running All on top would\ndouble-bill the same work.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
 							WithSourceMap(dag.SourceMap("main.go", 33, 1)).
 							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 36, 2), DefaultValue: dagger.JSON("0")})).
@@ -338,75 +338,75 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("BindAPIServerAllowsHealthz boots a cluster, calls HealthzResponse,\nand verifies the body contains `ok` — proving the cluster's\nWithHostname-registered apiserver alias resolves in-session and\nthe auto-generated apiserver cert is valid for that hostname\n(added to certSANs at kubeadm init).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 542, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 553, 1))).
 					WithFunction(
 						dag.Function("ClientApplyGetDeleteNamespaceRoundTrip",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientApplyGetDeleteNamespaceRoundTrip applies a Namespace with a\nrandom name, fetches it via Get (checks YAML contains the name),\nlists Namespaces (checks the name appears), deletes it, then\nre-lists (checks the name is gone). One test exercising the full\nCRUD-via-dynamic-client surface.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 333, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 344, 1))).
 					WithFunction(
 						dag.Function("ClientApplyRejectsMalformedManifest",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientApplyRejectsMalformedManifest constructs a Client from a\nfreshly-booted cluster's kubeconfig, then calls Apply on a manifest\nfile containing syntactically invalid YAML. The error must be\nexplicit and mention the YAML decoder so callers can fix the file.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 257, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 258, 1))).
 					WithFunction(
 						dag.Function("ClientGetUnknownGVRRejected",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientGetUnknownGVRRejected verifies that asking for a resource\nshorthand the API server doesn't recognise (`widgets`) returns an\nexplicit error mentioning the unknown resource.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 284, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 295, 1))).
 					WithFunction(
 						dag.Function("ClientListNamespacesIncludesDefaults",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientListNamespacesIncludesDefaults boots a cluster and verifies\nthe default kube-system Namespaces are present via List on a fresh\ncluster.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 306, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 317, 1))).
 					WithFunction(
 						dag.Function("ClientWaitForReadyNginxDeployment",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientWaitForReadyNginxDeployment applies a 1-replica nginx\nDeployment and verifies WaitForReady returns nil when the\nDeployment reaches Available: True.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 398, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 409, 1))).
 					WithFunction(
 						dag.Function("ClientWaitForReadyNonexistentImageErrors",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ClientWaitForReadyNonexistentImageErrors applies a Deployment\npointing at an unresolvable image and verifies WaitForReady errors\nbefore the deadline rather than blocking forever.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 446, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 457, 1))).
 					WithFunction(
 						dag.Function("Cluster",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
-							WithDescription("Cluster runs the topology, kubeconfig, and client round-trip tests.\nEach test passes its own name to `freshCluster`, which folds into\nKindCluster's session-cache key so concurrent tests boot\nindependent backing services.\n\nUnlike the other aggregators, parallel <= 0 here means\nclusterParallelism, never unbounded, and the cap is applied in code\nrather than through +default: `dagger check` started all nine\nclusters (plus Validation's two) at once with\nThe cap, together with every test stopping its own cluster, keeps\na rootless engine under the host's per-UID inotify instance limit\n(fs.inotify.max_user_instances): every node's systemd, kubelet and\ncontainerd count against the one UID, at roughly 40 instances per\ncluster. With all eleven clusters alive at once, kubelets failed\nwith \"unable to create inotify: too many open files\" and nodes\nnever went Ready.").
+							WithDescription("Cluster runs the topology, kubeconfig, and client round-trip tests.\nEach test passes its own name to `freshCluster`, which folds into\nKindCluster's session-cache key so concurrent tests boot\nindependent backing services.\n\nUnlike the other aggregators, parallel <= 0 here means\nclusterParallelism, never unbounded, and the cap is applied in code\nrather than through a parameter default: `dagger check` started all\nnine clusters (plus Validation's two) at once with a default of 3\ndeclared.\n\nThe cap, together with every test stopping its own cluster, keeps\na rootless engine under the host's per-UID inotify instance limit\n(fs.inotify.max_user_instances): every node's systemd, kubelet and\ncontainerd count against the one UID, at roughly 40 instances per\ncluster. With all eleven clusters alive at once, kubelets failed\nwith \"unable to create inotify: too many open files\" and nodes\nnever went Ready.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("main.go", 96, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 97, 1)).
 							WithCheck().
-							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 99, 2), DefaultValue: dagger.JSON("0")})).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 100, 2), DefaultValue: dagger.JSON("0")})).
 					WithFunction(
 						dag.Function("ControlPlanesNotOneRejected",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ControlPlanesNotOneRejected verifies that controlPlanes != 1 surfaces\na descriptive error (HA control-plane lands in a follow-up story).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 158, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 159, 1))).
 					WithFunction(
 						dag.Function("DefaultsProduceWorkingCluster",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("DefaultsProduceWorkingCluster boots a cluster with all defaults\n(controlPlanes=1, workers=0) and verifies APIServerEndpoint()\nreturns a non-empty `host:port` — proving the wrapper-script\nbootstrap reached the point where the kube-apiserver answers /healthz.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 182, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 183, 1))).
 					WithFunction(
 						dag.Function("KubeconfigYamlServerURLMatchesEndpoint",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("KubeconfigYamlServerURLMatchesEndpoint boots a cluster, fetches\nKubeconfig(), parses the YAML, and verifies clusters/contexts/users\nall exist and `clusters[0].cluster.server` equals\n`https://<APIServerEndpoint()>`.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 204, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 205, 1))).
 					WithFunction(
 						dag.Function("RemoteClientCanListNamespaces",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("RemoteClientCanListNamespaces boots a cluster, takes its Kubeconfig\nfile, and constructs a standalone Kubernetes.Client(kubeconfig)\nindependently of Cluster.Client. Verifies the factory works.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 520, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 531, 1))).
 					WithFunction(
 						dag.Function("Validation",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -420,7 +420,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("WorkersJoinAndListAsNodes boots a cluster with workers=1 and\nverifies List(\"nodes\") returns 2 entries (control-plane").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("main.go", 492, 1)))), nil
+							WithSourceMap(dag.SourceMap("main.go", 503, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

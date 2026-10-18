@@ -24,8 +24,8 @@ type Tests struct{}
 const clusterParallelism = 3
 
 // All runs every kubernetes test as a convenience for local `dagger
-// call all` invocations. CI does NOT call All: Validation + Cluster
-// each carry their own +check directive, so GH Actions schedules each
+// call all` invocations. CI does NOT call All: Validation and Cluster
+// are each a check of their own, so GH Actions schedules each
 // onto its own runner in parallel — running All on top would
 // double-bill the same work.
 //
@@ -80,8 +80,9 @@ func (t *Tests) Validation(
 //
 // Unlike the other aggregators, parallel <= 0 here means
 // clusterParallelism, never unbounded, and the cap is applied in code
-// rather than through +default: `dagger check` started all nine
-// clusters (plus Validation's two) at once with +default=3 declared.
+// rather than through a parameter default: `dagger check` started all
+// nine clusters (plus Validation's two) at once with a default of 3
+// declared.
 //
 // The cap, together with every test stopping its own cluster, keeps
 // a rootless engine under the host's per-UID inotify instance limit
@@ -272,6 +273,16 @@ func (t *Tests) ClientApplyRejectsMalformedManifest(ctx context.Context) error {
 		!strings.Contains(msg, "decode") &&
 		!strings.Contains(msg, "json") {
 		return fmt.Errorf("expected error to mention yaml/decode, got: %v", err)
+	}
+
+	// A valid document followed by a truncated one ends the decode in
+	// io.ErrUnexpectedEOF, not io.EOF. Treating it as end-of-stream
+	// would apply the first document and drop the second silently.
+	truncated := dag.Directory().WithNewFile("truncated.json",
+		`{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"truncated-manifest"}}`+"\n"+
+			`{"apiVersion":"v1","kind":`).File("truncated.json")
+	if err := client.Apply(ctx, truncated); err == nil {
+		return fmt.Errorf("expected Apply(truncated manifest) to fail, got nil")
 	}
 	return nil
 }

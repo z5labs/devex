@@ -123,7 +123,8 @@ type KubernetesKindClusterOpts struct {
 //
 // Session-cached so chained method calls on the returned cluster
 // (e.g. Client.Apply → Client.Get) observe the SAME underlying
-// services. Every method on *Cluster carriesown line so any data-returning call re-executes per invocation.
+// services. Every method on *Cluster is never-cached, so any
+// data-returning call re-executes per invocation.
 //
 // `clusterName` is a caller-supplied discriminator that folds into
 // the session cache key. Parallel test suites should pass a unique

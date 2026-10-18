@@ -71,8 +71,8 @@ type Cluster struct {
 //
 // Session-cached so chained method calls on the returned cluster
 // (e.g. Client.Apply → Client.Get) observe the SAME underlying
-// services. Every method on *Cluster carries +cache="never" on its
-// own line so any data-returning call re-executes per invocation.
+// services. Every method on *Cluster is never-cached, so any
+// data-returning call re-executes per invocation.
 //
 // `clusterName` is a caller-supplied discriminator that folds into
 // the session cache key. Parallel test suites should pass a unique
@@ -184,7 +184,8 @@ func buildNodeService(image, role, nodeHost, cpHost, volumeKey string, bindSvc *
 		// deterministic per clusterName, and reusing a volume across
 		// sessions would boot a fresh kubeadm against the previous
 		// run's containerd state.
-		WithMountedCache(containerdSeedPath, dag.CacheVolume("kubernetes-containerd-"+nodeHost+"-"+volumeKey)).		WithNewFile(seedEntrypointPath, renderSeedEntrypoint(),
+		WithMountedCache(containerdSeedPath, dag.CacheVolume("kubernetes-containerd-"+nodeHost+"-"+volumeKey)).
+		WithNewFile(seedEntrypointPath, renderSeedEntrypoint(),
 			dagger.ContainerWithNewFileOpts{Permissions: 0o755}).
 		// Patch kind's entrypoint to skip enable_network_magic (which
 		// tries to rewrite /etc/resolv.conf — read-only when running

@@ -50,7 +50,8 @@ type TestsAllOpts struct {
 }
 
 // All runs every kubernetes test as a convenience for local `dagger
-// call all` invocations. CI does NOT call All: Validationeach carry their own +check directive, so GH Actions schedules each
+// call all` invocations. CI does NOT call All: Validation and Cluster
+// are each a check of their own, so GH Actions schedules each
 // onto its own runner in parallel — running All on top would
 // double-bill the same work.
 func (r *Tests) All(ctx context.Context, opts ...TestsAllOpts) error {
@@ -169,8 +170,10 @@ type TestsClusterOpts struct {
 //
 // Unlike the other aggregators, parallel <= 0 here means
 // clusterParallelism, never unbounded, and the cap is applied in code
-// rather than through +default: `dagger check` started all nine
-// clusters (plus Validation's two) at once with
+// rather than through a parameter default: `dagger check` started all
+// nine clusters (plus Validation's two) at once with a default of 3
+// declared.
+//
 // The cap, together with every test stopping its own cluster, keeps
 // a rootless engine under the host's per-UID inotify instance limit
 // (fs.inotify.max_user_instances): every node's systemd, kubelet and

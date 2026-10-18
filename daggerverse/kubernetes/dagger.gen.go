@@ -477,12 +477,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Client")).
 							WithDescription("Client constructs a client-go-backed Kubernetes client that targets\nthe cluster described by the supplied kubeconfig. No I/O happens at\nconstruction time. Works against a local KindCluster or any\nreachable remote cluster — the kubeconfig is the only handle the\nclient needs.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("client.go", 43, 1)).
-							WithArg("kubeconfig", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 43, 29)})).
+							WithSourceMap(dag.SourceMap("client.go", 45, 1)).
+							WithArg("kubeconfig", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 45, 29)})).
 					WithFunction(
 						dag.Function("KindCluster",
 							dag.TypeDef().WithObject("Cluster")).
-							WithDescription("KindCluster spins up a Kubernetes cluster of one control-plane node\nplus `workers` worker nodes, each running upstream kindest/node as\na privileged Dagger Service. Kind always issues TLS internally; the\nauto-generated admin kubeconfig (Cluster.Kubeconfig) is the sole\nsecurity material in this story.\n\nImage: `<registry>/kindest/node:<tag>` — the `kindest/node` portion\nis fixed; only `registry` and `tag` are caller-overridable.\n\nRejected inputs (each surfaces a descriptive error rather than\nbooting a half-broken cluster):\n\n  - `controlPlanes != 1` — HA control-plane requires an HAProxy LB\n    in front of N kube-apiservers; that lands in a follow-up story.\n  - `workers < 0`.\n\nSession-cached so chained method calls on the returned cluster\n(e.g. Client.Apply → Client.Get) observe the SAME underlying\nservices. Every method on *Cluster carriesown line so any data-returning call re-executes per invocation.\n\n`clusterName` is a caller-supplied discriminator that folds into\nthe session cache key. Parallel test suites should pass a unique\nvalue per test (e.g. the test function name) so each test gets its\nown backing services.").
+							WithDescription("KindCluster spins up a Kubernetes cluster of one control-plane node\nplus `workers` worker nodes, each running upstream kindest/node as\na privileged Dagger Service. Kind always issues TLS internally; the\nauto-generated admin kubeconfig (Cluster.Kubeconfig) is the sole\nsecurity material in this story.\n\nImage: `<registry>/kindest/node:<tag>` — the `kindest/node` portion\nis fixed; only `registry` and `tag` are caller-overridable.\n\nRejected inputs (each surfaces a descriptive error rather than\nbooting a half-broken cluster):\n\n  - `controlPlanes != 1` — HA control-plane requires an HAProxy LB\n    in front of N kube-apiservers; that lands in a follow-up story.\n  - `workers < 0`.\n\nSession-cached so chained method calls on the returned cluster\n(e.g. Client.Apply → Client.Get) observe the SAME underlying\nservices. Every method on *Cluster is never-cached, so any\ndata-returning call re-executes per invocation.\n\n`clusterName` is a caller-supplied discriminator that folds into\nthe session cache key. Parallel test suites should pass a unique\nvalue per test (e.g. the test function name) so each test gets its\nown backing services.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
 							WithSourceMap(dag.SourceMap("cluster.go", 83, 1)).
 							WithArg("clusterName", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 86, 2), DefaultValue: dagger.JSON("\"\"")}).
@@ -491,54 +491,54 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithArg("registry", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 92, 2), DefaultValue: dagger.JSON("\"docker.io\"")}).
 							WithArg("tag", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("cluster.go", 94, 2), DefaultValue: dagger.JSON("\"v1.31.0\"")}))).
 			WithObject(
-				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a client-go-backed Kubernetes client. Each method opens a\nfresh REST + dynamic client per call so the function is stateless\nfrom Dagger's perspective.", SourceMap: dag.SourceMap("client.go", 31, 6)}).
+				dag.TypeDef().WithObject("Client", dagger.TypeDefWithObjectOpts{Description: "Client is a client-go-backed Kubernetes client. Each method opens a\nfresh REST + dynamic client per call so the function is stateless\nfrom Dagger's perspective.", SourceMap: dag.SourceMap("client.go", 33, 6)}).
 					WithFunction(
 						dag.Function("Apply",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Apply applies every YAML document in the manifest file to the\ncluster via server-side apply. Multi-document YAML is supported —\nthe file is split on `---` separators and each document is decoded\ninto an `unstructured.Unstructured`, mapped to its GVR via discovery,\nthen applied with field manager `devex-kubernetes-module`.\n\nMalformed manifest YAML surfaces a wrapped decode error.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 76, 1)).
-							WithArg("manifest", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 76, 45)})).
+							WithSourceMap(dag.SourceMap("client.go", 78, 1)).
+							WithArg("manifest", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 78, 45)})).
 					WithFunction(
 						dag.Function("Delete",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Delete deletes every resource named by every YAML document in the\nmanifest file. Missing resources (404) are treated as success — the\npost-condition of Delete is \"this resource does not exist\".").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 107, 1)).
-							WithArg("manifest", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 107, 46)})).
+							WithSourceMap(dag.SourceMap("client.go", 109, 1)).
+							WithArg("manifest", dag.TypeDef().WithObject("File"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 109, 46)})).
 					WithFunction(
 						dag.Function("Get",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Get returns the named resource as YAML. `resource` accepts the\nkubectl-style GVR shorthand (`\"namespaces\"`, `\"pods\"`,\n`\"deployments.apps\"`); the discovery RESTMapper resolves it to the\npreferred GVR. Empty `namespace` is meaningful only for cluster-scoped\nresources; namespaced resources require a non-empty namespace.\n\nUnknown resource shorthand returns an explicit \"unknown resource\"\nerror.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 143, 1)).
-							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 143, 43)}).
-							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 145, 2), DefaultValue: dagger.JSON("\"\"")}).
-							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 146, 2)})).
+							WithSourceMap(dag.SourceMap("client.go", 145, 1)).
+							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 145, 43)}).
+							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 147, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 148, 2)})).
 					WithFunction(
 						dag.Function("Kubeconfig",
 							dag.TypeDef().WithObject("File")).
 							WithDescription("Kubeconfig returns the kubeconfig file this client is configured to use.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 63, 1))).
+							WithSourceMap(dag.SourceMap("client.go", 65, 1))).
 					WithFunction(
 						dag.Function("List",
 							dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind))).
 							WithDescription("List returns the metadata.name of every resource of the given\nshorthand. Empty `namespace` lists across all namespaces for\nnamespaced resources, or returns every cluster-scoped resource for\ncluster-scoped shorthands like `nodes` or `namespaces`.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 174, 1)).
-							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 174, 44)}).
-							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 176, 2), DefaultValue: dagger.JSON("\"\"")})).
+							WithSourceMap(dag.SourceMap("client.go", 176, 1)).
+							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 176, 44)}).
+							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 178, 2), DefaultValue: dagger.JSON("\"\"")})).
 					WithFunction(
 						dag.Function("WaitForReady",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("WaitForReady blocks until the named resource reports a condition\nindicating readiness, or `timeout` elapses. For Deployments the\n`Available: True` condition counts; for everything else the `Ready`\ncondition counts. timeout is parsed via time.ParseDuration.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 204, 1)).
-							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 204, 52)}).
-							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 206, 2), DefaultValue: dagger.JSON("\"\"")}).
-							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 207, 2)}).
-							WithArg("timeout", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 209, 2), DefaultValue: dagger.JSON("\"60s\"")}))).
+							WithSourceMap(dag.SourceMap("client.go", 206, 1)).
+							WithArg("resource", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 206, 52)}).
+							WithArg("namespace", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 208, 2), DefaultValue: dagger.JSON("\"\"")}).
+							WithArg("name", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 209, 2)}).
+							WithArg("timeout", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("client.go", 211, 2), DefaultValue: dagger.JSON("\"60s\"")}))).
 			WithObject(
 				dag.TypeDef().WithObject("Cluster", dagger.TypeDefWithObjectOpts{Description: "Cluster represents a running Kubernetes cluster: a single\ncontrol-plane node plus N worker nodes, each backed by a privileged\nkindest/node Dagger Service. Holds references to every service so\ncallers can bind them into their own containers or open a client-go\nClient against them.", SourceMap: dag.SourceMap("cluster.go", 45, 6)}).
 					WithFunction(
@@ -546,19 +546,19 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("APIServerEndpoint returns the host:port pair the cluster's\nkube-apiserver advertises on its external HTTPS listener (port\n6443). The hostname is a per-cluster Dagger WithHostname alias,\nreachable from any container in the same engine session.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("cluster.go", 277, 1))).
+							WithSourceMap(dag.SourceMap("cluster.go", 278, 1))).
 					WithFunction(
 						dag.Function("Client",
 							dag.TypeDef().WithObject("Client")).
 							WithDescription("Client returns a client-go Client that targets this cluster. Starts\nthe control-plane service if it isn't already running so the client's\nfirst API call doesn't race with cluster readiness.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("client.go", 52, 1))).
+							WithSourceMap(dag.SourceMap("client.go", 54, 1))).
 					WithFunction(
 						dag.Function("HealthzResponse",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("HealthzResponse curls https://<APIServerEndpoint>/healthz from a\nsidecar container bound to the control-plane service, and returns\nthe response body. Useful as an end-to-end probe that the cluster's\nkube-apiserver is up, the WithHostname-registered alias resolves\nin-session, and the auto-generated apiserver cert is valid for the\nhostname (added to certSANs at kubeadm init).\n\nReturns the body (expected `ok`) on a 2xx; surfaces curl's error on\ntransport failure or non-2xx status.\n\nLives inside the kubernetes module because Dagger Service handles\nreturned through GraphQL boundaries do not preserve the binding\nstate needed for cross-module WithServiceBinding — the binding\nmust be applied in the same chain that produces the exec.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("cluster.go", 300, 1))).
+							WithSourceMap(dag.SourceMap("cluster.go", 301, 1))).
 					WithFunction(
 						dag.Function("Kubeconfig",
 							dag.TypeDef().WithObject("File")).
@@ -570,7 +570,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Stop tears down every service container backing this cluster (the\ncontrol-plane plus every worker). SIGKILL skips graceful shutdown\n— kubeadm drain timeouts a torn-down test cluster doesn't need.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("cluster.go", 319, 1)))), nil
+							WithSourceMap(dag.SourceMap("cluster.go", 320, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}

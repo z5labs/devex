@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -302,7 +304,7 @@ func decodeManifestDocs(ctx context.Context, manifest *dagger.File) ([]*unstruct
 	for {
 		var u unstructured.Unstructured
 		if err := dec.Decode(&u); err != nil {
-			if err.Error() == "EOF" || strings.HasSuffix(err.Error(), "EOF") {
+			if errors.Is(err, io.EOF) {
 				break
 			}
 			return nil, fmt.Errorf("decode manifest yaml: %w", err)

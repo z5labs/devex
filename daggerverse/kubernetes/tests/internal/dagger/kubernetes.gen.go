@@ -30,7 +30,7 @@ func (r *Kubernetes) WithGraphQLQuery(q *querybuilder.Selection) *Kubernetes {
 // construction time. Works against a local KindCluster or any
 // reachable remote cluster — the kubeconfig is the only handle the
 // client needs.
-func (r *Kubernetes) Client(kubeconfig *File) *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:43:1)
+func (r *Kubernetes) Client(kubeconfig *File) *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:45:1)
 	assertNotNil("kubeconfig", kubeconfig)
 	q := r.query.Select("client")
 	q = q.Arg("kubeconfig", kubeconfig)
@@ -123,7 +123,8 @@ type KubernetesKindClusterOpts struct {
 //
 // Session-cached so chained method calls on the returned cluster
 // (e.g. Client.Apply → Client.Get) observe the SAME underlying
-// services. Every method on *Cluster carriesown line so any data-returning call re-executes per invocation.
+// services. Every method on *Cluster is never-cached, so any
+// data-returning call re-executes per invocation.
 //
 // `clusterName` is a caller-supplied discriminator that folds into
 // the session cache key. Parallel test suites should pass a unique
@@ -170,7 +171,7 @@ func (r *Kubernetes) AsNode() Node {
 // Client is a client-go-backed Kubernetes client. Each method opens a
 // fresh REST + dynamic client per call so the function is stateless
 // from Dagger's perspective.
-type KubernetesClient struct { // kubernetes (../../../../../daggerverse/kubernetes/client.go:31:6)
+type KubernetesClient struct { // kubernetes (../../../../../daggerverse/kubernetes/client.go:33:6)
 	query *querybuilder.Selection
 
 	apply        *Void
@@ -193,7 +194,7 @@ func (r *KubernetesClient) WithGraphQLQuery(q *querybuilder.Selection) *Kubernet
 // then applied with field manager `devex-kubernetes-module`.
 //
 // Malformed manifest YAML surfaces a wrapped decode error.
-func (r *KubernetesClient) Apply(ctx context.Context, manifest *File) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:76:1)
+func (r *KubernetesClient) Apply(ctx context.Context, manifest *File) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:78:1)
 	assertNotNil("manifest", manifest)
 	if r.apply != nil {
 		return nil
@@ -207,7 +208,7 @@ func (r *KubernetesClient) Apply(ctx context.Context, manifest *File) error { //
 // Delete deletes every resource named by every YAML document in the
 // manifest file. Missing resources (404) are treated as success — the
 // post-condition of Delete is "this resource does not exist".
-func (r *KubernetesClient) Delete(ctx context.Context, manifest *File) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:107:1)
+func (r *KubernetesClient) Delete(ctx context.Context, manifest *File) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:109:1)
 	assertNotNil("manifest", manifest)
 	if r.delete_ != nil {
 		return nil
@@ -220,7 +221,7 @@ func (r *KubernetesClient) Delete(ctx context.Context, manifest *File) error { /
 
 // KubernetesClientGetOpts contains options for KubernetesClient.Get
 type KubernetesClientGetOpts struct {
-	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:145:2)
+	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:147:2)
 }
 
 // Get returns the named resource as YAML. `resource` accepts the
@@ -231,7 +232,7 @@ type KubernetesClientGetOpts struct {
 //
 // Unknown resource shorthand returns an explicit "unknown resource"
 // error.
-func (r *KubernetesClient) Get(ctx context.Context, resource string, name string, opts ...KubernetesClientGetOpts) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/client.go:143:1)
+func (r *KubernetesClient) Get(ctx context.Context, resource string, name string, opts ...KubernetesClientGetOpts) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/client.go:145:1)
 	if r.get != nil {
 		return *r.get, nil
 	}
@@ -301,7 +302,7 @@ func (r *KubernetesClient) UnmarshalJSON(bs []byte) error {
 }
 
 // Kubeconfig returns the kubeconfig file this client is configured to use.
-func (r *KubernetesClient) Kubeconfig() *File { // kubernetes (../../../../../daggerverse/kubernetes/client.go:63:1)
+func (r *KubernetesClient) Kubeconfig() *File { // kubernetes (../../../../../daggerverse/kubernetes/client.go:65:1)
 	q := r.query.Select("kubeconfig")
 
 	return &File{
@@ -311,14 +312,14 @@ func (r *KubernetesClient) Kubeconfig() *File { // kubernetes (../../../../../da
 
 // KubernetesClientListOpts contains options for KubernetesClient.List
 type KubernetesClientListOpts struct {
-	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:176:2)
+	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:178:2)
 }
 
 // List returns the metadata.name of every resource of the given
 // shorthand. Empty `namespace` lists across all namespaces for
 // namespaced resources, or returns every cluster-scoped resource for
 // cluster-scoped shorthands like `nodes` or `namespaces`.
-func (r *KubernetesClient) List(ctx context.Context, resource string, opts ...KubernetesClientListOpts) ([]string, error) { // kubernetes (../../../../../daggerverse/kubernetes/client.go:174:1)
+func (r *KubernetesClient) List(ctx context.Context, resource string, opts ...KubernetesClientListOpts) ([]string, error) { // kubernetes (../../../../../daggerverse/kubernetes/client.go:176:1)
 	q := r.query.Select("list")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `namespace` optional argument
@@ -336,17 +337,17 @@ func (r *KubernetesClient) List(ctx context.Context, resource string, opts ...Ku
 
 // KubernetesClientWaitForReadyOpts contains options for KubernetesClient.WaitForReady
 type KubernetesClientWaitForReadyOpts struct {
-	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:206:2)
+	Namespace string // kubernetes (../../../../../daggerverse/kubernetes/client.go:208:2)
 
 	// Default: "60s"
-	Timeout string // kubernetes (../../../../../daggerverse/kubernetes/client.go:209:2)
+	Timeout string // kubernetes (../../../../../daggerverse/kubernetes/client.go:211:2)
 }
 
 // WaitForReady blocks until the named resource reports a condition
 // indicating readiness, or `timeout` elapses. For Deployments the
 // `Available: True` condition counts; for everything else the `Ready`
 // condition counts. timeout is parsed via time.ParseDuration.
-func (r *KubernetesClient) WaitForReady(ctx context.Context, resource string, name string, opts ...KubernetesClientWaitForReadyOpts) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:204:1)
+func (r *KubernetesClient) WaitForReady(ctx context.Context, resource string, name string, opts ...KubernetesClientWaitForReadyOpts) error { // kubernetes (../../../../../daggerverse/kubernetes/client.go:206:1)
 	if r.waitForReady != nil {
 		return nil
 	}
@@ -399,7 +400,7 @@ func (r *KubernetesCluster) WithGraphQLQuery(q *querybuilder.Selection) *Kuberne
 // kube-apiserver advertises on its external HTTPS listener (port
 // 6443). The hostname is a per-cluster Dagger WithHostname alias,
 // reachable from any container in the same engine session.
-func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:277:1)
+func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:278:1)
 	if r.apiserverEndpoint != nil {
 		return *r.apiserverEndpoint, nil
 	}
@@ -414,7 +415,7 @@ func (r *KubernetesCluster) ApiserverEndpoint(ctx context.Context) (string, erro
 // Client returns a client-go Client that targets this cluster. Starts
 // the control-plane service if it isn't already running so the client's
 // first API call doesn't race with cluster readiness.
-func (r *KubernetesCluster) Client() *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:52:1)
+func (r *KubernetesCluster) Client() *KubernetesClient { // kubernetes (../../../../../daggerverse/kubernetes/client.go:54:1)
 	q := r.query.Select("client")
 
 	return &KubernetesClient{
@@ -436,7 +437,7 @@ func (r *KubernetesCluster) Client() *KubernetesClient { // kubernetes (../../..
 // returned through GraphQL boundaries do not preserve the binding
 // state needed for cross-module WithServiceBinding — the binding
 // must be applied in the same chain that produces the exec.
-func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:300:1)
+func (r *KubernetesCluster) HealthzResponse(ctx context.Context) (string, error) { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:301:1)
 	if r.healthzResponse != nil {
 		return *r.healthzResponse, nil
 	}
@@ -526,7 +527,7 @@ func (r *KubernetesCluster) Kubeconfig() *File { // kubernetes (../../../../../d
 // Stop tears down every service container backing this cluster (the
 // control-plane plus every worker). SIGKILL skips graceful shutdown
 // — kubeadm drain timeouts a torn-down test cluster doesn't need.
-func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:319:1)
+func (r *KubernetesCluster) Stop(ctx context.Context) error { // kubernetes (../../../../../daggerverse/kubernetes/cluster.go:320:1)
 	if r.stop != nil {
 		return nil
 	}
