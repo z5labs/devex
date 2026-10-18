@@ -62,34 +62,76 @@ refusals() { # <refusals object, or nothing to remove the config>
 }
 refusals
 
-# check <name> <reviewer> <expected exit> <review json>
+# check <name> <reviewer> <expected exit> <review json> [<substring the message must carry>]
+#
+# The substring is how the two exit-2 answers are told apart: "pending" is a run
+# still going, "retry" is the point the live wait re-requests.
 check() {
-  local name=$1 reviewer=$2 want=$3 json=$4 got out
+  local name=$1 reviewer=$2 want=$3 json=$4 want_msg=${5:-} got out
   out=$(cd "$SCRATCH/cfg" && printf '%s' "$json" | "$SUT" --classify "$reviewer" 2>&1)
   got=$?
-  if [ "$got" = "$want" ]; then
-    ok "$name" "exit $got"
-  else
+  if [ "$got" != "$want" ]; then
     bad "$name" "want exit $want got $got: $(printf '%s' "$out" | tr '\n' ' ')"
+  elif [ -n "$want_msg" ] && ! printf '%s' "$out" | grep -qF -- "$want_msg"; then
+    bad "$name" "exit $got but the message never says '$want_msg': $(printf '%s' "$out" | tr '\n' ' ')"
+  else
+    ok "$name" "exit $got"
   fi
 }
+
+# A Copilot review is classified against the check runs its Actions workflow
+# left on the reviewed commit, so a copilot fixture carries both. The times are
+# humus #747's, where the error review landed at 19:04:19 and its run, started
+# at 19:02:20, completed four seconds later.
+REVIEWED_AT='2026-10-17T19:04:19Z'
+
+# run <status> <conclusion> <started_at> <completed_at>  — one check run
+run() {
+  jq -nc --arg s "$1" --arg c "$2" --arg a "$3" --arg z "$4" \
+    '{status:$s, conclusion:(if $c == "" then null else $c end),
+      started_at:$a, completed_at:(if $z == "" then null else $z end)}'
+}
+RUN_OK=$(run completed success '2026-10-17T19:02:20Z' '2026-10-17T19:04:23Z')
+RUN_FAILED=$(run completed failure '2026-10-17T19:02:20Z' '2026-10-17T19:04:23Z')
+
+# runs <run json>...  — a check-runs list
+runs() { printf '[%s]' "$(printf '%s,' "$@" | sed 's/,$//')"; }
+
+# copilot_review <body> <check runs json> [<state>]
+copilot_review() {
+  jq -nc --arg b "$1" --argjson c "$2" --arg s "${3:-COMMENTED}" --arg t "$REVIEWED_AT" \
+    '{state:$s, body:$b, submitted_at:$t, commit_id:"40261e8e55d2", checks:$c}'
+}
+
+# Verbatim from z5labs/humus #747-#750 and z5labs/devex #366.
+COPILOT_ERROR='Copilot encountered an error and was unable to review this pull request. You can try again by re-requesting a review.'
 
 printf '\ncompleted — the only outcome that may label a pull request\n'
 
 check 'a review with findings' copilot 0 \
-'{"state":"COMMENTED","body":"Two issues below, both minor."}'
+  "$(copilot_review 'Two issues below, both minor.' "$(runs "$RUN_OK")")"
 
 check 'a review that generated no comments' copilot 0 \
-'{"state":"COMMENTED","body":"Copilot reviewed 3 out of 3 changed files and generated no comments."}'
+  "$(copilot_review 'Copilot reviewed 3 out of 3 changed files and generated no comments.' "$(runs "$RUN_OK")")"
 
 # An approval is still a completed review. The cycle never asks for one and the
 # local rung never posts one, but a human approving alongside the bot must not
 # turn into a different verdict.
 check 'an approving review' copilot 0 \
-'{"state":"APPROVED","body":"Looks right."}'
+  "$(copilot_review 'Looks right.' "$(runs "$RUN_OK")" APPROVED)"
 
 check 'a review with an empty body' copilot 0 \
-'{"state":"COMMENTED","body":""}'
+  "$(copilot_review '' "$(runs "$RUN_OK")")"
+
+# The body shape Copilot posts today, which is not the one it posted in August.
+# Nothing in it is read: the run's conclusion is the verdict.
+check 'the current review body shape' copilot 0 \
+  "$(copilot_review $'<!-- ccr-overview-v2 -->\n\n### 🟢 Approval recommended' "$(runs "$RUN_OK")")"
+
+# The check has been seen completing two seconds BEFORE the review it produced
+# (humus #756), so "nearest" has to mean either side.
+check 'a run that completed just before its review' copilot 0 \
+  "$(copilot_review 'one nit' "$(runs "$(run completed success '2026-10-17T19:01:00Z' '2026-10-17T19:04:17Z')")")"
 
 # The local rung is classified by the same rules, which is what keeps one gate
 # over the whole roster.
@@ -118,7 +160,90 @@ check 'a local reviewer declining in the same words' local 1 \
 # Prose that merely mentions reviewing is not a refusal. A classifier loose
 # enough to catch this one BLOCKS on ordinary review comments.
 check 'a comment that merely discusses reviewing' copilot 0 \
-'{"state":"COMMENTED","body":"I was able to review this quickly; the change is small."}'
+  "$(copilot_review 'I was able to review this quickly; the change is small.' "$(runs "$RUN_OK")")"
+
+# The refusal wording is matched BEFORE the run is consulted. Nobody has seen
+# what a refusal's run concludes, and if it is `failure` then reading the run
+# first would make a refusal an error — which advances the roster, the one thing
+# a refusal must never do.
+check 'a refusal whose run failed is still a refusal' copilot 1 \
+  "$(copilot_review "Copilot wasn't able to review this pull request because it exceeds the maximum number of files (300)." "$(runs "$RUN_FAILED")")"
+
+printf '\nerrored — Copilot crashed; nothing reviewed the work, and nothing refused it\n'
+
+# THE case: humus #747, verbatim. Exit 0 on this was the bug. The first error on
+# a commit is a re-request, which --classify reports as exit 2 because it
+# requests nothing itself.
+check 'an error review whose run failed earns a re-request' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$RUN_FAILED")")" 'retry'
+check 'and the same through the desugared copilot rung' 'bot:copilot-pull-request-reviewer[bot]' 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$RUN_FAILED")")" 'retry'
+
+# The re-request failed too: two runs on the commit, the newer one behind this
+# error review. Unavailable for this pull request, which is exit 6 and not 3 —
+# 3 would retire Copilot for the run, and it reviewed the PRs either side fine.
+RETRIED=$(runs \
+  "$(run completed failure '2026-10-17T18:50:00Z' '2026-10-17T18:52:00Z')" \
+  "$RUN_FAILED")
+check 'an error that survives the re-request is exit 6' copilot 6 \
+  "$(copilot_review "$COPILOT_ERROR" "$RETRIED")"
+check 'and the same through the desugared copilot rung ' 'bot:copilot-pull-request-reviewer[bot]' 6 \
+  "$(copilot_review "$COPILOT_ERROR" "$RETRIED")"
+
+# What the user asked for: the verdict must not depend on the body. A failed run
+# behind a body that reads like a perfectly good review is still an error, and
+# whatever Copilot's next error says, its run fails the same way.
+check 'a failed run behind a review-shaped body is an error' copilot 6 \
+  "$(copilot_review $'<!-- ccr-overview-v3 -->\n\n### Looks good' "$RETRIED")"
+
+# The re-request's run is still going. A wait, not a verdict, and not another
+# re-request.
+check 'a run still in progress is pending' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$RUN_FAILED" "$(run in_progress '' '2026-10-17T19:05:00Z' '')")")" 'pending'
+check 'a queued run is pending too' copilot 2 \
+  "$(copilot_review 'one nit' "$(runs "$(run queued '' '2026-10-17T19:05:00Z' '')")")" 'pending'
+
+# The re-request's run succeeded and its review has not reached the timeline
+# yet — the check can complete before its review lands. The error is still the
+# newest review for those seconds, and must not be read as final.
+check 'a newer run that succeeded means its review is landing' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$RUN_FAILED" "$(run completed success '2026-10-17T19:05:00Z' '2026-10-17T19:07:30Z')")")" 'pending'
+
+# devex #366: the error review posted at 20:26:04, the same second the first run
+# was CREATED. No run produced it, so no run failed — and the runs that followed
+# went on to post a real review. While they run, wait.
+check 'an error review no run produced waits on the runs after it' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$(run in_progress '' '2026-10-17T19:04:29Z' '')")")" 'pending'
+
+# No run produced it and nothing is left running: the same retry as a failure.
+# The earlier run on this commit completed an hour before — it is the run behind
+# some earlier review, and the slack is what stops it vouching for this one.
+check 'an error review no run produced earns a re-request' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$(run completed success '2026-10-17T18:00:00Z' '2026-10-17T18:02:00Z')")")" 'retry'
+
+# A run that started AFTER this review cannot have produced it, however close
+# its completion — here one second, nearer than the run that did. Without that
+# rule it would be taken as this review's run and its success would vouch for
+# the error, exit 0. With it, it is the newer run whose review is landing.
+check 'a run that started after the review did not produce it' copilot 2 \
+  "$(copilot_review "$COPILOT_ERROR" "$(runs "$RUN_FAILED" "$(run completed success '2026-10-17T19:04:20Z' '2026-10-17T19:04:20Z')")")" 'pending'
+
+printf '\nno check run — the structure the verdict is read from is missing\n'
+
+# Renamed, never created, or a dispatch error with no run at all: the gate does
+# not fall back to guessing from the body, which is the defect it replaced. It
+# escalates, in the direction that cannot merge.
+check 'a copilot review with no check run escalates' copilot 5 \
+  "$(copilot_review 'one nit' '[]')"
+check 'and so does the error review with none' copilot 5 \
+  "$(copilot_review "$COPILOT_ERROR" '[]')"
+check 'a copilot review with no checks field escalates' copilot 5 \
+'{"state":"COMMENTED","body":"one nit","submitted_at":"2026-10-17T19:04:19Z"}'
+
+# Nothing about the local rung changed: it has no check run, and its review is
+# its own.
+check 'the local rung needs no check run' local 0 \
+'{"state":"COMMENTED","body":"Copilot encountered an error, says the log; the retry loop swallows it."}'
 
 printf '\nescalation — a bot whose refusal wording the plugin does not know\n'
 
@@ -167,7 +292,7 @@ refusals
 check 'the desugared copilot rung keeps the built-in wording' 'bot:copilot-pull-request-reviewer[bot]' 1 \
 '{"state":"COMMENTED","body":"Copilot wasn'"'"'t able to review this pull request because it exceeds the maximum number of files (300)."}'
 check 'the desugared copilot rung still completes' 'bot:copilot-pull-request-reviewer[bot]' 0 \
-'{"state":"COMMENTED","body":"Copilot reviewed 3 out of 3 changed files and generated no comments."}'
+  "$(copilot_review 'Copilot reviewed 3 out of 3 changed files and generated no comments.' "$(runs "$RUN_OK")")"
 
 printf '\nnothing to classify\n'
 
@@ -213,7 +338,7 @@ for a in "$@"; do
   [ "$prev" = --jq ] && q=$a
   case "$a" in
     --method) post=1 ;;
-    repos/*/timeline|repos/*/requested_reviewers|/users/*|/app|/repos/*/installation|/app/installations/*/access_tokens) path=$a ;;
+    repos/*/timeline|repos/*/requested_reviewers|repos/*/check-runs\?*|/users/*|/app|/repos/*/installation|/app/installations/*/access_tokens) path=$a ;;
   esac
   prev=$a
 done
@@ -227,6 +352,8 @@ case "$1 $2" in
 esac
 case "$path" in
   */timeline)             jqf "$FX/timeline" ;;
+  # Absent is a read that FAILED, which is a different answer from no runs.
+  *check-runs\?*)         [ -f "$FX/checks" ] || exit 1; jqf "$FX/checks" ;;
   */requested_reviewers)
     [ "$post" = 1 ] && exit 0
     jqf "$FX/requested" ;;
@@ -243,9 +370,26 @@ printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 
 reviewed() { # <login> <submitted_at> <body>
   jq -nc --arg l "$1" --arg t "$2" --arg b "$3" \
-    '{event:"reviewed", submitted_at:$t, state:"COMMENTED", body:$b, user:{login:$l}}'
+    '{event:"reviewed", submitted_at:$t, state:"COMMENTED", body:$b,
+      commit_id:"40261e8e55d2", user:{login:$l}}'
 }
 timeline() { printf '[%s]\n' "$(printf '%s,' "$@" | sed 's/,$//')" >"$SCRATCH/fx/timeline"; }
+
+# checks <check runs json>, or nothing to make the read fail — the response the
+# check-runs endpoint gives for Copilot's runs on the reviewed commit.
+checks() {
+  if [ $# -eq 0 ]; then
+    rm -f "$SCRATCH/fx/checks"
+    return
+  fi
+  printf '{"total_count":0,"check_runs":%s}\n' "$1" >"$SCRATCH/fx/checks"
+}
+
+# The run behind a review submitted at midnight on 1 and 2 January, which is
+# when the timeline fixtures below land.
+checks "$(runs \
+  "$(run completed success '2025-12-31T23:58:00Z' '2026-01-01T00:00:02Z')" \
+  "$(run completed success '2026-01-01T23:58:00Z' '2026-01-02T00:00:02Z')")"
 
 # w_run <expected exit> <args...>  — one poll of zero seconds, so a wait that
 # is going to time out does so immediately.
@@ -318,6 +462,70 @@ printf '{"node_id":"BOT_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
 printf '{"data":{"requestReviews":{"pullRequest":{"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Bot","login":"copilot-pull-request-reviewer"}}]}}}}}\n' >"$SCRATCH/fx/graphql"
 timeline
 checkw 'a request the mutation placed leaves the wait pending' 2 12 copilot
+
+printf '\nan errored copilot run, through the wait\n'
+
+# requested_call — did this run try to place a review request? Both doors count:
+# the mutation, and the REST fallback behind it.
+requested_call() { grep -qE '^api graphql|--method POST' "$SCRATCH/fx/calls" 2>/dev/null; }
+
+# checkw_calls <name> <expected exit> <requests? yes|no> <args...>
+checkw_calls() {
+  local name=$1 want=$2 req=$3; shift 3
+  : >"$SCRATCH/fx/calls"
+  w_run "$@"
+  local did=no
+  requested_call && did=yes
+  if [ "$W_RC" != "$want" ]; then
+    bad "$name" "want exit $want got $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
+  elif [ "$did" != "$req" ]; then
+    bad "$name" "exit $W_RC, but a review request placed: want $req got $did"
+  else
+    ok "$name" "exit $W_RC, request placed: $did"
+  fi
+}
+
+# humus #747 on the timeline: the error review, and the one failed run behind
+# it. Copilot has left the requested reviewers, as it did there. The gate
+# re-requests — once — and goes back to waiting; exit 0 here was the bug.
+timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
+checks "$(runs "$RUN_FAILED")"
+printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+checkw_calls 'an errored run is re-requested, not passed' 2 yes 12 copilot
+
+# Re-entered before the re-request's run has appeared: Copilot is back among the
+# requested reviewers, and that is what stops a second request being placed.
+printf '{"users":[{"login":"copilot-pull-request-reviewer[bot]"}],"teams":[]}\n' >"$SCRATCH/fx/requested"
+checkw_calls 'a re-request already placed is not placed again' 2 no 12 copilot
+
+# The re-request's run is going. Wait on it; ask for nothing.
+printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+checks "$(runs "$RUN_FAILED" "$(run in_progress '' '2026-10-17T19:05:00Z' '')")"
+checkw_calls 'a run in flight is waited on, not re-requested' 2 no 12 copilot
+
+# It failed too. Unavailable for this pull request — exit 6, never 3 — and no
+# third run is asked for.
+checks "$RETRIED"
+checkw_calls 'an error that survives the re-request is exit 6' 6 no 12 copilot
+
+# A re-request that cannot be placed. Copilot reviewed this very pull request a
+# minute ago, so this is not the rung telling us it is down for the run: exit 6,
+# and not the exit 3 an initial request that fails gets.
+rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
+checks "$(runs "$RUN_FAILED")"
+checkw 'a re-request that cannot be placed is exit 6, not 3' 6 12 copilot
+
+# The check-runs read fails. That is not "no check run" — answered as one it is
+# exit 5 on a network blip — and it is certainly not a completed review.
+checks
+checkw 'a check-runs read that fails is not a verdict' 2 12 copilot
+
+# And a renamed or missing check, read successfully as none: escalate.
+checks '[]'
+checkw 'a review with no check run behind it escalates' 5 12 copilot
+
+printf '{"node_id":"BOT_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
+printf '{"data":{"requestReviews":{"pullRequest":{"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Bot","login":"copilot-pull-request-reviewer"}}]}}}}}\n' >"$SCRATCH/fx/graphql"
 
 # ------------------------------------------------------- the generic rung -----
 printf '\na bot:<login> rung, through the same wait\n'

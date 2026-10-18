@@ -13,8 +13,9 @@
 #
 # `copilot` is sugar for `bot:copilot-pull-request-reviewer[bot]`, and writing
 # the desugared form gets identical behaviour: that login is the one bot this
-# plugin KNOWS, so it carries a built-in timeline filter and a built-in refusal
-# wording. Every other login is a bot the plugin has never seen.
+# plugin KNOWS, so it carries a built-in timeline filter, a built-in refusal
+# wording and a built-in check run to read its verdict from. Every other login
+# is a bot the plugin has never seen.
 #
 # Why this is a script and not three numbered steps.
 #
@@ -84,6 +85,31 @@
 # `review.refusals["bot:<login>"]`, and that rung then classifies exactly as
 # copilot does.
 #
+# And a fourth, for Copilot alone: ERRORED. Copilot answers a run that crashed
+# with a review too — "Copilot encountered an error and was unable to review
+# this pull request" — and that body matched neither the refusal wording nor
+# anything else, so it was returned as a completed review: four pull requests in
+# a row on z5labs/humus (#747-#750) exited 0 on it. Widening the refusal pattern
+# would be the wrong fix twice over. An error says nothing about the work, so it
+# must not stop the cycle the way a refusal does; and the wording is Copilot's
+# to change — its ordinary review body has already changed shape once, from
+# "## Pull request overview" in August 2026 to `<!-- ccr-overview-v2 -->` in
+# October — so every new phrasing would be another merge on a review that never
+# happened.
+#
+# So Copilot's verdict is read from STRUCTURE rather than prose. Copilot code
+# review runs as a GitHub Actions workflow, and each run leaves a check run
+# named `copilot-pull-request-reviewer` on the commit it reviewed: `success`
+# beside every real review observed, `failure` beside every error review, and
+# completed within seconds of the review it produced. The review is matched to
+# the run that produced it by commit and by time, and that run's conclusion is
+# the verdict. An error is retried once — the error body itself invites it, and
+# on devex #366 a real review followed an error on the same commit — and an
+# error that survives the retry is exit 6: unavailable FOR THIS PULL REQUEST,
+# which advances the roster without retiring Copilot for the run. The refusal
+# wording is still matched first, because a refusal must stop the cycle however
+# its run concluded.
+#
 # Exit codes:
 #   0  a review COMPLETED — it left comments, or reported that it generated none
 #   1  the most recent review REFUSED the work; stdout is its body. BLOCKED:
@@ -105,7 +131,15 @@
 #      code because the run has learned something different: not "the bot
 #      refused" but "the bot may have refused and the plugin cannot tell". A
 #      report that conflates the two teaches its reader a refusal that never
-#      happened
+#      happened. For copilot it is also what a review with NO
+#      `copilot-pull-request-reviewer` check run on its commit gets: the
+#      structure the verdict is read from is missing — renamed, or never
+#      created — and guessing from the body is the defect the check replaced
+#   6  ERRORED, copilot only: Copilot's own run failed on this commit, and
+#      failed again after one re-request. stdout is the review body. Advance the
+#      roster, and do NOT remember the rung: it is unavailable for this pull
+#      request, not for the run — on the run that found #747-#750, Copilot
+#      reviewed the pull requests either side of them normally
 
 set -uo pipefail
 
@@ -132,6 +166,12 @@ REVIEWER_KIND=""
 REVIEWER_LOGIN=""
 REVIEWER_MATCH=""
 REVIEWER_REFUSAL=""
+# 1 when the rung is Copilot under either spelling, which is the only rung whose
+# verdict has a check run to be read from.
+REVIEWER_COPILOT=0
+# What the last classification left undecided: `pending` (wait on) or `retry`
+# (re-request, then wait on). Empty after anything that exits.
+VERDICT=""
 
 # The one bot this plugin knows, and the one refusal wording it has ever
 # observed. Both are built in, and neither is configurable: `copilot` is not a
@@ -142,6 +182,16 @@ COPILOT_LOGIN='copilot-pull-request-reviewer[bot]'
 # The apostrophe is matched loosely because GitHub has rendered it both as ' and
 # as a typographic quote.
 COPILOT_REFUSAL="was(n.?t| not) able to review"
+# The check run Copilot's Actions workflow leaves on the commit it reviewed.
+# Its name is not a documented contract either, but a rename surfaces as "no
+# check run" — exit 5, a human reads it — where a reworded body slipped through
+# as exit 0.
+COPILOT_CHECK=copilot-pull-request-reviewer
+# How far apart a run's completion and its review may land and still be one
+# event. Observed: the review 2s before to 4s after. Wide enough for a slow
+# GitHub, narrow enough that an earlier run on the same commit — the review
+# before a re-request — is never mistaken for this review's.
+COPILOT_SLACK_SECONDS=120
 
 # Read cwd-relative, exactly as select-issue.sh reads it, and optional: absent
 # or unparseable means no rung carries a configured wording, which is the safe
@@ -172,11 +222,11 @@ configured_refusal() { # <rung>
 resolve_refusal() { # <reviewer>
   case "$1" in
     copilot)
-      REVIEWER=copilot;  REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
+      REVIEWER=copilot;  REVIEWER_REFUSAL=$COPILOT_REFUSAL; REVIEWER_COPILOT=1 ;;
     local)
       REVIEWER=local;    REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
     "bot:$COPILOT_LOGIN")
-      REVIEWER="$1";     REVIEWER_REFUSAL=$COPILOT_REFUSAL ;;
+      REVIEWER="$1";     REVIEWER_REFUSAL=$COPILOT_REFUSAL; REVIEWER_COPILOT=1 ;;
     bot:?*)
       REVIEWER="$1";     REVIEWER_REFUSAL=$(configured_refusal "$1") ;;
     none)
@@ -224,8 +274,57 @@ resolve_reviewer() { # <reviewer>
   esac
 }
 
+# What Copilot's own runs say about the review in front of us. Input is the
+# review with `.checks` — every `copilot-pull-request-reviewer` check run on the
+# review's commit, as {status, conclusion, started_at, completed_at} — and the
+# answer is one word:
+#
+#   unknown    no check run at all, or no timestamp to match one by
+#   pending    a run is still going, or a run newer than this review's has
+#              succeeded and its review has not reached the timeline yet (the
+#              check has been seen completing 2s BEFORE its review)
+#   completed  the run that produced this review succeeded
+#   retry      it failed, or no run produced it at all (devex #366: the error
+#              review posted before any run started), and this commit has had
+#              at most one run — so no re-request has been tried yet
+#   errored    the same, after a re-request
+#
+# "The run that produced it" is the run that started no later than the review
+# and completed nearest it, within COPILOT_SLACK_SECONDS. Both conditions are
+# load bearing: without the first, a re-request's run (started after an error
+# review) would vouch for the error; without the second, the run behind an
+# earlier review on the same commit would.
+#
+# The retry is counted in check runs rather than remembered, so it is the same
+# answer on every re-entry of this script and across workers.
+copilot_verdict() { # <review json with .checks>
+  printf '%s' "$1" | jq -r --argjson slack "$COPILOT_SLACK_SECONDS" '
+    def ts: if . == null or . == "" then null
+            else sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 end;
+    def abs: if . < 0 then -. else . end;
+    (.submitted_at | ts) as $t
+    | (.checks // []) as $runs
+    | if ($runs | length) == 0 or $t == null then "unknown"
+      elif any($runs[]; .status != "completed") then "pending"
+      else
+        ([ $runs[]
+           | select((.started_at | ts) != null and (.completed_at | ts) != null)
+           | select((.started_at | ts) <= $t)
+           | . + {gap: ((.completed_at | ts) - $t | abs)}
+           | select(.gap <= $slack) ]
+         | min_by(.gap)) as $producer
+        | if $producer.conclusion == "success" then "completed"
+          elif any($runs[]; .conclusion == "success"
+                   and ((.started_at | ts) // 0) > (($producer.started_at | ts) // $t))
+            then "pending"
+          elif ($runs | length) < 2 then "retry"
+          else "errored" end
+      end' 2>/dev/null
+}
+
 classify() { # <review json>
-  local state body rc
+  local state body rc verdict
+  VERDICT=""
   state=$(printf '%s' "$1" | jq -r '.state // ""' 2>/dev/null)
   body=$(printf '%s' "$1" | jq -r '.body // ""' 2>/dev/null)
 
@@ -255,12 +354,42 @@ classify() { # <review json>
       fail 4 "review.refusals[\"$REVIEWER\"] in $CFG is not a usable POSIX extended regular expression; nothing can be classified against it" ;;
   esac
 
+  # Not refused, so for Copilot the question left is whether a review happened
+  # at all, and the body is not asked. Returning (rather than exiting) is how
+  # the two undecided answers reach the caller, which owns the request and the
+  # wait.
+  if [ "$REVIEWER_COPILOT" = 1 ]; then
+    verdict=$(copilot_verdict "$1")
+    case "$verdict" in
+      completed) ;;
+      pending)
+        VERDICT=pending
+        note "Copilot's review run on PR #$PR has not settled yet"
+        return 0 ;;
+      retry)
+        VERDICT=retry
+        note "Copilot's review run on PR #$PR did not produce a review; one re-request is due"
+        return 0 ;;
+      errored)
+        printf '%s\n' "$body"
+        fail 6 "$REVIEWER ERRORED on PR #$PR: its own review run failed, and failed again after a re-request, so nothing reviewed the work. This rung is unavailable for THIS pull request only: advance the roster, and do NOT record it as unavailable for the run" ;;
+      *)
+        printf '%s\n' "$body"
+        fail 5 "a $REVIEWER review landed on PR #$PR with no $COPILOT_CHECK check run on its commit to say whether it completed. That check is what this gate reads Copilot's verdict from, so it cannot tell a review from an error. Read the review above: do not label the pull request, and do not advance the roster" ;;
+    esac
+  fi
+
   printf '%s review completed [%s]\n%s\n' "$REVIEWER" "$state" "$body"
   exit 0
 }
 
 # The classification seam, so the rules above are pinned by fixtures rather than
 # by a live pull request. Everything else in this script is polling and a bound.
+#
+# A copilot review on stdin carries `submitted_at` and `.checks` — the check runs
+# the live path fetches for it. Both undecided answers are exit 2 here, because
+# this form requests nothing: `retry` is the point at which the live wait would
+# re-request, and the message says which of the two it was.
 if [ "${1:-}" = --classify ]; then
   [ $# -eq 2 ] || fail 4 "usage: await-review.sh --classify <reviewer>  (a review as JSON on stdin)"
   command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
@@ -269,6 +398,7 @@ if [ "${1:-}" = --classify ]; then
   INPUT=$(cat)
   [ -n "$INPUT" ] || fail 2 "nothing to classify"
   classify "$INPUT"
+  fail 2 "not settled: $VERDICT"
 fi
 
 USAGE='usage: await-review.sh [--id-env <name>] [--key-env <name>] <pr-number> [<reviewer>]'
@@ -334,7 +464,9 @@ REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
 resolve_reviewer "${ARGS[1]:-copilot}"
 
 # --------------------------------------------------------------- reading ------
-# The most recent review by this rung, as {state, body}, or nothing.
+# The most recent review by this rung, as {state, body, submitted_at,
+# commit_id}, or nothing. The last two are what Copilot's check runs are
+# matched to it by.
 #
 # `jq -s` slurps the per-page objects back into one array before sorting.
 # Sorting inside --jq would sort each page separately and yield the last review
@@ -353,14 +485,48 @@ latest_review() {
   | jq -s --arg match "$REVIEWER_MATCH" \
       'map(select(.user.login // "" | test($match;"i")))
        | sort_by(.submitted_at) | last // empty
-       | {state: (.state // ""), body: (.body // "")}' \
+       | {state: (.state // ""), body: (.body // ""),
+          submitted_at: (.submitted_at // ""), commit_id: (.commit_id // "")}' \
     2>/dev/null
+}
+
+# The review, with every Copilot check run on the commit it reviewed attached as
+# `.checks`. `filter=all` because the default, `latest`, keeps one run per check
+# suite — and the failed run before a re-request is the evidence the retry is
+# counted by. A read that fails is not an empty list: answered as one, it would
+# be exit 5 on a network blip, so it returns 1 and the caller waits instead.
+with_checks() { # <review json>
+  local sha runs
+  sha=$(printf '%s' "$1" | jq -r '.commit_id // ""' 2>/dev/null)
+  if [ -z "$sha" ]; then
+    printf '%s' "$1"
+    return 0
+  fi
+  runs=$(gh api "repos/$REPO/commits/$sha/check-runs?check_name=$COPILOT_CHECK&filter=all&per_page=100" \
+           --jq '[.check_runs[]? | {status, conclusion, started_at, completed_at}]' 2>/dev/null) \
+    || return 1
+  printf '%s' "$runs" | jq -e 'type == "array"' >/dev/null 2>&1 || return 1
+  printf '%s' "$1" | jq -c --argjson runs "$runs" '. + {checks: $runs}'
+}
+
+# classify, with what it needs fetched first. Exits on every verdict but the two
+# undecided ones, which come back in VERDICT.
+settle() { # <review json>
+  local review=$1
+  if [ "$REVIEWER_COPILOT" = 1 ]; then
+    if ! review=$(with_checks "$1"); then
+      VERDICT=pending
+      note "could not read the $COPILOT_CHECK check runs for PR #$PR; treating the review as not settled yet"
+      return 0
+    fi
+  fi
+  classify "$review"
 }
 
 EXISTING=$(latest_review)
 if [ -n "$EXISTING" ]; then
   note "a $REVIEWER review is already on PR #$PR; not requesting another"
-  classify "$EXISTING"
+  settle "$EXISTING"
 fi
 
 # ------------------------------------------------------------- requesting -----
@@ -415,8 +581,29 @@ request_review() {
   requested
 }
 
+# The one re-request an errored Copilot run earns. Copilot leaves the requested
+# reviewers when it posts its error review (observed on humus #747-#750), so
+# "still requested" means this re-request has already been placed and its run
+# has not appeared yet — which is what stops every poll in between from placing
+# another. A re-request that cannot be placed is exit 6, not 3: Copilot was
+# working a minute ago on this very pull request, so nothing here says it is
+# down for the run.
+retry_review() {
+  if requested; then
+    note "$REVIEWER is already re-requested on PR #$PR"
+    return 0
+  fi
+  note "Copilot's review run on PR #$PR failed; re-requesting once, as its error review invites"
+  request_review \
+    || fail 6 "$REVIEWER ERRORED on PR #$PR and the re-request could not be placed. This rung is unavailable for THIS pull request only: advance the roster, and do NOT record it as unavailable for the run"
+}
+
 if [ "$REVIEWER_KIND" = local ]; then
   note "the local rung posts its own review; nothing to request on PR #$PR"
+elif [ "$VERDICT" = pending ]; then
+  note "waiting on Copilot's run for the review already on PR #$PR; not requesting another"
+elif [ "$VERDICT" = retry ]; then
+  retry_review
 elif requested; then
   note "$REVIEWER is already a requested reviewer on PR #$PR"
 elif request_review; then
@@ -429,7 +616,11 @@ fi
 for _ in $(seq 1 "$POLL_COUNT"); do
   sleep "$POLL_SECONDS"
   REVIEW=$(latest_review)
-  [ -n "$REVIEW" ] && classify "$REVIEW"
+  [ -n "$REVIEW" ] || continue
+  settle "$REVIEW"
+  [ "$VERDICT" = retry ] && retry_review
 done
 
+[ -n "$VERDICT" ] \
+  && fail 2 "a $REVIEWER review is on PR #$PR, but Copilot's review run had not settled after $((POLL_COUNT * POLL_SECONDS))s; re-run to keep waiting. Do not retire this rung on it"
 fail 2 "no $REVIEWER review on PR #$PR after $((POLL_COUNT * POLL_SECONDS))s; re-run to keep waiting. Silence is not unavailability: a slow reviewer looks exactly like this, so do not retire this rung on it"

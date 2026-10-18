@@ -106,6 +106,8 @@ not a conversation.
   here; it halts you at `BLOCKED`. It threads those into the next iteration so the run
   stops paying for a reviewer that is down. A rung that merely went *silent* does not belong
   on that line: silence is what a slow reviewer looks like, and retiring one on it costs every
-  remaining iteration its best reviewer.
+  remaining iteration its best reviewer. Neither does a Copilot run that *errored* on this
+  pull request (the gate's exit 6). Say `Reviewer: local (copilot errored on this pull
+  request)`, and never use the word *unavailable* for it.
 - Keep it to a handful of lines. Detail belongs in the pull request, not in the caller's
   context.
