@@ -4,6 +4,8 @@
 #
 # Usage: finish-issue.sh <issue-number> <pr-number> [branch]
 #        branch defaults to issue-<issue-number>
+#        finish-issue.sh --classify-runs --sha <sha>
+#                          # classify the merge workflow's runs (JSON on stdin)
 #
 # Why this is a script and not five numbered steps.
 #
@@ -30,12 +32,37 @@
 # settings — a script working around that rule would be the wrong shape whether
 # or not any single deletion was harmless.
 #
+# Why the wait reads the merge workflow's runs, not only the pull request.
+#
+# The label does not merge anything by itself: it starts the merge workflow,
+# and that run arms auto merge. If the run fails — auto merge disabled on the
+# repository, squash not allowed, a token missing a permission, a secret's name
+# mistyped — nothing is armed and the pull request stays OPEN for ever. Read
+# only the pull request's state and that looks exactly like a merge queued
+# behind a slow check, so the wait asked to be re-run until its budget was
+# spent: Zaba505/backup #13 waited a quarter of an hour on a run that had
+# already failed.
+#
+# So each poll also reads the merge workflow's runs on the pull request's head
+# commit (`merge.workflow` in `.claude/backlog.json`), and the newest one that
+# is a merge attempt decides. A run every job of which was skipped is another
+# label's `labeled` event, not a merge attempt, and is passed over. Failed,
+# cancelled or otherwise dead is exit 5, at once, naming the run. Running, or
+# succeeded with the pull request still open, keeps waiting; so does no run at
+# all, or one that cannot be read — the run is queued a few seconds after the
+# label lands, and an unreadable list is not a verdict. A run on an earlier head
+# is not this head's, in either direction. `--classify-runs` exposes exactly
+# that decision on stdin, with no network, which is what `finish-issue_test.sh`
+# exercises.
+#
 # Exit codes:
 #   0  merged and the issue is closed (cleanup warnings, if any, go to stderr)
 #   1  the pull request closed without merging
 #   2  timed out waiting for the merge
 #   3  the issue would not close
 #   4  usage or precondition failure
+#   5  the merge workflow's run on the pull request's head failed or was
+#      cancelled, so auto merge was never armed; stderr names the run
 
 set -uo pipefail
 
@@ -49,6 +76,58 @@ POLL_SECONDS=${BACKLOG_MERGE_POLL_SECONDS:-15}
 fail() { local code=$1; shift; printf 'finish-issue: %s\n' "$*" >&2; exit "$code"; }
 warn() { printf 'finish-issue: WARN %s\n' "$*" >&2; }
 
+command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
+
+# ------------------------------------------------------------ classifying -----
+# `gh run list --json databaseId,status,conclusion,headSha,createdAt,url` for
+# the merge workflow in, one verdict out. Prints the run it is reporting on, as
+# `<conclusion, or status while it runs>  <url>`.
+#
+# Only runs on <sha> exist, and of those, runs whose every job was skipped are
+# not merge attempts. The newest of what is left decides:
+#
+#   0  it succeeded: auto merge is armed, and the merge waits on GitHub
+#   1  it failed, was cancelled, timed out, never started or wants an approval:
+#      nothing is armed, so the pull request will not merge
+#   2  it is still running, or ended in a conclusion not known to be fatal
+#   3  nothing to classify: no run on <sha> yet, or the input is not an array
+classify_runs() { # <runs json> <sha>
+  local json=$1 sha=$2 latest verdict
+  printf '%s' "$json" | jq -e 'type == "array"' >/dev/null 2>&1 || return 3
+
+  latest=$(printf '%s' "$json" | jq -c --arg sha "$sha" '
+    [ .[] | select(.headSha == $sha)
+          | select((.status == "completed" and (.conclusion | IN("skipped", "neutral"))) | not) ]
+    | sort_by(.createdAt) | last // empty')
+  [ -n "$latest" ] || return 3
+
+  verdict=$(printf '%s' "$latest" | jq -r '
+    (if .status == "completed" then .conclusion else .status end) as $s
+    | "\($s // "unknown")  \(.url // "")"')
+  printf '%s\n' "$verdict"
+
+  printf '%s' "$latest" | jq -e '.status == "completed"' >/dev/null || return 2
+  printf '%s' "$latest" | jq -e '.conclusion == "success"' >/dev/null && return 0
+  printf '%s' "$latest" | jq -e '.conclusion
+    | IN("failure", "cancelled", "timed_out", "startup_failure", "action_required")' >/dev/null && return 1
+  return 2
+}
+
+if [ "${1:-}" = --classify-runs ]; then
+  shift
+  sha=''
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --sha) [ $# -ge 2 ] || fail 4 "--sha needs a value"; sha=$2; shift 2 ;;
+      *) fail 4 "usage: finish-issue.sh --classify-runs --sha <sha>  (JSON on stdin)" ;;
+    esac
+  done
+  [ -n "$sha" ] || fail 4 "usage: finish-issue.sh --classify-runs --sha <sha>  (JSON on stdin)"
+  classify_runs "$(cat)" "$sha"
+  exit $?
+fi
+
+# -------------------------------------------------------------- finishing -----
 [ $# -ge 2 ] || fail 4 "usage: finish-issue.sh <issue-number> <pr-number> [branch]"
 ISSUE=$1
 PR=$2
@@ -71,22 +150,54 @@ read -r REPO DEFAULT_BRANCH <<<"$(gh repo view --json nameWithOwner,defaultBranc
 [ -n "${REPO:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] \
   || fail 4 "cannot resolve the repository slug and default branch from gh"
 
+# The merge workflow, read from the main checkout's config. Without it the wait
+# still works — it just cannot tell a failed merge run from a slow merge, which
+# is the silence this check exists to end, so say so rather than skip quietly.
+WORKFLOW=$(jq -r '.merge.workflow // ""' .claude/backlog.json 2>/dev/null || printf '')
+[ -n "$WORKFLOW" ] \
+  || warn "no merge.workflow in $MAIN/.claude/backlog.json; a failed merge run will read as a slow merge"
+
 # ---------------------------------------------------------------- wait --------
 # The merge is asynchronous: labelling queues it and GitHub completes it when the
-# required checks finish. Both failure paths exit non-zero, so a timeout or an
-# unmerged close cannot be mistaken for success by a caller reading the code
-# rather than the text.
-state=""
-for _ in $(seq 1 "$POLL_COUNT"); do
-  state=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state 2>/dev/null || printf '')
+# required checks finish. Every failure path exits non-zero, so a timeout, an
+# unmerged close or a dead merge run cannot be mistaken for success by a caller
+# reading the code rather than the text.
+#
+# The run list is filtered by workflow and commit, not by event: a locally
+# adapted merge workflow may not trigger on `pull_request_target`, and any run
+# of the merge workflow on this head is a merge attempt or one of the jobs that
+# follow a merge — which never get here, because MERGED is read first.
+state="" run=""
+for i in $(seq 1 "$POLL_COUNT"); do
+  read -r state head <<<"$(gh pr view "$PR" --repo "$REPO" --json state,headRefOid \
+    --jq '"\(.state) \(.headRefOid)"' 2>/dev/null || printf '')"
   case "$state" in
     MERGED) break ;;
     CLOSED) fail 1 "PR #$PR closed without merging" ;;
   esac
-  sleep "$POLL_SECONDS"
+
+  if [ -n "$WORKFLOW" ] && [ -n "${head:-}" ]; then
+    run=$(classify_runs "$(gh run list --repo "$REPO" --workflow "$WORKFLOW" --commit "$head" --limit 20 \
+      --json databaseId,status,conclusion,headSha,createdAt,url 2>/dev/null)" "$head")
+    [ $? -eq 1 ] \
+      && fail 5 "the $WORKFLOW run on PR #$PR at ${head:0:12} ended '${run%%  *}', so auto merge was never armed and the pull request will not merge: ${run#*  } — read it with \`gh run view ${run##*/} --repo $REPO --log-failed\`"
+  fi
+
+  [ "$i" -lt "$POLL_COUNT" ] && sleep "$POLL_SECONDS"
 done
-[ "$state" = MERGED ] \
-  || fail 2 "PR #$PR is ${state:-unreadable} after $((POLL_COUNT * POLL_SECONDS))s; re-run to keep waiting"
+
+if [ "$state" != MERGED ]; then
+  # Say what the merge run looked like at the bound, so the re-run that follows
+  # is not blind: armed and waiting on a check, still running, or no run at all.
+  if [ -z "$WORKFLOW" ] || [ -z "${head:-}" ]; then
+    note=''
+  elif [ -n "$run" ]; then
+    note="; the latest $WORKFLOW run on ${head:0:12} is '${run%%  *}' (${run#*  })"
+  else
+    note="; no $WORKFLOW run on ${head:0:12} has been reported — is the merge label on it?"
+  fi
+  fail 2 "PR #$PR is ${state:-unreadable} after $((POLL_COUNT * POLL_SECONDS))s$note; re-run to keep waiting"
+fi
 
 SHA=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit --jq '.mergeCommit.oid // ""' 2>/dev/null || printf '')
 
