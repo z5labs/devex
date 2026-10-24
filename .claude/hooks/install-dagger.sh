@@ -31,6 +31,7 @@
 #   BIN_DIR       where the CLI goes (default ~/.local/bin)
 #   DOCKERD_LOG   dockerd's log (default /tmp/dockerd.log)
 #   DOCKERD_WAIT  seconds to wait for `docker info` (default 30)
+#   DOCKER_RUN_DIR  dockerd's exec root (default /var/run/docker)
 #
 # Always exits 0: a session without Dagger is better than no session. A second
 # run in the same session finds both in place and says nothing.
@@ -48,6 +49,7 @@ workflow="$root/.github/workflows/change-aware-ci.yml"
 bin=${BIN_DIR:-$HOME/.local/bin}
 log=${DOCKERD_LOG:-/tmp/dockerd.log}
 wait=${DOCKERD_WAIT:-30}
+run=${DOCKER_RUN_DIR:-/var/run/docker}
 
 allow="allow it under the environment's Network access → Allowed domains"
 
@@ -110,6 +112,10 @@ if ! docker info >/dev/null 2>&1; then
   if ! command -v dockerd >/dev/null 2>&1; then
     say "no Docker daemon answers and dockerd is not installed; the Dagger engine cannot start"
   else
+    # A resumed session keeps the previous container's files but not its
+    # processes. dockerd then reads containerd's old pid file, takes containerd
+    # for running, and exits; with no dockerd alive, that file is stale.
+    pgrep -x dockerd >/dev/null 2>&1 || rm -f "$run/containerd/containerd.pid"
     # Detached and with every descriptor redirected, so the hook's exit neither
     # waits on dockerd nor takes it down.
     setsid nohup dockerd </dev/null >"$log" 2>&1 &

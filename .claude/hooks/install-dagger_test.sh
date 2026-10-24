@@ -71,7 +71,7 @@ stubs() {
 run() {
   local repo=$1 dir=$2
   CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR="$repo" CLAUDE_ENV_FILE="$dir/env" \
-    BIN_DIR="$dir/bin" DOCKERD_LOG="$dir/dockerd.log" DOCKERD_WAIT=1 \
+    BIN_DIR="$dir/bin" DOCKERD_LOG="$dir/dockerd.log" DOCKERD_WAIT=1 DOCKER_RUN_DIR="$dir/run" \
     PATH="$dir:/usr/bin:/bin" "$SUT"
 }
 
@@ -200,6 +200,26 @@ if [[ $out == *"dockerd did not answer within 1s; see $dir/dockerd.log"*exit=0 ]
   ok 'a daemon that never answers is reported after the bounded wait, and the hook exits 0'
 else
   bad 'a daemon that never answers is reported after the bounded wait, and the hook exits 0' "output: $out"
+fi
+
+# A resumed session: the previous container's containerd pid file survived, its
+# process did not. A dockerd stub that exits, as the real one does, while it
+# finds that file.
+repo="$WORK/r12"; dir="$WORK/s12"; workflow "$repo" 1.0.0-beta.15; stubs "$dir" 1.0.0-beta.15
+mkdir -p "$dir/run/containerd"; echo 236 >"$dir/run/containerd/containerd.pid"
+printf '#!/bin/sh\n[ -e "%s/up" ]\n' "$dir" >"$dir/docker"
+printf '#!/bin/sh\n[ -e "%s/run/containerd/containerd.pid" ] && exit 1\ntouch "%s/up"\n' "$dir" "$dir" >"$dir/dockerd"
+# pgrep is the real one, so a dockerd running on this machine would hide the
+# case; say so rather than fail it.
+if pgrep -x dockerd >/dev/null 2>&1; then
+  printf '  skip a stale containerd pid file is cleared (a dockerd is running here)\n'
+else
+  out=$(run "$repo" "$dir")
+  if [ ! -e "$dir/run/containerd/containerd.pid" ] && [[ $out == *"started dockerd"* ]]; then
+    ok 'a stale containerd pid file from a resumed session is cleared before dockerd starts'
+  else
+    bad 'a stale containerd pid file from a resumed session is cleared before dockerd starts' "output: $out"
+  fi
 fi
 
 repo="$WORK/r10"; dir="$WORK/s10"; workflow "$repo" 1.0.0-beta.15; stubs "$dir" 1.0.0-beta.15
