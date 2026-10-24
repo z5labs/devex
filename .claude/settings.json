@@ -4,6 +4,19 @@
       "Bash(bash .github/scripts/verify-affected-modules.sh)"
     ]
   },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/install-plugins.sh"
+          }
+        ]
+      }
+    ]
+  },
   "enabledPlugins": {
     "daggerverse@z5labs-devex": true,
     "backlog@z5labs-devex": true
