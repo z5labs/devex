@@ -97,6 +97,32 @@ See [`plugins/README.md`](plugins/README.md) for the plugin layout. To develop
 against an unmerged local checkout, run `/plugin marketplace add .` from the
 repo root instead.
 
+### In cloud sessions
+
+A [cloud session](https://code.claude.com/docs/en/claude-code-on-the-web) ignores
+the plugins and marketplaces declared in `.claude/settings.json`, because adding
+them needs the workspace trust dialog and a cloud session never shows one.
+[`.claude/hooks/install-plugins.sh`](.claude/hooks/install-plugins.sh) declares
+them in the session's user settings instead, with the marketplace pointing at
+the checkout, so the plugins load from the branch the session is on.
+
+Claude Code loads plugins when it starts, so where the script runs decides
+when they appear:
+
+- **The environment's [setup script](https://code.claude.com/docs/en/cloud-environments#setup-scripts)**,
+  which runs before Claude Code starts. The plugins are there from the first
+  prompt. Add this line to it:
+
+  ```
+  bash /home/user/devex/.claude/hooks/install-plugins.sh /home/user/devex || true
+  ```
+
+  Setup scripts belong to the environment, not the repository, so if the
+  environment also serves other repositories, the line still names this one.
+- **The `SessionStart` hook in `.claude/settings.json`**, which runs it in every
+  cloud session without any environment setup. Claude Code has started by then,
+  so run `/reload-plugins` once to load them, or start the next session.
+
 ## CI
 
 Every module has a sibling `tests/` module whose suite is a Dagger check.
