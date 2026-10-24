@@ -123,6 +123,26 @@ when they appear:
   cloud session without any environment setup. Claude Code has started by then,
   so run `/reload-plugins` once to load them, or start the next session.
 
+## Dagger in cloud sessions
+
+A cloud session starts without Dagger or a running container runtime. The
+`SessionStart` hook
+[`.claude/hooks/install-dagger.sh`](.claude/hooks/install-dagger.sh) installs
+the Dagger CLI at the version pinned by `dagger-version` in
+[`change-aware-ci.yml`](.github/workflows/change-aware-ci.yml), puts it on
+`PATH`, and starts `dockerd` for the engine, so `dagger check` runs as it does
+in CI.
+
+The environment's network policy has to allow two hosts:
+
+- `dl.dagger.io`, which serves the install script and the CLI.
+- `registry.dagger.io`, which serves the engine image.
+
+Add them under the environment's [Network access → Allowed
+domains](https://code.claude.com/docs/en/cloud-environments#network-access). If
+either one is blocked, the hook prints a line naming it, and the session starts
+without Dagger.
+
 ## CI
 
 Every module has a sibling `tests/` module whose suite is a Dagger check.
