@@ -184,7 +184,7 @@ reason.
 | `Config.Validate()` | `tofu validate`, after an `init -backend=false`. |
 | `Config.Init()` | `tofu init`; returns the root module plus `.terraform.lock.hcl`. |
 | `Config.Lock(platforms)` | `tofu providers lock`; a `.terraform.lock.hcl` covering every named platform. |
-| `Config.Plan(destroy, targets)` | A directory of `plan.tfplan`, `plan.json`, `plan.txt`, `changes`. |
+| `Config.Plan(destroy, refreshOnly, targets)` | A directory of `plan.tfplan`, `plan.json`, `plan.txt`, `changes`; `refreshOnly` plans only drift (`tofu plan -refresh-only`). |
 | `Config.Apply(plan, targets)` | A directory of `terraform.tfstate`, `outputs.json`, `apply.log`. |
 | `Config.Destroy(targets)` | A directory of `terraform.tfstate`, `outputs.json`, `destroy.log`. |
 | `Config.Outputs()` | `tofu output -json`. |
@@ -201,7 +201,7 @@ reason.
 | `Config.Ci()` | A chained CI pipeline builder over this configuration. |
 | `Ci.WithFmt()` | Enable the `fmt` stage. |
 | `Ci.WithValidate()` | Enable the `validate` stage. |
-| `Ci.WithPlan(failOnChanges)` | Enable the `plan` stage; `failOnChanges` makes it a drift gate. |
+| `Ci.WithPlan(failOnChanges, refreshOnly)` | Enable the `plan` stage; `failOnChanges` makes it a drift gate, `refreshOnly` plans with `-refresh-only`. |
 | `Ci.Check()` | Run the enabled stages in parallel; aggregated error. |
 | `Ci.Run()` | The same stages, returning the plan artifacts. |
 
@@ -259,6 +259,16 @@ from the saved plan file — one run, because under `+cache="never"` a second
 `tofu plan` to obtain the JSON form could legitimately disagree with the
 first. `changes` is `none` or `changes`, from `-detailed-exitcode`.
 
+`Plan(refreshOnly: true)` runs `tofu plan -refresh-only` and returns the same
+four files. An ordinary plan's `changes` mixes what moved outside `tofu` since
+the last apply with what moved in the configuration; a refresh-only plan
+reports only the first, so `changes` is `none` exactly when the infrastructure
+still matches its state. It is not `Refresh`: `Refresh` is `tofu apply
+-refresh-only -auto-approve`, which writes the drift into state, so the next
+check passes on a target that drifted. A refresh-only plan writes nothing back.
+It reads live infrastructure, so it is `+cache="never"` like every plan.
+`refreshOnly` together with `destroy` is rejected, naming both.
+
 Everything stateful returns a `*Directory` rather than a module object: Dagger
 v0.21 detaches module objects returned from `+cache="never"` functions when a
 consumer reads their fields lazily, and a `*Directory` is a core type that
@@ -282,7 +292,22 @@ dag.Opentofu().
     WithValidate().
     WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true}).
     Check(ctx)
+
+// A drift detector that ignores configuration changes not yet applied: only a
+// change made outside tofu since the last apply fails it.
+dag.Opentofu().
+    Config(source).
+    WithSecretVariable("AWS_ACCESS_KEY_ID", key).
+    Ci().
+    WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true, RefreshOnly: true}).
+    Check(ctx)
 ```
+
+`WithPlan(refreshOnly: true)` plans with `-refresh-only`, as `Config.Plan`
+does. An ordinary drift gate fails on any non-empty plan, including one that
+only proposes a configuration change still waiting to be applied; a
+refresh-only gate fails only when the infrastructure moved away from its
+state. The option also applies to the plan `Run` returns.
 
 The builder hangs off `Config` rather than off the root type — a divergence
 from `Zig.Ci(source)` and `Kicad.Ci(source)`. Every stage beyond `fmt` needs

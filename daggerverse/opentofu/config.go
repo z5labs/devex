@@ -452,6 +452,12 @@ func (c *Config) Lock(
 // (`tofu show -json`), plan.txt (the human-readable rendering) and changes
 // (`none` or `changes`, from `-detailed-exitcode`).
 //
+// Pass refreshOnly to ask only what changed outside tofu since the last apply
+// (`-refresh-only`): changes is then `none` exactly when the infrastructure
+// still matches the state, whatever the configuration now says. It is a plan,
+// not Refresh — nothing is written back, so the drift it reports is still
+// there for the next check to find.
+//
 // One run, not two: under +cache="never" a second `tofu plan` invocation to
 // obtain the JSON form could legitimately disagree with the first. The JSON
 // and text renderings are derived from the saved plan file, so they describe
@@ -463,10 +469,20 @@ func (c *Config) Plan(
 	// Plan the destruction of all remote objects (`-destroy`).
 	// +default=false
 	destroy bool,
+	// Plan only the changes made outside tofu since the last apply
+	// (-refresh-only), leaving the configuration out of it.
+	// +default=false
+	refreshOnly bool,
 	// Limit the plan to these resource addresses (`-target`).
 	// +optional
 	targets []string,
 ) (*dagger.Directory, error) {
+	if destroy && refreshOnly {
+		// tofu rejects the pair too, but only after an init; refusing here
+		// names both options in the module's own terms.
+		return nil, fmt.Errorf("Plan: destroy and refreshOnly are mutually exclusive — " +
+			"a refresh-only plan reports drift, a destroy plan proposes teardown")
+	}
 	ctr, err := c.initialized(ctx)
 	if err != nil {
 		return nil, err
@@ -479,6 +495,9 @@ func (c *Config) Plan(
 	args := []string{"tofu", "plan", "-input=false", "-no-color", "-detailed-exitcode", "-out=" + planFileName}
 	if destroy {
 		args = append(args, "-destroy")
+	}
+	if refreshOnly {
+		args = append(args, "-refresh-only")
 	}
 	args = append(args, c.varArgs()...)
 	args = append(args, targetArgs(targets)...)

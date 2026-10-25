@@ -35,6 +35,8 @@ type Ci struct {
 	PlanEnabled bool
 	// +private
 	PlanFailOnChanges bool
+	// +private
+	PlanRefreshOnly bool
 }
 
 // Ci returns a new pipeline builder bound to this configuration. Everything
@@ -67,13 +69,22 @@ func (ci *Ci) WithValidate() *Ci {
 // plan against live infrastructure fails the check. Left false, the stage only
 // gates on the plan *succeeding*, which is the right shape for a pull-request
 // gate where pending changes are the whole point of the change.
+//
+// Pass refreshOnly to plan with `-refresh-only`, as Config.Plan does: the plan
+// then covers only what changed outside tofu since the last apply, so a drift
+// gate fails on infrastructure that moved and not on a configuration change
+// still waiting to be applied. It also applies to the plan Run returns.
 func (ci *Ci) WithPlan(
 	// Fail the check when the plan is non-empty.
 	// +default=false
 	failOnChanges bool,
+	// Plan only the changes made outside tofu since the last apply.
+	// +default=false
+	refreshOnly bool,
 ) *Ci {
 	ci.PlanEnabled = true
 	ci.PlanFailOnChanges = failOnChanges
+	ci.PlanRefreshOnly = refreshOnly
 	return ci
 }
 
@@ -199,7 +210,7 @@ func (ci *Ci) runValidate(ctx context.Context) error {
 // being re-run: Config.Plan already resolved the run when it built that
 // directory, so this is a read of a finished plan, not a second one.
 func (ci *Ci) runPlan(ctx context.Context) (*dagger.Directory, error) {
-	dir, err := ci.Config.Plan(ctx, false, nil)
+	dir, err := ci.Config.Plan(ctx, false, ci.PlanRefreshOnly, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +227,11 @@ func (ci *Ci) runPlan(ctx context.Context) (*dagger.Directory, error) {
 	text, err := dir.File(planTextFileName).Contents(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read %s from the plan: %s", planTextFileName, errText(err))
+	}
+	if ci.PlanRefreshOnly {
+		return nil, fmt.Errorf(
+			"tofu plan -refresh-only: the infrastructure has changed outside tofu and "+
+				"WithPlan(failOnChanges: true) requires an empty plan:\n%s", text)
 	}
 	return nil, fmt.Errorf(
 		"tofu plan: the configuration has pending changes and WithPlan(failOnChanges: true) "+
