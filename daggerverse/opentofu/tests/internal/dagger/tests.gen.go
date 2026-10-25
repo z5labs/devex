@@ -20,78 +20,84 @@ func (r *Query) Tests() *Tests { // tests (../../../../../:0:0)
 type Tests struct { // tests (../../../../../:0:0)
 	query *querybuilder.Selection
 
-	all                                         *Void
-	applyConsumesSavedPlan                      *Void
-	applyFailsOnProviderError                   *Void
-	applyProducesStateAndOutputs                *Void
-	applyRejectsTargetsWithSavedPlan            *Void
-	applyShouldNotBeCached                      *Void
-	backendConfigFileMatchesBackendConfig       *Void
-	ciCheckAggregatesStageFailures              *Void
-	ciCheckPassesOnCleanConfiguration           *Void
-	ciCheckReportsInvalidConfiguration          *Void
-	ciCheckReportsUnformattedConfiguration      *Void
-	ciCheckWithPlanAllowsChangesByDefault       *Void
-	ciCheckWithPlanDetectsDrift                 *Void
-	ciCheckWithPlanPassesOnAppliedState         *Void
-	ciCheckWithoutStagesIsRejected              *Void
-	ciCheckWithoutValidateSkipsIt               *Void
-	ciRunFailsOnFailedCheck                     *Void
-	ciRunProducesPlanArtifacts                  *Void
-	concurrentAppliesDoNotCorruptState          *Void
-	containerHasGitAndCaCertificates            *Void
-	containerHasTofu                            *Void
-	destroyEmptiesState                         *Void
-	destroyWithoutStateOrBackendIsRejected      *Void
-	fmtAcceptsFormattedConfiguration            *Void
-	fmtReportsUnformattedConfiguration          *Void
-	formatDropsCarriedState                     *Void
-	formatLeavesFormattedConfigurationUnchanged *Void
-	formatLeavesInputDirectoryUntouched         *Void
-	formatRewritesUnformattedConfiguration      *Void
-	graphRendersDependencyGraph                 *Void
-	id                                          *ID
-	importBringsResourceUnderManagement         *Void
-	importRejectsAddressAbsentFromConfiguration *Void
-	initProducesLockFile                        *Void
-	lockCoversRequestedPlatforms                *Void
-	lockRejectsUnavailablePlatform              *Void
-	lockWithoutPlatformsProducesUsableLockFile  *Void
-	outputsReturnsJson                          *Void
-	planAgainstAppliedStateReportsNoChanges     *Void
-	planDestroyReportsDeletions                 *Void
-	planReportsChanges                          *Void
-	planShouldNotBeCached                       *Void
-	planTargetsLimitScope                       *Void
-	refreshUpdatesStateWithoutChanges           *Void
-	remoteBackendRoundTripsState                *Void
-	remoteWorkspacesIsolateState                *Void
-	secretVarReachesTofuWithoutLeaking          *Void
-	secretVariableBindsEnvironmentSecret        *Void
-	showRendersState                            *Void
-	stateAndBackendConfigAreRejected            *Void
-	stateAndBackendConfigFileAreRejected        *Void
-	stateListOnEmptyStateIsEmpty                *Void
-	stateListReportsAppliedAddresses            *Void
-	stateMvRejectsUnknownAddress                *Void
-	stateMvRenamesAddress                       *Void
-	stateRmDropsAddressFromState                *Void
-	stateRmRejectsUnknownAddress                *Void
-	stateShowRejectsUnknownAddress              *Void
-	stateShowReturnsResourceJson                *Void
-	taintProposesReplacement                    *Void
-	untaintClearsReplacement                    *Void
-	validateAcceptsValidConfiguration           *Void
-	validateRejectsInvalidConfiguration         *Void
-	validateWorksWithoutBackendCredentials      *Void
-	versionAcceptsMinimalSuffix                 *Void
-	versionReportsRelease                       *Void
-	withEnvVariableIsVisibleToTofu              *Void
-	withVarFileSuppliesVariables                *Void
-	withVarOverridesDefault                     *Void
-	withVarRejectsNameContainingEquals          *Void
-	withWorkspaceIsolatesState                  *Void
-	withoutPluginCacheStillApplies              *Void
+	all                                                   *Void
+	applyConsumesSavedPlan                                *Void
+	applyFailsOnProviderError                             *Void
+	applyProducesStateAndOutputs                          *Void
+	applyRejectsTargetsWithSavedPlan                      *Void
+	applyShouldNotBeCached                                *Void
+	backendConfigFileMatchesBackendConfig                 *Void
+	ciCheckAggregatesStageFailures                        *Void
+	ciCheckPassesOnCleanConfiguration                     *Void
+	ciCheckReportsInvalidConfiguration                    *Void
+	ciCheckReportsUnformattedConfiguration                *Void
+	ciCheckWithPlanAllowsChangesByDefault                 *Void
+	ciCheckWithPlanDetectsDrift                           *Void
+	ciCheckWithPlanPassesOnAppliedState                   *Void
+	ciCheckWithRefreshOnlyPlanDetectsDrift                *Void
+	ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges *Void
+	ciCheckWithoutStagesIsRejected                        *Void
+	ciCheckWithoutValidateSkipsIt                         *Void
+	ciRunFailsOnFailedCheck                               *Void
+	ciRunProducesPlanArtifacts                            *Void
+	concurrentAppliesDoNotCorruptState                    *Void
+	containerHasGitAndCaCertificates                      *Void
+	containerHasTofu                                      *Void
+	destroyEmptiesState                                   *Void
+	destroyWithoutStateOrBackendIsRejected                *Void
+	fmtAcceptsFormattedConfiguration                      *Void
+	fmtReportsUnformattedConfiguration                    *Void
+	formatDropsCarriedState                               *Void
+	formatLeavesFormattedConfigurationUnchanged           *Void
+	formatLeavesInputDirectoryUntouched                   *Void
+	formatRewritesUnformattedConfiguration                *Void
+	graphRendersDependencyGraph                           *Void
+	id                                                    *ID
+	importBringsResourceUnderManagement                   *Void
+	importRejectsAddressAbsentFromConfiguration           *Void
+	initProducesLockFile                                  *Void
+	lockCoversRequestedPlatforms                          *Void
+	lockRejectsUnavailablePlatform                        *Void
+	lockWithoutPlatformsProducesUsableLockFile            *Void
+	outputsReturnsJson                                    *Void
+	planAgainstAppliedStateReportsNoChanges               *Void
+	planDestroyReportsDeletions                           *Void
+	planRefreshOnlyAfterApplyReportsNone                  *Void
+	planRefreshOnlyIgnoresConfigurationChanges            *Void
+	planRefreshOnlyReportsDriftWithoutChangingState       *Void
+	planRefreshOnlyWithDestroyIsRejected                  *Void
+	planReportsChanges                                    *Void
+	planShouldNotBeCached                                 *Void
+	planTargetsLimitScope                                 *Void
+	refreshUpdatesStateWithoutChanges                     *Void
+	remoteBackendRoundTripsState                          *Void
+	remoteWorkspacesIsolateState                          *Void
+	secretVarReachesTofuWithoutLeaking                    *Void
+	secretVariableBindsEnvironmentSecret                  *Void
+	showRendersState                                      *Void
+	stateAndBackendConfigAreRejected                      *Void
+	stateAndBackendConfigFileAreRejected                  *Void
+	stateListOnEmptyStateIsEmpty                          *Void
+	stateListReportsAppliedAddresses                      *Void
+	stateMvRejectsUnknownAddress                          *Void
+	stateMvRenamesAddress                                 *Void
+	stateRmDropsAddressFromState                          *Void
+	stateRmRejectsUnknownAddress                          *Void
+	stateShowRejectsUnknownAddress                        *Void
+	stateShowReturnsResourceJson                          *Void
+	taintProposesReplacement                              *Void
+	untaintClearsReplacement                              *Void
+	validateAcceptsValidConfiguration                     *Void
+	validateRejectsInvalidConfiguration                   *Void
+	validateWorksWithoutBackendCredentials                *Void
+	versionAcceptsMinimalSuffix                           *Void
+	versionReportsRelease                                 *Void
+	withEnvVariableIsVisibleToTofu                        *Void
+	withVarFileSuppliesVariables                          *Void
+	withVarOverridesDefault                               *Void
+	withVarRejectsNameContainingEquals                    *Void
+	withWorkspaceIsolatesState                            *Void
+	withoutPluginCacheStillApplies                        *Void
 }
 
 func (r *Tests) WithGraphQLQuery(q *querybuilder.Selection) *Tests {
@@ -289,6 +295,29 @@ func (r *Tests) CiCheckWithPlanPassesOnAppliedState(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("ciCheckWithPlanPassesOnAppliedState")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithRefreshOnlyPlanDetectsDrift asserts a refresh-only drift gate
+// fails on an object changed outside tofu.
+func (r *Tests) CiCheckWithRefreshOnlyPlanDetectsDrift(ctx context.Context) error {
+	if r.ciCheckWithRefreshOnlyPlanDetectsDrift != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithRefreshOnlyPlanDetectsDrift")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges asserts the same gate
+// passes when only the configuration moved — the case an ordinary drift gate
+// cannot tell apart from drift.
+func (r *Tests) CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(ctx context.Context) error {
+	if r.ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges")
 
 	return q.Execute(ctx)
 }
@@ -663,6 +692,55 @@ func (r *Tests) PlanDestroyReportsDeletions(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("planDestroyReportsDeletions")
+
+	return q.Execute(ctx)
+}
+
+// PlanRefreshOnlyAfterApplyReportsNone asserts a refresh-only plan against the
+// state an apply just produced, with the object it created untouched, has
+// nothing to report.
+func (r *Tests) PlanRefreshOnlyAfterApplyReportsNone(ctx context.Context) error {
+	if r.planRefreshOnlyAfterApplyReportsNone != nil {
+		return nil
+	}
+	q := r.query.Select("planRefreshOnlyAfterApplyReportsNone")
+
+	return q.Execute(ctx)
+}
+
+// PlanRefreshOnlyIgnoresConfigurationChanges asserts a refresh-only plan
+// reports nothing when only the configuration moved, while an ordinary plan
+// over the same inputs proposes the change — drift is measured against what
+// was applied, not against today's configuration.
+func (r *Tests) PlanRefreshOnlyIgnoresConfigurationChanges(ctx context.Context) error {
+	if r.planRefreshOnlyIgnoresConfigurationChanges != nil {
+		return nil
+	}
+	q := r.query.Select("planRefreshOnlyIgnoresConfigurationChanges")
+
+	return q.Execute(ctx)
+}
+
+// PlanRefreshOnlyReportsDriftWithoutChangingState asserts a refresh-only plan
+// sees an object changed outside tofu, emits the same four artifacts any plan
+// does, and leaves the state it was given as it was — which is what separates
+// it from Refresh, whose drift report is the state it already rewrote.
+func (r *Tests) PlanRefreshOnlyReportsDriftWithoutChangingState(ctx context.Context) error {
+	if r.planRefreshOnlyReportsDriftWithoutChangingState != nil {
+		return nil
+	}
+	q := r.query.Select("planRefreshOnlyReportsDriftWithoutChangingState")
+
+	return q.Execute(ctx)
+}
+
+// PlanRefreshOnlyWithDestroyIsRejected asserts the module refuses the pair
+// itself, naming both options, rather than leaving tofu to fail on it.
+func (r *Tests) PlanRefreshOnlyWithDestroyIsRejected(ctx context.Context) error {
+	if r.planRefreshOnlyWithDestroyIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("planRefreshOnlyWithDestroyIsRejected")
 
 	return q.Execute(ctx)
 }
