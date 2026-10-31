@@ -472,6 +472,48 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).OutputsReturnsJson(&parent, ctx)
+		case "PathAppliesAndDestroysRootModuleOutsideModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathAppliesAndDestroysRootModuleOutsideModules(&parent, ctx)
+		case "PathLeavingSourceIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathLeavingSourceIsRejected(&parent, ctx)
+		case "PathMissingFromSourceIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathMissingFromSourceIsRejected(&parent, ctx)
+		case "PathPlansRootModuleOutsideModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathPlansRootModuleOutsideModules(&parent, ctx)
+		case "PathReturnsRootModuleFromInit":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathReturnsRootModuleFromInit(&parent, ctx)
+		case "PathValidatesRootModuleOutsideModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PathValidatesRootModuleOutsideModules(&parent, ctx)
 		case "PlanAgainstAppliedStateReportsNoChanges":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -556,6 +598,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).RemoteWorkspacesIsolateState(&parent, ctx)
+		case "RootModuleBoundAloneCannotReachOutsideModules":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).RootModuleBoundAloneCannotReachOutsideModules(&parent, ctx)
 		case "SecretVarReachesTofuWithoutLeaking":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -858,12 +907,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("ContainerHasGitAndCaCertificates",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasGitAndCaCertificates asserts the two things the -minimal image\nomits and every non-trivial configuration needs: git, for module sources,\nand a CA bundle, for the provider registry.").
-							WithSourceMap(dag.SourceMap("main.go", 162, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 170, 1))).
 					WithFunction(
 						dag.Function("ContainerHasTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasTofu asserts the assembled container exposes the tofu binary on\nPATH, so the escape hatch documented on Container() actually works.").
-							WithSourceMap(dag.SourceMap("main.go", 146, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 154, 1))).
 					WithFunction(
 						dag.Function("DestroyEmptiesState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -945,6 +994,36 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithDescription("OutputsReturnsJson asserts Outputs reads the output values out of the\nsupplied state.").
 							WithSourceMap(dag.SourceMap("lifecycle.go", 381, 1))).
 					WithFunction(
+						dag.Function("PathAppliesAndDestroysRootModuleOutsideModules",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathAppliesAndDestroysRootModuleOutsideModules asserts the file-carried state\nround trip works from a root module below source: Apply hands back the state\ntofu wrote in the root module, and Destroy reads it back from WithState.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 70, 1))).
+					WithFunction(
+						dag.Function("PathLeavingSourceIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathLeavingSourceIsRejected asserts a path climbing out of source is refused\nwith an error naming it, however it is spelled, and so is an absolute one.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 145, 1))).
+					WithFunction(
+						dag.Function("PathMissingFromSourceIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathMissingFromSourceIsRejected asserts a path that is not a directory in\nsource — absent, or naming a file — is refused with an error naming it.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 133, 1))).
+					WithFunction(
+						dag.Function("PathPlansRootModuleOutsideModules",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathPlansRootModuleOutsideModules asserts Plan runs in the root module and\nhands back plan files describing the module it uses.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 36, 1))).
+					WithFunction(
+						dag.Function("PathReturnsRootModuleFromInit",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathReturnsRootModuleFromInit asserts Init hands back the root module, not\nthe tree around it: the lock file sits at the top of the result, and the\nsibling modules/ directory is not in it.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 107, 1))).
+					WithFunction(
+						dag.Function("PathValidatesRootModuleOutsideModules",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PathValidatesRootModuleOutsideModules asserts a root module reaching a module\noutside its own directory validates once the whole tree is bound.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 27, 1))).
+					WithFunction(
 						dag.Function("PlanAgainstAppliedStateReportsNoChanges",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanAgainstAppliedStateReportsNoChanges asserts the state Apply emits is\nre-consumable: feeding it back to a fresh Config leaves nothing to do.\n\nThis is the round trip that makes file-carried state usable at all — the\ncaller persists terraform.tfstate between runs, and tofu has to recognise\nits own work in it.").
@@ -1005,6 +1084,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("RemoteWorkspacesIsolateState asserts WithWorkspace partitions a remote\nbackend: an apply in one workspace is invisible to a plan in another, and\nthe two states are distinct objects in the bucket.\n\nThe local backend makes this awkward to see — each workspace's state comes\nback as the same terraform.tfstate file in a different directory — which is\nwhy the isolation is pinned here rather than alongside the file-carried\nworkspace test.").
 							WithSourceMap(dag.SourceMap("backend.go", 153, 1))).
+					WithFunction(
+						dag.Function("RootModuleBoundAloneCannotReachOutsideModules",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("RootModuleBoundAloneCannotReachOutsideModules asserts what path exists to\nfix: binding roots/app on its own leaves ../../modules/pet outside what tofu\nwas handed, so init cannot find it.").
+							WithSourceMap(dag.SourceMap("rootpath.go", 126, 1))).
 					WithFunction(
 						dag.Function("SecretVarReachesTofuWithoutLeaking",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -1099,12 +1183,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("VersionAcceptsMinimalSuffix",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal\nsuffix lands on the same image as one who does not — the suffix is appended\nonly when absent.").
-							WithSourceMap(dag.SourceMap("main.go", 188, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 196, 1))).
 					WithFunction(
 						dag.Function("VersionReportsRelease",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionReportsRelease asserts Version reports the release New was asked for.").
-							WithSourceMap(dag.SourceMap("main.go", 174, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 182, 1))).
 					WithFunction(
 						dag.Function("WithEnvVariableIsVisibleToTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

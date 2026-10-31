@@ -492,16 +492,23 @@ func (p planDocument) addresses() []string {
 type stateDocument struct {
 	Version   int `json:"version"`
 	Resources []struct {
-		Mode string `json:"mode"`
-		Type string `json:"type"`
-		Name string `json:"name"`
+		// Module is the resource's module path, module.<name>[...]; empty for
+		// a resource in the root module.
+		Module string `json:"module"`
+		Mode   string `json:"mode"`
+		Type   string `json:"type"`
+		Name   string `json:"name"`
 	} `json:"resources"`
 }
 
 func (s stateDocument) addresses() []string {
 	out := make([]string, 0, len(s.Resources))
 	for _, r := range s.Resources {
-		out = append(out, r.Type+"."+r.Name)
+		addr := r.Type + "." + r.Name
+		if r.Module != "" {
+			addr = r.Module + "." + addr
+		}
+		out = append(out, addr)
 	}
 	slices.Sort(out)
 	return out

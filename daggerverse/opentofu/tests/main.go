@@ -83,6 +83,14 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PlanRefreshOnlyIgnoresConfigurationChanges", t.PlanRefreshOnlyIgnoresConfigurationChanges)
 	jobs = jobs.WithJob("PlanRefreshOnlyWithDestroyIsRejected", t.PlanRefreshOnlyWithDestroyIsRejected)
 
+	jobs = jobs.WithJob("PathValidatesRootModuleOutsideModules", t.PathValidatesRootModuleOutsideModules)
+	jobs = jobs.WithJob("PathPlansRootModuleOutsideModules", t.PathPlansRootModuleOutsideModules)
+	jobs = jobs.WithJob("PathAppliesAndDestroysRootModuleOutsideModules", t.PathAppliesAndDestroysRootModuleOutsideModules)
+	jobs = jobs.WithJob("PathReturnsRootModuleFromInit", t.PathReturnsRootModuleFromInit)
+	jobs = jobs.WithJob("RootModuleBoundAloneCannotReachOutsideModules", t.RootModuleBoundAloneCannotReachOutsideModules)
+	jobs = jobs.WithJob("PathMissingFromSourceIsRejected", t.PathMissingFromSourceIsRejected)
+	jobs = jobs.WithJob("PathLeavingSourceIsRejected", t.PathLeavingSourceIsRejected)
+
 	jobs = jobs.WithJob("ApplyProducesStateAndOutputs", t.ApplyProducesStateAndOutputs)
 	jobs = jobs.WithJob("ApplyConsumesSavedPlan", t.ApplyConsumesSavedPlan)
 	jobs = jobs.WithJob("ApplyFailsOnProviderError", t.ApplyFailsOnProviderError)

@@ -25,12 +25,34 @@ func (r *Opentofu) WithGraphQLQuery(q *querybuilder.Selection) *Opentofu {
 	}
 }
 
+// OpentofuConfigOpts contains options for Opentofu.Config
+type OpentofuConfigOpts struct {
+	// The root module's directory within source, as a relative path.
+	//
+	// Default: "."
+	Path string
+}
+
 // Config binds a root module directory to the toolchain. source is the whole
 // tree, not a lone file: tofu resolves sub-modules, .tfvars files and the
 // dependency lock file relative to the root module.
-func (r *Opentofu) Config(source *Directory) *OpentofuConfig {
+//
+// path names the root module's directory within source when it is not source
+// itself — a repository that keeps reusable modules in modules/ and its root
+// modules elsewhere, referring to them as ../../modules/<name>. All of source
+// is copied in and every tofu command runs in path, so those relative module
+// sources resolve. Everything a function reads or returns — the lock file,
+// carried state, plan files, what Fmt checks and Format rewrites — stays
+// relative to the root module.
+func (r *Opentofu) Config(source *Directory, opts ...OpentofuConfigOpts) *OpentofuConfig {
 	assertNotNil("source", source)
 	q := r.query.Select("config")
+	for i := len(opts) - 1; i >= 0; i-- {
+		// `path` optional argument
+		if !querybuilder.IsZeroValue(opts[i].Path) {
+			q = q.Arg("path", opts[i].Path)
+		}
+	}
 	q = q.Arg("source", source)
 
 	return &OpentofuConfig{

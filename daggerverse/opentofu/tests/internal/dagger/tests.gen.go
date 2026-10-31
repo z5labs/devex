@@ -60,6 +60,12 @@ type Tests struct { // tests (../../../../../:0:0)
 	lockRejectsUnavailablePlatform                        *Void
 	lockWithoutPlatformsProducesUsableLockFile            *Void
 	outputsReturnsJson                                    *Void
+	pathAppliesAndDestroysRootModuleOutsideModules        *Void
+	pathLeavingSourceIsRejected                           *Void
+	pathMissingFromSourceIsRejected                       *Void
+	pathPlansRootModuleOutsideModules                     *Void
+	pathReturnsRootModuleFromInit                         *Void
+	pathValidatesRootModuleOutsideModules                 *Void
 	planAgainstAppliedStateReportsNoChanges               *Void
 	planDestroyReportsDeletions                           *Void
 	planRefreshOnlyAfterApplyReportsNone                  *Void
@@ -72,6 +78,7 @@ type Tests struct { // tests (../../../../../:0:0)
 	refreshUpdatesStateWithoutChanges                     *Void
 	remoteBackendRoundTripsState                          *Void
 	remoteWorkspacesIsolateState                          *Void
+	rootModuleBoundAloneCannotReachOutsideModules         *Void
 	secretVarReachesTofuWithoutLeaking                    *Void
 	secretVariableBindsEnvironmentSecret                  *Void
 	showRendersState                                      *Void
@@ -669,6 +676,74 @@ func (r *Tests) OutputsReturnsJSON(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
+// PathAppliesAndDestroysRootModuleOutsideModules asserts the file-carried state
+// round trip works from a root module below source: Apply hands back the state
+// tofu wrote in the root module, and Destroy reads it back from WithState.
+func (r *Tests) PathAppliesAndDestroysRootModuleOutsideModules(ctx context.Context) error {
+	if r.pathAppliesAndDestroysRootModuleOutsideModules != nil {
+		return nil
+	}
+	q := r.query.Select("pathAppliesAndDestroysRootModuleOutsideModules")
+
+	return q.Execute(ctx)
+}
+
+// PathLeavingSourceIsRejected asserts a path climbing out of source is refused
+// with an error naming it, however it is spelled, and so is an absolute one.
+func (r *Tests) PathLeavingSourceIsRejected(ctx context.Context) error {
+	if r.pathLeavingSourceIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("pathLeavingSourceIsRejected")
+
+	return q.Execute(ctx)
+}
+
+// PathMissingFromSourceIsRejected asserts a path that is not a directory in
+// source — absent, or naming a file — is refused with an error naming it.
+func (r *Tests) PathMissingFromSourceIsRejected(ctx context.Context) error {
+	if r.pathMissingFromSourceIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("pathMissingFromSourceIsRejected")
+
+	return q.Execute(ctx)
+}
+
+// PathPlansRootModuleOutsideModules asserts Plan runs in the root module and
+// hands back plan files describing the module it uses.
+func (r *Tests) PathPlansRootModuleOutsideModules(ctx context.Context) error {
+	if r.pathPlansRootModuleOutsideModules != nil {
+		return nil
+	}
+	q := r.query.Select("pathPlansRootModuleOutsideModules")
+
+	return q.Execute(ctx)
+}
+
+// PathReturnsRootModuleFromInit asserts Init hands back the root module, not
+// the tree around it: the lock file sits at the top of the result, and the
+// sibling modules/ directory is not in it.
+func (r *Tests) PathReturnsRootModuleFromInit(ctx context.Context) error {
+	if r.pathReturnsRootModuleFromInit != nil {
+		return nil
+	}
+	q := r.query.Select("pathReturnsRootModuleFromInit")
+
+	return q.Execute(ctx)
+}
+
+// PathValidatesRootModuleOutsideModules asserts a root module reaching a module
+// outside its own directory validates once the whole tree is bound.
+func (r *Tests) PathValidatesRootModuleOutsideModules(ctx context.Context) error {
+	if r.pathValidatesRootModuleOutsideModules != nil {
+		return nil
+	}
+	q := r.query.Select("pathValidatesRootModuleOutsideModules")
+
+	return q.Execute(ctx)
+}
+
 // PlanAgainstAppliedStateReportsNoChanges asserts the state Apply emits is
 // re-consumable: feeding it back to a fresh Config leaves nothing to do.
 //
@@ -831,6 +906,18 @@ func (r *Tests) RemoteWorkspacesIsolateState(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("remoteWorkspacesIsolateState")
+
+	return q.Execute(ctx)
+}
+
+// RootModuleBoundAloneCannotReachOutsideModules asserts what path exists to
+// fix: binding roots/app on its own leaves ../../modules/pet outside what tofu
+// was handed, so init cannot find it.
+func (r *Tests) RootModuleBoundAloneCannotReachOutsideModules(ctx context.Context) error {
+	if r.rootModuleBoundAloneCannotReachOutsideModules != nil {
+		return nil
+	}
+	q := r.query.Select("rootModuleBoundAloneCannotReachOutsideModules")
 
 	return q.Execute(ctx)
 }

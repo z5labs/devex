@@ -126,8 +126,26 @@ func (o *Opentofu) Version(ctx context.Context) (string, error) {
 // Config binds a root module directory to the toolchain. source is the whole
 // tree, not a lone file: tofu resolves sub-modules, .tfvars files and the
 // dependency lock file relative to the root module.
-func (o *Opentofu) Config(source *dagger.Directory) *Config {
-	return &Config{Opentofu: o, Source: source}
+//
+// path names the root module's directory within source when it is not source
+// itself — a repository that keeps reusable modules in modules/ and its root
+// modules elsewhere, referring to them as ../../modules/<name>. All of source
+// is copied in and every tofu command runs in path, so those relative module
+// sources resolve. Everything a function reads or returns — the lock file,
+// carried state, plan files, what Fmt checks and Format rewrites — stays
+// relative to the root module.
+func (o *Opentofu) Config(
+	ctx context.Context,
+	source *dagger.Directory,
+	// The root module's directory within source, as a relative path.
+	// +default="."
+	path string,
+) (*Config, error) {
+	root, err := rootModulePath(ctx, source, path)
+	if err != nil {
+		return nil, err
+	}
+	return &Config{Opentofu: o, Source: source, Path: root}, nil
 }
 
 func (o *Opentofu) image() string {
