@@ -514,7 +514,7 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
     { target: $p.id, rule: $r.id, severity: ($f.severity // $r.severity),
       component: $f.component, component_kind: $f.kind, file: $f.file, line: $f.line,
       context: ($f.context // null), evidence: $f.evidence,
-      fix_in: $r.fix_in, remedy: $r.remedy, sources: $r.sources, basis: $r.basis,
+      fix_in: $r.fix_in, remedy: $r.remedy, rule_remedy: $r.remedy, sources: $r.sources, basis: $r.basis,
       unconfirmed: ($r.basis == "unconfirmed"), checked: $r.checked, summary: $r.summary }
     + (if $r.observed then {observed: $r.observed} else {} end);
 
@@ -598,7 +598,7 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
       | { target: $p.id, rule: $f.rule, severity: ($f.severity // $r.severity),
           component: $f.component, component_kind: ($f.component_kind // (if $f.component == "delivery" then "delivery" else ([ $comps[] | select(.name == $f.component) | .kind ][0]) end)),
           file: $f.file, line: $f.line, context: "review", evidence: $f.evidence,
-          fix_in: ($f.fix_in // $r.fix_in), remedy: ($f.remedy // $r.remedy), sources: ($f.sources // $r.sources),
+          fix_in: ($f.fix_in // $r.fix_in), remedy: ($f.remedy // $r.remedy), rule_remedy: $r.remedy, sources: ($f.sources // $r.sources),
           basis: "review", unconfirmed: ($f.unconfirmed // ($r.basis == "unconfirmed")), checked: $r.checked, summary: $r.summary }
         + (if $f.via then {via: $f.via} else {} end) ];
 
@@ -717,13 +717,13 @@ def why: [ .rules[] | select((.severity | rank) > 1) | entry_text ] | join("<br>
         + ([ $t.findings | group_by(.rule) | sort_by(-(map(.severity | rank) | max), .[0].rule)[] | . as $g | $g[0] as $f
              | "\n#### \($f.rule | code) — \([ $g[].severity ] | unique | sort_by(-rank) | join(", "))\(if $f.unconfirmed then ", unconfirmed" else "" end)\n\n"
              + "\($f.summary)\n\n"
-             + "- **Remedy** (fix in \($f.fix_in)): \($f.remedy)\n"
+             + "- **Remedy** (fix in \($f.fix_in)): \($f.rule_remedy)\n"
              + "- **Basis:** \([ $g[].basis ] | unique | join(", ")), rule checked \($f.checked)"
              + (if $f.observed then "; observed: " + ([ $f.observed[] | "[\(.date)](\(.url)) \(.result)" ] | join(" ")) else "" end) + "\n"
              + "- **Sources:** \($f.sources | join(", "))\n"
              + "- **Where:**\n"
-             + ([ $g[] | "  - \(loc | code) — \(.component | code)\(if .context then " (\(.context))" else "" end), \(.severity)\(if .basis == "review" then " (review)" else "" end): \(.evidence | clip | code)"
-                  + (if .basis == "review" and .remedy != $f.remedy then " — \(.remedy)" else "" end)
+             + ([ $g[] | "  - \(loc | code) — \(.component | code)\(if .context and .context != "review" then " (\(.context))" else "" end), \(.severity)\(if .basis == "review" then " (review)" else "" end): \(.evidence | clip | code)"
+                  + (if .remedy != .rule_remedy then " — \(.remedy)" else "" end)
                   + (if .basis == "review" and (.via // [] | length) > 0 then " — via \(.via | join(" → "))" else "" end) + "\n" ] | join(""))
            ] | join(""))
       end)
