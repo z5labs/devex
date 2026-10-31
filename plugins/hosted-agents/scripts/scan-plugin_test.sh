@@ -105,6 +105,14 @@ for d in "$DATA"/rules/*/; do
   grep -qx -- "$id" <<<"$scanned_rules" || bad "fixture rules/$id names a scanned rule" "no profile scans for $id"
 done
 
+# Copilot's tool aliases are case-insensitive: lower-case known names are not dropped.
+mkdir -p "$TMP/lower/.claude-plugin" "$TMP/lower/agents"
+printf '{ "name": "lower" }\n' >"$TMP/lower/.claude-plugin/plugin.json"
+printf -- '---\nname: reader\ndescription: Reads.\ntools: read, bash, grep, SKILL, webfetch\n---\n\nRead.\n' >"$TMP/lower/agents/reader.md"
+scan "$TMP/lower.json" "$TMP/lower" --no-repo --target copilot-cloud-sandbox
+same "tool names compare case-insensitively" "skill-tool-dropped:frontmatter: SKILL unknown-tools-dropped:frontmatter: webfetch" \
+  "$(jq -r '[.targets[0].findings[] | "\(.rule):\(.context): \(.evidence | split(": ")[1])"] | sort | join(" ")' "$TMP/lower.json")"
+
 # ---------------------------------------------------------------------------
 printf '\na clean plugin\n'
 
@@ -153,7 +161,7 @@ same "the settings finding points at the line that enables it" ".claude/settings
   "$(jq -r '.targets[] | select(.id == "claude-code-cloud") | .findings[] | select(.component == "delivery") | "\(.file):\(.line)"' "$TMP/d.json")"
 settings "$TMP/repo-copilot/.github/copilot/settings.json"
 delivery_case "enabled in .github/copilot/settings.json only" "$TMP/repo-copilot" \
-  "claude-code-cloud:plugin-not-delivered copilot-actions:no-plugins-in-actions copilot-cloud-sandbox:plugin-settings-unconfirmed"
+  "claude-code-cloud:plugin-not-delivered copilot-actions:plugin-settings-unconfirmed copilot-cloud-sandbox:plugin-settings-unconfirmed"
 
 delivery_rules=$(for t in "${TARGETS[@]}"; do jq -r '.id as $t | .rules[] | select(.match.kind == "delivery") | "\($t):\(.id)"' "$PROFILES/$t.json"; done | sort)
 seen=$({ jq -r '.targets[] | .id as $t | .findings[] | select(.component == "delivery") | "\($t):\(.rule)"' "$TMP/vend.json"

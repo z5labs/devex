@@ -560,12 +560,13 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
         | finding($p; $r; {severity: ($r.severity_in[$l.ctx] // $r.severity), component: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, context: $l.ctx, evidence: "\(.): \($l.original | strip)"})
       elif $m.kind == "tool" then
         $tools[] | select((.kind as $k | $m.components | has_item($k)) and (.field as $f | $m.fields | has_item($f)))
-        | select(.tool as $t |
+        # Tool names compare case-insensitively: Copilot's tool aliases are.
+        | select(.tool as $t | ($t | ascii_downcase) as $lt |
             if $m.not_in then
-              ($m.not_in | has_item($t) | not) and (($m.ignore // []) | has_item($t) | not)
-              and (if $m.ignore_pattern then ($t | test($m.ignore_pattern) | not) else true end)
+              ($m.not_in | map(ascii_downcase) | has_item($lt) | not) and (($m.ignore // []) | map(ascii_downcase) | has_item($lt) | not)
+              and (if $m.ignore_pattern then ($t | test($m.ignore_pattern; "i") | not) else true end)
             else
-              (($m.names // []) | has_item($t)) or (if $m.name_pattern then ($t | test($m.name_pattern)) else false end)
+              (($m.names // []) | map(ascii_downcase) | has_item($lt)) or (if $m.name_pattern then ($t | test($m.name_pattern; "i")) else false end)
             end)
         | finding($p; $r; {component: .comp, kind: .kind, file: .file, line: .line, context: "frontmatter", evidence: "\(.field): \(.tool)"})
       elif $m.kind == "component" then
@@ -684,6 +685,7 @@ def rank: {"breaks": 4, "needs-setup": 3, "degrades": 2, "info": 1, "works": 0}[
 def code: tostring | if test("`") then "`` " + . + " ``" else "`" + . + "`" end;
 def cell: tostring | gsub("\\|"; "\\|") | gsub("\n"; " ");
 def loc: if .line then "\(.file):\(.line)" else "\(.file) (absent)" end;
+def clip: if length > 120 then .[0:117] + "…" else . end;
 def verdict_text: (if .verdict == "works" or .verdict == "not assessed" then .verdict else "**\(.verdict)**" end)
   + (if .unconfirmed then ", unconfirmed" else "" end);
 def entry_text: "\(.rule | code) \(.severity)\(if .unconfirmed then " (unconfirmed)" else "" end)\(if .review then " (review)" else "" end)"
@@ -720,7 +722,7 @@ def why: [ .rules[] | select((.severity | rank) > 1) | entry_text ] | join("<br>
              + (if $f.observed then "; observed: " + ([ $f.observed[] | "[\(.date)](\(.url)) \(.result)" ] | join(" ")) else "" end) + "\n"
              + "- **Sources:** \($f.sources | join(", "))\n"
              + "- **Where:**\n"
-             + ([ $g[] | "  - \(loc | code) — \(.component | code)\(if .context then " (\(.context))" else "" end), \(.severity)\(if .basis == "review" then " (review)" else "" end): \(.evidence | code)"
+             + ([ $g[] | "  - \(loc | code) — \(.component | code)\(if .context then " (\(.context))" else "" end), \(.severity)\(if .basis == "review" then " (review)" else "" end): \(.evidence | clip | code)"
                   + (if .basis == "review" and .remedy != $f.remedy then " — \(.remedy)" else "" end)
                   + (if .basis == "review" and (.via // [] | length) > 0 then " — via \(.via | join(" → "))" else "" end) + "\n" ] | join(""))
            ] | join(""))
