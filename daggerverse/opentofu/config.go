@@ -297,12 +297,13 @@ func (c *Config) Fmt(ctx context.Context) (string, error) {
 	return out, nil
 }
 
-// Format rewrites the configuration with `tofu fmt -recursive` and returns the
-// formatted tree, for the caller to export back over their working copy.
+// Format rewrites the root module with `tofu fmt -recursive` and returns the
+// formatted root module directory, for the caller to export back over their
+// working copy of it.
 //
 // It is the rewrite counterpart of Fmt, which stays check-only so it can gate
-// CI. The caller's own directory is never touched: the root module is copied
-// into the container, and what comes back is that copy.
+// CI. The caller's own directory is never touched: source is copied into the
+// container, and what comes back is the root module's directory in that copy.
 //
 // +cache="session"
 func (c *Config) Format(ctx context.Context) (*dagger.Directory, error) {
@@ -379,6 +380,11 @@ func (c *Config) Init(ctx context.Context) (*dagger.Directory, error) {
 // With none given, tofu locks for the platform it is running on, which is what
 // a repo with a single-platform toolchain wants.
 //
+// Modules are installed first with `tofu get`, which touches neither the
+// providers nor the backend: tofu refuses to lock a configuration whose
+// modules are not installed, and a root module using ../../modules/<name> is
+// exactly that until something installs them.
+//
 // A run the Go runtime kills outright is retried — see runtimeFatalMarker for
 // what that is and why it is the one failure worth re-running.
 //
@@ -403,7 +409,13 @@ func (c *Config) Lock(
 	// consulting it during a lock is at best irrelevant.
 	noCache := c.clone()
 	noCache.NoPluginCache = true
-	ctr := noCache.container()
+	ctr := noCache.container().WithExec(
+		[]string{"tofu", "get", "-no-color"},
+		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny},
+	)
+	if err := expectSuccess(ctx, ctr, "tofu get"); err != nil {
+		return nil, err
+	}
 
 	var last string
 	for attempt := 1; attempt <= lockAttempts; attempt++ {
@@ -426,9 +438,9 @@ func (c *Config) Lock(
 			return nil, err
 		}
 		if code == 0 {
-			// Unlike Init there is no .terraform/ to strip: `providers lock`
-			// writes the lock file and nothing else.
-			return c.withoutCarriedState(exec.Directory(c.rootDir())), nil
+			// .terraform/ holds only what tofu get recorded about the
+			// modules; the lock file is the artifact, as it is for Init.
+			return c.withoutCarriedState(exec.Directory(c.rootDir()).WithoutDirectory(".terraform")), nil
 		}
 		last = combinedOutput(ctx, exec)
 		if !strings.Contains(last, runtimeFatalMarker) {
@@ -937,6 +949,13 @@ func (c *Config) root() *dagger.Directory {
 // root module: an absolute path, one that climbs out of source, or one that is
 // not a directory in it. Climbing out is refused rather than clamped, because
 // a root module outside the tree tofu was handed is one tofu cannot see.
+//
+// Every component is checked as a real directory, not followed as a symlink.
+// The check runs against source, where a symlink resolves inside the tree, but
+// tofu runs in the container, where the same link resolves against the
+// container's own filesystem: roots/app -> ../../.. would pass here and put
+// tofu in /. A link that stays inside the tree is no safer, since it changes
+// what ../../modules/<name> points at.
 func rootModulePath(ctx context.Context, source *dagger.Directory, p string) (string, error) {
 	if strings.TrimSpace(p) == "" {
 		p = "."
@@ -951,11 +970,29 @@ func rootModulePath(ctx context.Context, source *dagger.Directory, p string) (st
 	if clean == "." {
 		return clean, nil
 	}
-	ok, err := source.Exists(ctx, clean, dagger.DirectoryExistsOpts{ExpectedType: dagger.ExistsTypeDirectoryType})
-	if err != nil {
-		return "", fmt.Errorf("Config: look for path %q in source: %s", p, errText(err))
-	}
-	if !ok {
+	parts := strings.Split(clean, "/")
+	for i := range parts {
+		prefix := strings.Join(parts[:i+1], "/")
+		ok, err := source.Exists(ctx, prefix, dagger.DirectoryExistsOpts{
+			ExpectedType:        dagger.ExistsTypeDirectoryType,
+			DoNotFollowSymlinks: true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("Config: look for path %q in source: %s", p, errText(err))
+		}
+		if ok {
+			continue
+		}
+		link, err := source.Exists(ctx, prefix, dagger.DirectoryExistsOpts{
+			ExpectedType:        dagger.ExistsTypeSymlinkType,
+			DoNotFollowSymlinks: true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("Config: look for path %q in source: %s", p, errText(err))
+		}
+		if link {
+			return "", fmt.Errorf("Config: path %q passes through the symlink %q; name the directory it points at instead", p, prefix)
+		}
 		return "", fmt.Errorf("Config: path %q is not a directory in source", p)
 	}
 	return clean, nil

@@ -10,8 +10,8 @@ import (
 )
 
 // Opentofu wraps the tofu CLI as Dagger functions. Construct via New(); call
-// Container() for the assembled image, or Config(source) to bind a root
-// module and reach the lifecycle functions.
+// Container() for the assembled image, or Config(source) to bind a source tree
+// and its root module and reach the lifecycle functions.
 type Opentofu struct { // opentofu (../../../../../daggerverse/opentofu/main.go:48:6)
 	query *querybuilder.Selection
 
@@ -35,9 +35,9 @@ type OpentofuConfigOpts struct {
 	Path string // opentofu (../../../../../daggerverse/opentofu/main.go:142:2)
 }
 
-// Config binds a root module directory to the toolchain. source is the whole
-// tree, not a lone file: tofu resolves sub-modules, .tfvars files and the
-// dependency lock file relative to the root module.
+// Config binds a source tree and the root module within it to the toolchain.
+// source is a whole tree, not a lone file: tofu resolves sub-modules, .tfvars
+// files and the dependency lock file relative to the root module.
 //
 // path names the root module's directory within source when it is not source
 // itself — a repository that keeps reusable modules in modules/ and its root
@@ -380,12 +380,12 @@ type OpentofuConfigApplyOpts struct {
 	//
 	// A saved plan from Plan. Without it, Apply plans and applies in one run.
 	//
-	Plan *File // opentofu (../../../../../daggerverse/opentofu/config.go:557:2)
+	Plan *File // opentofu (../../../../../daggerverse/opentofu/config.go:569:2)
 	//
 	// Limit the apply to these resource addresses (`-target`). Rejected
 	// alongside a saved plan, which already fixes what it changes.
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:561:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:573:2)
 }
 
 // Apply realises the configuration and returns terraform.tfstate (in
@@ -400,7 +400,7 @@ type OpentofuConfigApplyOpts struct {
 // produced in file-carried mode. That is deliberate: the alternative, always
 // returning the directory with an exit code inside it, turns a failed apply
 // into a silent green whenever a caller forgets to look.
-func (r *OpentofuConfig) Apply(opts ...OpentofuConfigApplyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:553:1)
+func (r *OpentofuConfig) Apply(opts ...OpentofuConfigApplyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:565:1)
 	q := r.query.Select("apply")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `plan` optional argument
@@ -434,7 +434,7 @@ type OpentofuConfigDestroyOpts struct {
 	//
 	// Limit the destroy to these resource addresses (`-target`).
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:598:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:610:2)
 }
 
 // Destroy tears down everything the state tracks and returns the post-destroy
@@ -444,7 +444,7 @@ type OpentofuConfigDestroyOpts struct {
 // backend to read it from: tofu would happily report "0 destroyed" against an
 // empty state, which reads as success while leaving the real infrastructure
 // untouched.
-func (r *OpentofuConfig) Destroy(opts ...OpentofuConfigDestroyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:594:1)
+func (r *OpentofuConfig) Destroy(opts ...OpentofuConfigDestroyOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:606:1)
 	q := r.query.Select("destroy")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `targets` optional argument
@@ -476,13 +476,14 @@ func (r *OpentofuConfig) Fmt(ctx context.Context) (string, error) { // opentofu 
 	return response, q.Execute(ctx)
 }
 
-// Format rewrites the configuration with `tofu fmt -recursive` and returns the
-// formatted tree, for the caller to export back over their working copy.
+// Format rewrites the root module with `tofu fmt -recursive` and returns the
+// formatted root module directory, for the caller to export back over their
+// working copy of it.
 //
 // It is the rewrite counterpart of Fmt, which stays check-only so it can gate
-// CI. The caller's own directory is never touched: the root module is copied
-// into the container, and what comes back is that copy.
-func (r *OpentofuConfig) Format() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:308:1)
+// CI. The caller's own directory is never touched: source is copied into the
+// container, and what comes back is the root module's directory in that copy.
+func (r *OpentofuConfig) Format() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:309:1)
 	q := r.query.Select("format")
 
 	return &Directory{
@@ -581,7 +582,7 @@ func (r *OpentofuConfig) Import(address string, id string) *Directory { // opent
 // exist outside this container, so carrying them out would hand the caller
 // dangling links. The lock file is the portable artifact of an init, and it
 // is what a repo commits.
-func (r *OpentofuConfig) Init() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:361:1)
+func (r *OpentofuConfig) Init() *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:362:1)
 	q := r.query.Select("init")
 
 	return &Directory{
@@ -595,7 +596,7 @@ type OpentofuConfigLockOpts struct {
 	// Platforms to record hashes for, as `<os>_<arch>`. Defaults to the
 	// platform tofu runs on.
 	//
-	Platforms []string // opentofu (../../../../../daggerverse/opentofu/config.go:391:2)
+	Platforms []string // opentofu (../../../../../daggerverse/opentofu/config.go:397:2)
 }
 
 // Lock regenerates the dependency lock file for the given platforms with
@@ -611,9 +612,14 @@ type OpentofuConfigLockOpts struct {
 // With none given, tofu locks for the platform it is running on, which is what
 // a repo with a single-platform toolchain wants.
 //
+// Modules are installed first with `tofu get`, which touches neither the
+// providers nor the backend: tofu refuses to lock a configuration whose
+// modules are not installed, and a root module using ../../modules/<name> is
+// exactly that until something installs them.
+//
 // A run the Go runtime kills outright is retried — see runtimeFatalMarker for
 // what that is and why it is the one failure worth re-running.
-func (r *OpentofuConfig) Lock(opts ...OpentofuConfigLockOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:386:1)
+func (r *OpentofuConfig) Lock(opts ...OpentofuConfigLockOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:392:1)
 	q := r.query.Select("lock")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `platforms` optional argument
@@ -629,7 +635,7 @@ func (r *OpentofuConfig) Lock(opts ...OpentofuConfigLockOpts) *Directory { // op
 
 // Outputs returns the root module's output values as JSON
 // (`tofu output -json`).
-func (r *OpentofuConfig) Outputs(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:632:1)
+func (r *OpentofuConfig) Outputs(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:644:1)
 	if r.outputs != nil {
 		return *r.outputs, nil
 	}
@@ -646,16 +652,16 @@ type OpentofuConfigPlanOpts struct {
 	//
 	// Plan the destruction of all remote objects (`-destroy`).
 	//
-	Destroy bool // opentofu (../../../../../daggerverse/opentofu/config.go:469:2)
+	Destroy bool // opentofu (../../../../../daggerverse/opentofu/config.go:481:2)
 	//
 	// Plan only the changes made outside tofu since the last apply
 	// (-refresh-only), leaving the configuration out of it.
 	//
-	RefreshOnly bool // opentofu (../../../../../daggerverse/opentofu/config.go:473:2)
+	RefreshOnly bool // opentofu (../../../../../daggerverse/opentofu/config.go:485:2)
 	//
 	// Limit the plan to these resource addresses (`-target`).
 	//
-	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:476:2)
+	Targets []string // opentofu (../../../../../daggerverse/opentofu/config.go:488:2)
 }
 
 // Plan produces a saved plan and everything needed to read it, in a single
@@ -672,7 +678,7 @@ type OpentofuConfigPlanOpts struct {
 // One run, not two: underobtain the JSON form could legitimately disagree with the first. The JSON
 // and text renderings are derived from the saved plan file, so they describe
 // exactly the plan that was made.
-func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:465:1)
+func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory { // opentofu (../../../../../daggerverse/opentofu/config.go:477:1)
 	q := r.query.Select("plan")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `destroy` optional argument
@@ -710,7 +716,7 @@ func (r *OpentofuConfig) Refresh() *Directory { // opentofu (../../../../../dagg
 
 // Show returns the human-readable rendering of the current state
 // (`tofu show`).
-func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:640:1)
+func (r *OpentofuConfig) Show(ctx context.Context) (string, error) { // opentofu (../../../../../daggerverse/opentofu/config.go:652:1)
 	if r.show != nil {
 		return *r.show, nil
 	}
@@ -825,7 +831,7 @@ func (r *OpentofuConfig) Untaint(address string) *Directory { // opentofu (../..
 // remote backend validates without any credentials and without touching the
 // backend at all. Providers are still installed, because validation needs
 // their schemas.
-func (r *OpentofuConfig) Validate(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/config.go:331:1)
+func (r *OpentofuConfig) Validate(ctx context.Context) error { // opentofu (../../../../../daggerverse/opentofu/config.go:332:1)
 	if r.validate != nil {
 		return nil
 	}

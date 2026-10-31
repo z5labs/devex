@@ -67,8 +67,11 @@ plan files, and what `Fmt` checks and `Format` rewrites. `Init`, `Lock` and
 `Format` return the root module's directory, not the tree around it.
 
 `path` is relative to `source`. One that is not a directory in `source`, one
-that leaves it (`..`, `../other`, `roots/../../other`) and an absolute one are
-rejected with an error naming the path.
+that leaves it (`..`, `../other`, `roots/../../other`), an absolute one, and one
+passing through a symlink are rejected with an error naming the path. A
+symlink is refused because it resolves differently inside the container than
+in `source` — `roots/app -> ../../..` would run `tofu` outside the tree — and
+even one that stays inside the tree changes what `../../modules/<name>` means.
 
 The type is named `Config` rather than `Workspace` or `Module`: `Workspace`
 collides with both `tofu workspace` (a state concept, exposed separately as
@@ -246,6 +249,14 @@ a verdict, leaving the caller's own directory untouched until they export it.
 ```sh
 dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
   config --source=. format export --path=.
+```
+
+With `path` set, `Format` returns the root module's directory, so export it
+back over that directory, not over the tree:
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. --path=roots/app format export --path=roots/app
 ```
 
 `Validate` initialises with `-backend=false` first, so a configuration

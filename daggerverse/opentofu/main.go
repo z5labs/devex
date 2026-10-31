@@ -43,8 +43,8 @@ const (
 )
 
 // Opentofu wraps the tofu CLI as Dagger functions. Construct via New(); call
-// Container() for the assembled image, or Config(source) to bind a root
-// module and reach the lifecycle functions.
+// Container() for the assembled image, or Config(source) to bind a source tree
+// and its root module and reach the lifecycle functions.
 type Opentofu struct {
 	// +private
 	Registry string
@@ -123,9 +123,9 @@ func (o *Opentofu) Version(ctx context.Context) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// Config binds a root module directory to the toolchain. source is the whole
-// tree, not a lone file: tofu resolves sub-modules, .tfvars files and the
-// dependency lock file relative to the root module.
+// Config binds a source tree and the root module within it to the toolchain.
+// source is a whole tree, not a lone file: tofu resolves sub-modules, .tfvars
+// files and the dependency lock file relative to the root module.
 //
 // path names the root module's directory within source when it is not source
 // itself — a repository that keeps reusable modules in modules/ and its root

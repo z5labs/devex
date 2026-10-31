@@ -10,8 +10,8 @@ import (
 )
 
 // Opentofu wraps the tofu CLI as Dagger functions. Construct via New(); call
-// Container() for the assembled image, or Config(source) to bind a root
-// module and reach the lifecycle functions.
+// Container() for the assembled image, or Config(source) to bind a source tree
+// and its root module and reach the lifecycle functions.
 type Opentofu struct { // opentofu (../../../../:0:0)
 	query *querybuilder.Selection
 
@@ -33,9 +33,9 @@ type OpentofuConfigOpts struct {
 	Path string
 }
 
-// Config binds a root module directory to the toolchain. source is the whole
-// tree, not a lone file: tofu resolves sub-modules, .tfvars files and the
-// dependency lock file relative to the root module.
+// Config binds a source tree and the root module within it to the toolchain.
+// source is a whole tree, not a lone file: tofu resolves sub-modules, .tfvars
+// files and the dependency lock file relative to the root module.
 //
 // path names the root module's directory within source when it is not source
 // itself — a repository that keeps reusable modules in modules/ and its root
@@ -448,12 +448,13 @@ func (r *OpentofuConfig) Fmt(ctx context.Context) (string, error) {
 	return response, q.Execute(ctx)
 }
 
-// Format rewrites the configuration with `tofu fmt -recursive` and returns the
-// formatted tree, for the caller to export back over their working copy.
+// Format rewrites the root module with `tofu fmt -recursive` and returns the
+// formatted root module directory, for the caller to export back over their
+// working copy of it.
 //
 // It is the rewrite counterpart of Fmt, which stays check-only so it can gate
-// CI. The caller's own directory is never touched: the root module is copied
-// into the container, and what comes back is that copy.
+// CI. The caller's own directory is never touched: source is copied into the
+// container, and what comes back is the root module's directory in that copy.
 func (r *OpentofuConfig) Format() *Directory {
 	q := r.query.Select("format")
 
@@ -580,6 +581,11 @@ type OpentofuConfigLockOpts struct {
 // Platforms are `<os>_<arch>` pairs — linux_amd64, darwin_arm64, windows_amd64.
 // With none given, tofu locks for the platform it is running on, which is what
 // a repo with a single-platform toolchain wants.
+//
+// Modules are installed first with `tofu get`, which touches neither the
+// providers nor the backend: tofu refuses to lock a configuration whose
+// modules are not installed, and a root module using ../../modules/<name> is
+// exactly that until something installs them.
 //
 // A run the Go runtime kills outright is retried — see runtimeFatalMarker for
 // what that is and why it is the one failure worth re-running.

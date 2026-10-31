@@ -905,11 +905,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		return dag.Module().
 			WithDescription("Package main implements the opentofu Dagger module: a wrapper around the\n`tofu` CLI, so an infrastructure repo's format, validate, plan, apply and\ndestroy steps become `dagger call`s instead of a wrapper script plus a pile\nof exported environment variables.\n\nIt targets OpenTofu (MPL-2.0) rather than Terraform (BUSL since 1.6), and\ndeliberately does not try to also drive a `terraform` binary.\n\nOpenTofu stopped supporting direct use of its official image as of 1.10.\nWhat upstream still publishes is `ghcr.io/opentofu/opentofu:<version>-minimal`,\nan image containing only /usr/local/bin/tofu. This module therefore assembles\nits own container: the binary is copied off the -minimal image onto a small\nbase that also carries git and CA certificates, which module sources and the\nprovider registry need.\n").
 			WithObject(
-				dag.TypeDef().WithObject("Opentofu", dagger.TypeDefWithObjectOpts{Description: "Opentofu wraps the tofu CLI as Dagger functions. Construct via New(); call\nContainer() for the assembled image, or Config(source) to bind a root\nmodule and reach the lifecycle functions.", SourceMap: dag.SourceMap("main.go", 48, 6)}).
+				dag.TypeDef().WithObject("Opentofu", dagger.TypeDefWithObjectOpts{Description: "Opentofu wraps the tofu CLI as Dagger functions. Construct via New(); call\nContainer() for the assembled image, or Config(source) to bind a source tree\nand its root module and reach the lifecycle functions.", SourceMap: dag.SourceMap("main.go", 48, 6)}).
 					WithFunction(
 						dag.Function("Config",
 							dag.TypeDef().WithObject("Config")).
-							WithDescription("Config binds a root module directory to the toolchain. source is the whole\ntree, not a lone file: tofu resolves sub-modules, .tfvars files and the\ndependency lock file relative to the root module.\n\npath names the root module's directory within source when it is not source\nitself — a repository that keeps reusable modules in modules/ and its root\nmodules elsewhere, referring to them as ../../modules/<name>. All of source\nis copied in and every tofu command runs in path, so those relative module\nsources resolve. Everything a function reads or returns — the lock file,\ncarried state, plan files, what Fmt checks and Format rewrites — stays\nrelative to the root module.").
+							WithDescription("Config binds a source tree and the root module within it to the toolchain.\nsource is a whole tree, not a lone file: tofu resolves sub-modules, .tfvars\nfiles and the dependency lock file relative to the root module.\n\npath names the root module's directory within source when it is not source\nitself — a repository that keeps reusable modules in modules/ and its root\nmodules elsewhere, referring to them as ../../modules/<name>. All of source\nis copied in and every tofu command runs in path, so those relative module\nsources resolve. Everything a function reads or returns — the lock file,\ncarried state, plan files, what Fmt checks and Format rewrites — stays\nrelative to the root module.").
 							WithSourceMap(dag.SourceMap("main.go", 137, 1)).
 							WithArg("source", dag.TypeDef().WithObject("Directory"), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 139, 2)}).
 							WithArg("path", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "The root module's directory within source, as a relative path.", SourceMap: dag.SourceMap("main.go", 142, 2), DefaultValue: dagger.JSON("\".\"")})).
@@ -940,9 +940,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Apply realises the configuration and returns terraform.tfstate (in\nfile-carried mode), outputs.json and apply.log.\n\nPass the plan.tfplan emitted by Plan to apply exactly that plan; without\none, Apply plans and applies in a single run. A saved plan already carries\nits variables and target set, so neither is re-sent with it.\n\nA non-zero tofu exit is an error, and Dagger drops a function's value when\nits error is non-nil — so a partially failed apply forfeits the state it\nproduced in file-carried mode. That is deliberate: the alternative, always\nreturning the directory with an exit code inside it, turns a failed apply\ninto a silent green whenever a caller forgets to look.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 553, 1)).
-							WithArg("plan", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A saved plan from Plan. Without it, Apply plans and applies in one run.", SourceMap: dag.SourceMap("config.go", 557, 2)}).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the apply to these resource addresses (`-target`). Rejected\nalongside a saved plan, which already fixes what it changes.", SourceMap: dag.SourceMap("config.go", 561, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 565, 1)).
+							WithArg("plan", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A saved plan from Plan. Without it, Apply plans and applies in one run.", SourceMap: dag.SourceMap("config.go", 569, 2)}).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the apply to these resource addresses (`-target`). Rejected\nalongside a saved plan, which already fixes what it changes.", SourceMap: dag.SourceMap("config.go", 573, 2)})).
 					WithFunction(
 						dag.Function("Ci",
 							dag.TypeDef().WithObject("Ci")).
@@ -953,8 +953,8 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Destroy tears down everything the state tracks and returns the post-destroy\nterraform.tfstate (in file-carried mode), outputs.json and destroy.log.\n\nIt is rejected outright when there is neither state to destroy nor a\nbackend to read it from: tofu would happily report \"0 destroyed\" against an\nempty state, which reads as success while leaving the real infrastructure\nuntouched.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 594, 1)).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the destroy to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 598, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 606, 1)).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the destroy to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 610, 2)})).
 					WithFunction(
 						dag.Function("Fmt",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -964,9 +964,9 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 					WithFunction(
 						dag.Function("Format",
 							dag.TypeDef().WithObject("Directory")).
-							WithDescription("Format rewrites the configuration with `tofu fmt -recursive` and returns the\nformatted tree, for the caller to export back over their working copy.\n\nIt is the rewrite counterpart of Fmt, which stays check-only so it can gate\nCI. The caller's own directory is never touched: the root module is copied\ninto the container, and what comes back is that copy.").
+							WithDescription("Format rewrites the root module with `tofu fmt -recursive` and returns the\nformatted root module directory, for the caller to export back over their\nworking copy of it.\n\nIt is the rewrite counterpart of Fmt, which stays check-only so it can gate\nCI. The caller's own directory is never touched: source is copied into the\ncontainer, and what comes back is the root module's directory in that copy.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 308, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 309, 1))).
 					WithFunction(
 						dag.Function("Graph",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -986,29 +986,29 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Init runs a full `tofu init` — backend included — and returns the root\nmodule with the dependency lock file init produced.\n\n.terraform/ is stripped from the result: with the shared provider cache in\nplay its provider entries are symlinks into a cache volume that does not\nexist outside this container, so carrying them out would hand the caller\ndangling links. The lock file is the portable artifact of an init, and it\nis what a repo commits.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 361, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 362, 1))).
 					WithFunction(
 						dag.Function("Lock",
 							dag.TypeDef().WithObject("Directory")).
-							WithDescription("Lock regenerates the dependency lock file for the given platforms with\n`tofu providers lock`, and returns the root module carrying it.\n\nThis is what makes a lock file portable. An ordinary `tofu init` records\nhashes only for the platform it ran on, so a lock file generated by a\nlinux_amd64 CI job fails `tofu init` on a developer's darwin_arm64 machine.\nNaming every platform a repo builds on records all of their hashes in one\nfile.\n\nPlatforms are `<os>_<arch>` pairs — linux_amd64, darwin_arm64, windows_amd64.\nWith none given, tofu locks for the platform it is running on, which is what\na repo with a single-platform toolchain wants.\n\nA run the Go runtime kills outright is retried — see runtimeFatalMarker for\nwhat that is and why it is the one failure worth re-running.").
+							WithDescription("Lock regenerates the dependency lock file for the given platforms with\n`tofu providers lock`, and returns the root module carrying it.\n\nThis is what makes a lock file portable. An ordinary `tofu init` records\nhashes only for the platform it ran on, so a lock file generated by a\nlinux_amd64 CI job fails `tofu init` on a developer's darwin_arm64 machine.\nNaming every platform a repo builds on records all of their hashes in one\nfile.\n\nPlatforms are `<os>_<arch>` pairs — linux_amd64, darwin_arm64, windows_amd64.\nWith none given, tofu locks for the platform it is running on, which is what\na repo with a single-platform toolchain wants.\n\nModules are installed first with `tofu get`, which touches neither the\nproviders nor the backend: tofu refuses to lock a configuration whose\nmodules are not installed, and a root module using ../../modules/<name> is\nexactly that until something installs them.\n\nA run the Go runtime kills outright is retried — see runtimeFatalMarker for\nwhat that is and why it is the one failure worth re-running.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 386, 1)).
-							WithArg("platforms", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Platforms to record hashes for, as `<os>_<arch>`. Defaults to the\nplatform tofu runs on.", SourceMap: dag.SourceMap("config.go", 391, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 392, 1)).
+							WithArg("platforms", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Platforms to record hashes for, as `<os>_<arch>`. Defaults to the\nplatform tofu runs on.", SourceMap: dag.SourceMap("config.go", 397, 2)})).
 					WithFunction(
 						dag.Function("Outputs",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Outputs returns the root module's output values as JSON\n(`tofu output -json`).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 632, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 644, 1))).
 					WithFunction(
 						dag.Function("Plan",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Plan produces a saved plan and everything needed to read it, in a single\ntofu run: plan.tfplan (the saved plan Apply consumes), plan.json\n(`tofu show -json`), plan.txt (the human-readable rendering) and changes\n(`none` or `changes`, from `-detailed-exitcode`).\n\nPass refreshOnly to ask only what changed outside tofu since the last apply\n(`-refresh-only`): changes is then `none` exactly when the infrastructure\nstill matches the state, whatever the configuration now says. It is a plan,\nnot Refresh — nothing is written back, so the drift it reports is still\nthere for the next check to find.\n\nOne run, not two: underobtain the JSON form could legitimately disagree with the first. The JSON\nand text renderings are derived from the saved plan file, so they describe\nexactly the plan that was made.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 465, 1)).
-							WithArg("destroy", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan the destruction of all remote objects (`-destroy`).", SourceMap: dag.SourceMap("config.go", 469, 2), DefaultValue: dagger.JSON("false")}).
-							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply\n(-refresh-only), leaving the configuration out of it.", SourceMap: dag.SourceMap("config.go", 473, 2), DefaultValue: dagger.JSON("false")}).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the plan to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 476, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 477, 1)).
+							WithArg("destroy", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan the destruction of all remote objects (`-destroy`).", SourceMap: dag.SourceMap("config.go", 481, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply\n(-refresh-only), leaving the configuration out of it.", SourceMap: dag.SourceMap("config.go", 485, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the plan to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 488, 2)})).
 					WithFunction(
 						dag.Function("Refresh",
 							dag.TypeDef().WithObject("Directory")).
@@ -1020,7 +1020,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Show returns the human-readable rendering of the current state\n(`tofu show`).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 640, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 652, 1))).
 					WithFunction(
 						dag.Function("StateList",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -1068,7 +1068,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Validate checks the configuration for internal consistency with\n`tofu validate`.\n\nIt initialises with `-backend=false` first, so a configuration declaring a\nremote backend validates without any credentials and without touching the\nbackend at all. Providers are still installed, because validation needs\ntheir schemas.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 331, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 332, 1))).
 					WithFunction(
 						dag.Function("WithBackendConfig",
 							dag.TypeDef().WithObject("Config")).

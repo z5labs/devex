@@ -61,10 +61,15 @@ type Tests struct { // tests (../../../../../:0:0)
 	lockWithoutPlatformsProducesUsableLockFile            *Void
 	outputsReturnsJson                                    *Void
 	pathAppliesAndDestroysRootModuleOutsideModules        *Void
+	pathFindsStateInRootModule                            *Void
+	pathFmtAndFormatCoverOnlyRootModule                   *Void
+	pathHonoursBackendDeclaredInRootModule                *Void
 	pathLeavingSourceIsRejected                           *Void
 	pathMissingFromSourceIsRejected                       *Void
 	pathPlansRootModuleOutsideModules                     *Void
 	pathReturnsRootModuleFromInit                         *Void
+	pathReturnsRootModuleFromLock                         *Void
+	pathThroughSymlinkIsRejected                          *Void
 	pathValidatesRootModuleOutsideModules                 *Void
 	planAgainstAppliedStateReportsNoChanges               *Void
 	planDestroyReportsDeletions                           *Void
@@ -688,6 +693,44 @@ func (r *Tests) PathAppliesAndDestroysRootModuleOutsideModules(ctx context.Conte
 	return q.Execute(ctx)
 }
 
+// PathFindsStateInRootModule asserts a state file the source already carries
+// is looked for in the root module, not at the top of source: Destroy would
+// otherwise refuse, finding neither state nor a backend.
+func (r *Tests) PathFindsStateInRootModule(ctx context.Context) error {
+	if r.pathFindsStateInRootModule != nil {
+		return nil
+	}
+	q := r.query.Select("pathFindsStateInRootModule")
+
+	return q.Execute(ctx)
+}
+
+// PathFmtAndFormatCoverOnlyRootModule asserts Fmt checks and Format rewrites
+// the root module and nothing around it: an unformatted file in the root
+// module is reported and rewritten, one in modules/ is neither, and Format
+// hands back the root module's directory alone.
+func (r *Tests) PathFmtAndFormatCoverOnlyRootModule(ctx context.Context) error {
+	if r.pathFmtAndFormatCoverOnlyRootModule != nil {
+		return nil
+	}
+	q := r.query.Select("pathFmtAndFormatCoverOnlyRootModule")
+
+	return q.Execute(ctx)
+}
+
+// PathHonoursBackendDeclaredInRootModule asserts a backend block is looked for
+// in the root module: one declared there means state is not handed back as a
+// file. Looked for at the top of source, which holds no *.tf, it would be
+// missed and the local state returned as if it were file-carried.
+func (r *Tests) PathHonoursBackendDeclaredInRootModule(ctx context.Context) error {
+	if r.pathHonoursBackendDeclaredInRootModule != nil {
+		return nil
+	}
+	q := r.query.Select("pathHonoursBackendDeclaredInRootModule")
+
+	return q.Execute(ctx)
+}
+
 // PathLeavingSourceIsRejected asserts a path climbing out of source is refused
 // with an error naming it, however it is spelled, and so is an absolute one.
 func (r *Tests) PathLeavingSourceIsRejected(ctx context.Context) error {
@@ -733,8 +776,34 @@ func (r *Tests) PathReturnsRootModuleFromInit(ctx context.Context) error {
 	return q.Execute(ctx)
 }
 
+// PathReturnsRootModuleFromLock asserts Lock hands back the root module
+// carrying the lock file, as Init does.
+func (r *Tests) PathReturnsRootModuleFromLock(ctx context.Context) error {
+	if r.pathReturnsRootModuleFromLock != nil {
+		return nil
+	}
+	q := r.query.Select("pathReturnsRootModuleFromLock")
+
+	return q.Execute(ctx)
+}
+
+// PathThroughSymlinkIsRejected asserts a path passing through a symlink is
+// refused, whether the link escapes source or stays inside it: inside the
+// container it resolves against a different filesystem than it did in source.
+func (r *Tests) PathThroughSymlinkIsRejected(ctx context.Context) error {
+	if r.pathThroughSymlinkIsRejected != nil {
+		return nil
+	}
+	q := r.query.Select("pathThroughSymlinkIsRejected")
+
+	return q.Execute(ctx)
+}
+
 // PathValidatesRootModuleOutsideModules asserts a root module reaching a module
-// outside its own directory validates once the whole tree is bound.
+// outside its own directory validates once the whole tree is bound — and that
+// it is the root module path names being validated: roots/broken, beside it,
+// fails. Were path ignored, both would validate as the fixture's top
+// directory, which holds no configuration at all.
 func (r *Tests) PathValidatesRootModuleOutsideModules(ctx context.Context) error {
 	if r.pathValidatesRootModuleOutsideModules != nil {
 		return nil
