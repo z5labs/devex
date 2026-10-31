@@ -349,6 +349,60 @@ func (c *Config) Validate(ctx context.Context) error {
 	return expectSuccess(ctx, exec, "tofu validate")
 }
 
+// Test runs the root module's test files (`*.tftest.hcl`, beside the
+// configuration and under tests/) with `tofu test`, and returns its output.
+//
+// Like Validate it initialises with `-backend=false` first: a test run keeps
+// its own state in memory, so it never needs the backend, and a configuration
+// declaring a remote one is tested without its credentials. Providers are
+// installed, because even a mock_provider needs the real provider's schema.
+//
+// The variables, variable files, environment variables and secrets bound to
+// the Config apply here as they do everywhere else, so a test file sees the
+// same inputs a plan would.
+//
+// A failing test is an error, and the error carries tofu's own output — the
+// failed assertion's message among it — because Dagger drops a function's
+// value whenever its error is non-nil.
+//
+// It is never cached, and stamps a nonce onto the run. A test file whose run
+// blocks use `command = apply` against a real provider creates and destroys
+// real infrastructure, so a cached pass would hide a change on the provider's
+// side.
+//
+// +cache="never"
+func (c *Config) Test(ctx context.Context) (string, error) {
+	if err := c.validate(); err != nil {
+		return "", err
+	}
+	initExec := c.container().WithExec(
+		// As in Validate: no backend settings, which tofu rejects on an init
+		// that skips the backend.
+		c.initArgs(false),
+		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny},
+	)
+	if err := expectSuccess(ctx, initExec, "tofu init -backend=false"); err != nil {
+		return "", err
+	}
+	nonce, err := randHex()
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"tofu", "test", "-no-color"}, c.varArgs()...)
+	exec := initExec.
+		WithEnvVariable("TOFU_RUN_NONCE", nonce).
+		WithExec(args, dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny})
+	code, err := exec.ExitCode(ctx)
+	if err != nil {
+		return "", err
+	}
+	out := combinedOutput(ctx, exec)
+	if code != 0 {
+		return "", fmt.Errorf("tofu test failed (exit %d):\n%s", code, out)
+	}
+	return out, nil
+}
+
 // Init runs a full `tofu init` — backend included — and returns the root
 // module with the dependency lock file init produced.
 //

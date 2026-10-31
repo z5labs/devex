@@ -30,6 +30,8 @@ type Ci struct {
 	FmtEnabled bool
 	// +private
 	ValidateEnabled bool
+	// +private
+	TestEnabled bool
 
 	// +private
 	PlanEnabled bool
@@ -57,6 +59,16 @@ func (ci *Ci) WithFmt() *Ci {
 // without any credentials.
 func (ci *Ci) WithValidate() *Ci {
 	ci.ValidateEnabled = true
+	return ci
+}
+
+// WithTest enables the `tofu test` stage, which runs the root module's
+// `*.tftest.hcl` files as Config.Test does. Like validate it initialises with
+// -backend=false; what else it needs depends on the tests themselves — none
+// for a test against mock_provider, real provider credentials for one whose
+// run blocks reach a real provider.
+func (ci *Ci) WithTest() *Ci {
+	ci.TestEnabled = true
 	return ci
 }
 
@@ -110,9 +122,9 @@ func (ci *Ci) WithPlan(
 //
 // +cache="session"
 func (ci *Ci) Check(ctx context.Context) error {
-	if !ci.FmtEnabled && !ci.ValidateEnabled && !ci.PlanEnabled {
+	if !ci.FmtEnabled && !ci.ValidateEnabled && !ci.TestEnabled && !ci.PlanEnabled {
 		return fmt.Errorf(
-			"Ci.Check: no stages enabled — call WithFmt, WithValidate or WithPlan; " +
+			"Ci.Check: no stages enabled — call WithFmt, WithValidate, WithTest or WithPlan; " +
 				"a pipeline that checks nothing would report success unconditionally")
 	}
 	stages := ci.stages()
@@ -175,6 +187,9 @@ func (ci *Ci) stages() []ciStage {
 	if ci.ValidateEnabled {
 		stages = append(stages, ciStage{"validate", ci.runValidate})
 	}
+	if ci.TestEnabled {
+		stages = append(stages, ciStage{"test", ci.runTest})
+	}
 	return stages
 }
 
@@ -201,6 +216,13 @@ func (ci *Ci) runFmt(ctx context.Context) error {
 
 func (ci *Ci) runValidate(ctx context.Context) error {
 	return ci.Config.Validate(ctx)
+}
+
+func (ci *Ci) runTest(ctx context.Context) error {
+	// Test returns tofu's report as its value and carries it in the error when
+	// a test fails. As with fmt, a check only has a use for the failure.
+	_, err := ci.Config.Test(ctx)
+	return err
 }
 
 // runPlan plans the configuration and, when WithPlan(failOnChanges: true) was

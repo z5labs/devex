@@ -70,6 +70,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("ValidateRejectsInvalidConfiguration", t.ValidateRejectsInvalidConfiguration)
 	jobs = jobs.WithJob("ValidateWorksWithoutBackendCredentials", t.ValidateWorksWithoutBackendCredentials)
 
+	jobs = jobs.WithJob("TestPassesWithMockProvider", t.TestPassesWithMockProvider)
+	jobs = jobs.WithJob("TestFailsOnFailingAssertion", t.TestFailsOnFailingAssertion)
+	jobs = jobs.WithJob("TestReceivesBoundVariables", t.TestReceivesBoundVariables)
+
 	jobs = jobs.WithJob("InitProducesLockFile", t.InitProducesLockFile)
 	jobs = jobs.WithJob("LockCoversRequestedPlatforms", t.LockCoversRequestedPlatforms)
 	jobs = jobs.WithJob("LockRejectsUnavailablePlatform", t.LockRejectsUnavailablePlatform)
@@ -143,11 +147,15 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiCheckWithPlanAllowsChangesByDefault", t.CiCheckWithPlanAllowsChangesByDefault)
 	jobs = jobs.WithJob("CiCheckWithRefreshOnlyPlanDetectsDrift", t.CiCheckWithRefreshOnlyPlanDetectsDrift)
 	jobs = jobs.WithJob("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges", t.CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges)
+	jobs = jobs.WithJob("CiCheckWithTestPasses", t.CiCheckWithTestPasses)
+	jobs = jobs.WithJob("CiCheckWithTestReportsFailingTest", t.CiCheckWithTestReportsFailingTest)
+	jobs = jobs.WithJob("CiCheckWithTestAloneIsAStage", t.CiCheckWithTestAloneIsAStage)
 	jobs = jobs.WithJob("CiRunProducesPlanArtifacts", t.CiRunProducesPlanArtifacts)
 	jobs = jobs.WithJob("CiRunFailsOnFailedCheck", t.CiRunFailsOnFailedCheck)
 
 	jobs = jobs.WithJob("PlanShouldNotBeCached", t.PlanShouldNotBeCached)
 	jobs = jobs.WithJob("ApplyShouldNotBeCached", t.ApplyShouldNotBeCached)
+	jobs = jobs.WithJob("TestShouldNotBeCached", t.TestShouldNotBeCached)
 
 	return jobs.Run(ctx)
 }
