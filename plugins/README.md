@@ -9,6 +9,7 @@ tooling (`daggerverse/`, `ci/`) and the docs (`docs/`).
 | ------ | -------- |
 | **[`backlog`](backlog/)** | `next-issue`, `run-backlog` and `setup-backlog` — an unattended issue-to-merge cycle for any GitHub repository, configured per repo by `.claude/backlog.json`. |
 | **[`daggerverse`](daggerverse/)** | `plan-dagger-module` — a paced design workflow that drafts story issues for a new daggerverse module. |
+| **[`hosted-agents`](hosted-agents/)** | `review-plugin` — says, per hosted agent target, which of a plugin's components will work, which need setup and which will fail, from data-driven target profiles and an offline scan. |
 
 ## `backlog`
 
@@ -239,6 +240,83 @@ reviews will appear under. The merge credential cannot be checked that way — a
 repository secret's value is unreadable outside a workflow run — so its row
 stays a presence check and says so, and its first real proof is the first real
 merge.
+
+## `hosted-agents`
+
+A plugin that works on a laptop can fail in a hosted agent session, and nothing
+tells its author until someone runs it there. This repository learned that by
+hand three times. A cloud session ignored the plugins `.claude/settings.json`
+declares ([#469](https://github.com/z5labs/devex/issues/469)). `dagger check` needed a pinned CLI, a daemon, an engine routed
+through the session's proxy and two allow-listed hosts ([#468](https://github.com/z5labs/devex/issues/468)). And the session's
+GitHub proxy blocks GraphQL, so `gh pr`, `gh issue` and `gh project` return 403,
+which puts the `backlog` cycle out of reach of a cloud session for a reason no
+check reported. `review-plugin` is the check that would have.
+
+It reports, per hosted target, which components will work, which need setup and
+which will fail. Each finding gives the file and line, the evidence, the remedy,
+and whether the fix belongs in the plugin, the repository or the environment.
+There are three targets:
+
+- **`claude-code-cloud`**: Claude Code on the web.
+- **`copilot-cloud-sandbox`**: a GitHub Copilot session started from a
+  repository's **Agents** tab, in a GitHub-hosted cloud sandbox.
+- **`copilot-actions`**: a Copilot session on an Actions runner.
+
+The facts are data, not code. Each target is a profile,
+[`assets/targets/<id>.json`](hosted-agents/assets/targets/), described by
+[`assets/target.schema.json`](hosted-agents/assets/target.schema.json). Every
+rule carries what it matches, a severity, a remedy, `fix_in`, its source URLs,
+a `basis` and the date it was last checked. These facts change: the Copilot
+coding agent was renamed the cloud agent, gained a sandbox and its own plugin
+settings in the space of a few months, and several of its pages still describe
+one session type as if it were the only one. Where sources disagree, the rule
+cites all of them and is `unconfirmed`, and the report says so. `observed` is
+for what someone saw in a real session, with a link. It outranks `docs`: the
+docs say a cloud session does not read user settings, and [#470](https://github.com/z5labs/devex/pull/470) watched plugins
+declared there load. GraphQL's 403, `gh auth status` failing on the proxy's
+placeholder token, and the 403 for a repository the session was not given were
+all observed while building this plugin. Adding a target means adding a file.
+
+The scan is
+[`scripts/scan-plugin.sh`](hosted-agents/scripts/scan-plugin.sh), for the same
+reason `select-issue.sh` is a script. A check an agent retypes each run cannot
+be tested. The scan reads the manifest, skills, commands, agents, hooks,
+`.mcp.json`, `.lsp.json` and scripts. It prints one JSON document, or with
+`--format markdown` the report, and makes no network calls. It matches commands
+only where they run: scripts, hook commands, fenced shell blocks and tool
+frontmatter. A skill whose prose says "never run `gh pr merge`" is not a finding.
+Neither is the same command in a JSON block or an error message. In a fenced
+block or a script it is. `select-issue.sh` once had the opposite bug, where a
+fenced example counted as a declaration. The rules for which context counts are
+pinned by [`scripts/scan-plugin_test.sh`](hosted-agents/scripts/scan-plugin_test.sh).
+
+Where a command runs also sets how bad it is. In a script, GraphQL's 403 is an
+exit code the caller cannot recover from: the component breaks. In a skill's
+fenced block, the model sees the error and the REST route it names, so the
+component degrades. That is why `daggerverse:plan-dagger-module`, whose last step
+runs `gh issue create`, degrades in a cloud session, while every `backlog` skill
+breaks there through the scripts it runs.
+
+Verdicts follow calls the scan can see:
+
+- a skill that runs `scripts/x.sh` from a fenced block;
+- a script that runs another by name;
+- a fenced `Agent(subagent_type: …)` spawn;
+- a fenced `<plugin>:<skill>` mention.
+
+A component's verdict is the worst finding it reaches, and the report names the
+path. Delivery comes first. Each profile's delivery rules decide, from the
+repository the plugin is delivered from, whether it reaches a session at all. A
+plugin that cannot be delivered is `breaks` for every component, and the report
+says so before anything else.
+
+The skill adds what a pattern cannot see and labels it. It reads skill and agent
+prose for the assumptions the profiles mark `review`: "stop and wait for the
+user", a wait bounded at two hours, a flow that opens several pull requests, an
+agent told in prose to invoke a skill. It records them as `basis: review`, citing
+a profile rule. The scan merges them in and recomputes verdicts. It refuses a
+finding that cites no rule of the profile, and nothing merged can drop or
+downgrade a scanned finding.
 
 ## Convention
 

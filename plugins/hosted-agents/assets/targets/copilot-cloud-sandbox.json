@@ -1,0 +1,383 @@
+{
+  "$schema": "../target.schema.json",
+  "id": "copilot-cloud-sandbox",
+  "name": "GitHub Copilot cloud agent, cloud sandbox",
+  "description": "A GitHub Copilot session started from a repository's Agents tab, running in a GitHub-hosted cloud sandbox, the default environment there. It can be steered with follow-up prompts, resumed from any client, and pointed at more than one repository. Facts are as read from docs.github.com for z5labs/devex#475 on the checked date; the pages disagree in places, and those rules are unconfirmed.",
+  "checked": "2026-10-31",
+  "sources": [
+    "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/about-cloud-sandboxes",
+    "https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github",
+    "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/configuring-agent-settings",
+    "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/personalize-cloud-sessions",
+    "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents",
+    "https://docs.github.com/en/copilot/reference/customization-cheat-sheet"
+  ],
+  "layout": {
+    "skills": [".github/skills/{name}/SKILL.md", ".claude/skills/{name}/SKILL.md", ".agents/skills/{name}/SKILL.md"],
+    "agents": [".github/agents/{name}.agent.md"],
+    "commands": [],
+    "plugin_dirs": []
+  },
+  "rules": [
+    {
+      "id": "repository-components",
+      "summary": "The plugin's skills and agents are committed where the cloud agent loads them: skills under .github/skills, .claude/skills or .agents/skills, agents as .github/agents/<name>.agent.md.",
+      "match": { "kind": "delivery", "when": { "vendored": true } },
+      "severity": "info",
+      "remedy": "Nothing to do. Hooks are a separate matter: the cloud agent reads them only from .github/hooks/*.json.",
+      "fix_in": "repository",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills",
+        "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "plugin-settings-unconfirmed",
+      "summary": "The repository enables the plugin in .github/copilot/settings.json, in the same extraKnownMarketplaces / enabledPlugins shape as .claude/settings.json. Whether the sandbox loads it is unconfirmed: the hooks reference says the cloud agent's sandbox 'does not ship with … installed plugins' without saying which session type it means.",
+      "match": {
+        "kind": "delivery",
+        "when": { "all": [{ "declared_in": ".github/copilot/settings.json" }, { "not": { "vendored": true } }] }
+      },
+      "severity": "info",
+      "remedy": "Start a sandbox session and check that the plugin's skills are offered; record what you see in this profile as basis: observed. Committing the skills under .github/skills is the documented route if it does not load.",
+      "fix_in": "repository",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/configuring-agent-settings",
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "no-plugin-settings",
+      "summary": "Nothing in the repository delivers the plugin to a sandbox session: .github/copilot/settings.json does not enable it and its components are not committed where the cloud agent loads them. Even the settings route is unconfirmed (see plugin-settings-unconfirmed).",
+      "match": {
+        "kind": "delivery",
+        "when": { "all": [{ "not": { "declared_in": ".github/copilot/settings.json" } }, { "not": { "vendored": true } }] }
+      },
+      "severity": "needs-setup",
+      "remedy": "Enable it in .github/copilot/settings.json with the same extraKnownMarketplaces and enabledPlugins entries as .claude/settings.json, or commit its skills under .github/skills (or .claude/skills, .agents/skills) and its agents as .github/agents/<name>.agent.md. Personal skills and agents can also come from a dotfiles repository's .copilot/ directory, which is copied when a sandbox is created or resumed; no install script runs.",
+      "fix_in": "repository",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/configuring-agent-settings",
+        "https://docs.github.com/en/copilot/reference/hooks-reference",
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/personalize-cloud-sessions"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "commands-unsupported",
+      "summary": "The cloud agent does not support commands/: a plugin's slash commands are not available.",
+      "match": { "kind": "component", "type": "command" },
+      "severity": "breaks",
+      "remedy": "Turn the command into a skill (skills/<name>/SKILL.md); a skill is offered where a command would have been typed.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/reference/customization-cheat-sheet"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "subagents-unsupported",
+      "summary": "Subagents are not supported on GitHub.com, so a component that spawns them with the Agent (Task) tool cannot.",
+      "match": { "kind": "tool", "fields": ["allowed-tools", "tools"], "components": ["skill", "command", "agent"], "names": ["Agent", "Task", "agent", "custom-agent"] },
+      "severity": "breaks",
+      "remedy": "Do the subagent's work inline, in the one agent's context, or split it into separate sessions a person starts.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/reference/customization-cheat-sheet",
+        "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "skill-tool-dropped",
+      "summary": "An agent's tools: lists Skill, which the cloud agent does not know and silently drops, so the agent cannot invoke a skill with it.",
+      "match": { "kind": "tool", "fields": ["tools"], "components": ["agent"], "names": ["Skill"] },
+      "severity": "breaks",
+      "remedy": "Put what the agent needs from the skill in the agent's own instructions, or make the skill the entry point instead of the agent.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/reference/custom-agents-configuration"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "unknown-tools-dropped",
+      "summary": "An agent's tools: names a tool the cloud agent does not know (such as TaskCreate or WebFetch), which it silently drops.",
+      "match": {
+        "kind": "tool",
+        "fields": ["tools"],
+        "components": ["agent"],
+        "not_in": ["execute", "shell", "Bash", "powershell", "read", "Read", "NotebookRead", "edit", "Edit", "MultiEdit", "Write", "NotebookEdit", "search", "Grep", "Glob"],
+        "ignore": ["Skill", "Agent", "Task", "agent", "custom-agent", "AskUserQuestion"],
+        "ignore_pattern": "/|^mcp__github__(?:create|update|delete|merge|push|add|remove|request|assign|submit|close|reopen|fork|enable|disable|run|rerun|cancel|dismiss|resolve|unresolve|mark|lock|unlock|set|edit|write)"
+      },
+      "severity": "degrades",
+      "remedy": "Drop the name, or replace it with the Copilot alias that covers it (execute, read, edit, search). Instructions that rely on the dropped tool need another way to do that step.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/reference/custom-agents-configuration"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "ask-user-question",
+      "summary": "A component declares AskUserQuestion, which needs the session to stop and wait for an answer. Whether the sandbox can is unconfirmed: a person can steer it with follow-up prompts, but the hooks reference calls the sandbox fully non-interactive.",
+      "match": { "kind": "tool", "fields": ["allowed-tools", "tools"], "components": ["skill", "command", "agent"], "names": ["AskUserQuestion"] },
+      "severity": "breaks",
+      "remedy": "Take the answers as arguments or from a committed config file, and report what is missing instead of asking.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents",
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "plugin-hooks-not-loaded",
+      "summary": "The hooks reference says the cloud agent reads hooks only from .github/hooks/*.json, in a format that differs from Claude's hooks.json, without saying which session type it means. A plugin's hooks therefore probably do not run.",
+      "match": { "kind": "component", "type": "hook" },
+      "severity": "breaks",
+      "remedy": "Port the hook to .github/hooks/<name>.json in Copilot's format. There a preToolUse hook that exits with any non-zero code denies the tool, not only exit 2, so a hook that exits 1 on its own error starts blocking tools.",
+      "fix_in": "repository",
+      "sources": ["https://docs.github.com/en/copilot/reference/hooks-reference"],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "plugin-root-undocumented",
+      "summary": "A command relies on ${CLAUDE_PLUGIN_ROOT}, which the cloud agent documents only inside an agent's mcp-servers. Elsewhere it is probably unset, and the path collapses to /scripts/….",
+      "match": { "kind": "command", "pattern": "CLAUDE_PLUGIN_ROOT", "in": ["script", "hook", "fence"] },
+      "severity": "breaks",
+      "remedy": "Resolve paths from the file's own location (a script's dirname \"$0\"), or commit what the skill calls into the repository and call it by a repository path.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/reference/custom-agents-configuration"],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "no-github-token",
+      "summary": "There is no GITHUB_TOKEN in a cloud agent session; GITHUB_COPILOT_GIT_TOKEN is set instead.",
+      "match": { "kind": "command", "pattern": "\\$\\{?GITHUB_TOKEN\\b", "in": ["script", "hook", "fence"] },
+      "severity": "breaks",
+      "remedy": "Do not read GITHUB_TOKEN. What the agent may do on GitHub is limited anyway (see agent-cannot-git-push and cannot-merge-approve-ready).",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "agent-cannot-git-push",
+      "summary": "The cloud agent pushes its work to a single branch itself and cannot run git push.",
+      "match": { "kind": "command", "pattern": "\\bgit\\s+push\\b", "in": ["script", "hook", "fence"] },
+      "severity": "breaks",
+      "remedy": "Leave committing and pushing to the cloud agent. A flow that owns its branch, pull request and merge does not fit this target.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "cannot-merge-approve-ready",
+      "summary": "The cloud agent cannot merge a pull request, approve one, or mark one ready for review.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+pr\\s+(?:merge|ready)\\b|\\bgh\\s+pr\\s+review\\b[^|;&]*(?:--approve|-a\\b)|/pulls/[^/\\s]+/merge\\b|event=APPROVE",
+        "in": ["script", "hook", "fence", "frontmatter"]
+      },
+      "severity": "breaks",
+      "remedy": "End the flow at an open pull request and leave merging, approving and marking ready to a person or a workflow.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "pull-request-workflows-need-approval",
+      "summary": "Workflows on the cloud agent's pull requests do not run until a person approves the run, so a flow that waits for its own pull request's checks waits for a human.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+pr\\s+checks\\b|\\bgh\\s+run\\s+(?:watch|view)\\b|/check-runs\\b|/check-suites\\b|/commits/[^/\\s]+/status\\b",
+        "in": ["script", "hook", "fence", "frontmatter"]
+      },
+      "severity": "breaks",
+      "remedy": "Do not gate on the checks of a pull request the agent opened. Run the checks in the session before pushing instead.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "gh-auth-undocumented",
+      "summary": "A command runs gh. Whether gh is authenticated in a cloud agent session, and as what, is undocumented.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+[a-z]",
+        "in": ["script", "hook", "fence", "frontmatter"],
+        "except": ["cannot-merge-approve-ready", "pull-request-workflows-need-approval"]
+      },
+      "severity": "breaks",
+      "remedy": "Read GitHub through the built-in GitHub MCP server, which is read-only, and leave writes to the cloud agent. Observe gh in a session and record the result here.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "github-mcp-read-only",
+      "summary": "A component declares a GitHub MCP tool that writes. The cloud agent's built-in GitHub MCP server is read-only.",
+      "match": {
+        "kind": "tool",
+        "fields": ["allowed-tools", "tools"],
+        "components": ["skill", "command", "agent"],
+        "name_pattern": "^(?:mcp__github__|github/)(?:create|update|delete|merge|push|add|remove|request|assign|submit|close|reopen|fork|enable|disable|run|rerun|cancel|dismiss|resolve|unresolve|mark|lock|unlock|set|edit|write)"
+      },
+      "severity": "breaks",
+      "remedy": "Keep to read tools, and leave writes to the cloud agent's own pull request.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers",
+        "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "mcp-needs-repository-config",
+      "summary": "The plugin declares an MCP server. The cloud agent supports only an MCP server's tools, not its resources or prompts, and a secret the server needs must be named COPILOT_MCP_*. Connectors and personal MCP servers work in a sandbox session.",
+      "match": { "kind": "component", "type": "mcp", "except": ["mcp-oauth-remote"] },
+      "severity": "needs-setup",
+      "remedy": "Add the server to the repository's Copilot MCP configuration or as a personal MCP server, with its secrets as COPILOT_MCP_* names.",
+      "fix_in": "repository",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers",
+        "https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "mcp-oauth-remote",
+      "summary": "The plugin declares a remote (http or sse) MCP server with no static headers, which means it authenticates by OAuth. The MCP configuration does not support OAuth remotes; whether a connector can stand in for it in a sandbox session is unconfirmed.",
+      "match": { "kind": "component", "type": "mcp", "where": { "transport": ["http", "sse"], "has_headers": false } },
+      "severity": "breaks",
+      "remedy": "Use a connector for the service if one exists, or a server that takes a token in a header (a COPILOT_MCP_* secret).",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers",
+        "https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "host-not-on-firewall-allowlist",
+      "summary": "The cloud agent's firewall is on by default with a recommended allow list, and this host is not on the part of it this profile records.",
+      "match": {
+        "kind": "url",
+        "in": ["script", "hook", "fence"],
+        "allow": [
+          "github.com", "api.github.com", "*.github.com", "*.githubusercontent.com", "ghcr.io", "*.ghcr.io",
+          "registry.npmjs.org", "npmjs.org", "npmjs.com", "yarnpkg.com", "registry.yarnpkg.com", "nodejs.org",
+          "pypi.org", "pypi.python.org", "files.pythonhosted.org", "pythonhosted.org", "bootstrap.pypa.io",
+          "proxy.golang.org", "sum.golang.org", "golang.org", "go.dev", "pkg.go.dev",
+          "crates.io", "index.crates.io", "static.crates.io", "static.rust-lang.org", "sh.rustup.rs",
+          "rubygems.org", "api.rubygems.org", "index.rubygems.org",
+          "repo.maven.apache.org", "repo1.maven.org", "plugins.gradle.org", "services.gradle.org",
+          "api.nuget.org", "nuget.org", "dotnet.microsoft.com", "dot.net",
+          "registry-1.docker.io", "auth.docker.io", "production.cloudflare.docker.com", "mcr.microsoft.com",
+          "archive.ubuntu.com", "security.ubuntu.com", "deb.debian.org", "security.debian.org", "packages.microsoft.com"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Check the host against the recommended allow list; if it is not there, add it in the repository's Copilot cloud agent firewall settings. A change applies only to sessions started after it.",
+      "fix_in": "repository",
+      "sources": ["https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-the-firewall"],
+      "basis": "unconfirmed",
+      "notes": "The firewall being on by default, and allow-list changes reaching only new sessions, are documented. The host list here is partial and could not be re-read on the checked date (docs.github.com was outside the reviewing session's network allow list), so a finding means 'check this host', not 'this host is blocked'.",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "credential-from-environment",
+      "summary": "A command reads a credential from an environment variable. How a sandbox session receives secrets, other than COPILOT_MCP_* secrets for MCP servers, is not documented: there are no setup steps here and Agents secrets are documented for Actions sessions.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\b(?!GH_TOKEN\\b|GITHUB_TOKEN\\b|CLAUDE_|COPILOT_MCP_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)\\b",
+        "in": ["script", "hook", "fence"]
+      },
+      "severity": "needs-setup",
+      "remedy": "Find out how the sandbox exposes the repository's Agents secrets, and record it here as observed; until then plan on the credential being absent.",
+      "fix_in": "repository",
+      "sources": [
+        "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/about-cloud-sandboxes",
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/configure-secrets-and-variables"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "waits-for-user",
+      "summary": "A flow that stops and waits for the person. Whether a sandbox session can wait for an answer the way AskUserQuestion does is unconfirmed: a person can steer it with follow-up prompts, but the hooks reference calls the sandbox fully non-interactive.",
+      "match": { "kind": "review", "look_for": "Instructions to stop and wait for the user's answer, approval or choice before continuing: 'stop and ask', 'wait for the user', 'do not proceed without', a checkpoint after each step." },
+      "severity": "breaks",
+      "remedy": "Make each checkpoint the end of a session: write out what the person has to decide, and let their follow-up prompt carry the answer.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/use-copilot-agents/manage-and-track-agents",
+        "https://docs.github.com/en/copilot/reference/hooks-reference"
+      ],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "several-pull-requests",
+      "summary": "The cloud agent works on one branch and its one pull request.",
+      "match": { "kind": "review", "look_for": "A flow that opens more than one pull request, works on more than one branch, or creates and deletes branches as it goes." },
+      "severity": "breaks",
+      "remedy": "One unit of work per session: let the cloud agent's own branch and pull request be the output.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "several-repositories",
+      "summary": "A sandbox session can change several repositories in one organization.",
+      "match": { "kind": "review", "look_for": "A flow that reads or changes repositories other than the one the session started in." },
+      "severity": "info",
+      "remedy": "Nothing to do, provided the repositories are in the same organization.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github"],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "needs-preinstalled-tools",
+      "summary": "A sandbox has no setup steps (copilot-setup-steps.yml is for Actions sessions only) and no custom compute, so a tool or daemon the flow needs has to be installed by the agent in every session.",
+      "match": { "kind": "review", "look_for": "A CLI, runtime or daemon the flow needs that a stock environment lacks (dagger, a database, a container engine), or a step that assumes something was installed before the session started." },
+      "severity": "degrades",
+      "remedy": "Have the flow install what it needs itself, from hosts on the firewall allow list, or move the work to a copilot-actions session with setup steps.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/about-cloud-sandboxes",
+        "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/customize-the-agent-environment"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "background-work-across-resume",
+      "summary": "A sandbox session resumes from a snapshot, on any client. Whether background processes survive a resume is not documented.",
+      "match": { "kind": "review", "look_for": "Work that has to survive the session pausing: a background process, a watcher, a scheduled wake-up the flow relies on to come back." },
+      "severity": "degrades",
+      "remedy": "Keep waits inside a bounded foreground command, and make the flow resumable from state in the repository.",
+      "fix_in": "plugin",
+      "sources": ["https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/about-cloud-sandboxes"],
+      "basis": "unconfirmed",
+      "checked": "2026-10-31"
+    }
+  ]
+}

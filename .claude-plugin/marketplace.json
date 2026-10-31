@@ -16,6 +16,11 @@
       "name": "daggerverse",
       "source": "./plugins/daggerverse",
       "description": "Claude Code tooling for designing and building daggerverse modules"
+    },
+    {
+      "name": "hosted-agents",
+      "source": "./plugins/hosted-agents",
+      "description": "Review whether a plugin works in hosted agent sessions — Claude Code on the web, a Copilot cloud sandbox, a Copilot Actions runner — per component, with file:line, remedy and where the fix belongs"
     }
   ]
 }
