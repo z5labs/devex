@@ -11,9 +11,10 @@ import (
 )
 
 const (
-	// workDir is where the caller's root module is copied. It is a copy, not a
+	// workDir is where the caller's source tree is copied. It is a copy, not a
 	// mount: tofu writes .terraform/, the dependency lock file, the plan file
-	// and (in file-carried mode) the state next to the configuration.
+	// and (in file-carried mode) the state next to the configuration. The root
+	// module is workDir itself, or the directory Config's path names under it.
 	workDir = "/src"
 
 	// pluginCacheDir backs TF_PLUGIN_CACHE_DIR. It is a Dagger cache volume,
@@ -49,11 +50,6 @@ const (
 	planJSONFileName = "plan.json"
 	planTextFileName = "plan.txt"
 	changesFileName  = "changes"
-
-	// mountedPlanPath is where Apply mounts a caller-supplied saved plan. It
-	// lives inside the root module because tofu resolves the plan file
-	// relative to the working directory.
-	mountedPlanPath = workDir + "/" + planFileName
 
 	// secretVarPrefix is how tofu picks up an input variable from the
 	// environment, which is how WithSecretVar keeps plaintext out of argv.
@@ -97,6 +93,8 @@ type Config struct {
 	Opentofu *Opentofu
 	// +private
 	Source *dagger.Directory
+	// +private
+	Path string
 
 	// +private
 	VarNames []string
@@ -299,12 +297,13 @@ func (c *Config) Fmt(ctx context.Context) (string, error) {
 	return out, nil
 }
 
-// Format rewrites the configuration with `tofu fmt -recursive` and returns the
-// formatted tree, for the caller to export back over their working copy.
+// Format rewrites the root module with `tofu fmt -recursive` and returns the
+// formatted root module directory, for the caller to export back over their
+// working copy of it.
 //
 // It is the rewrite counterpart of Fmt, which stays check-only so it can gate
-// CI. The caller's own directory is never touched: the root module is copied
-// into the container, and what comes back is that copy.
+// CI. The caller's own directory is never touched: source is copied into the
+// container, and what comes back is the root module's directory in that copy.
 //
 // +cache="session"
 func (c *Config) Format(ctx context.Context) (*dagger.Directory, error) {
@@ -318,7 +317,7 @@ func (c *Config) Format(ctx context.Context) (*dagger.Directory, error) {
 	if err := expectSuccess(ctx, exec, "tofu fmt -recursive"); err != nil {
 		return nil, err
 	}
-	return c.withoutCarriedState(exec.Directory(workDir)), nil
+	return c.withoutCarriedState(exec.Directory(c.rootDir())), nil
 }
 
 // Validate checks the configuration for internal consistency with
@@ -365,7 +364,7 @@ func (c *Config) Init(ctx context.Context) (*dagger.Directory, error) {
 	if err != nil {
 		return nil, err
 	}
-	return exec.Directory(workDir).WithoutDirectory(".terraform"), nil
+	return exec.Directory(c.rootDir()).WithoutDirectory(".terraform"), nil
 }
 
 // Lock regenerates the dependency lock file for the given platforms with
@@ -380,6 +379,11 @@ func (c *Config) Init(ctx context.Context) (*dagger.Directory, error) {
 // Platforms are `<os>_<arch>` pairs — linux_amd64, darwin_arm64, windows_amd64.
 // With none given, tofu locks for the platform it is running on, which is what
 // a repo with a single-platform toolchain wants.
+//
+// Modules are installed first with `tofu get`, which touches neither the
+// providers nor the backend: tofu refuses to lock a configuration whose
+// modules are not installed, and a root module using ../../modules/<name> is
+// exactly that until something installs them.
 //
 // A run the Go runtime kills outright is retried — see runtimeFatalMarker for
 // what that is and why it is the one failure worth re-running.
@@ -405,7 +409,13 @@ func (c *Config) Lock(
 	// consulting it during a lock is at best irrelevant.
 	noCache := c.clone()
 	noCache.NoPluginCache = true
-	ctr := noCache.container()
+	ctr := noCache.container().WithExec(
+		[]string{"tofu", "get", "-no-color"},
+		dagger.ContainerWithExecOpts{Expect: dagger.ReturnTypeAny},
+	)
+	if err := expectSuccess(ctx, ctr, "tofu get"); err != nil {
+		return nil, err
+	}
 
 	var last string
 	for attempt := 1; attempt <= lockAttempts; attempt++ {
@@ -428,9 +438,9 @@ func (c *Config) Lock(
 			return nil, err
 		}
 		if code == 0 {
-			// Unlike Init there is no .terraform/ to strip: `providers lock`
-			// writes the lock file and nothing else.
-			return c.withoutCarriedState(exec.Directory(workDir)), nil
+			// .terraform/ holds only what tofu get recorded about the
+			// modules; the lock file is the artifact, as it is for Init.
+			return c.withoutCarriedState(exec.Directory(c.rootDir()).WithoutDirectory(".terraform")), nil
 		}
 		last = combinedOutput(ctx, exec)
 		if !strings.Contains(last, runtimeFatalMarker) {
@@ -532,7 +542,7 @@ func (c *Config) Plan(
 	}
 
 	return dag.Directory().
-		WithFile(planFileName, exec.File(path.Join(workDir, planFileName))).
+		WithFile(planFileName, exec.File(path.Join(c.rootDir(), planFileName))).
 		WithNewFile(planJSONFileName, planJSON).
 		WithNewFile(planTextFileName, planText).
 		WithNewFile(changesFileName, changes), nil
@@ -572,7 +582,9 @@ func (c *Config) Apply(
 
 	args := []string{"tofu", "apply", "-input=false", "-no-color"}
 	if plan != nil {
-		ctr = ctr.WithMountedFile(mountedPlanPath, plan)
+		// Mounted inside the root module, because tofu resolves the plan
+		// file relative to the working directory.
+		ctr = ctr.WithMountedFile(path.Join(c.rootDir(), planFileName), plan)
 		args = append(args, planFileName)
 	} else {
 		args = append(args, "-auto-approve")
@@ -705,17 +717,20 @@ func (c *Config) validate() error {
 	return nil
 }
 
-// container copies the root module into a writable workdir and binds
-// everything that applies to every subcommand: the provider cache, staged
-// var/backend files, environment variables, secret variables and state.
+// container copies the whole source tree into a writable workdir, runs from
+// the root module within it, and binds everything that applies to every
+// subcommand: the provider cache, staged var/backend files, environment
+// variables, secret variables and state.
 //
-// The source is copied rather than mounted because tofu writes next to the
+// All of source is copied, not just the root module, so a module source
+// reaching outside the root module (../../modules/<name>) still resolves.
+// It is copied rather than mounted because tofu writes next to the
 // configuration — .terraform/, the lock file, the plan file and, in
 // file-carried mode, the state.
 func (c *Config) container() *dagger.Container {
 	ctr := c.Opentofu.Container().
 		WithDirectory(workDir, c.Source).
-		WithWorkdir(workDir)
+		WithWorkdir(c.rootDir())
 
 	if !c.NoPluginCache {
 		ctr = ctr.
@@ -746,7 +761,7 @@ func (c *Config) container() *dagger.Container {
 		ctr = ctr.WithSecretVariable(secretVarPrefix+name, c.SecretVarValues[i])
 	}
 	if c.State != nil {
-		ctr = ctr.WithFile(path.Join(workDir, c.statePath()), c.State)
+		ctr = ctr.WithFile(path.Join(c.rootDir(), c.statePath()), c.State)
 	}
 	return ctr
 }
@@ -819,7 +834,7 @@ func (c *Config) runMutation(ctx context.Context, ctr *dagger.Container, args []
 		return nil, err
 	}
 	if !hasBackend {
-		out = out.WithFile(stateFileName, exec.File(path.Join(workDir, c.statePath())))
+		out = out.WithFile(stateFileName, exec.File(path.Join(c.rootDir(), c.statePath())))
 	}
 	return out, nil
 }
@@ -915,6 +930,74 @@ func (c *Config) withoutCarriedState(dir *dagger.Directory) *dagger.Directory {
 	return dir.WithoutFile(c.statePath())
 }
 
+// rootDir is the root module's directory inside the container: where every
+// tofu command runs, and what every function reads its results from.
+func (c *Config) rootDir() string {
+	return path.Join(workDir, c.Path)
+}
+
+// root is the root module within the caller's source tree, as the host-side
+// counterpart of rootDir.
+func (c *Config) root() *dagger.Directory {
+	if c.Path == "" || c.Path == "." {
+		return c.Source
+	}
+	return c.Source.Directory(c.Path)
+}
+
+// rootModulePath normalises Config's path and rejects one that cannot name the
+// root module: an absolute path, one that climbs out of source, or one that is
+// not a directory in it. Climbing out is refused rather than clamped, because
+// a root module outside the tree tofu was handed is one tofu cannot see.
+//
+// Every component is checked as a real directory, not followed as a symlink.
+// The check runs against source, where a symlink resolves inside the tree, but
+// tofu runs in the container, where the same link resolves against the
+// container's own filesystem: roots/app -> ../../.. would pass here and put
+// tofu in /. A link that stays inside the tree is no safer, since it changes
+// what ../../modules/<name> points at.
+func rootModulePath(ctx context.Context, source *dagger.Directory, p string) (string, error) {
+	if strings.TrimSpace(p) == "" {
+		p = "."
+	}
+	if path.IsAbs(p) {
+		return "", fmt.Errorf("Config: path %q must be relative to source", p)
+	}
+	clean := path.Clean(p)
+	if clean == ".." || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("Config: path %q leaves source", p)
+	}
+	if clean == "." {
+		return clean, nil
+	}
+	parts := strings.Split(clean, "/")
+	for i := range parts {
+		prefix := strings.Join(parts[:i+1], "/")
+		ok, err := source.Exists(ctx, prefix, dagger.DirectoryExistsOpts{
+			ExpectedType:        dagger.ExistsTypeDirectoryType,
+			DoNotFollowSymlinks: true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("Config: look for path %q in source: %s", p, errText(err))
+		}
+		if ok {
+			continue
+		}
+		link, err := source.Exists(ctx, prefix, dagger.DirectoryExistsOpts{
+			ExpectedType:        dagger.ExistsTypeSymlinkType,
+			DoNotFollowSymlinks: true,
+		})
+		if err != nil {
+			return "", fmt.Errorf("Config: look for path %q in source: %s", p, errText(err))
+		}
+		if link {
+			return "", fmt.Errorf("Config: path %q passes through the symlink %q; name the directory it points at instead", p, prefix)
+		}
+		return "", fmt.Errorf("Config: path %q is not a directory in source", p)
+	}
+	return clean, nil
+}
+
 // statePath is where the local backend keeps state, relative to the root
 // module. A selected workspace moves it under terraform.tfstate.d.
 func (c *Config) statePath() string {
@@ -930,7 +1013,7 @@ func (c *Config) hasState(ctx context.Context) (bool, error) {
 	if c.State != nil {
 		return true, nil
 	}
-	matches, err := c.Source.Glob(ctx, c.statePath())
+	matches, err := c.root().Glob(ctx, c.statePath())
 	if err != nil {
 		return false, fmt.Errorf("look for %s in the root module: %s", c.statePath(), errText(err))
 	}
@@ -947,7 +1030,8 @@ func (c *Config) hasBackend(ctx context.Context) (bool, error) {
 	if len(c.BackendNames) > 0 || len(c.BackendFiles) > 0 {
 		return true, nil
 	}
-	matches, err := c.Source.Glob(ctx, "**/*.tf")
+	root := c.root()
+	matches, err := root.Glob(ctx, "**/*.tf")
 	if err != nil {
 		return false, fmt.Errorf("search the root module for *.tf: %s", errText(err))
 	}
@@ -957,7 +1041,7 @@ func (c *Config) hasBackend(ctx context.Context) (bool, error) {
 		if strings.Contains(name, "/") {
 			continue
 		}
-		contents, err := c.Source.File(name).Contents(ctx)
+		contents, err := root.File(name).Contents(ctx)
 		if err != nil {
 			return false, fmt.Errorf("read %s: %s", name, errText(err))
 		}

@@ -41,6 +41,38 @@ module. The tree is *copied* into the container, not mounted, because `tofu`
 writes next to the configuration — `.terraform/`, the lock file, the plan
 file, and in file-carried mode the state.
 
+### A root module inside a larger tree
+
+A repository that keeps reusable modules in `modules/` and its root modules
+elsewhere, referring to them as `../../modules/<name>`, binds the whole tree
+and names the root module with `path`:
+
+```go
+dag.Opentofu().Config(repo, dagger.OpentofuConfigOpts{Path: "rebuild/phases/network"})
+```
+
+```sh
+dagger call config --source=. --path=rebuild/phases/network plan
+```
+
+All of `source` is copied in and every `tofu` command runs in `path`, so a
+module source reaching outside the root module resolves. Binding the root
+module's directory on its own cannot work: `../../modules/<name>` lies outside
+what `tofu` was handed, and `init` fails to find it.
+
+Everything a function reads or returns stays relative to the root module, as it
+is when `path` is left at its default of `.`: the lock file `Init` and `Lock`
+return, the state `WithState` supplies and file-carried mode hands back, the
+plan files, and what `Fmt` checks and `Format` rewrites. `Init`, `Lock` and
+`Format` return the root module's directory, not the tree around it.
+
+`path` is relative to `source`. One that is not a directory in `source`, one
+that leaves it (`..`, `../other`, `roots/../../other`), an absolute one, and one
+passing through a symlink are rejected with an error naming the path. A
+symlink is refused because it resolves differently inside the container than
+in `source` — `roots/app -> ../../..` would run `tofu` outside the tree — and
+even one that stays inside the tree changes what `../../modules/<name>` means.
+
 The type is named `Config` rather than `Workspace` or `Module`: `Workspace`
 collides with both `tofu workspace` (a state concept, exposed separately as
 `WithWorkspace`) and Dagger v0.21's core `Workspace` type, and `Module`
@@ -167,7 +199,7 @@ reason.
 |---|---|
 | `Container()` | The assembled tofu image — the escape hatch for unwrapped subcommands. |
 | `Version()` | The OpenTofu release the container ships. |
-| `Config(source)` | Bind a root module tree to the toolchain. |
+| `Config(source, path)` | Bind a source tree to the toolchain, with the root module at `path` within it (`.` by default). |
 | `Config.WithVar(name, value)` | `-var name=value`. A pair, not a map, because Dagger functions cannot accept map params. |
 | `Config.WithSecretVar(name, secret)` | `TF_VAR_<name>` as an environment secret — never argv. |
 | `Config.WithVarFile(file)` | `-var-file`, staged outside the root module. |
@@ -217,6 +249,14 @@ a verdict, leaving the caller's own directory untouched until they export it.
 ```sh
 dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
   config --source=. format export --path=.
+```
+
+With `path` set, `Format` returns the root module's directory, so export it
+back over that directory, not over the tree:
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. --path=roots/app format export --path=roots/app
 ```
 
 `Validate` initialises with `-backend=false` first, so a configuration
