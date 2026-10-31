@@ -297,6 +297,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiCheckWithPlanPassesOnAppliedState(&parent, ctx)
+		case "CiCheckWithRefreshOnlyPlanDetectsDrift":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithRefreshOnlyPlanDetectsDrift(&parent, ctx)
+		case "CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(&parent, ctx)
 		case "CiCheckWithoutStagesIsRejected":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -472,6 +486,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).PlanDestroyReportsDeletions(&parent, ctx)
+		case "PlanRefreshOnlyAfterApplyReportsNone":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRefreshOnlyAfterApplyReportsNone(&parent, ctx)
+		case "PlanRefreshOnlyIgnoresConfigurationChanges":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRefreshOnlyIgnoresConfigurationChanges(&parent, ctx)
+		case "PlanRefreshOnlyReportsDriftWithoutChangingState":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRefreshOnlyReportsDriftWithoutChangingState(&parent, ctx)
+		case "PlanRefreshOnlyWithDestroyIsRejected":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).PlanRefreshOnlyWithDestroyIsRejected(&parent, ctx)
 		case "PlanReportsChanges":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -701,17 +743,17 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 		}
 	case "":
 		return dag.Module().
-			WithDescription("Package main implements the test module for the opentofu Dagger module.\nEach test is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hermetic: they use hashicorp/random and\nhashicorp/local only, so nothing needs a cloud credential. The random\nprovider's resources exist purely in state, which is what makes the\nstate round-trip assertions meaningful — there is no out-of-band object to\ndrift away underneath them.\n\nThe remote-state fixtures declare an s3 backend, and it too is hermetic: the\nS3 they write to is a Versity Gateway service the suite stands up per test,\nwith a root credential minted at runtime. See backend.go.\n").
+			WithDescription("Package main implements the test module for the opentofu Dagger module.\nEach test is exposed as a standalone dagger function so it can be invoked\nindividually during TDD; All wires them up for parallel execution under\n`dagger call all`.\n\nThe fixtures under fixtures/ are hermetic: they use hashicorp/random and\nhashicorp/local only, so nothing needs a cloud credential. The random\nprovider's resources exist purely in state, which is what makes the\nstate round-trip assertions meaningful — there is no out-of-band object to\ndrift away underneath them. The drift fixture is the exception on purpose:\nits local_file is the object the refresh-only tests change outside tofu.\n\nThe remote-state fixtures declare an s3 backend, and it too is hermetic: the\nS3 they write to is a Versity Gateway service the suite stands up per test,\nwith a root credential minted at runtime. See backend.go.\n").
 			WithObject(
-				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 27, 6)}).
+				dag.TypeDef().WithObject("Tests", dagger.TypeDefWithObjectOpts{SourceMap: dag.SourceMap("main.go", 28, 6)}).
 					WithFunction(
 						dag.Function("All",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("All runs every opentofu-module test in parallel.\n\nparallel caps how many tests run concurrently inside this suite. Defaults to\n0 (unbounded fan-out) — each `dagger check` job runs on its own GH Actions\nrunner, so in-runner parallelism is bounded by the VM's CPU/memory, not by\nthe scheduler. Pass any positive integer to opt into a specific cap.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("main.go", 38, 1)).
+							WithSourceMap(dag.SourceMap("main.go", 39, 1)).
 							WithCheck().
-							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 41, 2), DefaultValue: dagger.JSON("0")})).
+							WithArg("parallel", dag.TypeDef().WithKind(dagger.TypeDefKindIntegerKind), dagger.FunctionWithArgOpts{SourceMap: dag.SourceMap("main.go", 42, 2), DefaultValue: dagger.JSON("0")})).
 					WithFunction(
 						dag.Function("ApplyConsumesSavedPlan",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -778,6 +820,16 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithDescription("CiCheckWithPlanPassesOnAppliedState is the other half of the drift gate:\nthe same pipeline against the state a previous apply produced has nothing\nleft to do, so the check is green.\n\nThe two together are what makes the gate meaningful — a drift detector that\nonly ever fails is indistinguishable from a broken one.").
 							WithSourceMap(dag.SourceMap("ci.go", 113, 1))).
 					WithFunction(
+						dag.Function("CiCheckWithRefreshOnlyPlanDetectsDrift",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithRefreshOnlyPlanDetectsDrift asserts a refresh-only drift gate\nfails on an object changed outside tofu.").
+							WithSourceMap(dag.SourceMap("drift.go", 128, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges asserts the same gate\npasses when only the configuration moved — the case an ordinary drift gate\ncannot tell apart from drift.").
+							WithSourceMap(dag.SourceMap("drift.go", 144, 1))).
+					WithFunction(
 						dag.Function("CiCheckWithoutStagesIsRejected",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CiCheckWithoutStagesIsRejected asserts an empty pipeline is an error rather\nthan a pass. A Check that inspects nothing and returns nil is a green that\nmeans nothing at all.").
@@ -806,12 +858,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("ContainerHasGitAndCaCertificates",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasGitAndCaCertificates asserts the two things the -minimal image\nomits and every non-trivial configuration needs: git, for module sources,\nand a CA bundle, for the provider registry.").
-							WithSourceMap(dag.SourceMap("main.go", 155, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 162, 1))).
 					WithFunction(
 						dag.Function("ContainerHasTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasTofu asserts the assembled container exposes the tofu binary on\nPATH, so the escape hatch documented on Container() actually works.").
-							WithSourceMap(dag.SourceMap("main.go", 139, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 146, 1))).
 					WithFunction(
 						dag.Function("DestroyEmptiesState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -902,6 +954,26 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("PlanDestroyReportsDeletions asserts -destroy plans the teardown of what the\nsupplied state tracks, rather than the creation of what the configuration\ndeclares.").
 							WithSourceMap(dag.SourceMap("lifecycle.go", 201, 1))).
+					WithFunction(
+						dag.Function("PlanRefreshOnlyAfterApplyReportsNone",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRefreshOnlyAfterApplyReportsNone asserts a refresh-only plan against the\nstate an apply just produced, with the object it created untouched, has\nnothing to report.").
+							WithSourceMap(dag.SourceMap("drift.go", 27, 1))).
+					WithFunction(
+						dag.Function("PlanRefreshOnlyIgnoresConfigurationChanges",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRefreshOnlyIgnoresConfigurationChanges asserts a refresh-only plan\nreports nothing when only the configuration moved, while an ordinary plan\nover the same inputs proposes the change — drift is measured against what\nwas applied, not against today's configuration.").
+							WithSourceMap(dag.SourceMap("drift.go", 99, 1))).
+					WithFunction(
+						dag.Function("PlanRefreshOnlyReportsDriftWithoutChangingState",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRefreshOnlyReportsDriftWithoutChangingState asserts a refresh-only plan\nsees an object changed outside tofu, emits the same four artifacts any plan\ndoes, and leaves the state it was given as it was — which is what separates\nit from Refresh, whose drift report is the state it already rewrote.").
+							WithSourceMap(dag.SourceMap("drift.go", 42, 1))).
+					WithFunction(
+						dag.Function("PlanRefreshOnlyWithDestroyIsRejected",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("PlanRefreshOnlyWithDestroyIsRejected asserts the module refuses the pair\nitself, naming both options, rather than leaving tofu to fail on it.").
+							WithSourceMap(dag.SourceMap("drift.go", 116, 1))).
 					WithFunction(
 						dag.Function("PlanReportsChanges",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -1027,12 +1099,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("VersionAcceptsMinimalSuffix",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal\nsuffix lands on the same image as one who does not — the suffix is appended\nonly when absent.").
-							WithSourceMap(dag.SourceMap("main.go", 181, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 188, 1))).
 					WithFunction(
 						dag.Function("VersionReportsRelease",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionReportsRelease asserts Version reports the release New was asked for.").
-							WithSourceMap(dag.SourceMap("main.go", 167, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 174, 1))).
 					WithFunction(
 						dag.Function("WithEnvVariableIsVisibleToTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

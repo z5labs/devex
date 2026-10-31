@@ -7,7 +7,8 @@
 // hashicorp/local only, so nothing needs a cloud credential. The random
 // provider's resources exist purely in state, which is what makes the
 // state round-trip assertions meaningful — there is no out-of-band object to
-// drift away underneath them.
+// drift away underneath them. The drift fixture is the exception on purpose:
+// its local_file is the object the refresh-only tests change outside tofu.
 //
 // The remote-state fixtures declare an s3 backend, and it too is hermetic: the
 // S3 they write to is a Versity Gateway service the suite stands up per test,
@@ -77,6 +78,10 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("PlanTargetsLimitScope", t.PlanTargetsLimitScope)
 	jobs = jobs.WithJob("PlanDestroyReportsDeletions", t.PlanDestroyReportsDeletions)
 	jobs = jobs.WithJob("PlanAgainstAppliedStateReportsNoChanges", t.PlanAgainstAppliedStateReportsNoChanges)
+	jobs = jobs.WithJob("PlanRefreshOnlyAfterApplyReportsNone", t.PlanRefreshOnlyAfterApplyReportsNone)
+	jobs = jobs.WithJob("PlanRefreshOnlyReportsDriftWithoutChangingState", t.PlanRefreshOnlyReportsDriftWithoutChangingState)
+	jobs = jobs.WithJob("PlanRefreshOnlyIgnoresConfigurationChanges", t.PlanRefreshOnlyIgnoresConfigurationChanges)
+	jobs = jobs.WithJob("PlanRefreshOnlyWithDestroyIsRejected", t.PlanRefreshOnlyWithDestroyIsRejected)
 
 	jobs = jobs.WithJob("ApplyProducesStateAndOutputs", t.ApplyProducesStateAndOutputs)
 	jobs = jobs.WithJob("ApplyConsumesSavedPlan", t.ApplyConsumesSavedPlan)
@@ -123,6 +128,8 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiCheckWithPlanDetectsDrift", t.CiCheckWithPlanDetectsDrift)
 	jobs = jobs.WithJob("CiCheckWithPlanPassesOnAppliedState", t.CiCheckWithPlanPassesOnAppliedState)
 	jobs = jobs.WithJob("CiCheckWithPlanAllowsChangesByDefault", t.CiCheckWithPlanAllowsChangesByDefault)
+	jobs = jobs.WithJob("CiCheckWithRefreshOnlyPlanDetectsDrift", t.CiCheckWithRefreshOnlyPlanDetectsDrift)
+	jobs = jobs.WithJob("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges", t.CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges)
 	jobs = jobs.WithJob("CiRunProducesPlanArtifacts", t.CiRunProducesPlanArtifacts)
 	jobs = jobs.WithJob("CiRunFailsOnFailedCheck", t.CiRunFailsOnFailedCheck)
 

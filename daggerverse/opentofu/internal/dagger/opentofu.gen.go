@@ -251,6 +251,8 @@ func (r *OpentofuCi) WithFmt() *OpentofuCi {
 type OpentofuCiWithPlanOpts struct {
 	// Fail the check when the plan is non-empty.
 	FailOnChanges bool
+	// Plan only the changes made outside tofu since the last apply.
+	RefreshOnly bool
 }
 
 // WithPlan enables the plan stage, making Check run `tofu plan` against the
@@ -262,12 +264,21 @@ type OpentofuCiWithPlanOpts struct {
 // plan against live infrastructure fails the check. Left false, the stage only
 // gates on the plan *succeeding*, which is the right shape for a pull-request
 // gate where pending changes are the whole point of the change.
+//
+// Pass refreshOnly to plan with `-refresh-only`, as Config.Plan does: the plan
+// then covers only what changed outside tofu since the last apply, so a drift
+// gate fails on infrastructure that moved and not on a configuration change
+// still waiting to be applied. It also applies to the plan Run returns.
 func (r *OpentofuCi) WithPlan(opts ...OpentofuCiWithPlanOpts) *OpentofuCi {
 	q := r.query.Select("withPlan")
 	for i := len(opts) - 1; i >= 0; i-- {
 		// `failOnChanges` optional argument
 		if !querybuilder.IsZeroValue(opts[i].FailOnChanges) {
 			q = q.Arg("failOnChanges", opts[i].FailOnChanges)
+		}
+		// `refreshOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RefreshOnly) {
+			q = q.Arg("refreshOnly", opts[i].RefreshOnly)
 		}
 	}
 
@@ -582,6 +593,9 @@ func (r *OpentofuConfig) Outputs(ctx context.Context) (string, error) {
 type OpentofuConfigPlanOpts struct {
 	// Plan the destruction of all remote objects (`-destroy`).
 	Destroy bool
+	// Plan only the changes made outside tofu since the last apply
+	// (-refresh-only), leaving the configuration out of it.
+	RefreshOnly bool
 	// Limit the plan to these resource addresses (`-target`).
 	Targets []string
 }
@@ -590,6 +604,12 @@ type OpentofuConfigPlanOpts struct {
 // tofu run: plan.tfplan (the saved plan Apply consumes), plan.json
 // (`tofu show -json`), plan.txt (the human-readable rendering) and changes
 // (`none` or `changes`, from `-detailed-exitcode`).
+//
+// Pass refreshOnly to ask only what changed outside tofu since the last apply
+// (`-refresh-only`): changes is then `none` exactly when the infrastructure
+// still matches the state, whatever the configuration now says. It is a plan,
+// not Refresh — nothing is written back, so the drift it reports is still
+// there for the next check to find.
 //
 // One run, not two: underobtain the JSON form could legitimately disagree with the first. The JSON
 // and text renderings are derived from the saved plan file, so they describe
@@ -600,6 +620,10 @@ func (r *OpentofuConfig) Plan(opts ...OpentofuConfigPlanOpts) *Directory {
 		// `destroy` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Destroy) {
 			q = q.Arg("destroy", opts[i].Destroy)
+		}
+		// `refreshOnly` optional argument
+		if !querybuilder.IsZeroValue(opts[i].RefreshOnly) {
+			q = q.Arg("refreshOnly", opts[i].RefreshOnly)
 		}
 		// `targets` optional argument
 		if !querybuilder.IsZeroValue(opts[i].Targets) {
