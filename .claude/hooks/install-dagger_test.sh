@@ -6,7 +6,9 @@
 # and a stub directory that shadows `curl`, `docker`, `dockerd` and, where the
 # case needs one, `dagger`. Every stub records its arguments to a calls file, so
 # a case asserts on what the script asked for as well as what it said. Nothing
-# here touches the network or a real daemon.
+# here touches the network or a real daemon. The engine cases also shadow
+# `python3`, whose stub stands in for the proxy relay by sleeping under the pid
+# it records.
 #
 # Run: .claude/hooks/install-dagger_test.sh
 # Exit 0 when every case passes, 1 otherwise.
@@ -18,7 +20,8 @@ SUT="$HERE/install-dagger.sh"
 [ -x "$SUT" ] || { printf 'install-dagger.sh is not executable at %s\n' "$SUT" >&2; exit 1; }
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"' EXIT
+# A relay stub outlives the hook that started it, as the real relay does.
+trap 'for p in "$WORK"/*/state/relay.pid; do [ -s "$p" ] && kill "$(cat "$p")" 2>/dev/null; done; rm -rf "$WORK"' EXIT
 
 pass=0
 fail=0
@@ -66,12 +69,15 @@ stubs() {
   chmod +x "$dir"/*
 }
 
-# run <repo> <stubs> — the script as a cloud SessionStart hook runs it, with only
-# the stubs and the base system on PATH.
+# run <repo> <stubs> [proxy] — the script as a cloud SessionStart hook runs it,
+# with only the stubs and the base system on PATH. The session's proxy is
+# <proxy>, or none: this file's own session may well have one.
 run() {
-  local repo=$1 dir=$2
-  CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR="$repo" CLAUDE_ENV_FILE="$dir/env" \
+  local repo=$1 dir=$2 proxy=${3:-}
+  env -u HTTPS_PROXY -u https_proxy ${proxy:+HTTPS_PROXY=$proxy} \
+    CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR="$repo" CLAUDE_ENV_FILE="$dir/env" \
     BIN_DIR="$dir/bin" DOCKERD_LOG="$dir/dockerd.log" DOCKERD_WAIT=1 DOCKER_RUN_DIR="$dir/run" \
+    PROXY_CA="$dir/ca.crt" PROXY_PORT=3129 STATE_DIR="$dir/state" \
     PATH="$dir:/usr/bin:/bin" "$SUT"
 }
 
@@ -228,6 +234,98 @@ if ! grep -q '^dockerd' "$dir/calls" && [ -z "$out" ]; then
   ok 'a daemon already answering is left alone'
 else
   bad 'a daemon already answering is left alone' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+printf '\nthe engine\n'
+
+# engine_stubs <stubs> — a docker that keeps one container's state in a file:
+# `run` records it running with the -e values it was given, `inspect` prints
+# them as real docker renders the hook's template (whether it runs on the first
+# line, then one variable per line), `rm` drops it. The bridge gateway is
+# 172.17.0.1. And a python3 that, run as the relay, records its pid in the
+# pidfile it is handed and stays alive.
+engine_stubs() {
+  local dir=$1
+  echo ca >"$dir/ca.crt"
+  cat >"$dir/docker" <<EOF
+#!/bin/sh
+echo "docker \$*" >>"$dir/calls"
+case "\$1" in
+  info) exit 0 ;;
+  network) echo 172.17.0.1 ;;
+  inspect) [ -e "$dir/container" ] || exit 1; cat "$dir/container" ;;
+  rm) rm -f "$dir/container" ;;
+  run)
+    echo true >"$dir/container"
+    while [ \$# -gt 0 ]; do [ "\$1" = -e ] && echo "\$2" >>"$dir/container"; shift; done ;;
+esac
+EOF
+  cat >"$dir/python3" <<EOF
+#!/bin/sh
+echo "python3 \$*" >>"$dir/calls"
+echo \$\$ >"\$6"
+exec sleep 60
+EOF
+  chmod +x "$dir/docker" "$dir/python3"
+}
+
+runner='export _EXPERIMENTAL_DAGGER_RUNNER_HOST=docker-container://dagger-engine-v1.0.0-beta.15'
+
+repo="$WORK/r13"; dir="$WORK/s13"; workflow "$repo" 1.0.0-beta.15; stubs "$dir" 1.0.0-beta.15; engine_stubs "$dir"
+out=$(run "$repo" "$dir" http://127.0.0.1:44311)
+if grep -q "^python3 .*proxy-forward.py 172.17.0.1 3129 127.0.0.1 44311 $dir/state/relay.pid" "$dir/calls" \
+  && grep -q '^docker run -d --name dagger-engine-v1.0.0-beta.15 --privileged ' "$dir/calls" \
+  && grep -q -- "-e HTTPS_PROXY=http://172.17.0.1:3129 .*-v $dir/ca.crt:/usr/local/share/ca-certificates/agent-proxy.crt:ro .*registry.dagger.io/engine:v1.0.0-beta.15" "$dir/calls" \
+  && ! grep -q -- '--network' "$dir/calls" \
+  && grep -qxF "$runner" "$dir/env" && [[ $out == *"started the Dagger engine"* ]]; then
+  ok 'with a proxy: the relay and the engine start on the bridge, and the CLI is pointed at that engine'
+else
+  bad 'with a proxy: the relay and the engine start on the bridge, and the CLI is pointed at that engine' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+: >"$dir/calls"
+out=$(run "$repo" "$dir" http://127.0.0.1:44311)
+if [ -z "$out" ] && ! grep -q '^python3\|^docker run\|^docker rm' "$dir/calls" && [ "$(grep -c RUNNER "$dir/env")" = 1 ]; then
+  ok 'a second run finds both in place, says nothing, and adds no second runner line'
+else
+  bad 'a second run finds both in place, says nothing, and adds no second runner line' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+: >"$dir/calls"
+old=$(cat "$dir/state/relay.pid")
+out=$(run "$repo" "$dir" http://127.0.0.1:50000)
+if grep -q 'proxy-forward.py 172.17.0.1 3129 127.0.0.1 50000' "$dir/calls" && ! kill -0 "$old" 2>/dev/null \
+  && ! grep -q '^docker run' "$dir/calls" && [ -z "$out" ]; then
+  ok 'a resumed session with a new proxy port gets a new relay, and the engine is left alone'
+else
+  bad 'a resumed session with a new proxy port gets a new relay, and the engine is left alone' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+: >"$dir/calls"
+sed -i 's/^true$/false/' "$dir/container"
+out=$(run "$repo" "$dir" http://127.0.0.1:50000)
+if grep -q '^docker rm -f dagger-engine-v1.0.0-beta.15' "$dir/calls" && grep -q '^docker run' "$dir/calls" \
+  && [[ $out == *"started the Dagger engine"* ]]; then
+  ok 'a stopped engine, as a resumed session leaves it, is started again'
+else
+  bad 'a stopped engine, as a resumed session leaves it, is started again' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+repo="$WORK/r14"; dir="$WORK/s14"; workflow "$repo" 1.0.0-beta.15; stubs "$dir" 1.0.0-beta.15; engine_stubs "$dir"
+out=$(run "$repo" "$dir")
+if [ -z "$out" ] && ! grep -q '^python3\|^docker run' "$dir/calls" && ! grep -q RUNNER "$dir/env" 2>/dev/null; then
+  ok 'with no proxy, the engine is left to the CLI'
+else
+  bad 'with no proxy, the engine is left to the CLI' "output: $out calls: $(cat "$dir/calls")"
+fi
+
+repo="$WORK/r15"; dir="$WORK/s15"; workflow "$repo" 1.0.0-beta.15; stubs "$dir" 1.0.0-beta.15; engine_stubs "$dir"
+rm "$dir/ca.crt"
+out=$(run "$repo" "$dir" http://127.0.0.1:44311; echo "exit=$?")
+if [[ $out == *"no proxy CA at $dir/ca.crt"*exit=0 ]] && ! grep -q '^python3\|^docker run' "$dir/calls"; then
+  ok 'a proxy with no CA bundle starts nothing, says why, and the hook exits 0'
+else
+  bad 'a proxy with no CA bundle starts nothing, says why, and the hook exits 0' "output: $out calls: $(cat "$dir/calls")"
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
