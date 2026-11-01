@@ -276,6 +276,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiCheckReportsUnformattedConfiguration(&parent, ctx)
+		case "CiCheckRunsTestStageAlone":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckRunsTestStageAlone(&parent, ctx)
 		case "CiCheckWithPlanAllowsChangesByDefault":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -311,13 +318,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(&parent, ctx)
-		case "CiCheckWithTestAloneIsAStage":
-			var parent Tests
-			err = json.Unmarshal(parentJSON, &parent)
-			if err != nil {
-				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
-			}
-			return nil, (*Tests).CiCheckWithTestAloneIsAStage(&parent, ctx)
 		case "CiCheckWithTestPasses":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -938,6 +938,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithDescription("CiCheckReportsUnformattedConfiguration asserts the fmt stage gates the\npipeline: a configuration that validates but is not formatted still fails.").
 							WithSourceMap(dag.SourceMap("ci.go", 33, 1))).
 					WithFunction(
+						dag.Function("CiCheckRunsTestStageAlone",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckRunsTestStageAlone asserts WithTest is enough on its own to make a\npipeline: a Check with only the test stage enabled runs it rather than\nrejecting the pipeline as empty.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 145, 1))).
+					WithFunction(
 						dag.Function("CiCheckWithPlanAllowsChangesByDefault",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CiCheckWithPlanAllowsChangesByDefault asserts the plan stage without\nfailOnChanges gates on the plan *succeeding*, not on it being empty — the\nshape a pull-request gate needs, where pending changes are the whole point\nof the change under review.").
@@ -962,11 +967,6 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges asserts the same gate\npasses when only the configuration moved — the case an ordinary drift gate\ncannot tell apart from drift.").
 							WithSourceMap(dag.SourceMap("drift.go", 144, 1))).
-					WithFunction(
-						dag.Function("CiCheckWithTestAloneIsAStage",
-							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
-							WithDescription("CiCheckWithTestAloneIsAStage asserts WithTest is enough on its own to make a\npipeline: a Check with only the test stage enabled runs it rather than\nrejecting the pipeline as empty.").
-							WithSourceMap(dag.SourceMap("tofutest.go", 145, 1))).
 					WithFunction(
 						dag.Function("CiCheckWithTestPasses",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

@@ -31,12 +31,12 @@ type Tests struct { // tests (../../../../../:0:0)
 	ciCheckPassesOnCleanConfiguration                     *Void
 	ciCheckReportsInvalidConfiguration                    *Void
 	ciCheckReportsUnformattedConfiguration                *Void
+	ciCheckRunsTestStageAlone                             *Void
 	ciCheckWithPlanAllowsChangesByDefault                 *Void
 	ciCheckWithPlanDetectsDrift                           *Void
 	ciCheckWithPlanPassesOnAppliedState                   *Void
 	ciCheckWithRefreshOnlyPlanDetectsDrift                *Void
 	ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges *Void
-	ciCheckWithTestAloneIsAstage                          *Void
 	ciCheckWithTestPasses                                 *Void
 	ciCheckWithTestReportsFailingTest                     *Void
 	ciCheckWithoutStagesIsRejected                        *Void
@@ -278,6 +278,18 @@ func (r *Tests) CiCheckReportsUnformattedConfiguration(ctx context.Context) erro
 	return q.Execute(ctx)
 }
 
+// CiCheckRunsTestStageAlone asserts WithTest is enough on its own to make a
+// pipeline: a Check with only the test stage enabled runs it rather than
+// rejecting the pipeline as empty.
+func (r *Tests) CiCheckRunsTestStageAlone(ctx context.Context) error {
+	if r.ciCheckRunsTestStageAlone != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckRunsTestStageAlone")
+
+	return q.Execute(ctx)
+}
+
 // CiCheckWithPlanAllowsChangesByDefault asserts the plan stage without
 // failOnChanges gates on the plan *succeeding*, not on it being empty — the
 // shape a pull-request gate needs, where pending changes are the whole point
@@ -337,18 +349,6 @@ func (r *Tests) CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(ctx contex
 		return nil
 	}
 	q := r.query.Select("ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges")
-
-	return q.Execute(ctx)
-}
-
-// CiCheckWithTestAloneIsAStage asserts WithTest is enough on its own to make a
-// pipeline: a Check with only the test stage enabled runs it rather than
-// rejecting the pipeline as empty.
-func (r *Tests) CiCheckWithTestAloneIsAstage(ctx context.Context) error {
-	if r.ciCheckWithTestAloneIsAstage != nil {
-		return nil
-	}
-	q := r.query.Select("ciCheckWithTestAloneIsAstage")
 
 	return q.Execute(ctx)
 }
