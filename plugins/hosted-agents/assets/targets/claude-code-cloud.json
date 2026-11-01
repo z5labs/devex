@@ -1,0 +1,651 @@
+{
+  "$schema": "../target.schema.json",
+  "id": "claude-code-cloud",
+  "name": "Claude Code on the web",
+  "description": "A Claude Code cloud session: an ephemeral container in an Anthropic-hosted environment, reached from claude.ai/code, the apps or the CLI. GitHub traffic goes through a dedicated proxy, everything else through an agent proxy with the environment's allow list.",
+  "detect": "CLAUDE_CODE_REMOTE=true",
+  "checked": "2026-10-31",
+  "sources": [
+    "https://code.claude.com/docs/en/cloud-environments",
+    "https://code.claude.com/docs/en/claude-code-on-the-web",
+    "https://code.claude.com/docs/en/plugins/loading",
+    "https://code.claude.com/docs/en/hooks"
+  ],
+  "layout": {
+    "skills": [
+      ".claude/skills/{name}/SKILL.md"
+    ],
+    "agents": [
+      ".claude/agents/{name}.md"
+    ],
+    "commands": [
+      ".claude/commands/{name}.md"
+    ],
+    "plugin_dirs": [
+      ".claude/skills/{plugin}"
+    ]
+  },
+  "rules": [
+    {
+      "id": "committed-components",
+      "summary": "The plugin's skills, agents and commands are committed under .claude/, which a cloud session loads from the clone with no install step.",
+      "match": {
+        "kind": "delivery",
+        "when": {
+          "vendored": "components"
+        }
+      },
+      "severity": "info",
+      "remedy": "Keep the committed copy in step with the plugin. This route carries only skills, agents and commands: the plugin's hooks and MCP and LSP servers do not come with them, and ${CLAUDE_PLUGIN_ROOT} is not set for a skill that belongs to no plugin (see vendored-parts-not-loaded and vendored-plugin-root-unset).",
+      "fix_in": "repository",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://code.claude.com/docs/en/claude-code-on-the-web#manage-context"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "committed-plugin-dir",
+      "summary": "The whole plugin, manifest and every component, is committed as .claude/skills/<plugin>/. A plugin placed there is a repository plugin, which loads only after the same trust check that applies to project allow rules; whether a cloud session, which never shows the workspace trust dialog, passes that check is not documented.",
+      "match": {
+        "kind": "delivery",
+        "when": {
+          "vendored": "plugin_dir"
+        }
+      },
+      "severity": "needs-setup",
+      "remedy": "Start a cloud session and check that the plugin's skills are offered; record the result here as basis: observed. If they are not, deliver it from the environment's setup script, which writes it into user settings.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://code.claude.com/docs/en/plugins/loading#trust-check-and-component-limits-for-repository-plugins",
+        "https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup"
+      ],
+      "basis": "unconfirmed",
+      "notes": "A cloud session applies the repository's .claude/settings.json permission rules, which pass the same trust check, yet it does not add the marketplaces that file lists, because that needs the trust dialog. The pages leave this route open.",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "repository-settings-ignored",
+      "summary": "The repository declares the plugin in .claude/settings.json, and a cloud session ignores that file's enabledPlugins and extraKnownMarketplaces: adding a marketplace a repository declares needs the workspace trust dialog, which a cloud session never shows.",
+      "match": {
+        "kind": "delivery",
+        "when": {
+          "all": [
+            {
+              "declared_in": ".claude/settings.json"
+            },
+            {
+              "not": {
+                "vendored": true
+              }
+            }
+          ]
+        }
+      },
+      "severity": "needs-setup",
+      "remedy": "Declare the marketplace and plugin in the session's user settings from the environment's setup script, which runs before Claude Code starts (this repository's .claude/hooks/install-plugins.sh does exactly that: `bash <checkout>/.claude/hooks/install-plugins.sh <checkout>`), or turn the plugin on in the organization's server-managed settings, or commit its components under .claude/. Plugins are fixed when Claude Code starts, so a SessionStart hook that declares them is too late for its own session: they appear only after /reload-plugins or in the next session.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup",
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://github.com/z5labs/devex/issues/469",
+        "https://github.com/z5labs/devex/pull/470"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/469",
+          "date": "2026-10-24",
+          "result": "In a cloud session (Claude Code 2.1.310) on this repository, whose .claude/settings.json declares the z5labs-devex marketplace and enables backlog and daggerverse, installed_plugins.json was empty and none of their skills was offered."
+        },
+        {
+          "url": "https://github.com/z5labs/devex/pull/470",
+          "date": "2026-10-24",
+          "result": "User settings holding only the directory marketplace and enabledPlugins loaded every plugin at startup, although the docs say a cloud session does not read user settings; observed outranks docs, so the user-settings route in the remedy works. A SessionStart hook that installed the plugins loaded none of them in its own session, only in the next one or after /reload-plugins."
+        }
+      ],
+      "notes": "The docs' row 'Plugins enabled only in your user settings: No' is about the settings file on your own machine, which never reaches the VM. #470 is about user settings written inside the VM.",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "plugin-not-delivered",
+      "summary": "Nothing in the repository delivers the plugin to a cloud session: it is neither declared in .claude/settings.json nor committed under .claude/.",
+      "match": {
+        "kind": "delivery",
+        "when": {
+          "all": [
+            {
+              "not": {
+                "declared_in": ".claude/settings.json"
+              }
+            },
+            {
+              "not": {
+                "vendored": true
+              }
+            }
+          ]
+        }
+      },
+      "severity": "needs-setup",
+      "remedy": "Deliver it by one of the routes that load a plugin in a cloud session: the organization's server-managed settings, the environment's setup script writing the marketplace and plugin into user settings before Claude Code starts, or the plugin's components committed under .claude/ (skills in .claude/skills, agents in .claude/agents, or the whole plugin as .claude/skills/<plugin>/). Declaring it only in .claude/settings.json is not enough.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup",
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "vendored-parts-not-loaded",
+      "summary": "The repository delivers the plugin by committing its skills, agents and commands under .claude/, and that does not carry this component: a cloud session reads hooks from settings files and MCP servers from .mcp.json, not from a plugin directory that is not loaded as a plugin.",
+      "match": {
+        "kind": "vendored",
+        "via": "components",
+        "types": [
+          "hook",
+          "mcp",
+          "lsp"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Commit the hooks into the repository's .claude/settings.json and the MCP servers into .mcp.json at its root, with paths that do not use ${CLAUDE_PLUGIN_ROOT}, or deliver the plugin as a plugin from the environment's setup script.",
+      "fix_in": "repository",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/mcp"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "vendored-plugin-root-unset",
+      "summary": "A committed skill, agent or command runs a path under ${CLAUDE_PLUGIN_ROOT}. That variable is the directory of the plugin a component belongs to; a skill loaded from .claude/skills belongs to none, so the path collapses to /scripts/….",
+      "match": {
+        "kind": "vendored",
+        "via": "components",
+        "pattern": "CLAUDE_PLUGIN_ROOT",
+        "in": [
+          "fence"
+        ]
+      },
+      "severity": "breaks",
+      "remedy": "Commit the scripts the skill runs into the repository and call them by a repository path, or deliver the plugin as a plugin from the environment's setup script.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins-reference#environment-variables",
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "github-graphql",
+      "summary": "GitHub GraphQL is blocked: gh pr, gh issue, gh project, gh repo view, gh label list, gh release list, gh search and gh api graphql get HTTP 403 'GitHub GraphQL is not available from Claude Code sessions'. REST through gh api works.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+(pr|issue|project|search)\\b|\\bgh\\s+repo\\s+view\\b|\\bgh\\s+label\\s+list\\b|\\bgh\\s+release\\s+list\\b|\\bgh\\s+api\\s+(?:[^|;&]*\\s)?graphql\\b|api\\.github\\.com/graphql",
+        "in": [
+          "script",
+          "hook",
+          "fence",
+          "frontmatter"
+        ]
+      },
+      "severity": "breaks",
+      "severity_in": {
+        "fence": "degrades",
+        "frontmatter": "degrades"
+      },
+      "remedy": "Call the REST API instead: gh api repos/{owner}/{repo}/... (issues, pulls, labels, check runs, timelines). For review threads, auto merge and draft/ready-for-review the 403 names REST routes the proxy serves: GET /repos/{owner}/{repo}/pulls/{n}/ccr/review_threads, POST .../pulls/{n}/ccr/comments/{id}/resolve, PUT or DELETE .../pulls/{n}/ccr/auto_merge, POST .../pulls/{n}/ccr/ready_for_review. APIs that exist only in GraphQL, such as Projects v2, cannot be reached at all. In a script the 403 is an exit code the caller cannot recover from; in a skill's fenced block the model sees the error and its REST hint, which is why that context only degrades the component.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://code.claude.com/docs/en/cloud-environments#work-with-github-issues-and-pull-requests",
+        "https://github.com/z5labs/devex/issues/475"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/475",
+          "date": "2026-10-31",
+          "result": "In a Claude Code cloud session on z5labs/devex: gh issue list, gh pr list, gh repo view, gh label list, gh release list and gh search issues returned HTTP 403 'GitHub GraphQL is not available from Claude Code sessions'; gh api graphql returned the same 403; gh api repos/z5labs/devex succeeded, as did the REST-backed gh run list and gh workflow list."
+        }
+      ],
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "gh-auth-status-fails",
+      "summary": "gh auth status exits 1 and reports the token in GH_TOKEN invalid: the session's GH_TOKEN is a placeholder the GitHub proxy swaps for real credentials, so gh cannot verify it itself. The requests themselves are authenticated.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+auth\\s+status\\b",
+        "in": [
+          "script",
+          "hook",
+          "fence",
+          "frontmatter"
+        ]
+      },
+      "severity": "breaks",
+      "severity_in": {
+        "fence": "degrades",
+        "frontmatter": "degrades"
+      },
+      "remedy": "Do not gate on gh auth status. Probe with a REST call the flow needs anyway, such as gh api repos/{owner}/{repo} --jq .full_name, which succeeds when the session can reach the repository.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://github.com/z5labs/devex/issues/475"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/475",
+          "date": "2026-10-31",
+          "result": "In a Claude Code cloud session: gh auth status printed 'Failed to log in to github.com using token (GH_TOKEN)' and 'The token in GH_TOKEN is invalid', and exited 1, while gh api repos/z5labs/devex succeeded."
+        }
+      ],
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "repository-not-attached",
+      "summary": "The GitHub proxy serves API requests only for the repositories attached to the session. A request naming another repository, or a source archive of one, gets HTTP 403 'GitHub access to this repository is not enabled for this session'.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+api\\s+(?:[^|;&]*\\s)?[\"']?/?repos/(?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|api\\.github\\.com/repos/(?![{<$])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|(?:\\s-R|--repo)[ =](?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|codeload\\.github\\.com|github\\.com/[^/\\s]+/[^/\\s]+/archive/",
+        "in": [
+          "script",
+          "hook",
+          "fence"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Attach the repository to the session (when starting it, or with add_repo from inside it). A plugin that works across repositories should take the repository as an argument, not name it.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://github.com/z5labs/devex/issues/475"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/475",
+          "date": "2026-10-31",
+          "result": "In a cloud session attached only to z5labs/devex: gh api repos/z5labs/humus and gh api repos/cli/cli returned HTTP 403 'GitHub access to this repository is not enabled for this session'. git ls-remote https://github.com/cli/cli succeeded, so plain git reads of a public repository are not refused."
+        }
+      ],
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "push-tag-or-delete-refused",
+      "summary": "The GitHub proxy rejects branch deletions and pushes of anything other than a branch, such as a tag.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgit\\s+push\\b[^|;&]*(?:\\s--tags\\b|\\s--follow-tags\\b|\\s--delete\\b|\\s-d\\b|\\s--mirror\\b|\\s:[^\\s]|refs/tags/)",
+        "in": [
+          "script",
+          "hook",
+          "fence"
+        ]
+      },
+      "severity": "breaks",
+      "remedy": "Push branches only. Create tags and releases from a workflow (gh workflow run, or a release workflow on merge), and let the merge workflow or GitHub's 'delete head branches' setting remove merged branches.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "host-not-on-trusted-list",
+      "summary": "Outbound traffic goes through the agent proxy, and the default Trusted access level allows only its listed domains. A request to any other host gets HTTP 403 host_not_allowed unless the environment allows it.",
+      "match": {
+        "kind": "url",
+        "in": [
+          "script",
+          "hook",
+          "fence"
+        ],
+        "allow": [
+          "*.amazonaws.com",
+          "*.api.aws",
+          "*.data.mcr.microsoft.com",
+          "*.datadoghq.com",
+          "*.datadoghq.eu",
+          "*.gcr.io",
+          "*.googleapis.com",
+          "*.microsoftonline.com",
+          "*.modelcontextprotocol.io",
+          "*.nixos.org",
+          "*.packagecloud.io",
+          "*.r2.cloudflarestorage.com",
+          "*.sourceforge.net",
+          "*.ubuntu.com",
+          "accounts.google.com",
+          "anaconda.com",
+          "anaconda.org",
+          "anthropic.com",
+          "apache.org",
+          "api.anthropic.com",
+          "api.bitbucket.org",
+          "api.github.com",
+          "api.honeycomb.io",
+          "api.metacpan.org",
+          "api.nuget.org",
+          "api.pub.dev",
+          "api.rubygems.org",
+          "apt.releases.hashicorp.com",
+          "archive.apache.org",
+          "archive.releases.hashicorp.com",
+          "archive.ubuntu.com",
+          "auth.docker.io",
+          "avatars.githubusercontent.com",
+          "azure.com",
+          "binaries.prisma.sh",
+          "bitbucket.org",
+          "camo.githubusercontent.com",
+          "cdn.cocoapods.org",
+          "central.maven.org",
+          "claude.ai",
+          "claude.com",
+          "cloud.google.com",
+          "cocoapods.org",
+          "code.claude.com",
+          "codeload.github.com",
+          "compute.googleapis.com",
+          "conda.anaconda.org",
+          "container.googleapis.com",
+          "continuum.io",
+          "cpan.org",
+          "crates.io",
+          "dev.azure.com",
+          "developer.android.com",
+          "developer.apple.com",
+          "dl.k8s.io",
+          "docs.claude.com",
+          "dot.net",
+          "dotnet.microsoft.com",
+          "download.docker.com",
+          "download.eclipse.org",
+          "download.oracle.com",
+          "downloads.apache.org",
+          "eclipse.org",
+          "files.pythonhosted.org",
+          "fonts.googleapis.com",
+          "fonts.gstatic.com",
+          "gcloud.google.com",
+          "gcr.io",
+          "get.rvm.io",
+          "ghcr.io",
+          "gist.github.com",
+          "github.com",
+          "gitlab.com",
+          "golang.org",
+          "goproxy.io",
+          "gradle.org",
+          "hackage.haskell.org",
+          "hashicorp.com",
+          "haskell.org",
+          "hex.pm",
+          "http-intake.logs.datadoghq.com",
+          "hub.docker.com",
+          "index.crates.io",
+          "index.docker.io",
+          "index.golang.org",
+          "index.rubygems.org",
+          "java.com",
+          "java.net",
+          "jcenter.bintray.com",
+          "json-schema.org",
+          "json.schemastore.org",
+          "jsr.io",
+          "k8s.io",
+          "kotlinlang.org",
+          "launchpad.net",
+          "maven.google.com",
+          "maven.org",
+          "mcr.microsoft.com",
+          "metacpan.org",
+          "microsoft.com",
+          "nodejs.org",
+          "npm.jsr.io",
+          "npm.pkg.github.com",
+          "npmjs.com",
+          "npmjs.org",
+          "nuget.org",
+          "objects.githubusercontent.com",
+          "oracle.com",
+          "packagecloud.io",
+          "packages.microsoft.com",
+          "packagist.org",
+          "pkg-npm.githubusercontent.com",
+          "pkg.go.dev",
+          "pkg.stainless.com",
+          "pkgs.k8s.io",
+          "platform.claude.com",
+          "plugins-artifacts.gradle.org",
+          "plugins.gradle.org",
+          "portal.azure.com",
+          "ppa.launchpad.net",
+          "production.cloudflare.docker.com",
+          "production.cloudfront.docker.com",
+          "proxy.golang.org",
+          "pub.dev",
+          "public.ecr.aws",
+          "pypa.io",
+          "pypi.org",
+          "pypi.python.org",
+          "pythonhosted.org",
+          "raw.githubusercontent.com",
+          "registry-1.docker.io",
+          "registry.gitlab.com",
+          "registry.npmjs.org",
+          "registry.yarnpkg.com",
+          "release-assets.githubusercontent.com",
+          "releases.hashicorp.com",
+          "repo.anaconda.com",
+          "repo.maven.apache.org",
+          "repo.maven.org",
+          "repo.packagist.org",
+          "repo.spring.io",
+          "repo1.maven.org",
+          "rpm.releases.hashicorp.com",
+          "ruby-lang.org",
+          "rubyforge.org",
+          "rubygems.org",
+          "rubyonrails.org",
+          "rustup.rs",
+          "rvm.io",
+          "security.ubuntu.com",
+          "services.gradle.org",
+          "sourceforge.net",
+          "spring.io",
+          "static.crates.io",
+          "static.rust-lang.org",
+          "storage.googleapis.com",
+          "sum.golang.org",
+          "support.claude.com",
+          "swift.org",
+          "test.pypi.org",
+          "ubuntu.com",
+          "visualstudio.com",
+          "www.anaconda.com",
+          "www.anthropic.com",
+          "www.apache.org",
+          "www.bitbucket.org",
+          "www.cocoapods.org",
+          "www.cpan.org",
+          "www.crates.io",
+          "www.docker.com",
+          "www.eclipse.org",
+          "www.github.com",
+          "www.gitlab.com",
+          "www.golang.org",
+          "www.gradle.org",
+          "www.hashicorp.com",
+          "www.haskell.org",
+          "www.hex.pm",
+          "www.java.com",
+          "www.java.net",
+          "www.json-schema.org",
+          "www.k8s.io",
+          "www.kotlinlang.org",
+          "www.launchpad.net",
+          "www.metacpan.org",
+          "www.microsoft.com",
+          "www.nodejs.org",
+          "www.npmjs.com",
+          "www.npmjs.org",
+          "www.nuget.org",
+          "www.oracle.com",
+          "www.packagist.org",
+          "www.pypa.io",
+          "www.pypi.org",
+          "www.ruby-lang.org",
+          "www.rubyforge.org",
+          "www.rubygems.org",
+          "www.rubyonrails.org",
+          "www.rust-lang.org",
+          "www.schemastore.org",
+          "www.swift.org",
+          "www.ubuntu.com",
+          "yarnpkg.com",
+          "yum.oracle.com"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Add the host to the environment's Network access → Allowed domains (Custom, with 'Also include default list of common package managers' checked to keep the Trusted list). GitHub, MCP connector traffic and network-secret hosts do not go through this list.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#network-access",
+        "https://code.claude.com/docs/en/cloud-environments#default-allowed-domains",
+        "https://github.com/z5labs/devex/issues/468"
+      ],
+      "basis": "docs",
+      "notes": "allow is the Default allowed domains list as published on the checked date. #468 met it with dl.dagger.io and registry.dagger.io.",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "credential-from-environment",
+      "summary": "A command reads a credential from the environment. A cloud session has only what the environment provides: environment variables (which every user of the environment can read, and which the setup script cannot see) or network secrets the agent proxy attaches to requests for listed hosts without the session seeing them.",
+      "match": {
+        "kind": "env",
+        "name_pattern": "^(?!GH_TOKEN$|GITHUB_TOKEN$|CLAUDE_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)$",
+        "in": [
+          "script",
+          "hook",
+          "fence"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Set the variable on the cloud environment, or, where the credential only travels in a request header to a fixed host, store it as a network secret for that host instead. A key that has to be read by the command itself, such as a private key that signs a JWT, cannot be a network secret.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#set-environment-variables",
+        "https://code.claude.com/docs/en/cloud-environments#add-network-secrets"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "lsp-not-started",
+      "summary": "LSP servers a plugin declares are not started in a cloud session.",
+      "match": {
+        "kind": "component",
+        "type": "lsp"
+      },
+      "severity": "breaks",
+      "remedy": "Do not depend on the language server for anything the plugin needs in a cloud session; fall back to the CLI the server wraps (a type checker, a linter) from a script.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-synced-from-claude-ai",
+        "https://github.com/z5labs/devex/issues/475"
+      ],
+      "basis": "unconfirmed",
+      "notes": "#475 lists it as a cloud limitation. The pages it cites say only that LSP servers load 'in terminal sessions', which neither confirms nor rules out a cloud session. Observe it before treating it as fact.",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "ask-user-question-waits",
+      "summary": "AskUserQuestion works: when Claude asks a question and the session sits idle, the person can still answer when they come back, until the environment expires, and the session continues from the answer.",
+      "match": {
+        "kind": "tool",
+        "fields": [
+          "allowed-tools",
+          "tools"
+        ],
+        "components": [
+          "skill",
+          "command",
+          "agent"
+        ],
+        "names": [
+          "AskUserQuestion"
+        ]
+      },
+      "severity": "info",
+      "remedy": "Nothing to do. An answer that never comes still holds the session, so do not rely on one in a flow meant to run unattended.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/claude-code-on-the-web#start-a-cloud-session-from-your-terminal"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "waits-for-user",
+      "summary": "A flow that stops and waits for the person works: they answer in the session, from the web, the apps or the terminal, until the environment expires.",
+      "match": {
+        "kind": "review",
+        "look_for": "Instructions to stop and wait for the user's answer, approval or choice before continuing: 'stop and ask', 'wait for the user', 'do not proceed without', a checkpoint after each step."
+      },
+      "severity": "info",
+      "remedy": "Nothing to do here; the same flow breaks on a non-interactive target.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/claude-code-on-the-web#start-a-cloud-session-from-your-terminal"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "bash-ten-minute-cap",
+      "summary": "A foreground Bash command runs for 2 minutes by default and 10 at most; at its timeout Claude Code moves it to the background, where it may run up to 30 more minutes, unless it starts with sleep.",
+      "match": {
+        "kind": "review",
+        "look_for": "A single command the instructions expect to block for longer than 10 minutes: a long build or test run, or a wait whose bound is longer than 10 minutes (for example a wait bounded at two hours), run in the foreground."
+      },
+      "severity": "degrades",
+      "remedy": "Bound each blocking call under 10 minutes and have the caller re-run it (the backlog plugin's await-*.sh scripts return exit 2 after five minutes for this reason), or raise BASH_MAX_TIMEOUT_MS on the environment.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#time-limits"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    },
+    {
+      "id": "background-work-lost-on-reclaim",
+      "summary": "An idle session's VM pauses and can be reclaimed. Reopening it provisions a fresh VM that restores the conversation but not background shell commands, subagents or session-scoped scheduled tasks that were running or pending.",
+      "match": {
+        "kind": "review",
+        "look_for": "Work that has to survive the session sitting idle: a background shell (run_in_background), a Monitor, a background subagent, a ScheduleWakeup or /loop the flow relies on to come back."
+      },
+      "severity": "degrades",
+      "remedy": "Keep waits inside a blocking, bounded foreground call, or make the flow resumable from state on disk and in GitHub, so a fresh VM can pick it up when the person reopens the session.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/claude-code-on-the-web#environment-expired",
+        "https://code.claude.com/docs/en/cloud-environments#time-limits"
+      ],
+      "basis": "docs",
+      "checked": "2026-10-31"
+    }
+  ]
+}

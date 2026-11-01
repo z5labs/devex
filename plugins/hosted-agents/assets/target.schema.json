@@ -1,0 +1,540 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/z5labs/devex/plugins/hosted-agents/assets/target.schema.json",
+  "title": "Hosted agent target profile",
+  "description": "What one hosted agent environment changes for a Claude Code plugin, as rules scripts/scan-plugin.sh evaluates and rules the review-plugin skill applies by reading. Every rule carries its sources, the basis it rests on and the date it was last checked, because these facts change.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "description",
+    "checked",
+    "sources",
+    "layout",
+    "rules"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "description": "The target id that --target selects. Matches the file name.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1
+    },
+    "detect": {
+      "description": "How to tell, from inside a session, that it runs on this target.",
+      "type": "string"
+    },
+    "checked": {
+      "$ref": "#/$defs/date"
+    },
+    "sources": {
+      "$ref": "#/$defs/sources"
+    },
+    "layout": {
+      "description": "Where this target loads components a repository commits itself rather than receiving them in a plugin. skills, agents and commands are file paths, with {name} the component's name; plugin_dirs are directories that hold a whole plugin, with {plugin} the plugin's name.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "skills",
+        "agents",
+        "commands",
+        "plugin_dirs"
+      ],
+      "properties": {
+        "skills": {
+          "$ref": "#/$defs/paths"
+        },
+        "agents": {
+          "$ref": "#/$defs/paths"
+        },
+        "commands": {
+          "$ref": "#/$defs/paths"
+        },
+        "plugin_dirs": {
+          "$ref": "#/$defs/paths"
+        }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/rule"
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    },
+    "url": {
+      "type": "string",
+      "pattern": "^https://"
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/url"
+      }
+    },
+    "paths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "severity": {
+      "enum": [
+        "breaks",
+        "needs-setup",
+        "degrades",
+        "info"
+      ]
+    },
+    "context": {
+      "description": "Where a command runs: a plugin script, a hook command, a fenced shell block in a skill, command or agent, or that file's frontmatter.",
+      "enum": [
+        "script",
+        "hook",
+        "fence",
+        "frontmatter"
+      ]
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "url",
+        "date",
+        "result"
+      ],
+      "properties": {
+        "url": {
+          "$ref": "#/$defs/url"
+        },
+        "date": {
+          "$ref": "#/$defs/date"
+        },
+        "result": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "summary",
+        "match",
+        "severity",
+        "remedy",
+        "fix_in",
+        "sources",
+        "basis",
+        "checked"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "match": {
+          "$ref": "#/$defs/match"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "severity_in": {
+          "description": "A different severity where the match is in this context. A command the model runs from a skill's fenced block fails in front of the model, which can read the error; the same command in a script fails as an exit code.",
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/$defs/context"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/severity"
+          }
+        },
+        "remedy": {
+          "type": "string",
+          "minLength": 1
+        },
+        "fix_in": {
+          "enum": [
+            "plugin",
+            "repository",
+            "environment"
+          ]
+        },
+        "sources": {
+          "$ref": "#/$defs/sources"
+        },
+        "basis": {
+          "description": "docs: the sources say so and agree. observed: seen in a real session, recorded under observed. unconfirmed: the sources are silent, ambiguous or contradict each other, and nobody has observed it yet.",
+          "enum": [
+            "docs",
+            "observed",
+            "unconfirmed"
+          ]
+        },
+        "observed": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/observation"
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "checked": {
+          "$ref": "#/$defs/date"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "basis": {
+                "const": "observed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "observed"
+            ],
+            "properties": {
+              "observed": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "match": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "oneOf": [
+        {
+          "description": "A regular expression (Oniguruma, as jq's test) matched line by line against commands where they run. Prose is never matched.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "pattern",
+            "in"
+          ],
+          "properties": {
+            "kind": {
+              "const": "command"
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/context"
+              }
+            },
+            "except": {
+              "$ref": "#/$defs/except"
+            }
+          }
+        },
+        {
+          "description": "An https URL, where the commands run, whose host is not on the allow list. A leading *. matches any subdomain.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "allow",
+            "in"
+          ],
+          "properties": {
+            "kind": {
+              "const": "url"
+            },
+            "allow": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/context"
+              }
+            }
+          }
+        },
+        {
+          "description": "A credential-shaped name read from the environment where commands run: $NAME, ${NAME}, ${!NAME}, a bare NAME on the right of an assignment, an export NAME= in a fenced block, and os.environ / getenv / process.env lookups. A name the same file assigns itself is a local variable and does not count.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name_pattern",
+            "in"
+          ],
+          "properties": {
+            "kind": {
+              "const": "env"
+            },
+            "name_pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/context"
+              }
+            }
+          }
+        },
+        {
+          "description": "A tool a skill, command or agent uses: declared in a frontmatter field (allowed-tools, tools), or, as spawn, used by a fenced Agent(subagent_type: …) call. Matched by name, by pattern, or as any name outside a known set; names compare case-insensitively.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "fields",
+            "components"
+          ],
+          "properties": {
+            "kind": {
+              "const": "tool"
+            },
+            "fields": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "allowed-tools",
+                  "tools",
+                  "spawn"
+                ]
+              }
+            },
+            "components": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "enum": [
+                  "skill",
+                  "command",
+                  "agent"
+                ]
+              }
+            },
+            "names": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "name_pattern": {
+              "type": "string"
+            },
+            "not_in": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignore": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "ignore_pattern": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "description": "Every component of a type: each command file, hook entry, LSP server or MCP server.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "type"
+          ],
+          "properties": {
+            "kind": {
+              "const": "component"
+            },
+            "type": {
+              "enum": [
+                "command",
+                "hook",
+                "lsp",
+                "mcp"
+              ]
+            },
+            "where": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "transport": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "has_headers": {
+                  "type": "boolean"
+                }
+              }
+            },
+            "except": {
+              "$ref": "#/$defs/except"
+            }
+          }
+        },
+        {
+          "description": "How the plugin reaches a session on this target, decided from the repository it is delivered from. Evaluated once per target, and only when a repository is known.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "when"
+          ],
+          "properties": {
+            "kind": {
+              "const": "delivery"
+            },
+            "when": {
+              "$ref": "#/$defs/when"
+            }
+          }
+        },
+        {
+          "description": "What a vendored delivery does not carry: when the repository commits the plugin's skills, agents and commands where this target loads them (via components), each component of the listed types, or each line of a committed skill, agent or command that matches the pattern. Evaluated only when a repository is known.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "via"
+          ],
+          "properties": {
+            "kind": {
+              "const": "vendored"
+            },
+            "via": {
+              "enum": [
+                "components",
+                "plugin_dir"
+              ]
+            },
+            "types": {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "hook",
+                  "mcp",
+                  "lsp",
+                  "script"
+                ]
+              }
+            },
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "in": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/context"
+              }
+            }
+          }
+        },
+        {
+          "description": "An assumption written in prose, which no pattern can see. The review-plugin skill reads for it and records what it finds as basis: review.",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "look_for"
+          ],
+          "properties": {
+            "kind": {
+              "const": "review"
+            },
+            "look_for": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "except": {
+      "description": "Rules that, matching the same line of the same component, take the finding instead of this one.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "when": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "properties": {
+        "declared_in": {
+          "description": "A settings file in the repository whose enabledPlugins turns this plugin on, from any marketplace.",
+          "type": "string"
+        },
+        "vendored": {
+          "description": "true: the plugin is committed where this target loads repository components, by either route. \"plugin_dir\": the whole plugin, manifest and every component, under one of the layout's plugin_dirs. \"components\": each skill, agent and command where the layout says that kind loads.",
+          "enum": [
+            true,
+            "plugin_dir",
+            "components"
+          ]
+        },
+        "not": {
+          "$ref": "#/$defs/when"
+        },
+        "all": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/when"
+          }
+        },
+        "any": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/when"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

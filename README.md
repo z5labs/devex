@@ -92,6 +92,7 @@ Then install a plugin:
 | ------ | -------- |
 | [`backlog`](plugins/backlog) | `/backlog:run-backlog` — works a repository's story backlog unattended, one issue at a time, from selection through pull request to a label-driven auto merge. |
 | [`daggerverse`](plugins/daggerverse) | `/plan-dagger-module` — paces a design conversation and drafts story issues for a new daggerverse module. |
+| [`hosted-agents`](plugins/hosted-agents) | `/hosted-agents:review-plugin` — reports which of a plugin's components will work, need setup or break in Claude Code on the web, a Copilot cloud sandbox and a Copilot Actions session, with file:line, remedy and where the fix belongs. |
 
 See [`plugins/README.md`](plugins/README.md) for the plugin layout. To develop
 against an unmerged local checkout, run `/plugin marketplace add .` from the
