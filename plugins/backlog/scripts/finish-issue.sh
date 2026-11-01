@@ -66,6 +66,8 @@
 
 set -uo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+
 # Five minutes per call, deliberately: the caller waits by BLOCKING on this
 # script, so the bound has to fit inside a single foreground call rather than
 # span turns. A merge queued behind a slow check takes longer; exit 2 is the
@@ -144,11 +146,14 @@ MAIN=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print subst
 cd "$MAIN" || fail 4 "cannot enter the main checkout at $MAIN"
 
 # Resolved from GitHub, never configured: a fork or a rename must not be able to
-# point this at a repository it no longer describes.
-read -r REPO DEFAULT_BRANCH <<<"$(gh repo view --json nameWithOwner,defaultBranchRef \
-  --jq '"\(.nameWithOwner) \(.defaultBranchRef.name)"' 2>/dev/null)"
+# point this at a repository it no longer describes. The origin remote names it
+# and `GET /repos/{owner}/{repo}` confirms it — REST, like every call below,
+# because a Claude Code cloud session's GitHub proxy refuses the GraphQL that
+# `gh repo view`, `gh pr view` and `gh issue` are built on.
+RESOLVED=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+IFS=$'\t' read -r REPO DEFAULT_BRANCH <<<"$RESOLVED"
 [ -n "${REPO:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] \
-  || fail 4 "cannot resolve the repository slug and default branch from gh"
+  || fail 4 "cannot resolve the repository slug and default branch"
 
 # The merge workflow, read from the main checkout's config. Without it the wait
 # still works — it just cannot tell a failed merge run from a slow merge, which
@@ -167,10 +172,15 @@ WORKFLOW=$(jq -r '.merge.workflow // ""' .claude/backlog.json 2>/dev/null || pri
 # adapted merge workflow may not trigger on `pull_request_target`, and any run
 # of the merge workflow on this head is a merge attempt or one of the jobs that
 # follow a merge — which never get here, because MERGED is read first.
+#
+# `GET /pulls/{n}` says `closed` for a merged pull request and an abandoned one
+# alike; `merged` is what tells them apart, so the state below is folded from
+# the two into the three words the rest of this script reads.
 state="" run=""
 for i in $(seq 1 "$POLL_COUNT"); do
-  read -r state head <<<"$(gh pr view "$PR" --repo "$REPO" --json state,headRefOid \
-    --jq '"\(.state) \(.headRefOid)"' 2>/dev/null || printf '')"
+  read -r state head <<<"$(gh api "repos/$REPO/pulls/$PR" \
+    --jq '"\(if .merged == true or .merged_at != null then "MERGED" elif .state == "closed" then "CLOSED" else "OPEN" end) \(.head.sha // "")"' \
+    2>/dev/null || printf '')"
   case "$state" in
     MERGED) break ;;
     CLOSED) fail 1 "PR #$PR closed without merging" ;;
@@ -199,26 +209,43 @@ if [ "$state" != MERGED ]; then
   fail 2 "PR #$PR is ${state:-unreadable} after $((POLL_COUNT * POLL_SECONDS))s$note; re-run to keep waiting"
 fi
 
-SHA=$(gh pr view "$PR" --repo "$REPO" --json mergeCommit --jq '.mergeCommit.oid // ""' 2>/dev/null || printf '')
+# Read once MERGED, and only then: before the merge, `merge_commit_sha` is the
+# test merge GitHub keeps for an open pull request, which is not a commit that
+# landed anywhere.
+SHA=$(gh api "repos/$REPO/pulls/$PR" --jq '.merge_commit_sha // ""' 2>/dev/null || printf '')
 
 # --------------------------------------------------------------- close --------
 # The assertion this whole script exists for. A `Closes #N` line in the pull
 # request body does register a closing reference — that part works — but nothing
 # acts on it when a workflow's GITHUB_TOKEN performs the merge, so the issue is
 # still open here and closing it is not a formality.
-istate=$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>/dev/null || printf '')
+#
+# The close is `PATCH /issues/{n}` with `state_reason: completed`, which is what
+# `gh issue close` sent, and the comment is `POST /issues/{n}/comments`, made
+# first so it reads above the close on the timeline as it always has. A comment
+# that will not post is a WARN and the close still happens: the comment is a
+# courtesy, and an issue left open is the one outcome this block exists to rule
+# out.
+issue_state() {
+  gh api "repos/$REPO/issues/$ISSUE" --jq '.state // "" | ascii_upcase' 2>/dev/null || printf ''
+}
+
+istate=$(issue_state)
 [ -n "$istate" ] || fail 3 "cannot read the state of issue #$ISSUE"
 
 if [ "$istate" = OPEN ]; then
   comment="Implemented in #$PR"
   [ -n "$SHA" ] && comment="$comment, merged as $SHA"
-  gh issue close "$ISSUE" --repo "$REPO" --comment "$comment." >/dev/null \
-    || fail 3 "gh issue close failed for #$ISSUE"
+  gh api --method POST "repos/$REPO/issues/$ISSUE/comments" -f body="$comment." >/dev/null 2>&1 \
+    || warn "could not comment on issue #$ISSUE; closing it without the comment"
+  gh api --method PATCH "repos/$REPO/issues/$ISSUE" \
+    -f state=closed -f state_reason=completed >/dev/null \
+    || fail 3 "the close of issue #$ISSUE was refused (PATCH repos/$REPO/issues/$ISSUE)"
 fi
 
 # Re-read rather than trusting the close. This is the check that turns a silent
 # no-op into a non-zero exit.
-istate=$(gh issue view "$ISSUE" --repo "$REPO" --json state --jq .state 2>/dev/null || printf '')
+istate=$(issue_state)
 [ "$istate" = CLOSED ] || fail 3 "issue #$ISSUE is ${istate:-unreadable} after the close attempt"
 
 # ------------------------------------------------------------- clean up -------

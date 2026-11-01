@@ -30,8 +30,12 @@
 set -uo pipefail
 
 # The default branch is resolved rather than named. A rename must not leave this
-# diffing against a branch that no longer exists.
-default_branch=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name) || exit 1
+# diffing against a branch that no longer exists. Over REST, with gh filling in
+# {owner}/{repo} from the origin remote: `gh repo view` is GraphQL-backed, and a
+# Claude Code cloud session's GitHub proxy refuses GraphQL, which made this
+# command — and with it the backlog cycle's verify step — fail there before it
+# diffed anything.
+default_branch=$(gh api 'repos/{owner}/{repo}' --jq .default_branch) || exit 1
 base="origin/${default_branch}"
 
 # `cut -f1,2` collapses daggerverse/<m>/... and daggerverse/<m>/tests/... to the

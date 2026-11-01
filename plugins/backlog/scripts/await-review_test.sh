@@ -325,39 +325,58 @@ usage_check '--classify rejects an unknown rung' 4 --classify coderabbit
 # --------------------------------------------------------------- the wait -----
 printf '\nthe wait, against a gh that answers from files\n'
 
-# The stub answers the six calls the script makes, and really runs the `--jq` it
-# was given for the timeline — the login filter is the thing under test, so it
-# must not be short-circuited by a stub that returns the answer directly.
+# The stub answers the calls the script makes, and really runs the `--jq` it was
+# given for the timeline — the login filter is the thing under test, so it must
+# not be short-circuited by a stub that returns the answer directly.
+#
+# Every one of them is REST: the repository from `GET /repos/z5labs/devex`, as
+# repo.sh confirms the scratch checkout's origin remote, and the request as
+# `POST /pulls/{n}/requested_reviewers`. The request takes only for a login
+# listed in $FX/installed, and a request that takes appends a `review_requested`
+# event to the timeline — which is where GitHub records a bot's request, since
+# `GET /pulls/{n}/requested_reviewers` does not list bots (observed on #482).
+# That endpoint answers from $FX/requested, which holds people and teams. So
+# "the request was placed" is an outcome of the stub, not a fixture asserting
+# it. The stub
+# sources the guard that refuses every GraphQL-backed call and logs it; the
+# last case of this file asserts nothing was refused.
 cat >"$SCRATCH/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+. "$GH_GUARD"
 # Every call is logged, so a test can assert what was NOT reached — which is how
 # "this answer costs no network call" is checked rather than asserted.
 [ -n "${FX:-}" ] && printf '%s\n' "$*" >>"$FX/calls"
-q="" path="" post=0 prev=""
+q="" path="" post=0 prev="" field=""
 for a in "$@"; do
   [ "$prev" = --jq ] && q=$a
+  [ "$prev" = -f ] && field=$a
   case "$a" in
     --method) post=1 ;;
-    repos/*/timeline|repos/*/requested_reviewers|repos/*/check-runs\?*|/users/*|/app|/repos/*/installation|/app/installations/*/access_tokens) path=$a ;;
+    repos/z5labs/devex|repos/*/timeline|repos/*/requested_reviewers|repos/*/check-runs\?*|/app|/repos/*/installation|/app/installations/*/access_tokens) path=$a ;;
   esac
   prev=$a
 done
 jqf() { if [ -n "$q" ]; then jq -r "$q" "$1"; else cat "$1"; fi; }
-case "$1 $2" in
-  'repo view') printf 'z5labs/devex\n'; exit 0 ;;
-  'pr view')   printf 'PR_kwNODUMMY\n'; exit 0 ;;
-  'api graphql')
-    [ -f "$FX/graphql" ] || exit 1
-    cat "$FX/graphql"; exit 0 ;;
-esac
 case "$path" in
+  repos/z5labs/devex)     printf 'z5labs/devex\tmain\n' ;;
   */timeline)             jqf "$FX/timeline" ;;
   # Absent is a read that FAILED, which is a different answer from no runs.
   *check-runs\?*)         [ -f "$FX/checks" ] || exit 1; jqf "$FX/checks" ;;
   */requested_reviewers)
-    [ "$post" = 1 ] && exit 0
+    if [ "$post" = 1 ]; then
+      login=${field#reviewers[]=}
+      grep -qxF -- "$login" "$FX/installed" 2>/dev/null \
+        || { printf 'gh: Reviews may only be requested from collaborators. (HTTP 422)\n' >&2; exit 1; }
+      # GitHub names Copilot `Copilot` on the timeline; other bots by login.
+      shown=$login
+      [ "$login" = 'copilot-pull-request-reviewer[bot]' ] && shown=Copilot
+      jq -c --arg l "$shown" \
+        '. + [{event: "review_requested", created_at: "2027-01-01T00:00:00Z", requested_reviewer: {login: $l, type: "Bot"}}]' \
+        "$FX/timeline" >"$FX/timeline.new" && mv "$FX/timeline.new" "$FX/timeline"
+      printf '{}\n'
+      exit 0
+    fi
     jqf "$FX/requested" ;;
-  /users/*)               [ -f "$FX/botid" ] || exit 1; jqf "$FX/botid" ;;
   /app)                   printf 'backlog-bot\n' ;;
   /repos/*/installation)  printf '4242\n' ;;
   */access_tokens)        printf 'ghs_stubbed\n' ;;
@@ -366,7 +385,29 @@ esac
 STUB
 chmod +x "$SCRATCH/bin/gh"
 
+export GH_GUARD="$HERE/testdata/gh-guard.sh"
+export GH_GUARD_LOG="$SCRATCH/graphql-calls"
+: >"$GH_GUARD_LOG"
+
+# The wait runs from $SCRATCH, which is a checkout whose origin is z5labs/devex.
+git init -q "$SCRATCH" >/dev/null 2>&1 || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+git -C "$SCRATCH" remote add origin https://github.com/z5labs/devex.git
+
+# requested_call_any — did the last run place a review request?
+requested_call_any() { grep -qE -- '--method POST .*requested_reviewers' "$SCRATCH/fx/calls" 2>/dev/null; }
+
+# installed <login>... — the bots a request can be placed with; none, with no args
+installed() { printf '%s\n' "$@" >"$SCRATCH/fx/installed"; [ $# -gt 0 ] || : >"$SCRATCH/fx/installed"; }
+installed
+
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+
+# asked <login> <created_at> — a review request on the timeline, as GitHub
+# records one for a bot
+asked() {
+  jq -nc --arg l "$1" --arg t "$2" \
+    '{event:"review_requested", created_at:$t, requested_reviewer:{login:$l, type:"Bot"}}'
+}
 
 reviewed() { # <login> <submitted_at> <body>
   jq -nc --arg l "$1" --arg t "$2" --arg b "$3" \
@@ -411,8 +452,6 @@ checkw() {
   fi
 }
 
-rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
-
 # A review already on the timeline is classified without requesting another,
 # which is what makes re-running after an exit 2 safe.
 timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' '2026-01-01T00:00:00Z' 'one nit below')"
@@ -450,24 +489,35 @@ checkw 'a request that cannot be placed is unavailable' 3 12 copilot
 
 # The request took, and nothing has arrived yet. Silence is NOT unavailability:
 # a slow reviewer looks identical from here, and retiring it for the run on this
-# evidence is how a working reviewer gets dropped for three hours.
-printf '{"users":[{"login":"copilot-pull-request-reviewer[bot]"}],"teams":[]}\n' >"$SCRATCH/fx/requested"
-timeline
+# evidence is how a working reviewer gets dropped for three hours. The request
+# is on the timeline only — GitHub's requested_reviewers never lists a bot —
+# and that is enough to read it as placed.
+timeline "$(asked Copilot '2026-01-01T00:00:00Z')"
+: >"$SCRATCH/fx/calls"
 checkw 'an accepted request with nothing posted yet is not a verdict' 2 12 copilot
+if requested_call_any; then
+  bad 'and it is not requested a second time' "$(grep -- '--method POST' "$SCRATCH/fx/calls" | tr '\n' ';')"
+else
+  ok 'and it is not requested a second time' 'no POST'
+fi
 
-# The REST fallback is reached when the GraphQL mutation does not take, and it
-# is the path that only works with the full `...[bot]` login.
+# The request is REST, and REST takes a bot only by its full `...[bot]` login.
+# One that took leaves the wait pending on a review that has not landed yet.
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
-printf '{"node_id":"BOT_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
-printf '{"data":{"requestReviews":{"pullRequest":{"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Bot","login":"copilot-pull-request-reviewer"}}]}}}}}\n' >"$SCRATCH/fx/graphql"
+installed 'copilot-pull-request-reviewer[bot]'
 timeline
-checkw 'a request the mutation placed leaves the wait pending' 2 12 copilot
+: >"$SCRATCH/fx/calls"
+checkw 'a request placed over REST leaves the wait pending' 2 12 copilot
+if grep -qxF 'api --method POST repos/z5labs/devex/pulls/12/requested_reviewers -f reviewers[]=copilot-pull-request-reviewer[bot]' "$SCRATCH/fx/calls"; then
+  ok 'and it asked by the full [bot] login' 'reviewers[]=copilot-pull-request-reviewer[bot]'
+else
+  bad 'and it asked by the full [bot] login' "$(grep -- '--method POST' "$SCRATCH/fx/calls" | tr '\n' ';')"
+fi
 
 printf '\nan errored copilot run, through the wait\n'
 
-# requested_call — did this run try to place a review request? Both doors count:
-# the mutation, and the REST fallback behind it.
-requested_call() { grep -qE '^api graphql|--method POST' "$SCRATCH/fx/calls" 2>/dev/null; }
+# requested_call — did this run try to place a review request?
+requested_call() { grep -qE -- '--method POST .*requested_reviewers' "$SCRATCH/fx/calls" 2>/dev/null; }
 
 # checkw_calls <name> <expected exit> <requests? yes|no> <args...>
 checkw_calls() {
@@ -485,21 +535,26 @@ checkw_calls() {
   fi
 }
 
-# humus #747 on the timeline: the error review, and the one failed run behind
-# it. Copilot has left the requested reviewers, as it did there. The gate
-# re-requests — once — and goes back to waiting; exit 0 here was the bug.
-timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
+# humus #747 on the timeline: the request, the error review that answered it,
+# and the one failed run behind it. The review ended the request, so nothing is
+# outstanding. The gate re-requests — once — and goes back to waiting; exit 0
+# here was the bug.
+timeline "$(asked Copilot '2026-10-17T19:02:10Z')" \
+         "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
 checks "$(runs "$RUN_FAILED")"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 checkw_calls 'an errored run is re-requested, not passed' 2 yes 12 copilot
 
-# Re-entered before the re-request's run has appeared: Copilot is back among the
-# requested reviewers, and that is what stops a second request being placed.
-printf '{"users":[{"login":"copilot-pull-request-reviewer[bot]"}],"teams":[]}\n' >"$SCRATCH/fx/requested"
+# Re-entered before the re-request's run has appeared: a request newer than the
+# error review is on the timeline, and that is what stops a second one being
+# placed.
+timeline "$(asked Copilot '2026-10-17T19:02:10Z')" \
+         "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")" \
+         "$(asked Copilot '2026-10-17T19:04:30Z')"
 checkw_calls 'a re-request already placed is not placed again' 2 no 12 copilot
 
 # The re-request's run is going. Wait on it; ask for nothing.
-printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
 checks "$(runs "$RUN_FAILED" "$(run in_progress '' '2026-10-17T19:05:00Z' '')")"
 checkw_calls 'a run in flight is waited on, not re-requested' 2 no 12 copilot
 
@@ -511,7 +566,8 @@ checkw_calls 'an error that survives the re-request is exit 6' 6 no 12 copilot
 # A re-request that cannot be placed. Copilot reviewed this very pull request a
 # minute ago, so this is not the rung telling us it is down for the run: exit 6,
 # and not the exit 3 an initial request that fails gets.
-rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
+installed
+printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 checks "$(runs "$RUN_FAILED")"
 checkw 'a re-request that cannot be placed is exit 6, not 3' 6 12 copilot
 
@@ -524,13 +580,10 @@ checkw 'a check-runs read that fails is not a verdict' 2 12 copilot
 checks '[]'
 checkw 'a review with no check run behind it escalates' 5 12 copilot
 
-printf '{"node_id":"BOT_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
-printf '{"data":{"requestReviews":{"pullRequest":{"reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"Bot","login":"copilot-pull-request-reviewer"}}]}}}}}\n' >"$SCRATCH/fx/graphql"
-
 # ------------------------------------------------------- the generic rung -----
 printf '\na bot:<login> rung, through the same wait\n'
 
-rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
+installed
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 
 # The wait runs with cwd at $SCRATCH, so this is the config it reads.
@@ -545,25 +598,42 @@ bot_refusals() { # <refusals object, or nothing>
 }
 bot_refusals
 
-# Not installed on the repository: the login resolves to nothing and the request
-# cannot be placed. That is unavailability — a rung costs a rung, not the run.
+# Not installed on the repository: the request is refused, reads back as not
+# requested, and is unavailable — a rung costs a rung, not the run.
 timeline
 checkw 'an uninstalled bot login is unavailable' 3 12 'bot:coderabbitai[bot]'
 
-# A login that is a person. `requestReviews` takes botIds, so this can never be
-# requested as a bot — and the REST fallback would otherwise request a review
-# from a HUMAN under a rung the operator wrote as a bot.
-printf '{"type":"User","node_id":"U_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
-timeline
-checkw 'a login that is not a bot is unavailable' 3 12 'bot:coderabbitai[bot]'
+# A login that is not a Bot's. Every Bot's login ends `[bot]` and a person's
+# cannot hold a bracket, so this is read from the login alone — the account
+# lookup that used to answer it, `GET /users/{login}`, is refused in a Claude
+# Code cloud session, and a lookup that failed let the request through to
+# whoever held that login. Unavailable before anything is read or requested.
+# The person here is installed and has a review on the timeline, so a request
+# or a timeline match would both be visible.
+installed carsonderr
+timeline "$(reviewed 'carsonderr' '2026-01-01T00:00:00Z' 'nice work')"
+: >"$SCRATCH/fx/calls"
+checkw "a login without [bot] is not a bot, and is unavailable" 3 12 'bot:carsonderr'
+if grep -qE 'timeline|requested_reviewers|/users/' "$SCRATCH/fx/calls"; then
+  bad 'and nothing is read or requested for it' "$(tr '\n' ';' <"$SCRATCH/fx/calls")"
+else
+  ok 'and nothing is read or requested for it' 'no timeline read, no request'
+fi
 
-# A review that landed, from a bot the plugin has never seen. Both spellings of
-# the login filter the same events, because the `[bot]` suffix is dropped before
-# the match is built.
-printf '{"type":"Bot","node_id":"BOT_kwNODUMMY"}\n' >"$SCRATCH/fx/botid"
+# The same for a bot written without its suffix: the login GitHub knows it by is
+# the one with `[bot]`, and the rung says how to write it.
+timeline "$(reviewed 'coderabbitai[bot]' '2026-01-01T00:00:00Z' 'Actionable comments posted: 2')"
+w_run 12 'bot:coderabbitai'
+if [ "$W_RC" = 3 ] && printf '%s' "$W_OUT" | grep -qF 'bot:coderabbitai[bot]'; then
+  ok 'a bot named without [bot] is unavailable, naming the fix' 'exit 3'
+else
+  bad 'a bot named without [bot] is unavailable, naming the fix' "exit $W_RC: $(printf '%s' "$W_OUT" | tr '\n' ' ' | cut -c1-160)"
+fi
+installed
+
+# A review that landed, from a bot the plugin has never seen.
 timeline "$(reviewed 'coderabbitai[bot]' '2026-01-01T00:00:00Z' 'Actionable comments posted: 2')"
 checkw 'a landed review with no configured wording escalates' 5 12 'bot:coderabbitai[bot]'
-checkw 'the login spelled without [bot] filters the same events' 5 12 'bot:coderabbitai'
 
 # Configured, and it classifies both ways from then on.
 bot_refusals '{"bot:coderabbitai[bot]":"[Rr]eview skipped"}'
@@ -581,13 +651,11 @@ timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' '2026-01-01T00:00:00Z'
 checkw 'another bots review does not satisfy this rung' 2 12 'bot:coderabbitai[bot]'
 
 bot_refusals
-rm -f "$SCRATCH/fx/botid"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 
 # ---------------------------------------------------- the credential states ---
 printf '\nthe reviewer credential, through every door that reads it\n'
 
-rm -f "$SCRATCH/fx/graphql" "$SCRATCH/fx/botid"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 timeline
 
@@ -601,9 +669,14 @@ POSTER="$HERE/post-review.sh"
 # names are set — which means all four have to be cleared first. Inheriting one
 # from the shell that ran the tests would invert the case silently, and the
 # state that matters most is defined by a variable being absent.
+#
+# CLAUDE_CODE_REMOTE is cleared for the same reason: a cloud session running this
+# suite exports it, and it makes every door answer exit 3 before any credential
+# is read. The cloud session is a case of its own below.
 CLEAR=(env -u BACKLOG_APP_ID -u BACKLOG_APP_KEY
            -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY
-           -u Z5LABS_REVIEW_APP_ID -u Z5LABS_REVIEW_APP_KEY)
+           -u Z5LABS_REVIEW_APP_ID -u Z5LABS_REVIEW_APP_KEY
+           -u CLAUDE_CODE_REMOTE)
 
 # The credential variables for the case under test. Set before each cred_case.
 cred_env=()
@@ -693,6 +766,27 @@ cred_case 4 'BACKLOG_REVIEW_APP_ID' \
 cred_env=(BACKLOG_APP_ID=999)
 cred_case 4 'deliberately not substituted' \
   'and one merge variable is enough to tell the two apart'
+
+# 5. A Claude Code cloud session. Its GitHub proxy refuses GET /app and the token
+#    exchange, so the rung cannot run there whatever the environment holds — a
+#    whole pair included. Unavailable through every door, naming the session as
+#    the reason, at no network cost: `--preflight` says so before a subagent is
+#    spent, and the wait never gets as far as a request.
+cred_env=(CLAUDE_CODE_REMOTE=true BACKLOG_REVIEW_APP_ID=12345 BACKLOG_REVIEW_APP_KEY=/dev/null)
+cred_case 3 'cannot mint a token from a Claude Code cloud session' \
+  'a cloud session is unavailable, whatever the credential' \
+  'not two halves of one App'
+if grep -qE -- '--method POST' "$SCRATCH/fx/calls" 2>/dev/null; then
+  bad 'and no door makes a review request' "$(grep -- '--method POST' "$SCRATCH/fx/calls" | tr '\n' ';')"
+else
+  ok 'and no door makes a review request' 'no POST'
+fi
+
+# Even half a pair, which is exit 4 everywhere else: the rung could not have run
+# with the whole one, so stopping the cycle over it would stop it for nothing.
+cred_env=(CLAUDE_CODE_REMOTE=true BACKLOG_REVIEW_APP_ID=12345)
+cred_case 3 'cannot mint a token from a Claude Code cloud session' \
+  'in a cloud session, half a pair is unavailable too'
 
 cred_env=()
 
@@ -853,6 +947,13 @@ if command -v openssl >/dev/null 2>&1; then
   cred_env=()
 else
   printf '  skip openssl is not on PATH; the App identity cases need it\n'
+fi
+
+printf '\nGraphQL\n'
+if [ -s "$GH_GUARD_LOG" ]; then
+  bad 'no GraphQL-backed gh call was made' "$(tr '\n' ';' <"$GH_GUARD_LOG")"
+else
+  ok 'no GraphQL-backed gh call was made' 'none'
 fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"

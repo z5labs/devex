@@ -242,30 +242,31 @@ Depends on #17.'
 printf '\nnative dependencies\n'
 
 # The `native` style takes its edges from GitHub's typed issue dependencies
-# instead of the body, so its corpus is GraphQL responses rather than markdown —
-# fixtured the same way, and read through the same `--native-deps` seam the walk
-# uses, so nothing here needs the network.
+# instead of the body, so its corpus is REST responses rather than markdown —
+# `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`, one JSON array
+# of the blocking issues per page — fixtured the same way, and read through the
+# same `--native-deps` seam the walk uses, so nothing here needs the network.
+#
+# Each edge prints as `<ref>\t<STATE>`; `checkn` shows the tab as `=`. The state
+# is the blocker's own, from the same response, which is why a native edge needs
+# no second read to resolve.
 #
 # The failures carry the weight. Every one of them would otherwise resolve to an
 # empty reference list, and an empty reference list is indistinguishable from an
 # issue with no blockers — which is precisely the wrong answer this style exists
 # to remove, arrived at from the other direction.
 
-npage() { # <blockedBy nodes json array> [issue number]
-  printf '{"data":{"repository":{"issue":{"number":%s,' "${2:-42}"
-  printf '"blockedBy":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":%s}}}}}' "$1"
+dep() { # <number> <repo> [open|closed] — one blocking issue, as REST returns it
+  printf '{"id":%s001,"number":%s,"state":"%s","title":"blocker %s","repository_url":"https://api.github.com/repos/%s"}' \
+    "$1" "$1" "${3:-closed}" "$1" "$2"
 }
 
-dep() { # <number> <repo>
-  printf '{"number":%s,"repository":{"nameWithOwner":"%s"}}' "$1" "$2"
-}
-
-# checkn <name> <repo> <expected refs, space separated> <pages>
+# checkn <name> <repo> <expected edges, space separated, ref=STATE> <pages>
 checkn() {
   local name=$1 repo=$2 want=$3 pages=$4 got rc
   got=$(printf '%s' "$pages" | "$SUT" --native-deps "$repo" 2>/dev/null)
   rc=$?
-  got=$(printf '%s' "$got" | tr '\n' ' ')
+  got=$(printf '%s' "$got" | tr '\t\n' '= ')
   got=${got% }
   if [ "$rc" -eq 0 ] && [ "$got" = "$want" ]; then
     pass=$((pass + 1))
@@ -299,60 +300,61 @@ checkn_fail() {
 # The same two references the documented body fixture yields under `blocked-by`,
 # in the same printed form — that sameness is what lets the eligibility walk stay
 # one code path across every style.
-checkn 'the documented fixture, as typed edges' z5labs/devex '#12 #14' \
-  "$(npage "[$(dep 12 z5labs/devex),$(dep 14 z5labs/devex)]")"
+checkn 'the documented fixture, as typed edges' z5labs/devex '#12=CLOSED #14=OPEN' \
+  "[$(dep 12 z5labs/devex closed),$(dep 14 z5labs/devex open)]"
 
 # The honest empty, and the reason the style has to be declared rather than
 # fallen back to: on a repository that has not populated dependencies this is
 # every issue's answer, and it reads as an unblocked backlog.
-checkn 'no dependencies is an empty edge set, not an error' z5labs/devex '' \
-  "$(npage '[]')"
+checkn 'no dependencies is an empty edge set, not an error' z5labs/devex '' '[]'
 
-# A cross-repository edge is reported in the form it was written, so the caller
-# can tell "issue 14 here" from "something I cannot resolve" — the same
-# distinction the body extractor draws, and the same one that makes the issue
-# ineligible rather than silently eligible.
-checkn 'a cross-repository edge is named, not dropped' z5labs/devex 'z5labs/other#42 #14' \
-  "$(npage "[$(dep 42 z5labs/other),$(dep 14 z5labs/devex)]")"
+# A cross-repository edge is named by its blocker's `repository_url`, in the form
+# it would be written, so the caller can tell "issue 14 here" from "issue 42
+# elsewhere" — the same distinction the body extractor draws.
+checkn 'a cross-repository blocker is named by its repository_url' z5labs/devex 'z5labs/other#42=OPEN #14=CLOSED' \
+  "[$(dep 42 z5labs/other open),$(dep 14 z5labs/devex closed)]"
 
 # An issue number is only unique within its repository. Keyed on the number
 # alone, `z5labs/other#12` would collapse into `#12` and be resolved against
 # this repository's issue 12 — a dependency on the wrong issue entirely.
-checkn 'the same number in two repositories stays two edges' z5labs/devex '#12 z5labs/other#12' \
-  "$(npage "[$(dep 12 z5labs/devex),$(dep 12 z5labs/other)]")"
+checkn 'the same number in two repositories stays two edges' z5labs/devex '#12=CLOSED z5labs/other#12=OPEN' \
+  "[$(dep 12 z5labs/devex closed),$(dep 12 z5labs/other open)]"
 
-# `--paginate` prints one whole response per page, concatenated. Reading only the
+# GitHub treats owner and name without regard to case, so a repository_url that
+# spells this repository differently is still this repository — read as another,
+# an in-repository edge would be resolved as a cross-repository one.
+checkn 'this repository in another case is still this repository' z5labs/devex '#12=OPEN' \
+  "[$(dep 12 Z5labs/DevEx open)]"
+
+# `--paginate` prints one JSON array per page, concatenated. Reading only the
 # first would drop every dependency past 100 — an issue that looks less blocked
 # than it is.
-checkn 'every page contributes, deduped, order preserved' z5labs/devex '#12 #14 #19' \
-  "$(npage "[$(dep 12 z5labs/devex),$(dep 14 z5labs/devex)]")
-$(npage "[$(dep 14 z5labs/devex),$(dep 19 z5labs/devex)]")"
+checkn 'every page contributes, deduped, order preserved' z5labs/devex '#12=CLOSED #14=CLOSED #19=OPEN' \
+  "[$(dep 12 z5labs/devex),$(dep 14 z5labs/devex)]
+[$(dep 14 z5labs/devex),$(dep 19 z5labs/devex open)]"
 
-# The four failures, each of which would otherwise print nothing and exit 0.
+# The failures, each of which would otherwise print nothing and exit 0.
 checkn_fail 'an empty response is refused' z5labs/devex \
   'returned no response' ''
 
-checkn_fail 'a missing issue is refused' z5labs/devex \
-  'resolved to no issue' \
-  '{"data":{"repository":{"issue":null}}}'
+# GitHub's error shape where a list belongs: a missing issue, or a GitHub that
+# does not serve typed dependencies. Reading it as "no blockers" is the whole
+# failure mode.
+checkn_fail 'an error object instead of a list is refused' z5labs/devex \
+  'not a list of issues' '{"message":"Not Found","documentation_url":"https://docs.github.com/rest"}'
 
-# An issue that exists but carries no `blockedBy` connection is a GitHub that
-# does not serve typed dependencies at all. Reading it as "no blockers" is the
-# whole failure mode.
-checkn_fail 'an issue with no blockedBy connection is refused' z5labs/devex \
-  'does not serve typed issue dependencies' \
-  '{"data":{"repository":{"issue":{"number":42}}}}'
+checkn_fail 'a blocker with no repository_url is refused, not filtered' z5labs/devex \
+  'no number, repository_url or state' '[{"number":12,"state":"open"}]'
 
-checkn_fail 'a node that cannot be named is refused, not filtered' z5labs/devex \
-  'no number or repository' \
-  "$(npage '[{"number":12,"repository":null}]')"
+checkn_fail 'a blocker with no state is refused, not filtered' z5labs/devex \
+  'no number, repository_url or state' '[{"number":12,"repository_url":"https://api.github.com/repos/z5labs/devex"}]'
+
+checkn_fail 'a blocker with no number is refused, not filtered' z5labs/devex \
+  'no number, repository_url or state' '[{"state":"open","repository_url":"https://api.github.com/repos/z5labs/devex"}]'
 
 checkn_fail 'a response that is not JSON is refused' z5labs/devex \
   'does not parse as JSON' 'not json at all'
 
-# `native` is a configured style but never a body extraction. Accepting it here
-# would answer "no references" for a body that declares none, which is exactly
-# the fallback the style is declared to avoid.
 printf '\nnative is not a body style\n'
 NATIVE_EXTRACT_ERR=$(printf 'Blocked by:\n- #12\n' | "$SUT" --extract native 2>&1 >/dev/null)
 NATIVE_EXTRACT_RC=$?
@@ -513,41 +515,140 @@ printf '\nscope assembly\n'
 SCRATCH=$(mktemp -d) || { printf 'cannot create a scratch directory\n' >&2; exit 1; }
 trap 'rm -rf "$SCRATCH"' EXIT
 
-git init -q "$SCRATCH/repo" >/dev/null 2>&1 \
-  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
-mkdir -p "$SCRATCH/repo/.claude" "$SCRATCH/bin" "$SCRATCH/pages"
+# Every stub below refuses GraphQL the way a Claude Code cloud session's GitHub
+# proxy does, and records each refusal; the last case of this file asserts that
+# none happened. The project-scope cases are the one place the guard is told to
+# let `gh api graphql` through, by GQL=allow — Projects v2 exists only in
+# GraphQL, and those cases are about a local run.
+export GH_GUARD="$HERE/testdata/gh-guard.sh"
+export GH_GUARD_LOG="$SCRATCH/graphql-calls"
+: >"$GH_GUARD_LOG"
+GQL=""
 
-# The three gh calls this path makes, answered from files. The project response
-# is chosen by the `field=` the query was given, which is what lets a case prove
-# the flag reached the *query* rather than only the message. Anything else is a
-# loud failure: `gh issue view` would mean the dependency walk read a body under
-# style `none`.
+# One `gh` for every end-to-end section of this file, answering the REST routes
+# select-issue.sh reads from a fixture directory, $STUB_FX:
+#
+#   repos/z5labs/devex                  the repository, as repo.sh confirms it
+#   repos/*/milestones                  $STUB_FX/milestones, a JSON array
+#   repos/*/issues?labels=&milestone=   $STUB_FX/lists/<label>#<milestone number>,
+#                                       one `number<TAB>title[<TAB>pr]` line per
+#                                       issue in creation order, served a page at
+#                                       a time by `page` and `per_page`; `pr`
+#                                       marks a pull request
+#   repos/*/issues/<n>/dependencies/    $STUB_FX/deps/<n>, a JSON array
+#     blocked_by
+#   repos/<o>/<r>/issues/<n>            $STUB_FX/states/<o>_<r>#<n> (OPEN, CLOSED,
+#                                       or PR for a pull request) and
+#                                       $STUB_FX/bodies/<o>_<r>#<n>
+#
+# An absent fixture is GitHub's 404. `--jq` is really run, so the fixtures are the
+# shapes GitHub returns rather than the answers the script wants. Every call goes
+# to $STUB_FX/calls, and every issue read to $STUB_FX/reads, so a case can assert
+# what was NOT asked.
+mkdir -p "$SCRATCH/bin"
 cat >"$SCRATCH/bin/gh" <<'STUB'
 #!/usr/bin/env bash
-case "$1 $2" in
-  'repo view')  printf 'z5labs/devex\n' ;;
-  'issue list') cat "$STUB_ISSUES" ;;
-  'api graphql')
-    f=""
-    for a in "$@"; do case "$a" in field=*) f=${a#field=} ;; esac; done
-    if [ -n "$f" ] && [ -f "$STUB_PAGES/$f" ]; then cat "$STUB_PAGES/$f"; else cat "$STUB_PAGES/default"; fi ;;
+. "$GH_GUARD"
+printf '%s\n' "$*" >>"$STUB_FX/calls"
+q="" path="" prev=""
+for a in "$@"; do
+  [ "$prev" = --jq ] && q=$a
+  case "$a" in repos/*) path=$a ;; esac
+  prev=$a
+done
+out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
+missing() { printf '{"message":"Not Found"}'; printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; }
+
+# Reached only past the guard, so only when a case set GH_GUARD_GRAPHQL=allow:
+# the project query, answered by the `field=` it was given — which is what lets
+# a case prove a flag reached the query rather than only the message.
+if [ "$1 ${2:-}" = 'api graphql' ]; then
+  f=""
+  for a in "$@"; do case "$a" in field=*) f=${a#field=} ;; esac; done
+  if [ -n "$f" ] && [ -f "$STUB_FX/pages/$f" ]; then cat "$STUB_FX/pages/$f"; else cat "$STUB_FX/pages/default"; fi
+  exit 0
+fi
+
+[ "$1" = api ] && [ -n "$path" ] || { printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1; }
+route=${path%%\?*}
+query=""
+[ "$route" = "$path" ] || query=${path#*\?}
+param() { printf '&%s&' "$query" | sed -n "s/.*&$1=\([^&]*\)&.*/\1/p"; }
+
+case "$route" in
+  repos/z5labs/devex)
+    printf '{"full_name":"z5labs/devex","default_branch":"main"}\n' | out ;;
+  repos/*/milestones)
+    out <"$STUB_FX/milestones" ;;
+  repos/*/issues)
+    label=$(param labels | sed 's/%20/ /g')
+    ms=$(param milestone)
+    f="$STUB_FX/lists/$label#$ms"
+    [ -f "$f" ] || { printf 'stub gh: no issue list for label=%s milestone=%s\n' "$label" "$ms" >&2; exit 1; }
+    page=$(param page); per=$(param per_page)
+    awk -v page="${page:-1}" -v per="${per:-30}" 'NR > (page - 1) * per && NR <= page * per' "$f" \
+      | jq -R -s -c 'split("\n") | map(select(length > 0) | split("\t")
+          | {number: (.[0] | tonumber), title: .[1], state: "open"}
+            + (if .[2] == "pr" then {pull_request: {url: "https://example.test/pull"}} else {} end))' \
+      | out ;;
+  repos/*/issues/*/dependencies/blocked_by)
+    n=${route%/dependencies/blocked_by}; n=${n##*/}
+    [ -f "$STUB_FX/deps/$n" ] || missing
+    out <"$STUB_FX/deps/$n" ;;
+  repos/*/issues/*)
+    n=${route##*/}; r=${route#repos/}; r=${r%/issues/*}; key="${r//\//_}#$n"
+    [ -f "$STUB_FX/states/$key" ] || missing
+    printf '%s#%s\n' "$r" "$n" >>"$STUB_FX/reads"
+    s=$(cat "$STUB_FX/states/$key")
+    b=""
+    [ -f "$STUB_FX/bodies/$key" ] && b=$(cat "$STUB_FX/bodies/$key")
+    jq -n --argjson n "$n" --arg s "$s" --arg b "$b" \
+      '{number: $n, title: "issue \($n)", state: ($s | ascii_downcase), body: $b}
+       + (if $s == "PR" then {state: "open", pull_request: {url: "https://example.test/pull"}} else {} end)' \
+      | out ;;
   *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
 esac
 STUB
 chmod +x "$SCRATCH/bin/gh"
 
-printf '288\tthe first\n291\tthe second\n302\tthe third\n' >"$SCRATCH/issues"
+# fixture_root <dir> — a scratch checkout at <dir>/repo whose origin is
+# z5labs/devex, and the fixture directories the stub reads beside it.
+fixture_root() {
+  mkdir -p "$1/lists" "$1/deps" "$1/states" "$1/bodies" "$1/pages"
+  git init -q "$1/repo" >/dev/null 2>&1 \
+    || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+  git -C "$1/repo" remote add origin https://github.com/z5labs/devex.git
+  mkdir -p "$1/repo/.claude"
+  printf '[]\n' >"$1/milestones"
+}
+
+# run_in <fixture root> [args...] — the whole script, from the checkout, with
+# the stub on PATH. GQL is passed to the guard as it stands at the call.
+run_in() {
+  local fx=$1
+  shift
+  : >"$fx/calls"
+  : >"$fx/reads"
+  RUN_OUT=$(cd "$fx/repo" && PATH="$SCRATCH/bin:$PATH" STUB_FX="$fx" GH_GUARD_GRAPHQL="$GQL" \
+    "$SUT" "$@" 2>"$fx/err")
+  RUN_RC=$?
+  RUN_ERR=$(tr '\n' ' ' <"$fx/err")
+}
+
+SCOPE="$SCRATCH/scope"
+fixture_root "$SCOPE"
+printf '288\tthe first\n291\tthe second\n302\tthe third\n' >"$SCOPE/lists/story#"
 
 page "[$(issue_item 288 z5labs/devex pdf),
        $(issue_item 291 z5labs/devex workspace-ci),
-       $(issue_item 302 z5labs/devex workspace-ci)]" >"$SCRATCH/pages/Module"
+       $(issue_item 302 z5labs/devex workspace-ci)]" >"$SCOPE/pages/Module"
 page "[$(issue_item 288 z5labs/devex Done),
        $(issue_item 291 z5labs/devex Done),
-       $(issue_item 302 z5labs/devex Todo)]" >"$SCRATCH/pages/Status"
+       $(issue_item 302 z5labs/devex Todo)]" >"$SCOPE/pages/Status"
 # A field the project does not have still gets the project's field list back,
 # which is the whole reason `project_query` reads `fields` rather than
 # `field(name:)`.
-page '[]' >"$SCRATCH/pages/default"
+page '[]' >"$SCOPE/pages/default"
 
 # run_sut <select.project json, or - for none> [args...]
 run_sut() {
@@ -556,7 +657,7 @@ run_sut() {
   local block=""
   [ "$project" = - ] || block=",
     \"project\": $project"
-  cat >"$SCRATCH/repo/.claude/backlog.json" <<JSON
+  cat >"$SCOPE/repo/.claude/backlog.json" <<JSON
 {
   "select": { "label": "story", "milestone": null, "limit": 200$block },
   "dependencies": { "style": "none" },
@@ -566,11 +667,7 @@ run_sut() {
   "worktreeDir": ".claude/worktrees"
 }
 JSON
-  RUN_OUT=$(cd "$SCRATCH/repo" && PATH="$SCRATCH/bin:$PATH" \
-    STUB_ISSUES="$SCRATCH/issues" STUB_PAGES="$SCRATCH/pages" \
-    "$SUT" "$@" 2>"$SCRATCH/err")
-  RUN_RC=$?
-  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/err")
+  run_in "$SCOPE" "$@"
 }
 
 # checks <name> <expected issue number> <select.project json|-> [args...]
@@ -609,6 +706,9 @@ checks_fail() {
     printf '  FAIL %-58s want exit 4, got exit %d\n' "$name" "$RUN_RC"
   fi
 }
+
+# The scope cases are a local run, the one place a project read is legitimate.
+GQL=allow
 
 BOARD='{"owner":"z5labs","number":14,"field":"Status","value":null}'
 PINNED='{"owner":"z5labs","number":14,"field":"Status","value":"Todo"}'
@@ -658,6 +758,47 @@ checks_fail 'a scope flag and --no-project-filter is refused' 'cannot be combine
 checks_fail 'a bad --project-number blames the flag' '--project-number must be a positive integer' - \
   --project-owner z5labs --project-number fourteen --project-field Module --project-value workspace-ci
 
+printf '\nproject scope in a Claude Code cloud session\n'
+
+# A cloud session's GitHub proxy refuses GraphQL, and Projects v2 exists only in
+# GraphQL, so a requested scope has no route at all there. The guard now answers
+# the project query exactly as that proxy does. The answer has to be exit 4
+# saying so — never a fall-through to the unscoped backlog, which would get work
+# done in the wrong order looking like an ordinary iteration.
+#
+# These refusals are the expected ones, so they are logged apart from the file
+# the last case of this suite asserts is empty.
+GQL=""
+GUARD_LOG_KEPT=$GH_GUARD_LOG
+export GH_GUARD_LOG="$SCRATCH/expected-refusals"
+: >"$GH_GUARD_LOG"
+
+checks_fail 'a configured project value is local-only in a cloud session' \
+  'project-scoped selection is local-only in a Claude Code cloud session' "$PINNED"
+checks_fail 'and names --no-project-filter as the way out' '--no-project-filter' "$PINNED"
+# A scope from the command line is cleared by not passing it: --no-project-filter
+# beside --project-value is refused, so naming only that would be a dead end.
+checks_fail 'a scope from flags says to drop them' 'drop --project-value' "$BOARD" --project-value Todo
+
+# The logged query spans lines, so it is the command lines that are counted.
+if [ "$(grep -c '^api graphql' "$GH_GUARD_LOG")" = 3 ] \
+   && ! grep -qE '^(issue|pr|project|search|repo view|label list|release list)( |$)' "$GH_GUARD_LOG"; then
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'the only refused call was the project query' '3 of 3'
+else
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'the only refused call was the project query' "$(grep -E '^[a-z]' "$GH_GUARD_LOG" | cut -c1-60 | tr '\n' ';')"
+fi
+export GH_GUARD_LOG=$GUARD_LOG_KEPT
+
+# This repository's own shape: a board and an axis configured, `value: null`.
+# Selection makes no project call at all, so it is unaffected by the proxy.
+checks 'a null project value makes no project call at all' 288 "$BOARD"
+if grep -q graphql "$SCOPE/calls"; then
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'and no GraphQL call reached gh' "$(tr '\n' ';' <"$SCOPE/calls")"
+else
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'and no GraphQL call reached gh' 'none'
+fi
+checks '--no-project-filter on a pinned value runs in the cloud' 288 "$PINNED" --no-project-filter
+
 printf '\nruntime selectors\n'
 
 # Every selector is a default in `.claude/backlog.json` that one run can
@@ -672,87 +813,52 @@ printf '\nruntime selectors\n'
 # unknown milestone is exit 4 naming the ones that exist, from the config as
 # readily as from the flag.
 #
+# The issue list is filtered by milestone NUMBER — `GET /repos/{o}/{r}/issues`
+# takes no title — so the title is resolved to its number through
+# `/milestones`, and the lists below are keyed by the number the query carried.
+# A title that reached the query unresolved finds no list at all.
+#
 # The same shape as the scope-assembly section above: the whole script, a
-# scratch repository, a `gh` that answers from files, and an assertion on *which
-# issue* came back rather than on a message. Each fixture list holds a different
-# issue number, so a flag that never reached the query is a different answer and
-# not merely a different diagnostic.
-mkdir -p "$SCRATCH/sel/repo/.claude" "$SCRATCH/sel/bin" "$SCRATCH/sel/lists" \
-         "$SCRATCH/sel/views" "$SCRATCH/sel/pages"
+# scratch repository, the same `gh`, and an assertion on *which issue* came back
+# rather than on a message. Each fixture list holds a different issue number, so
+# a flag that never reached the query is a different answer and not merely a
+# different diagnostic.
+SEL="$SCRATCH/sel"
+fixture_root "$SEL"
 
-git init -q "$SCRATCH/sel/repo" >/dev/null 2>&1 \
-  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+printf '288\tmilestoned v0.2.0\n'    >"$SEL/lists/story#2"
+printf '291\tmilestoned v0.3.0\n'    >"$SEL/lists/story#3"
+printf '302\tunmilestoned\n'         >"$SEL/lists/story#"
+printf '305\ta task, no milestone\n' >"$SEL/lists/task#"
+printf '307\ta task in v0.2.0\n'     >"$SEL/lists/task#2"
 
-# `issue list` is answered by the label and milestone it was *given*, which is
-# what lets a case prove a flag reached the query. `api repos/.../milestones` and
-# `issue view` really run the `--jq` they were passed, so the fixtures are the
-# shapes GitHub returns rather than the answers the script wants.
-cat >"$SCRATCH/sel/bin/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$1 $2" in
-  'repo view') printf 'z5labs/devex\n' ;;
-  'issue list')
-    label="" milestone="" prev=""
-    for a in "$@"; do
-      case "$prev" in --label) label=$a ;; --milestone) milestone=$a ;; esac
-      prev=$a
-    done
-    f="$STUB_LISTS/$label#$milestone"
-    [ -f "$f" ] || { printf 'stub gh: no issue list for label=%s milestone=%s\n' "$label" "$milestone" >&2; exit 1; }
-    cat "$f" ;;
-  'issue view')
-    q="" prev=""
-    for a in "$@"; do [ "$prev" = --jq ] && q=$a; prev=$a; done
-    f="$STUB_VIEWS/$3"
-    [ -f "$f" ] || { printf 'stub gh: no issue %s\n' "$3" >&2; exit 1; }
-    if [ -n "$q" ]; then jq -r "$q" "$f"; else cat "$f"; fi ;;
-  'api graphql')
-    f=""
-    for a in "$@"; do case "$a" in field=*) f=${a#field=} ;; esac; done
-    if [ -n "$f" ] && [ -f "$STUB_PAGES/$f" ]; then cat "$STUB_PAGES/$f"; else cat "$STUB_PAGES/default"; fi ;;
-  'api '*)
-    # `--paginate` sits between `api` and the path, so the path is found by
-    # scanning rather than by position.
-    q="" path="" prev=""
-    for a in "$@"; do
-      [ "$prev" = --jq ] && q=$a
-      case "$a" in repos/*/milestones*) path=$a ;; esac
-      prev=$a
-    done
-    [ -n "$path" ] || { printf 'stub gh: unexpected api call: %s\n' "$*" >&2; exit 1; }
-    if [ -n "$q" ]; then jq -r "$q" "$STUB_MILESTONES"; else cat "$STUB_MILESTONES"; fi ;;
-  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
-esac
-STUB
-chmod +x "$SCRATCH/sel/bin/gh"
-
-printf '288\tmilestoned v0.2.0\n' >"$SCRATCH/sel/lists/story#v0.2.0"
-printf '291\tmilestoned v0.3.0\n' >"$SCRATCH/sel/lists/story#v0.3.0"
-printf '302\tunmilestoned\n'      >"$SCRATCH/sel/lists/story#"
-printf '305\ta task, no milestone\n' >"$SCRATCH/sel/lists/task#"
-printf '307\ta task in v0.2.0\n'     >"$SCRATCH/sel/lists/task#v0.2.0"
-
-printf '{"number":302,"title":"unmilestoned","state":"OPEN"}\n'  >"$SCRATCH/sel/views/302"
-printf '{"number":404,"title":"already done","state":"CLOSED"}\n' >"$SCRATCH/sel/views/404"
+printf 'OPEN\n'   >"$SEL/states/z5labs_devex#302"
+printf 'CLOSED\n' >"$SEL/states/z5labs_devex#404"
+printf 'PR\n'     >"$SEL/states/z5labs_devex#410"
 
 # Only 288 carries the pinned value, so a project scope that was *not* cleared
 # selects 288 or nothing — never the unmilestoned 302 the cleared run wants.
 page "[$(issue_item 288 z5labs/devex Todo),
-       $(issue_item 302 z5labs/devex Done)]" >"$SCRATCH/sel/pages/Status"
-page '[]' >"$SCRATCH/sel/pages/default"
+       $(issue_item 302 z5labs/devex Done)]" >"$SEL/pages/Status"
+page '[]' >"$SEL/pages/default"
 
-MILESTONES_ALL='[{"title":"v0.2.0"},{"title":"v0.3.0"}]'
+MILESTONES_ALL='[{"number":2,"title":"v0.2.0"},{"number":3,"title":"v0.3.0"}]'
+
+# A local run, so a scope that was not cleared would be read rather than refused
+# — and would then answer 288, which is the point of the fixture above.
+GQL=allow
 
 # sel_run <label> <milestone json> <project json|-> <milestones json> [args...]
+# SEL_LIMIT replaces select.limit for the call it is set on.
 sel_run() {
   local label=$1 milestone=$2 project=$3 milestones=$4
   shift 4
   local block=""
   [ "$project" = - ] || block=",
     \"project\": $project"
-  cat >"$SCRATCH/sel/repo/.claude/backlog.json" <<JSON
+  cat >"$SEL/repo/.claude/backlog.json" <<JSON
 {
-  "select": { "label": "$label", "milestone": $milestone, "limit": 200$block },
+  "select": { "label": "$label", "milestone": $milestone, "limit": ${SEL_LIMIT:-200}$block },
   "dependencies": { "style": "none" },
   "verify": ["true"],
   "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
@@ -760,13 +866,8 @@ sel_run() {
   "worktreeDir": ".claude/worktrees"
 }
 JSON
-  printf '%s\n' "$milestones" >"$SCRATCH/sel/milestones"
-  RUN_OUT=$(cd "$SCRATCH/sel/repo" && PATH="$SCRATCH/sel/bin:$PATH" \
-    STUB_LISTS="$SCRATCH/sel/lists" STUB_VIEWS="$SCRATCH/sel/views" \
-    STUB_PAGES="$SCRATCH/sel/pages" STUB_MILESTONES="$SCRATCH/sel/milestones" \
-    "$SUT" "$@" 2>"$SCRATCH/sel/err")
-  RUN_RC=$?
-  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/sel/err")
+  printf '%s\n' "$milestones" >"$SEL/milestones"
+  run_in "$SEL" "$@"
 }
 
 # checkr <name> <expected issue number> <label> <milestone json> <project|-> <milestones json> [args...]
@@ -950,6 +1051,64 @@ checkr_fail 'an empty --label says the label cannot be cleared' 'there is nothin
 # run is invalid.
 checkr_fail 'the usage text shows --all composing with --label' 'select-issue.sh [--label <name>] --all' \
   story null - "$MILESTONES_ALL" --nonsense
+
+# The title is resolved to its number, and the number is what reaches the issue
+# list. Without that step there is no way to ask the REST endpoint for one
+# milestone at all.
+sel_run story null - "$MILESTONES_ALL" --milestone v0.3.0
+if grep -q 'repos/z5labs/devex/issues?.*&milestone=3&' "$SEL/calls" && ! grep -q 'milestone=v0' "$SEL/calls"; then
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'a milestone title reaches the list as its number' 'milestone=3'
+else
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'a milestone title reaches the list as its number' "$(grep 'issues?' "$SEL/calls" | tr '\n' ';')"
+fi
+
+# An absent milestone is no filter. Passing `milestone=none` instead would be
+# "issues with no milestone", which is a different request that happens to give
+# the same answer on this fixture.
+sel_run story null - "$MILESTONES_ALL"
+if grep -q 'issues?' "$SEL/calls" && ! grep -q 'milestone=' "$SEL/calls"; then
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'no milestone is no milestone parameter at all' 'absent'
+else
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'no milestone is no milestone parameter at all' "$(grep 'issues?' "$SEL/calls" | tr '\n' ';')"
+fi
+
+# Every pull request is an issue to the issues endpoint, so a number naming one
+# answers there too — and it is refused, not worked as a story.
+checkr_fail '--issue refuses a pull request' 'is a pull request, not an issue' \
+  story null - "$MILESTONES_ALL" --issue 410
+
+printf '\npaging the issue list\n'
+
+# The list is read a page at a time up to select.limit. A page holds at most
+# 100, and gh's own default was 30, so a backlog past either would lose its tail
+# silently to a read that stopped at one page.
+#
+# The first page here is nothing but pull requests carrying the label — every
+# pull request is an issue to this endpoint — and the only story is on page two.
+# Read as one page, or with the pull requests counted as candidates, this is
+# BACKLOG EMPTY or a pull request selected; read right, it is #500.
+: >"$SEL/lists/paged#"
+for n in $(seq 1 100); do printf '%s\ta pull request\tpr\n' "$n" >>"$SEL/lists/paged#"; done
+printf '500\tthe one story\n' >>"$SEL/lists/paged#"
+checkr 'a story on the second page is found' 500 paged null - "$MILESTONES_ALL"
+checkr_calls=$(grep -c 'issues?' "$SEL/calls")
+if [ "$checkr_calls" = 2 ] && grep -q '&page=2$' "$SEL/calls"; then
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'and the read stopped at the short page' '2 pages'
+else
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'and the read stopped at the short page' "$(grep 'issues?' "$SEL/calls" | tr '\n' ';')"
+fi
+
+# A pull request with a lower number than every story is still not one.
+printf '3\ta pull request\tpr\n4\tthe story\n' >"$SEL/lists/mixed#"
+checkr 'a pull request on the list is never a candidate' 4 mixed null - "$MILESTONES_ALL"
+
+# The limit bounds what is read, oldest first, and the walk then goes in
+# ascending number order. 701 was created last here, so with select.limit 2 it is
+# not read at all: the answer is 705, the lower of the two that were. Unbounded,
+# it is 701.
+printf '705\tcreated first\n706\tcreated second\n701\tcreated third\n' >"$SEL/lists/limited#"
+SEL_LIMIT=2 checkr 'select.limit bounds the list, oldest first' 705 limited null - "$MILESTONES_ALL"
+checkr 'and without the bound the lowest number wins' 701 limited null - "$MILESTONES_ALL"
 
 printf '\nthe reviewer roster\n'
 
@@ -1201,12 +1360,12 @@ roster_fail 'app that is not an object' 'review.app must be an object holding id
 roster_fail 'an unknown key is refused, not ignored' "review.app names an unknown key 'id_env'" \
   '{ "reviewers": ["local"], "app": { "id_env": "Z5LABS_REVIEW_APP_ID", "keyEnv": "Z5LABS_REVIEW_APP_KEY" } }'
 
-printf '\ncross-repository dependencies\n'
+printf '\ncross-repository dependencies, native\n'
 
 # The dependency walk itself, end to end, under `dependencies.style` = `native`
 # — the one part of selection the `--native-deps` seam above cannot reach,
-# because the seam stops at printing references and the bug this section covers
-# is in what the walk does with them afterwards.
+# because the seam stops at printing edges and the bugs this section covers are
+# in what the walk does with them afterwards.
 #
 # A cross-repository `owner/repo#N` used to be recorded as an unmet blocker
 # without its state ever being read, so it never decayed when the dependency
@@ -1216,53 +1375,14 @@ printf '\ncross-repository dependencies\n'
 # candidate, at which point the report blames the dependency rather than the
 # resolver.
 #
-# `gh` answers from files here the same way it does above: the `blockedBy`
-# response is chosen by the `number=` the query was given, and an issue's state
-# by the `--repo` and number it was asked for. A state fixture that is absent is
-# a `gh` that failed, which is how the fail-closed half is exercised — that half
-# is the reason the old behaviour was written, and it has to survive the fix.
-mkdir -p "$SCRATCH/nrepo/.claude" "$SCRATCH/nbin" "$SCRATCH/deps" "$SCRATCH/states"
+# Under `native` each edge arrives with its blocker's state, from the same
+# `blocked_by` response that named it, so nothing here reads an issue to resolve
+# one — and a case below asserts exactly that.
+NAT="$SCRATCH/native"
+fixture_root "$NAT"
+GQL=""
 
-git init -q "$SCRATCH/nrepo" >/dev/null 2>&1 \
-  || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
-
-cat >"$SCRATCH/nbin/gh" <<'STUB'
-#!/usr/bin/env bash
-case "$1 $2" in
-  'repo view')  printf 'z5labs/devex\n' ;;
-  'issue list') cat "$STUB_ISSUES" ;;
-  'issue view')
-    # Two callers. `dep_state` asks for `--json state --jq .state` and is the
-    # only thing that views an issue at all under style `native`, where the body
-    # is never read. `--issue <n>` asks for `--json number,title,state` with no
-    # `--jq`, so the absence of one is what tells the two apart — and only the
-    # dep_state reads are counted, since the cache assertion is about those.
-    n=$3 repo="" q="" prev=""
-    for a in "$@"; do
-      [ "$prev" = --repo ] && repo=$a
-      [ "$prev" = --jq ] && q=$a
-      prev=$a
-    done
-    f="$STUB_STATES/${repo//\//_}#$n"
-    [ -f "$f" ] || { printf 'stub gh: cannot view %s#%s\n' "$repo" "$n" >&2; exit 1; }
-    if [ -n "$q" ]; then
-      printf '%s#%s\n' "$repo" "$n" >>"$STUB_CALLS"
-      cat "$f"
-    else
-      printf '{"number":%s,"title":"issue %s","state":"%s"}\n' "$n" "$n" "$(cat "$f")"
-    fi ;;
-  'api graphql')
-    n=""
-    for a in "$@"; do case "$a" in number=*) n=${a#number=} ;; esac; done
-    f="$STUB_DEPS/$n"
-    [ -f "$f" ] || { printf 'stub gh: no blockedBy fixture for #%s\n' "$n" >&2; exit 1; }
-    cat "$f" ;;
-  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
-esac
-STUB
-chmod +x "$SCRATCH/nbin/gh"
-
-cat >"$SCRATCH/nrepo/.claude/backlog.json" <<'JSON'
+cat >"$NAT/repo/.claude/backlog.json" <<'JSON'
 {
   "select": { "label": "story", "milestone": null, "limit": 200 },
   "dependencies": { "style": "native" },
@@ -1273,31 +1393,26 @@ cat >"$SCRATCH/nrepo/.claude/backlog.json" <<'JSON'
 }
 JSON
 
-nreset() { rm -rf "$SCRATCH/deps" "$SCRATCH/states"; mkdir -p "$SCRATCH/deps" "$SCRATCH/states"; }
+# xreset <fixture root> — every dependency, state and body fixture dropped
+xreset() { rm -rf "$1/deps" "$1/states" "$1/bodies"; mkdir -p "$1/deps" "$1/states" "$1/bodies"; }
+ndeps()  { printf '%s\n' "$2" >"$NAT/deps/$1"; }                 # <issue> <blocked_by json>
+xstate() { printf '%s\n' "$3" >"$1/states/${2//\//_}"; }        # <root> <owner/repo#n> <state>
+xbody()  { printf '%s\n' "$3" >"$1/bodies/${2//\//_}"; }        # <root> <owner/repo#n> <body>
 
-ndeps()  { npage "$2" "$1" >"$SCRATCH/deps/$1"; }          # <issue> <blockedBy nodes>
-nstate() { printf '%s\n' "$3" >"$SCRATCH/states/${1//\//_}#$2"; }  # <repo> <number> <state>
-
-# nrun <issue numbers, space separated> [args...]
-nrun() {
-  : >"$SCRATCH/nissues"
-  local n
-  for n in $1; do printf '%s\tissue %s\n' "$n" "$n" >>"$SCRATCH/nissues"; done
-  shift
-  : >"$SCRATCH/calls"
-  RUN_OUT=$(cd "$SCRATCH/nrepo" && PATH="$SCRATCH/nbin:$PATH" \
-    STUB_ISSUES="$SCRATCH/nissues" STUB_DEPS="$SCRATCH/deps" \
-    STUB_STATES="$SCRATCH/states" STUB_CALLS="$SCRATCH/calls" \
-    "$SUT" "$@" 2>"$SCRATCH/nerr")
-  RUN_RC=$?
-  RUN_ERR=$(tr '\n' ' ' <"$SCRATCH/nerr")
+# xrun <fixture root> <issue numbers, space separated> [args...]
+xrun() {
+  local fx=$1 n
+  : >"$fx/lists/story#"
+  for n in $2; do printf '%s\tissue %s\n' "$n" "$n" >>"$fx/lists/story#"; done
+  shift 2
+  run_in "$fx" "$@"
 }
 
-# checkd <name> <expected issue number> <reason substring, or - for none> <issue numbers> [args...]
+# checkd <root> <name> <expected issue number> <reason substring, or - for none> <issue numbers> [args...]
 checkd() {
-  local name=$1 want=$2 reason=$3 got
-  shift 3
-  nrun "$@"
+  local fx=$1 name=$2 want=$3 reason=$4 got
+  shift 4
+  xrun "$fx" "$@"
   got=$(printf '%s' "$RUN_OUT" | jq -r '.number // empty' 2>/dev/null)
   if [ "$RUN_RC" -ne 0 ] || [ "$got" != "$want" ]; then
     fail=$((fail + 1))
@@ -1317,11 +1432,11 @@ checkd() {
   printf '  ok   %-58s [#%s]\n' "$name" "$got"
 }
 
-# checkd_blocked <name> <substring of the report> <issue numbers> [args...]
+# checkd_blocked <root> <name> <substring of the report> <issue numbers> [args...]
 checkd_blocked() {
-  local name=$1 want=$2 report
-  shift 2
-  nrun "$@"
+  local fx=$1 name=$2 want=$3 report
+  shift 3
+  xrun "$fx" "$@"
   report=$(printf '%s' "$RUN_OUT" | tr '\n' ' ')
   case "$report" in
     *"$want"*) ;;
@@ -1338,109 +1453,174 @@ checkd_blocked() {
   fi
 }
 
+# reads_none <name> — no issue was read to resolve a dependency
+reads_none() {
+  if [ -s "$NAT/reads" ]; then
+    fail=$((fail + 1)); printf '  FAIL %-58s read %s\n' "$1" "$(tr '\n' ' ' <"$NAT/reads")"
+  else
+    pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' "$1" 'no issue read'
+  fi
+}
+
 # The reported reproduction, transposed onto this fixture's repository names:
 # every dependency of both candidates is closed, two of them elsewhere, so the
 # lowest-numbered candidate is eligible. This used to report BLOCKED on a
 # backlog that was fully workable.
-nreset
-ndeps 63 "[$(dep 328 z5labs/other),$(dep 32 z5labs/devex)]"
-ndeps 65 "[$(dep 330 z5labs/other),$(dep 64 z5labs/devex)]"
-nstate z5labs/other 328 CLOSED
-nstate z5labs/other 330 CLOSED
-nstate z5labs/devex 32  CLOSED
-nstate z5labs/devex 64  CLOSED
-checkd 'a closed cross-repository dependency no longer blocks' 63 - '63 65'
+xreset "$NAT"
+ndeps 63 "[$(dep 328 z5labs/other closed),$(dep 32 z5labs/devex closed)]"
+ndeps 65 "[$(dep 330 z5labs/other closed),$(dep 64 z5labs/devex closed)]"
+checkd "$NAT" 'a closed cross-repository dependency no longer blocks' 63 - '63 65'
+reads_none 'a native edge is resolved by the read that found it'
 
 # The other half of the same read: an edge elsewhere that is genuinely open is
 # still a blocker, and the report says what it is rather than that it could not
 # be looked at.
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
+xreset "$NAT"
+ndeps 63 "[$(dep 328 z5labs/other open)]"
 ndeps 65 '[]'
-nstate z5labs/other 328 OPEN
-checkd 'an open cross-repository dependency still blocks' 65 'z5labs/other#328 is OPEN' '63 65'
+checkd "$NAT" 'an open cross-repository dependency still blocks' 65 'z5labs/other#328 is OPEN' '63 65'
 
-# Fail-closed, preserved. A private repository, a token without the scope, a
-# deleted issue: the state cannot be read, so the edge stays a blocker. Calling
-# the issue eligible here is the failure the original behaviour was defending
-# against, and removing the case where it fired wrongly must not remove this.
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
-ndeps 65 '[]'
-checkd 'an unreadable cross-repository dependency still blocks' 65 'z5labs/other#328 is UNREADABLE' '63 65'
-
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
-checkd_blocked 'an unreadable edge is named in the BLOCKED report' \
-  'z5labs/other#328 is UNREADABLE' '63'
+checkd_blocked "$NAT" 'an open edge is named in the BLOCKED report' \
+  'z5labs/other#328 is OPEN' '63'
 
 # An issue number is only unique within its repository, so the state cache has
 # to be keyed on `owner/repo#N`. Keyed on the bare number, this repository's
 # closed #12 would answer for the other repository's open one and #63 would come
 # out eligible with a live blocker.
-nreset
-ndeps 63 "[$(dep 12 z5labs/devex),$(dep 12 z5labs/other)]"
+xreset "$NAT"
+ndeps 63 "[$(dep 12 z5labs/devex closed),$(dep 12 z5labs/other open)]"
 ndeps 65 '[]'
-nstate z5labs/devex 12 CLOSED
-nstate z5labs/other 12 OPEN
-checkd 'a cached same-repo state does not answer for elsewhere' 65 'z5labs/other#12 is OPEN' '63 65'
+checkd "$NAT" 'a same-repo state does not answer for elsewhere' 65 'z5labs/other#12 is OPEN' '63 65'
 
 # The same collision in the other order, which a cache keyed on the number would
 # also get wrong — and this direction is the one that reads as eligible.
-nreset
-ndeps 63 "[$(dep 12 z5labs/other),$(dep 12 z5labs/devex)]"
+xreset "$NAT"
+ndeps 63 "[$(dep 12 z5labs/other closed),$(dep 12 z5labs/devex open)]"
 ndeps 65 '[]'
-nstate z5labs/other 12 CLOSED
-nstate z5labs/devex 12 OPEN
-checkd 'a cached cross-repo state does not answer for here' 65 '#12 is OPEN' '63 65'
+checkd "$NAT" 'a cross-repo state does not answer for here' 65 '#12 is OPEN' '63 65'
 
-# The cache is why a state is read once per dependency rather than once per edge
-# pointing at it. Two candidates blocked by the same issue elsewhere: one view.
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
-ndeps 65 "[$(dep 328 z5labs/other)]"
-nstate z5labs/other 328 OPEN
-checkd_blocked 'both candidates blocked by one edge elsewhere' \
-  'z5labs/other#328 is OPEN' '63 65'
-CALLS=$(grep -c . "$SCRATCH/calls")
-if [ "$CALLS" -eq 1 ]; then
-  pass=$((pass + 1))
-  printf '  ok   %-58s [1 view]\n' 'a cross-repository state is read once and cached'
-else
-  fail=$((fail + 1))
-  printf '  FAIL %-58s want 1 view, got %d: %s\n' \
-    'a cross-repository state is read once and cached' "$CALLS" "$(tr '\n' ' ' <"$SCRATCH/calls")"
-fi
+# The blocked-by read failing outright is not "no blockers". That issue is
+# ineligible with the error recorded, and the walk goes on to the next one.
+xreset "$NAT"
+ndeps 65 '[]'
+checkd "$NAT" 'an unreadable blocked-by is ineligible, not unblocked' 65 'its native dependencies could not be read' '63 65'
 
 # `--issue <n>` changes which issues are considered and nothing about whether the
 # one considered is workable — the dependency walk runs against it exactly as it
 # would have if the search had turned it up. Naming an issue is a statement about
 # order, not a licence to start something whose blockers are open.
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
-nstate z5labs/other 328 OPEN
-nstate z5labs/devex 63 OPEN
-checkd_blocked '--issue still walks the dependencies' \
+xreset "$NAT"
+ndeps 63 "[$(dep 328 z5labs/other open)]"
+xstate "$NAT" 'z5labs/devex#63' OPEN
+checkd_blocked "$NAT" '--issue still walks the dependencies' \
   'z5labs/other#328 is OPEN' '63 65' --issue 63
 
 # And the report blames the issue that was named rather than describing a
 # backlog search that never happened.
-checkd_blocked '--issue names itself in the BLOCKED report' \
+checkd_blocked "$NAT" '--issue names itself in the BLOCKED report' \
   'issue #63, named with --issue' '63 65' --issue 63
 
-nreset
-ndeps 63 "[$(dep 328 z5labs/other)]"
-nstate z5labs/other 328 CLOSED
-nstate z5labs/devex 63 OPEN
-checkd '--issue selects when its dependencies are all CLOSED' 63 - '63 65' --issue 63
+xreset "$NAT"
+ndeps 63 "[$(dep 328 z5labs/other closed)]"
+xstate "$NAT" 'z5labs/devex#63' OPEN
+checkd "$NAT" '--issue selects when its dependencies are all CLOSED' 63 - '63 65' --issue 63
 
 # Out of the listed backlog entirely — the case `--issue` exists for. #77 is not
 # in the issue list at all, so a run that quietly fell back to searching would
 # answer #63.
-nreset
+xreset "$NAT"
 ndeps 77 '[]'
-nstate z5labs/devex 77 OPEN
-checkd '--issue reaches an issue the list never returned' 77 - '63 65' --issue 77
+xstate "$NAT" 'z5labs/devex#77' OPEN
+checkd "$NAT" '--issue reaches an issue the list never returned' 77 - '63 65' --issue 77
+
+printf '\ncross-repository dependencies, from the body\n'
+
+# The same walk under a body style, where a reference is only a number and its
+# state is read with `GET /repos/{owner}/{repo}/issues/{n}` against the
+# repository the reference names. That read is the one that can fail: a private
+# repository, a token without the scope, a deleted issue — or, in a Claude Code
+# cloud session, any repository not attached to the session. Each is UNREADABLE,
+# and UNREADABLE stays a blocker, because calling a blocked issue eligible is the
+# failure this whole step exists to avoid.
+BOD="$SCRATCH/body"
+fixture_root "$BOD"
+
+cat >"$BOD/repo/.claude/backlog.json" <<'JSON'
+{
+  "select": { "label": "story", "milestone": null, "limit": 200 },
+  "dependencies": { "style": "blocked-by" },
+  "verify": ["true"],
+  "merge": { "label": "auto-merge", "workflow": "auto-merge.yaml" },
+  "review": { "reviewers": ["copilot"] },
+  "worktreeDir": ".claude/worktrees"
+}
+JSON
+
+# bissue <number> <body> — an open candidate whose body is <body>
+bissue() { xstate "$BOD" "z5labs/devex#$1" OPEN; xbody "$BOD" "z5labs/devex#$1" "$2"; }
+
+xreset "$BOD"
+bissue 63 $'Blocked by:\n- z5labs/other#328\n- #32'
+bissue 65 ''
+xstate "$BOD" 'z5labs/other#328' CLOSED
+xstate "$BOD" 'z5labs/devex#32' CLOSED
+checkd "$BOD" 'closed dependencies here and elsewhere, read from the body' 63 - '63 65'
+
+# Fail-closed, preserved. The state cannot be read, so the edge stays a blocker.
+xreset "$BOD"
+bissue 63 $'Blocked by:\n- z5labs/other#328'
+bissue 65 ''
+checkd "$BOD" 'an unreadable cross-repository dependency still blocks' 65 'z5labs/other#328 is UNREADABLE' '63 65'
+
+checkd_blocked "$BOD" 'an unreadable edge is named in the BLOCKED report' \
+  'z5labs/other#328 is UNREADABLE' '63'
+
+# The body itself. Read as empty on a failed read, it would declare nothing and
+# the issue would come out eligible on a read that never happened.
+xreset "$BOD"
+bissue 65 ''
+checkd "$BOD" 'an issue whose body cannot be read is not eligible' 65 '#63 not eligible: its body could not be read' '63 65'
+
+# The cache is why a state is read once per dependency rather than once per edge
+# pointing at it. Two candidates blocked by the same issue elsewhere: one read.
+xreset "$BOD"
+bissue 63 $'Blocked by:\n- z5labs/other#328'
+bissue 65 $'Blocked by:\n- z5labs/other#328'
+xstate "$BOD" 'z5labs/other#328' OPEN
+checkd_blocked "$BOD" 'both candidates blocked by one edge elsewhere' \
+  'z5labs/other#328 is OPEN' '63 65'
+READS=$(grep -c '^z5labs/other#328$' "$BOD/reads")
+if [ "$READS" -eq 1 ]; then
+  pass=$((pass + 1))
+  printf '  ok   %-58s [1 read]\n' 'a cross-repository state is read once and cached'
+else
+  fail=$((fail + 1))
+  printf '  FAIL %-58s want 1 read, got %d: %s\n' \
+    'a cross-repository state is read once and cached' "$READS" "$(tr '\n' ' ' <"$BOD/reads")"
+fi
+
+# The cache key carries the repository, in this direction too.
+xreset "$BOD"
+bissue 63 $'Blocked by:\n- #12\n- z5labs/other#12'
+bissue 65 ''
+xstate "$BOD" 'z5labs/devex#12' CLOSED
+xstate "$BOD" 'z5labs/other#12' OPEN
+checkd "$BOD" 'a cached state here does not answer for elsewhere' 65 'z5labs/other#12 is OPEN' '63 65'
+
+printf '\nGraphQL\n'
+
+# The guard every stub in this file sources logged each GraphQL-backed call it
+# refused, outside the cases that expected one. A script that drifted back onto
+# `gh issue`, `gh repo view` or `gh api graphql` would answer most cases here the
+# way they want — a refused read is "unreadable", and several cases expect that —
+# so this is the case that fails for it.
+if [ -s "$GH_GUARD_LOG" ]; then
+  fail=$((fail + 1))
+  printf '  FAIL %-58s %s\n' 'no GraphQL-backed gh call was made' "$(tr '\n' ';' <"$GH_GUARD_LOG")"
+else
+  pass=$((pass + 1))
+  printf '  ok   %-58s [%s]\n' 'no GraphQL-backed gh call was made' 'none'
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

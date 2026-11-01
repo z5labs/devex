@@ -42,13 +42,21 @@
 #
 # `--native-deps` is the same seam for the `native` style, which takes the edges
 # from GitHub's typed issue dependencies instead of from the body. It reads the
-# GraphQL pages and prints references in exactly the form `--extract` does, so
-# the eligibility walk below is one code path for every style.
+# REST blocked-by pages and prints references in exactly the form `--extract`
+# does, each with its blocker's state beside it, so the eligibility walk below
+# is one code path for every style.
 #
 # `--project-items` is the same seam for the project scope below: it reads the
 # GraphQL pages from a file or stdin and prints the in-scope issue numbers, so
 # every rule about what counts as in scope is exercised by the test without a
 # network call.
+#
+# Every GitHub read here is REST, against `repos/{owner}/{repo}/...`, with one
+# exception: the project scope, because Projects v2 exists only in GraphQL. A
+# Claude Code cloud session's GitHub proxy refuses GraphQL and serves those REST
+# routes, so an unscoped run works there exactly as it does on a laptop, and a
+# scoped one is exit 4 saying it is local-only. A run that asks for no scope
+# makes no GraphQL call at all.
 #
 # Every selector is a *runtime* decision. `.claude/backlog.json` supplies the
 # default for each one and every one of them can be overridden for a single run:
@@ -69,14 +77,19 @@
 #
 # Exit codes:
 #   0   an issue was selected; stdout is {"number":N,"title":"..."}
-#   4   usage or precondition failure (no gh/jq/git, the config is unusable, a
-#       requested project scope could not be resolved, or a requested milestone
-#       does not exist)
+#   4   usage or precondition failure (no gh/jq/git, the config is unusable, the
+#       repository cannot be resolved, a requested project scope could not be
+#       resolved — in a Claude Code cloud session, any project scope — or a
+#       requested milestone does not exist)
 #   10  BACKLOG EMPTY — no open issue carries the label (and milestone, and
 #       project field value)
 #   11  BLOCKED — open issues remain and none is eligible
 
 set -uo pipefail
+
+# Resolved before anything changes directory, so a relative $0 still finds the
+# scripts beside this one.
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 fail() { local code=$1; shift; printf 'select-issue: %s\n' "$*" >&2; exit "$code"; }
 note() { printf 'select-issue: %s\n' "$*" >&2; }
@@ -228,10 +241,10 @@ if [ "${1:-}" = --extract ]; then
 fi
 
 # ----------------------------------------------------------------- native -----
-# GitHub's typed issue dependencies — `gh issue edit <n> --add-blocked-by`, the
-# `addBlockedBy` GraphQL mutation, `POST .../dependencies/blocked_by`. A typed
-# edge cannot be written ambiguously, it survives a rewording of the body, and
-# it removes every failure mode the extraction above is scarred by.
+# GitHub's typed issue dependencies — `POST .../issues/{n}/dependencies/blocked_by`,
+# the `addBlockedBy` GraphQL mutation, the issue sidebar. A typed edge cannot be
+# written ambiguously, it survives a rewording of the body, and it removes every
+# failure mode the extraction above is scarred by.
 #
 # This is opt-in and is never reached by fallback. A repository that has not
 # populated dependencies answers "no blockers" for every issue, which reads as
@@ -239,79 +252,77 @@ fi
 # the other direction. So `dependencies.style` has to *declare* `native`, and a
 # body parse that finds nothing never escalates to it.
 #
-# Read over GraphQL rather than `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`
-# for one reason: the REST route is per-repository, so a dependency on an issue
-# elsewhere would come back described by a `repository_url` to re-derive, while
-# `blockedBy` carries `repository { nameWithOwner }` on the node. A
-# cross-repository edge has to be *named* before it can be resolved — the
-# eligibility walk below reads its state against the repository the node names —
-# so the shape that states it plainly wins.
-NATIVE_QUERY=$(cat <<'QUERY'
-query($owner: String!, $name: String!, $number: Int!, $endCursor: String) {
-  repository(owner: $owner, name: $name) {
-    issue(number: $number) {
-      number
-      blockedBy(first: 100, after: $endCursor) {
-        pageInfo { hasNextPage endCursor }
-        nodes { number repository { nameWithOwner } }
-      }
-    }
-  }
-}
-QUERY
-)
-
-# `--paginate` prints one whole response per page, concatenated, which `jq -s`
-# reads as a stream of documents — the same shape the project query returns.
+# Read from `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`. It was
+# read over GraphQL's `blockedBy` until this cycle had to run in a Claude Code
+# cloud session, whose GitHub proxy refuses GraphQL outright and serves this
+# route. Nothing was lost in the move. GraphQL was preferred because each node
+# carried `repository { nameWithOwner }`, and a cross-repository edge has to be
+# *named* before it can be resolved; the REST response names it too, as the
+# blocker's `repository_url`, and carries the blocker's `state` beside it — so
+# the edge comes back already resolved, and the walk below needs no second read
+# to learn whether the blocker has closed.
+#
+# `--paginate` prints one JSON array per page, concatenated, which `jq -s` reads
+# as a stream of documents.
 NATIVE_JQ_DEF='
-def issues: [ .[] | .data?.repository?.issue? ] | map(select(. != null));
-def nodes:  [ issues[].blockedBy.nodes[]? ];
+def repo_of: (.repository_url // "") | sub("^.*/repos/"; "");
+def nodes:   [ .[] | .[]? ];
 '
 
-# Prints one reference per line, first-seen order, deduped, in the same two
-# shapes `--extract` prints: `#14` for this repository, `owner/repo#N` for
-# anywhere else. Reads the pages on stdin so the test can hold them as
-# fixtures; the network lives in native_fetch alone.
+# Prints one line per dependency, first-seen order, deduped: the reference, a
+# tab, and the blocker's state in capitals. The reference is in the same two
+# shapes `--extract` prints — `#14` for this repository, `owner/repo#N` for
+# anywhere else — which is what keeps the eligibility walk one code path across
+# every style. Reads the pages on stdin so the test can hold them as fixtures;
+# the network lives in native_fetch alone.
 native_deps() { # <repo>
   local repo=$1
   local pages status
 
   pages=$(cat)
-  [ -n "$pages" ] || fail 4 "the blocked-by query returned no response"
+  [ -n "$pages" ] || fail 4 "the blocked-by read returned no response"
 
   status=$(printf '%s' "$pages" | jq -s -r "$NATIVE_JQ_DEF"'
-    if (issues | length) == 0 then "NO-ISSUE"
-    elif ([ issues[] | select(.blockedBy != null) ] | length) == 0 then "NO-FIELD"
-    elif (nodes | map(select(.number == null or .repository.nameWithOwner == null)) | length) > 0 then "BAD-NODE"
+    if any(.[]; type != "array") then "NOT-A-LIST"
+    elif (nodes | map(select((.number | type) != "number"
+                             or (repo_of | test("^[^/]+/[^/]+$") | not)
+                             or ((.state // "") | ascii_downcase | IN("open", "closed") | not)))
+          | length) > 0 then "BAD-NODE"
     else "OK" end') \
-    || fail 4 "the blocked-by query response does not parse as JSON"
+    || fail 4 "the blocked-by response does not parse as JSON"
 
   case "$status" in
     OK) ;;
-    NO-ISSUE)
-      fail 4 "the blocked-by query resolved to no issue; check the repository and issue number" ;;
-    # An issue that exists but carries no `blockedBy` connection is a GitHub
-    # that does not serve typed dependencies. Reading that as an empty edge set
-    # would make every issue eligible, which is the one failure this style is
-    # declared to avoid.
-    NO-FIELD)
-      fail 4 "the blocked-by query returned an issue with no blockedBy connection; this GitHub does not serve typed issue dependencies" ;;
-    # Defensive, and deliberately fatal rather than a filter: a node that cannot
-    # be named is a dependency dropped, and a dropped dependency is a silently
-    # eligible issue.
+    # An object where a list belongs is GitHub's error shape — `{"message":"Not
+    # Found"}` for an issue that does not exist, or for a GitHub that does not
+    # serve typed dependencies at all. Reading that as an empty edge set would
+    # make every issue eligible, which is the one failure this style is declared
+    # to avoid.
+    NOT-A-LIST)
+      fail 4 "the blocked-by response is not a list of issues; the issue may not exist, or this GitHub does not serve typed issue dependencies" ;;
+    # Defensive, and deliberately fatal rather than a filter: a blocker that
+    # cannot be named is a dependency dropped, and a dropped dependency is a
+    # silently eligible issue. A blocker whose state is missing is the same
+    # thing one step later.
     BAD-NODE)
-      fail 4 "the blocked-by query returned a dependency with no number or repository" ;;
+      fail 4 "the blocked-by response holds a dependency with no number, repository_url or state" ;;
     *)
-      fail 4 "the blocked-by query response could not be read" ;;
+      fail 4 "the blocked-by response could not be read" ;;
   esac
 
+  # The repository is compared without regard to case, because GitHub treats
+  # owner and name that way: `Z5labs/devex` and `z5labs/devex` are one
+  # repository, and reading them as two would send an in-repository edge off to
+  # be resolved as a cross-repository one.
   printf '%s' "$pages" | jq -s -r --arg repo "$repo" "$NATIVE_JQ_DEF"'
     nodes
-    | map(if .repository.nameWithOwner == $repo then "#\(.number)"
-          else "\(.repository.nameWithOwner)#\(.number)" end)
-    | reduce .[] as $r ([]; if index($r) then . else . + [$r] end)
+    | map((repo_of) as $r
+          | (if ($r | ascii_downcase) == ($repo | ascii_downcase) then "#\(.number)"
+             else "\($r)#\(.number)" end)
+            + "\t" + (.state | ascii_upcase))
+    | reduce .[] as $l ([]; if index($l) then . else . + [$l] end)
     | .[]' \
-    || fail 4 "the blocked-by query response could not be read"
+    || fail 4 "the blocked-by response could not be read"
 }
 
 if [ "${1:-}" = --native-deps ]; then
@@ -328,11 +339,9 @@ fi
 # settles on below. The one thing it must never do is succeed with nothing on
 # stdout.
 native_fetch() { # <repo> <issue-number>
-  local owner=${1%%/*} name=${1##*/} pages
+  local pages
 
-  pages=$(gh api graphql --paginate \
-            -F owner="$owner" -F name="$name" -F number="$2" \
-            -f query="$NATIVE_QUERY") || return 1
+  pages=$(gh api --paginate "repos/$1/issues/$2/dependencies/blocked_by?per_page=100") || return 1
   printf '%s' "$pages" | native_deps "$1"
 }
 
@@ -499,6 +508,20 @@ project_fetch() { # <owner> <number> <field> ; needs ERRFILE
             -f query="$(project_query "$root")" 2>"$ERRFILE")
     rc=$?
     if [ "$rc" -eq 0 ]; then printf '%s' "$out"; return 0; fi
+    # A Claude Code cloud session's GitHub proxy refuses GraphQL outright, and
+    # Projects v2 exists only in GraphQL, so no route reaches this read from
+    # there. That is not a scope to grant or a project to fix, and falling back
+    # to the unscoped backlog is the one answer this section must never give —
+    # so it is its own exit 4, naming where the run can go instead.
+    if grep -qiE 'GraphQL is not available from Claude Code' "$ERRFILE"; then
+      note "$(cat "$ERRFILE")"
+      # Both ways out are named, because the flag that clears a scope is refused
+      # beside a flag that sets one: a scope from the config is cleared with
+      # --no-project-filter, and one from the command line by not passing it.
+      local unscoped="pass --no-project-filter"
+      [ -n "$GIVEN" ] && unscoped="drop$GIVEN"
+      fail 4 "project-scoped selection is local-only in a Claude Code cloud session: Projects v2 is GraphQL-only and the session's GitHub proxy refuses GraphQL. Run this scope from a local checkout, or $unscoped to select from the unscoped backlog on purpose (--no-project-filter clears a scope set in select.project.value)"
+    fi
     if grep -qiE 'read:project|not been granted|INSUFFICIENT_SCOPES' "$ERRFILE"; then
       note "$(cat "$ERRFILE")"
       fail 4 "the GitHub token cannot read projects; run 'gh auth refresh -s read:project' and retry"
@@ -965,9 +988,11 @@ elif [ -n "$GIVEN" ]; then
   fail 4 "the project scope names$GIVEN but no value to scope by; add --project-value <value> or set select.project.value"
 fi
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
-  || fail 4 "cannot resolve the repository slug from gh"
-[ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
+# From the origin remote, confirmed over REST; repo.sh says why when it cannot.
+# The default branch it prints beside the slug is not needed here.
+REPO=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 4 "cannot resolve the repository; repo.sh printed no slug"
 
 SCOPE_NOTE=""
 [ -n "$PROJECT_VALUE" ] && SCOPE_NOTE=" with $PROJECT_FIELD = '$PROJECT_VALUE' in project $PROJECT_OWNER/$PROJECT_NUMBER"
@@ -977,37 +1002,53 @@ BLOCKED_SUBJECT="every open issue carrying the label '$LABEL'$SCOPE_NOTE"
 # The milestone is checked against the repository's own milestones before any
 # issue is listed, exactly as a project value is checked against its field's
 # declared options — and for the identical reason. `gh issue list --milestone` on
-# a title that does not exist does not object:
+# a title that does not exist did not object:
 #
 #   $ gh issue list --repo z5labs/avroc --state open --label story --milestone v0.2.0 --json number
 #   []
 #   $ echo $?
 #   0
 #
-# So a milestone that was closed, renamed or deleted resolves to an empty
-# candidate set, which prints BACKLOG EMPTY and halts the loop on a backlog that
-# is fully workable. That is not hypothetical: it is what `select.milestone:
+# So a milestone that was closed, renamed or deleted resolved to an empty
+# candidate set, which printed BACKLOG EMPTY and halted the loop on a backlog that
+# was fully workable. That is not hypothetical: it is what `select.milestone:
 # "v0.2.0"` did to avroc after the milestone was deleted, over an open, eligible,
 # unmilestoned story.
+#
+# The same read now does a second job. `GET /repos/{owner}/{repo}/issues` filters
+# by a milestone's NUMBER, never its title, so the title a person writes is
+# resolved to the number here — and a title with no milestone behind it has no
+# number to pass, which is the same exit 4 for the same reason.
 #
 # `state=all`, because a closed milestone can still hold open issues and naming
 # one is a legitimate request. Both sources are checked, config included — a
 # stale config value is the case that fired, and it is the one a flag-only check
 # would still miss.
+MILESTONE_NUMBER=""
 if [ -n "$MILESTONE" ] && [ "$OPT_ISSUE_SET" -eq 0 ]; then
   MILESTONE_SRC="$CFG: select.milestone"
   [ "$OPT_MILESTONE_SET" -eq 1 ] && MILESTONE_SRC="--milestone"
 
-  MILESTONES=$(gh api --paginate "repos/$REPO/milestones?state=all&per_page=100" --jq '.[].title') \
+  MILESTONES=$(gh api --paginate "repos/$REPO/milestones?state=all&per_page=100" \
+                 --jq '.[] | "\(.number)\t\(.title)"') \
     || fail 4 "cannot read the milestones of $REPO to check the one named by $MILESTONE_SRC"
 
-  if ! printf '%s\n' "$MILESTONES" | grep -qxF -- "$MILESTONE"; then
+  # Exact, as a title is: the first tab ends the number and the rest of the line
+  # is the title, tabs and all.
+  MILESTONE_NUMBER=$(printf '%s\n' "$MILESTONES" \
+    | awk -v want="$MILESTONE" 'index($0, "\t") { n = substr($0, 1, index($0, "\t") - 1); t = substr($0, index($0, "\t") + 1); if (t == want) { print n; exit } }')
+
+  if [ -z "$MILESTONE_NUMBER" ]; then
     if [ -z "$MILESTONES" ]; then
       fail 4 "$MILESTONE_SRC names milestone '$MILESTONE', which $REPO does not have; it has no milestones at all"
     fi
-    HAVE=$(printf '%s' "$MILESTONES" | tr '\n' ',')
-    fail 4 "$MILESTONE_SRC names milestone '$MILESTONE', which $REPO does not have; its milestones are: ${HAVE%,}"
+    HAVE=$(printf '%s\n' "$MILESTONES" | cut -f2- | tr '\n' ',')
+    HAVE=${HAVE%,}
+    fail 4 "$MILESTONE_SRC names milestone '$MILESTONE', which $REPO does not have; its milestones are: $HAVE"
   fi
+  case "$MILESTONE_NUMBER" in
+    ''|*[!0-9]*) fail 4 "the milestones of $REPO came back with a number that is not one ('$MILESTONE_NUMBER') for '$MILESTONE'" ;;
+  esac
 fi
 
 if [ "$OPT_ISSUE_SET" -eq 1 ]; then
@@ -1030,9 +1071,14 @@ if [ "$OPT_ISSUE_SET" -eq 1 ]; then
   note "--issue $OPT_ISSUE bypassed the milestone narrowing ($MILESTONE_NOTE)"
   note "--issue $OPT_ISSUE bypassed the project narrowing ($PROJECT_NOTE)"
 
-  ISSUE_JSON=$(gh issue view "$OPT_ISSUE" --repo "$REPO" --json number,title,state) \
+  ISSUE_JSON=$(gh api "repos/$REPO/issues/$OPT_ISSUE" 2>/dev/null) \
     || fail 4 "cannot read issue #$OPT_ISSUE in $REPO"
-  ISSUE_STATE=$(printf '%s' "$ISSUE_JSON" | jq -r '.state // ""') \
+  # The issues endpoint answers for pull requests too, because on GitHub every
+  # pull request is an issue. A pull request named here is a mistyped number,
+  # not a story, and it is refused as one.
+  printf '%s' "$ISSUE_JSON" | jq -e 'has("pull_request") | not' >/dev/null 2>&1 \
+    || fail 4 "#$OPT_ISSUE in $REPO is a pull request, not an issue"
+  ISSUE_STATE=$(printf '%s' "$ISSUE_JSON" | jq -r '.state // "" | ascii_upcase') \
     || fail 4 "the response for issue #$OPT_ISSUE in $REPO does not parse as JSON"
   # A closed issue is refused rather than selected. The cycle ends by closing the
   # issue it worked, so an already-closed one is either finished work or a typo,
@@ -1045,19 +1091,53 @@ if [ "$OPT_ISSUE_SET" -eq 1 ]; then
   BLOCKED_SUBJECT="issue #$OPT_ISSUE, named with --issue,"
 else
   # ----------------------------------------------------------------- list -----
-  # --limit is always passed. gh's default page size is 30, and on a longer
-  # backlog the issues past the first page do not error — they are simply absent,
-  # so the cycle reports an empty or blocked backlog that is neither.
+  # `GET /repos/{owner}/{repo}/issues`, a page at a time, until select.limit
+  # issues are in hand or the pages run out. The limit is always applied: on a
+  # longer backlog the issues past it do not error, they are simply absent, so the
+  # cycle would report an empty or blocked backlog that is neither — which is
+  # what gh's default page size of 30 once did.
   #
-  # --milestone is passed only when one is in effect. An empty --milestone is not
-  # the same as no milestone filter, which is why this is an argument array
-  # rather than a string the caller interpolates.
-  LIST_ARGS=(--repo "$REPO" --state open --label "$LABEL" --limit "$LIMIT")
-  [ -n "$MILESTONE" ] && LIST_ARGS+=(--milestone "$MILESTONE")
+  # Three things this endpoint does that `gh issue list` did for us:
+  #
+  #   * It returns pull requests as well, since every pull request is an issue.
+  #     Each one carries a `pull_request` key and is dropped, and the limit
+  #     counts what is left — a backlog label on a few pull requests must not
+  #     push issues off the end.
+  #   * It filters by milestone NUMBER, which is why the title was resolved
+  #     above. `milestone` is passed only when one is in effect: an absent
+  #     parameter is no filter, while `none` would be "issues with no milestone",
+  #     which is a different request.
+  #   * It pages by `page=`, so a short page is the last one — a full page of
+  #     pull requests is still a full page, and does not end the read.
+  #
+  # Oldest first, so that when the limit does bite it keeps the issues the walk
+  # below would reach first anyway: the walk takes the lowest number it can.
+  PER_PAGE=$LIMIT
+  [ "$PER_PAGE" -gt 100 ] && PER_PAGE=100
+  LABEL_Q=$(jq -rn --arg l "$LABEL" '$l | @uri')
+  LIST_Q="state=open&labels=$LABEL_Q&sort=created&direction=asc&per_page=$PER_PAGE"
+  [ -n "$MILESTONE_NUMBER" ] && LIST_Q="$LIST_Q&milestone=$MILESTONE_NUMBER"
 
-  CANDIDATES=$(gh issue list "${LIST_ARGS[@]}" \
-    --json number,title --jq 'sort_by(.number)[] | "\(.number)\t\(.title)"') \
-    || fail 4 "gh issue list failed for $REPO"
+  CANDIDATES=""
+  HAVE_N=0
+  PAGE=1
+  while [ "$HAVE_N" -lt "$LIMIT" ]; do
+    PAGE_JSON=$(gh api "repos/$REPO/issues?$LIST_Q&page=$PAGE") \
+      || fail 4 "cannot list the open issues of $REPO (page $PAGE)"
+    printf '%s' "$PAGE_JSON" | jq -e 'type == "array"' >/dev/null 2>&1 \
+      || fail 4 "the issue list of $REPO (page $PAGE) is not a list"
+    ROWS=$(printf '%s' "$PAGE_JSON" \
+      | jq -r '.[] | select(has("pull_request") | not) | "\(.number)\t\(.title)"')
+    if [ -n "$ROWS" ]; then
+      CANDIDATES="${CANDIDATES:+$CANDIDATES
+}$ROWS"
+      HAVE_N=$(printf '%s\n' "$CANDIDATES" | grep -c .)
+    fi
+    [ "$(printf '%s' "$PAGE_JSON" | jq 'length')" -ge "$PER_PAGE" ] || break
+    PAGE=$((PAGE + 1))
+  done
+  # The limit, and then ascending order, which is the order the walk reads in.
+  CANDIDATES=$(printf '%s\n' "$CANDIDATES" | grep . | head -n "$LIMIT" | sort -t$'\t' -k1,1n)
 
   if [ -z "$CANDIDATES" ]; then
     printf 'BACKLOG EMPTY\n'
@@ -1102,12 +1182,14 @@ fi
 # reference while other issues are workable.
 #
 # A dependency elsewhere is read exactly like one here. `owner/repo#N` names a
-# repository `gh issue view --repo` accepts, so the only thing that ever made it
-# unresolvable was this function pinning the repository to $REPO — and an edge
-# that cannot decay does not describe a dependency, it retires the issue holding
-# it. That is the natural shape of a multi-repository backlog: stories in one
-# repository waiting on work in another, which is the case `blockedBy` carries
-# `repository { nameWithOwner }` for in the first place.
+# repository `GET /repos/{owner}/{repo}/issues/{n}` accepts, so the only thing
+# that ever made it unresolvable was this function pinning the repository to
+# $REPO — and an edge that cannot decay does not describe a dependency, it
+# retires the issue holding it. That is the natural shape of a multi-repository
+# backlog: stories in one repository waiting on work in another, which is the
+# case a typed edge carries its blocker's `repository_url` for in the first
+# place. In a Claude Code cloud session that read is refused for a repository
+# not attached to the session, which lands on UNREADABLE below, and blocks.
 #
 # Unreadable is still a blocker, and that is the half of the old behaviour worth
 # keeping: a private repository, a token without the scope, or a deleted issue
@@ -1122,20 +1204,31 @@ fi
 # The answer comes back in DEP_STATE rather than on stdout, which is the only
 # form in which the cache works at all. A function whose result is read with
 # `$(...)` runs in a subshell, so every write to STATE_CACHE was discarded the
-# moment it returned and each edge cost a fresh `gh issue view` — including the
-# repeated ones this exists to collapse, on a backlog where several issues
-# commonly wait on the same blocker.
+# moment it returned and each edge cost a fresh read — including the repeated
+# ones this exists to collapse, on a backlog where several issues commonly wait
+# on the same blocker.
+#
+# Under `native` the cache is seeded rather than filled: the blocked-by response
+# already carries each blocker's state, so its edges are resolved by the read
+# that found them, and this function then answers them without a call of its
+# own. Under the body styles a reference is only a number, and its state is read
+# here — the REST `state` is `open` or `closed`, in capitals below so the two
+# styles answer in one vocabulary.
 STATE_CACHE=""
 DEP_STATE=""
+cache_state() { # <repo> <issue-number> <state>
+  case "$STATE_CACHE" in *"|$1#$2="*) return 0 ;; esac
+  STATE_CACHE="$STATE_CACHE|$1#$2=$3|"
+}
 dep_state() { # <repo> <issue-number> ; answers in DEP_STATE
   local key="$1#$2" hit
   case "$STATE_CACHE" in
     *"|$key="*) hit=${STATE_CACHE##*"|$key="}; DEP_STATE=${hit%%|*}; return 0 ;;
   esac
   local s
-  s=$(gh issue view "$2" --repo "$1" --json state --jq .state 2>/dev/null) || s=""
-  [ -n "$s" ] || s=UNREADABLE
-  STATE_CACHE="$STATE_CACHE|$key=$s|"
+  s=$(gh api "repos/$1/issues/$2" --jq '.state // "" | ascii_upcase' 2>/dev/null) || s=""
+  case "$s" in OPEN|CLOSED) ;; *) s=UNREADABLE ;; esac
+  cache_state "$1" "$2" "$s"
   DEP_STATE=$s
 }
 
@@ -1159,17 +1252,37 @@ while IFS=$'\t' read -r NUM TITLE; do
   # every issue reads as eligible.
   blockers=""
   if [ "$STYLE" = native ]; then
-    if ! REFS=$(native_fetch "$REPO" "$NUM" 2>"$ERRFILE"); then
+    if ! EDGES=$(native_fetch "$REPO" "$NUM" 2>"$ERRFILE"); then
       # Unreadable, not unblocked. Ineligible with the reason recorded, and the
       # walk continues — one issue whose dependencies cannot be read does not
       # starve a backlog whose other issues are workable.
-      REFS=""
+      EDGES=""
       native_err=$(tr '\n' ' ' <"$ERRFILE")
-      blockers=" its native dependencies could not be read: ${native_err:-gh api graphql failed};"
+      blockers=" its native dependencies could not be read: ${native_err:-the blocked-by read failed};"
     fi
+    # `<ref>\t<STATE>` per edge: the state seeds the cache, and the reference
+    # goes through the same walk every other style's do.
+    REFS=""
+    while IFS=$'\t' read -r ref state; do
+      [ -n "$ref" ] || continue
+      case "$ref" in
+        \#*) cache_state "$REPO" "${ref#\#}" "$state" ;;
+        *)   cache_state "${ref%#*}" "${ref##*#}" "$state" ;;
+      esac
+      REFS="${REFS:+$REFS
+}$ref"
+    done <<<"$EDGES"
   else
-    BODY=$(gh issue view "$NUM" --repo "$REPO" --json body --jq .body 2>/dev/null) || BODY=""
-    REFS=$(printf '%s\n' "$BODY" | extract_refs "$STYLE")
+    # A body that cannot be read is not a body that declares nothing. Read as
+    # empty, it would extract no dependency and the issue would come out
+    # eligible on a read that failed — so it is ineligible with the reason, as
+    # an unreadable dependency is.
+    if BODY=$(gh api "repos/$REPO/issues/$NUM" --jq '.body // ""' 2>/dev/null); then
+      REFS=$(printf '%s\n' "$BODY" | extract_refs "$STYLE")
+    else
+      REFS=""
+      blockers=" its body could not be read;"
+    fi
   fi
 
   for ref in $REFS; do

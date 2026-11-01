@@ -41,9 +41,12 @@
 #
 # Exit codes:
 #   0  a JSON array on stdout, possibly empty
-#   4  usage or precondition failure — the issue could not be read
+#   4  usage or precondition failure — the repository could not be resolved, or
+#      the issue could not be read
 
 set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 fail() { local code=$1; shift; printf 'post-merge-criteria: %s\n' "$*" >&2; exit "$code"; }
 
@@ -135,9 +138,18 @@ esac
 case "$1" in *[!0-9]*) fail 4 "issue number must be a number, got '$1'" ;; esac
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
 
+# The repository from the origin remote, confirmed over REST, and the body from
+# `GET /repos/{owner}/{repo}/issues/{n}` — REST, because a Claude Code cloud
+# session's GitHub proxy refuses the GraphQL that `gh issue view` is built on.
+REPO=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 4 "cannot resolve the repository; repo.sh printed no slug"
+
 # An unreadable body is a failure, never `[]`. Reporting no post-merge criteria
 # for an issue that has some is a merge whose follow-up silently never happens.
-body=$(gh issue view "$1" --json body --jq .body 2>/dev/null) \
-  || fail 4 "cannot read the body of issue #$1"
+# An issue with no body at all is `null` there, which is a body with nothing in
+# it rather than one that could not be read.
+body=$(gh api "repos/$REPO/issues/$1" --jq '.body // ""' 2>/dev/null) \
+  || fail 4 "cannot read the body of issue #$1 in $REPO"
 
 printf '%s\n' "$body" | extract

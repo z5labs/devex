@@ -62,29 +62,48 @@ openssl rsa -in "$SCRATCH/app.pem" -pubout -out "$SCRATCH/app.pub" 2>/dev/null
 # it — a bare value for the two `--jq` calls, and the whole body for the mint,
 # which app-token.sh now parses itself so it can read the grant beside the
 # token.
+#
+# The repository comes from the scratch checkout's origin remote, confirmed with
+# `GET /repos/acme/widgets` — REST, because the `gh repo view` this used to ask
+# is GraphQL-backed and a Claude Code cloud session's proxy refuses it. The stub
+# sources the guard that refuses every GraphQL-backed call and logs it; the last
+# case here asserts nothing was. A failing `GET /app` prints what `$FX/app.err`
+# holds, which is GitHub's 401 unless a case replaces it.
 cat >"$SCRATCH/bin/gh" <<'STUB'
 #!/usr/bin/env bash
+. "$GH_GUARD"
 printf '%s\n' "$*" >>"$FX/calls"
 case "$*" in
-  *"repo view"*)   printf 'acme/widgets\n'; exit 0 ;;
   *access_tokens*) [ -s "$FX/token" ]   || exit 1; cat "$FX/token";   exit 0 ;;
   *installation*)  [ -s "$FX/install" ] || exit 1; cat "$FX/install"; exit 0 ;;
-  */app*)          [ -s "$FX/app" ]     || exit 1; cat "$FX/app";     exit 0 ;;
+  *repos/acme/widgets*) printf 'acme/widgets\tmain\n'; exit 0 ;;
+  */app*)          [ -s "$FX/app" ] || { cat "$FX/app.err" >&2; exit 1; }; cat "$FX/app"; exit 0 ;;
 esac
 exit 1
 STUB
 chmod +x "$SCRATCH/bin/gh"
 
+export GH_GUARD="$HERE/testdata/gh-guard.sh"
+export GH_GUARD_LOG="$SCRATCH/graphql-calls"
+: >"$GH_GUARD_LOG"
+
+git init -q "$SCRATCH/repo" >/dev/null 2>&1 || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+git -C "$SCRATCH/repo" remote add origin git@github.com:acme/widgets.git
+
 # Every reviewer and merge name cleared, so a case is defined by what it sets
-# rather than by what the shell running the tests happened to export.
+# rather than by what the shell running the tests happened to export — and
+# CLAUDE_CODE_REMOTE too, which a cloud session running this suite exports and
+# which makes every mint exit 3 before anything else is read.
 CLEAR=(env -u BACKLOG_APP_ID -u BACKLOG_APP_KEY
-           -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY)
+           -u BACKLOG_REVIEW_APP_ID -u BACKLOG_REVIEW_APP_KEY
+           -u CLAUDE_CODE_REMOTE)
 
 # The App as GitHub would answer for it. Reset before each case.
 fixture() { # <slug> <installation id> <token body>
   printf '%s' "$1" >"$FX/app"
   printf '%s' "$2" >"$FX/install"
   printf '%s' "$3" >"$FX/token"
+  printf 'gh: A JSON web token could not be decoded (HTTP 401)\n' >"$FX/app.err"
   : >"$FX/calls"
 }
 
@@ -94,7 +113,7 @@ OUT=""
 ERR=""
 RC=0
 mint() { # <mode>
-  ( cd "$SCRATCH" && PATH="$SCRATCH/bin:$PATH" FX="$FX" \
+  ( cd "$SCRATCH/repo" && PATH="$SCRATCH/bin:$PATH" FX="$FX" \
       exec "${CLEAR[@]}" "${cred_env[@]}" "$SUT" "$@" ) \
     >"$SCRATCH/out" 2>"$SCRATCH/err"
   RC=$?
@@ -249,6 +268,70 @@ mint --token
 says 'no credentials at all is an unconfigured rung' 3 \
   'not configured on this machine' 'an absent credential and not a wrong one'
 never_says 'no credentials at all is an unconfigured rung' 'is not installed on'
+
+# ----------------------------------------------- a Claude Code cloud session --
+printf '\na Claude Code cloud session\n'
+
+# Its GitHub proxy refuses `GET /app` and everything under `/app` — observed on
+# z5labs/devex in #479 — so the rung cannot mint there with any credential. Both
+# halves of that are pinned: the session saying what it is, at no network cost,
+# and the proxy's refusal recognised where the session does not say.
+
+fixture reviewer-bot 4242 "$GOOD_TOKEN"
+cred_env=(BACKLOG_REVIEW_APP_ID=123456 "BACKLOG_REVIEW_APP_KEY=$KEY" CLAUDE_CODE_REMOTE=true)
+mint --check
+says 'a cloud session is unavailable, and says so' 3 \
+  'cannot mint a token from a Claude Code cloud session'
+never_says 'a cloud session is unavailable, and says so' 'not two halves of one App'
+if [ "$(calls '.')" = 0 ]; then
+  ok 'and it costs no call at all' 'no request'
+else
+  bad 'and it costs no call at all' "reached $(tr '\n' ' ' <"$FX/calls")"
+fi
+
+# Half a pair is exit 4 anywhere else. Here the rung could not have run with the
+# whole pair, so stopping the cycle over it would stop it for nothing.
+cred_env=(BACKLOG_REVIEW_APP_ID=123456 CLAUDE_CODE_REMOTE=true)
+mint --token
+says 'in a cloud session even half a pair is only unavailable' 3 \
+  'cannot mint a token from a Claude Code cloud session'
+
+# The proxy's own refusal, where the session does not announce itself. The key
+# was never shown to GitHub, so a sentence about a mismatched pair would send the
+# operator to rotate a key that is fine.
+cred_env=(BACKLOG_REVIEW_APP_ID=123456 "BACKLOG_REVIEW_APP_KEY=$KEY")
+fixture '' 4242 "$GOOD_TOKEN"
+printf 'gh: Access to this GitHub API path is not permitted through this proxy. (HTTP 403)\n' >"$FX/app.err"
+mint --login
+says "the proxy's refusal of GET /app is named as the cloud session" 3 \
+  'refused by a proxy before GitHub judged the key' \
+  'cannot mint a token from a Claude Code cloud session'
+never_says "the proxy's refusal of GET /app is named as the cloud session" 'not two halves of one App'
+
+fixture '' 4242 "$GOOD_TOKEN"
+printf 'gh: Access to this GitHub API path is not permitted through this proxy. (HTTP 403)\n' >"$FX/app.err"
+mint --token
+says '--token answers the same way' 3 'cannot mint a token from a Claude Code cloud session'
+if [ "$(calls 'installation|access_tokens')" = 0 ]; then
+  ok 'and goes no further than GET /app' 'no request'
+else
+  bad 'and goes no further than GET /app' 'it looked anyway'
+fi
+
+# Anything else that is not GitHub's verdict — a 5xx, a dropped connection — is
+# not a mismatch either.
+fixture '' 4242 "$GOOD_TOKEN"
+printf 'gh: HTTP 502: Bad Gateway (https://api.github.com/app)\n' >"$FX/app.err"
+mint --login
+says 'a GET /app that never answered is not a mismatch' 3 'did not answer whether the key'
+never_says 'a GET /app that never answered is not a mismatch' 'not two halves of one App'
+
+printf '\nGraphQL\n'
+if [ -s "$GH_GUARD_LOG" ]; then
+  bad 'no GraphQL-backed gh call was made' "$(tr '\n' ';' <"$GH_GUARD_LOG")"
+else
+  ok 'no GraphQL-backed gh call was made' 'none'
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

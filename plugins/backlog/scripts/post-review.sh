@@ -136,8 +136,10 @@ case "$PR" in ''|*[!0-9]*) fail 4 "pull request number must be an integer (got '
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
 command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || REPO=""
-[ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
+# From the origin remote, confirmed over REST; repo.sh says why when it cannot.
+REPO=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 4 "cannot resolve the repository; repo.sh printed no slug"
 
 if [ -n "$COMMENTS_FILE" ]; then
   [ -f "$COMMENTS_FILE" ] || fail 4 "no inline comments at $COMMENTS_FILE"
