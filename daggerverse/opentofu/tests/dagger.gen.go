@@ -276,6 +276,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiCheckReportsUnformattedConfiguration(&parent, ctx)
+		case "CiCheckRunsTestStageAlone":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckRunsTestStageAlone(&parent, ctx)
 		case "CiCheckWithPlanAllowsChangesByDefault":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -311,6 +318,20 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(&parent, ctx)
+		case "CiCheckWithTestPasses":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithTestPasses(&parent, ctx)
+		case "CiCheckWithTestReportsFailingTest":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).CiCheckWithTestReportsFailingTest(&parent, ctx)
 		case "CiCheckWithoutStagesIsRejected":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -738,6 +759,34 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
 			}
 			return nil, (*Tests).TaintProposesReplacement(&parent, ctx)
+		case "TestFailsOnFailingAssertion":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TestFailsOnFailingAssertion(&parent, ctx)
+		case "TestPassesWithMockProvider":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TestPassesWithMockProvider(&parent, ctx)
+		case "TestReceivesBoundVariables":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TestReceivesBoundVariables(&parent, ctx)
+		case "TestShouldNotBeCached":
+			var parent Tests
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return nil, (*Tests).TestShouldNotBeCached(&parent, ctx)
 		case "UntaintClearsReplacement":
 			var parent Tests
 			err = json.Unmarshal(parentJSON, &parent)
@@ -889,6 +938,11 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithDescription("CiCheckReportsUnformattedConfiguration asserts the fmt stage gates the\npipeline: a configuration that validates but is not formatted still fails.").
 							WithSourceMap(dag.SourceMap("ci.go", 33, 1))).
 					WithFunction(
+						dag.Function("CiCheckRunsTestStageAlone",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckRunsTestStageAlone asserts WithTest is enough on its own to make a\npipeline: a Check with only the test stage enabled runs it rather than\nrejecting the pipeline as empty.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 145, 1))).
+					WithFunction(
 						dag.Function("CiCheckWithPlanAllowsChangesByDefault",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CiCheckWithPlanAllowsChangesByDefault asserts the plan stage without\nfailOnChanges gates on the plan *succeeding*, not on it being empty — the\nshape a pull-request gate needs, where pending changes are the whole point\nof the change under review.").
@@ -913,6 +967,16 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges asserts the same gate\npasses when only the configuration moved — the case an ordinary drift gate\ncannot tell apart from drift.").
 							WithSourceMap(dag.SourceMap("drift.go", 144, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithTestPasses",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithTestPasses asserts the test stage passes a module whose mocked\ntest passes, beside the fmt and validate stages.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 114, 1))).
+					WithFunction(
+						dag.Function("CiCheckWithTestReportsFailingTest",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("CiCheckWithTestReportsFailingTest asserts the test stage gates the pipeline,\nand that its error joins the other stages' rather than replacing them: the\ntested-failing fixture is unformatted too, so the fmt stage's failure has to\nbe reported alongside the failed assertion.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 132, 1))).
 					WithFunction(
 						dag.Function("CiCheckWithoutStagesIsRejected",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -942,12 +1006,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("ContainerHasGitAndCaCertificates",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasGitAndCaCertificates asserts the two things the -minimal image\nomits and every non-trivial configuration needs: git, for module sources,\nand a CA bundle, for the provider registry.").
-							WithSourceMap(dag.SourceMap("main.go", 175, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 183, 1))).
 					WithFunction(
 						dag.Function("ContainerHasTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("ContainerHasTofu asserts the assembled container exposes the tofu binary on\nPATH, so the escape hatch documented on Container() actually works.").
-							WithSourceMap(dag.SourceMap("main.go", 159, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 167, 1))).
 					WithFunction(
 						dag.Function("DestroyEmptiesState",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
@@ -1220,6 +1284,26 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithDescription("TaintProposesReplacement asserts a tainted resource is planned for\nreplacement — destroyed and created again — while its neighbour is left\nalone.").
 							WithSourceMap(dag.SourceMap("state.go", 322, 1))).
 					WithFunction(
+						dag.Function("TestFailsOnFailingAssertion",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestFailsOnFailingAssertion asserts a failing assertion fails Test, and that\nthe error carries tofu's own output — the assertion's message included —\nrather than a bare exit code.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 48, 1))).
+					WithFunction(
+						dag.Function("TestPassesWithMockProvider",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestPassesWithMockProvider asserts a module whose test runs against a\nmock_provider passes, and that Test returns tofu's report of it.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 32, 1))).
+					WithFunction(
+						dag.Function("TestReceivesBoundVariables",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestReceivesBoundVariables asserts every way of binding a variable to a\nConfig reaches `tofu test`: -var, -var-file, a secret bound as TF_VAR_<name>,\nand a plain environment variable. The fixture's variable has no default, and\nthe first case proves an unbound run fails, so a pass below is the bound\nvalue arriving rather than the assertion being vacuous.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 58, 1))).
+					WithFunction(
+						dag.Function("TestShouldNotBeCached",
+							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
+							WithDescription("TestShouldNotBeCached asserts two consecutive runs of Test genuinely re-run\ntofu. The tested-nonce fixture fails on purpose with a fresh UUID in its\nassertion's message, so two failures carrying the same UUID would mean the\nsecond run was served from a cache.").
+							WithSourceMap(dag.SourceMap("tofutest.go", 95, 1))).
+					WithFunction(
 						dag.Function("UntaintClearsReplacement",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("UntaintClearsReplacement asserts Untaint reverses Taint: the same state,\ntaken through both, plans no changes at all.").
@@ -1243,12 +1327,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 						dag.Function("VersionAcceptsMinimalSuffix",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionAcceptsMinimalSuffix asserts a caller who spells out the -minimal\nsuffix lands on the same image as one who does not — the suffix is appended\nonly when absent.").
-							WithSourceMap(dag.SourceMap("main.go", 201, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 209, 1))).
 					WithFunction(
 						dag.Function("VersionReportsRelease",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("VersionReportsRelease asserts Version reports the release New was asked for.").
-							WithSourceMap(dag.SourceMap("main.go", 187, 1))).
+							WithSourceMap(dag.SourceMap("main.go", 195, 1))).
 					WithFunction(
 						dag.Function("WithEnvVariableIsVisibleToTofu",
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).

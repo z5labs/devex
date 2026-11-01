@@ -214,6 +214,7 @@ reason.
 | `Config.Fmt()` | `tofu fmt -check -diff -recursive`; the diff, failing on drift. |
 | `Config.Format()` | `tofu fmt -recursive`; the rewritten tree, for the caller to export. |
 | `Config.Validate()` | `tofu validate`, after an `init -backend=false`. |
+| `Config.Test()` | `tofu test`, after an `init -backend=false`; tofu's report, failing on a failed test. |
 | `Config.Init()` | `tofu init`; returns the root module plus `.terraform.lock.hcl`. |
 | `Config.Lock(platforms)` | `tofu providers lock`; a `.terraform.lock.hcl` covering every named platform. |
 | `Config.Plan(destroy, refreshOnly, targets)` | A directory of `plan.tfplan`, `plan.json`, `plan.txt`, `changes`; `refreshOnly` plans only drift (`tofu plan -refresh-only`). |
@@ -233,6 +234,7 @@ reason.
 | `Config.Ci()` | A chained CI pipeline builder over this configuration. |
 | `Ci.WithFmt()` | Enable the `fmt` stage. |
 | `Ci.WithValidate()` | Enable the `validate` stage. |
+| `Ci.WithTest()` | Enable the `test` stage. |
 | `Ci.WithPlan(failOnChanges, refreshOnly)` | Enable the `plan` stage; `failOnChanges` makes it a drift gate, `refreshOnly` plans with `-refresh-only`. |
 | `Ci.Check()` | Run the enabled stages in parallel; aggregated error. |
 | `Ci.Run()` | The same stages, returning the plan artifacts. |
@@ -262,6 +264,23 @@ dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
 `Validate` initialises with `-backend=false` first, so a configuration
 declaring a remote backend validates with no credentials and without touching
 the backend at all.
+
+`Test` runs the root module's `*.tftest.hcl` files — beside the configuration
+and under `tests/` — with `tofu test`, and returns tofu's report. It initialises
+with `-backend=false` too: a test run keeps its state in memory, so it never
+needs the backend. The variables, variable files, environment variables and
+secrets bound to the `Config` reach it as they reach every other subcommand. A
+failing test is an error carrying tofu's output, the failed assertion's message
+among it. It is `+cache="never"` with a nonce, because a test whose run blocks
+use `command = apply` against a real provider creates and destroys real
+infrastructure, and a cached pass would hide a change on the provider's side. A
+test against `mock_provider` needs no credentials; one that reaches a real
+provider needs whatever that provider needs, through `WithSecretVariable`.
+
+```sh
+dagger -m github.com/z5labs/devex/daggerverse/opentofu call \
+  config --source=. --path=modules/network test
+```
 
 `Init` strips `.terraform/` from its result: with the shared provider cache in
 play those entries are symlinks into a cache volume that does not exist outside
@@ -317,12 +336,17 @@ crosses the boundary intact.
 ## The Ci pipeline
 
 `Ci` bundles the check stages a repo runs on every change into one call, so CI
-is `dagger call config --source=. ci with-fmt with-validate check` rather than
+is `dagger call config --source=. ci with-fmt with-validate with-test check` rather than
 a hand-wired sequence of `dagger call`s.
 
 ```go
-// A pull-request gate: format, validity, and a plan that has to succeed.
-dag.Opentofu().Config(source).Ci().WithFmt().WithValidate().WithPlan().Check(ctx)
+// A pull-request gate: format, validity, the module's own tests, and a plan
+// that has to succeed.
+dag.Opentofu().Config(source).Ci().WithFmt().WithValidate().WithTest().WithPlan().Check(ctx)
+
+// A module with no backend to plan against: format, validity and tests only.
+dag.Opentofu().Config(source, dagger.OpentofuConfigOpts{Path: "modules/network"}).
+    Ci().WithFmt().WithValidate().WithTest().Check(ctx)
 
 // A drift detector: a non-empty plan against live infrastructure fails.
 dag.Opentofu().
@@ -342,6 +366,10 @@ dag.Opentofu().
     WithPlan(dagger.OpentofuCiWithPlanOpts{FailOnChanges: true, RefreshOnly: true}).
     Check(ctx)
 ```
+
+`WithTest()` runs `tofu test` as `Config.Test` does, as one more parallel
+stage: a failing test's error joins whatever the other stages report, so an
+unformatted module with a failing test reports both in one round trip.
 
 `WithPlan(refreshOnly: true)` plans with `-refresh-only`, as `Config.Plan`
 does. An ordinary drift gate fails on any non-empty plan, including one that
@@ -385,7 +413,8 @@ whenever a caller forgets to inspect it.
 
 Every operation that touches real infrastructure carries `+cache="never"`, and
 the directive repeats on each of them individually rather than being assumed to
-propagate from `Config`.
+propagate from `Config`. `Test` is among them: a test file may apply against a
+real provider.
 
 That directive governs the *function* result; the `WithExec` layers underneath
 are still content-addressed, so each of those functions stamps a per-call

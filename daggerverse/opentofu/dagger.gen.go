@@ -188,6 +188,7 @@ func (r Ci) MarshalJSON() ([]byte, error) {
 		Config            *Config
 		FmtEnabled        bool
 		ValidateEnabled   bool
+		TestEnabled       bool
 		PlanEnabled       bool
 		PlanFailOnChanges bool
 		PlanRefreshOnly   bool
@@ -195,6 +196,7 @@ func (r Ci) MarshalJSON() ([]byte, error) {
 	concrete.Config = r.Config
 	concrete.FmtEnabled = r.FmtEnabled
 	concrete.ValidateEnabled = r.ValidateEnabled
+	concrete.TestEnabled = r.TestEnabled
 	concrete.PlanEnabled = r.PlanEnabled
 	concrete.PlanFailOnChanges = r.PlanFailOnChanges
 	concrete.PlanRefreshOnly = r.PlanRefreshOnly
@@ -206,6 +208,7 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 		Config            *Config
 		FmtEnabled        bool
 		ValidateEnabled   bool
+		TestEnabled       bool
 		PlanEnabled       bool
 		PlanFailOnChanges bool
 		PlanRefreshOnly   bool
@@ -217,6 +220,7 @@ func (r *Ci) UnmarshalJSON(bs []byte) error {
 	r.Config = concrete.Config
 	r.FmtEnabled = concrete.FmtEnabled
 	r.ValidateEnabled = concrete.ValidateEnabled
+	r.TestEnabled = concrete.TestEnabled
 	r.PlanEnabled = concrete.PlanEnabled
 	r.PlanFailOnChanges = concrete.PlanFailOnChanges
 	r.PlanRefreshOnly = concrete.PlanRefreshOnly
@@ -384,6 +388,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Ci).WithPlan(&parent, failOnChanges, refreshOnly), nil
+		case "WithTest":
+			var parent Ci
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Ci).WithTest(&parent), nil
 		case "WithValidate":
 			var parent Ci
 			err = json.Unmarshal(parentJSON, &parent)
@@ -620,6 +631,13 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 				}
 			}
 			return (*Config).Taint(&parent, ctx, address)
+		case "Test":
+			var parent Config
+			err = json.Unmarshal(parentJSON, &parent)
+			if err != nil {
+				panic(fmt.Errorf("%s: %w", "failed to unmarshal parent object", err))
+			}
+			return (*Config).Test(&parent, ctx)
 		case "Untaint":
 			var parent Config
 			err = json.Unmarshal(parentJSON, &parent)
@@ -940,21 +958,21 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Apply realises the configuration and returns terraform.tfstate (in\nfile-carried mode), outputs.json and apply.log.\n\nPass the plan.tfplan emitted by Plan to apply exactly that plan; without\none, Apply plans and applies in a single run. A saved plan already carries\nits variables and target set, so neither is re-sent with it.\n\nA non-zero tofu exit is an error, and Dagger drops a function's value when\nits error is non-nil — so a partially failed apply forfeits the state it\nproduced in file-carried mode. That is deliberate: the alternative, always\nreturning the directory with an exit code inside it, turns a failed apply\ninto a silent green whenever a caller forgets to look.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 565, 1)).
-							WithArg("plan", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A saved plan from Plan. Without it, Apply plans and applies in one run.", SourceMap: dag.SourceMap("config.go", 569, 2)}).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the apply to these resource addresses (`-target`). Rejected\nalongside a saved plan, which already fixes what it changes.", SourceMap: dag.SourceMap("config.go", 573, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 619, 1)).
+							WithArg("plan", dag.TypeDef().WithObject("File").WithOptional(true), dagger.FunctionWithArgOpts{Description: "A saved plan from Plan. Without it, Apply plans and applies in one run.", SourceMap: dag.SourceMap("config.go", 623, 2)}).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the apply to these resource addresses (`-target`). Rejected\nalongside a saved plan, which already fixes what it changes.", SourceMap: dag.SourceMap("config.go", 627, 2)})).
 					WithFunction(
 						dag.Function("Ci",
 							dag.TypeDef().WithObject("Ci")).
 							WithDescription("Ci returns a new pipeline builder bound to this configuration. Everything\nalready set on the Config — variables, credentials, backend settings,\nworkspace, state — applies to every stage the pipeline runs.").
-							WithSourceMap(dag.SourceMap("ci.go", 45, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 47, 1))).
 					WithFunction(
 						dag.Function("Destroy",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Destroy tears down everything the state tracks and returns the post-destroy\nterraform.tfstate (in file-carried mode), outputs.json and destroy.log.\n\nIt is rejected outright when there is neither state to destroy nor a\nbackend to read it from: tofu would happily report \"0 destroyed\" against an\nempty state, which reads as success while leaving the real infrastructure\nuntouched.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 606, 1)).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the destroy to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 610, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 660, 1)).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the destroy to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 664, 2)})).
 					WithFunction(
 						dag.Function("Fmt",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -986,29 +1004,29 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Init runs a full `tofu init` — backend included — and returns the root\nmodule with the dependency lock file init produced.\n\n.terraform/ is stripped from the result: with the shared provider cache in\nplay its provider entries are symlinks into a cache volume that does not\nexist outside this container, so carrying them out would hand the caller\ndangling links. The lock file is the portable artifact of an init, and it\nis what a repo commits.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 362, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 416, 1))).
 					WithFunction(
 						dag.Function("Lock",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Lock regenerates the dependency lock file for the given platforms with\n`tofu providers lock`, and returns the root module carrying it.\n\nThis is what makes a lock file portable. An ordinary `tofu init` records\nhashes only for the platform it ran on, so a lock file generated by a\nlinux_amd64 CI job fails `tofu init` on a developer's darwin_arm64 machine.\nNaming every platform a repo builds on records all of their hashes in one\nfile.\n\nPlatforms are `<os>_<arch>` pairs — linux_amd64, darwin_arm64, windows_amd64.\nWith none given, tofu locks for the platform it is running on, which is what\na repo with a single-platform toolchain wants.\n\nModules are installed first with `tofu get`, which touches neither the\nproviders nor the backend: tofu refuses to lock a configuration whose\nmodules are not installed, and a root module using ../../modules/<name> is\nexactly that until something installs them.\n\nA run the Go runtime kills outright is retried — see runtimeFatalMarker for\nwhat that is and why it is the one failure worth re-running.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("config.go", 392, 1)).
-							WithArg("platforms", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Platforms to record hashes for, as `<os>_<arch>`. Defaults to the\nplatform tofu runs on.", SourceMap: dag.SourceMap("config.go", 397, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 446, 1)).
+							WithArg("platforms", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Platforms to record hashes for, as `<os>_<arch>`. Defaults to the\nplatform tofu runs on.", SourceMap: dag.SourceMap("config.go", 451, 2)})).
 					WithFunction(
 						dag.Function("Outputs",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Outputs returns the root module's output values as JSON\n(`tofu output -json`).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 644, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 698, 1))).
 					WithFunction(
 						dag.Function("Plan",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Plan produces a saved plan and everything needed to read it, in a single\ntofu run: plan.tfplan (the saved plan Apply consumes), plan.json\n(`tofu show -json`), plan.txt (the human-readable rendering) and changes\n(`none` or `changes`, from `-detailed-exitcode`).\n\nPass refreshOnly to ask only what changed outside tofu since the last apply\n(`-refresh-only`): changes is then `none` exactly when the infrastructure\nstill matches the state, whatever the configuration now says. It is a plan,\nnot Refresh — nothing is written back, so the drift it reports is still\nthere for the next check to find.\n\nOne run, not two: underobtain the JSON form could legitimately disagree with the first. The JSON\nand text renderings are derived from the saved plan file, so they describe\nexactly the plan that was made.").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 477, 1)).
-							WithArg("destroy", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan the destruction of all remote objects (`-destroy`).", SourceMap: dag.SourceMap("config.go", 481, 2), DefaultValue: dagger.JSON("false")}).
-							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply\n(-refresh-only), leaving the configuration out of it.", SourceMap: dag.SourceMap("config.go", 485, 2), DefaultValue: dagger.JSON("false")}).
-							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the plan to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 488, 2)})).
+							WithSourceMap(dag.SourceMap("config.go", 531, 1)).
+							WithArg("destroy", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan the destruction of all remote objects (`-destroy`).", SourceMap: dag.SourceMap("config.go", 535, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply\n(-refresh-only), leaving the configuration out of it.", SourceMap: dag.SourceMap("config.go", 539, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("targets", dag.TypeDef().WithListOf(dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).WithOptional(true), dagger.FunctionWithArgOpts{Description: "Limit the plan to these resource addresses (`-target`).", SourceMap: dag.SourceMap("config.go", 542, 2)})).
 					WithFunction(
 						dag.Function("Refresh",
 							dag.TypeDef().WithObject("Directory")).
@@ -1020,7 +1038,7 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
 							WithDescription("Show returns the human-readable rendering of the current state\n(`tofu show`).").
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
-							WithSourceMap(dag.SourceMap("config.go", 652, 1))).
+							WithSourceMap(dag.SourceMap("config.go", 706, 1))).
 					WithFunction(
 						dag.Function("StateList",
 							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
@@ -1056,6 +1074,12 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							WithCachePolicy(dagger.FunctionCachePolicyNever).
 							WithSourceMap(dag.SourceMap("state.go", 235, 1)).
 							WithArg("address", dag.TypeDef().WithKind(dagger.TypeDefKindStringKind), dagger.FunctionWithArgOpts{Description: "Address of the resource instance to mark.", SourceMap: dag.SourceMap("state.go", 238, 2)})).
+					WithFunction(
+						dag.Function("Test",
+							dag.TypeDef().WithKind(dagger.TypeDefKindStringKind)).
+							WithDescription("Test runs the root module's test files (`*.tftest.hcl`, beside the\nconfiguration and under tests/) with `tofu test`, and returns its output.\n\nLike Validate it initialises with `-backend=false` first: a test run keeps\nits own state in memory, so it never needs the backend, and a configuration\ndeclaring a remote one is tested without its credentials. Providers are\ninstalled, because even a mock_provider needs the real provider's schema.\n\nThe variables, variable files, environment variables and secrets bound to\nthe Config apply here as they do everywhere else, so a test file sees the\nsame inputs a plan would.\n\nA failing test is an error, and the error carries tofu's own output — the\nfailed assertion's message among it — because Dagger drops a function's\nvalue whenever its error is non-nil.\n\nIt is never cached, and stamps a nonce onto the run. A test file whose run\nblocks use `command = apply` against a real provider creates and destroys\nreal infrastructure, so a cached pass would hide a change on the provider's\nside.").
+							WithCachePolicy(dagger.FunctionCachePolicyNever).
+							WithSourceMap(dag.SourceMap("config.go", 374, 1))).
 					WithFunction(
 						dag.Function("Untaint",
 							dag.TypeDef().WithObject("Directory")).
@@ -1147,30 +1171,35 @@ func invoke(ctx context.Context, parentJSON []byte, parentName string, fnName st
 							dag.TypeDef().WithKind(dagger.TypeDefKindVoidKind).WithOptional(true)).
 							WithDescription("Check runs the enabled stages in parallel via\ngithub.com/dagger/dagger/util/parallel and returns the aggregated error.\n\nEvery enabled stage runs even when an earlier one has already failed, and\nevery failure reaches the caller: an unformatted *and* invalid configuration\nreports both, rather than hiding the validation error behind the formatting\none until the next round trip.\n\nA pipeline with no stages enabled is an error rather than a pass. Checking\nnothing and reporting success is the purest false green there is — see issue\n#161, where a Check that skipped the one stage that could fail reported a\nconfiguration as sound when it was not.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 112, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 124, 1))).
 					WithFunction(
 						dag.Function("Run",
 							dag.TypeDef().WithObject("Directory")).
 							WithDescription("Run performs the same stages as Check and returns the plan artifacts —\nplan.tfplan, plan.json, plan.txt and changes, exactly what Config.Plan\nemits — for downstream consumption: a review gate that renders the plan, an\nApply that consumes the saved plan, an artifact attached to a pull request.\n\nIt plans whether or not WithPlan was called, because it must produce the\ndirectory it returns; WithPlan(failOnChanges: true) additionally makes a\nnon-empty plan fail the run. The plan is run once, not once per role: when\nWithPlan enabled it as a check stage too, that single run is both.\n\nEverything runs in one parallel round, so the returned artifacts come from a\npipeline where every stage passed. A failing stage yields the aggregated\nerror and a nil directory.").
 							WithCachePolicy(dagger.FunctionCachePolicyPerSession).
-							WithSourceMap(dag.SourceMap("ci.go", 143, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 155, 1))).
 					WithFunction(
 						dag.Function("WithFmt",
 							dag.TypeDef().WithObject("Ci")).
 							WithDescription("WithFmt enables the `tofu fmt -check -diff -recursive` stage.").
-							WithSourceMap(dag.SourceMap("ci.go", 50, 1))).
+							WithSourceMap(dag.SourceMap("ci.go", 52, 1))).
 					WithFunction(
 						dag.Function("WithPlan",
 							dag.TypeDef().WithObject("Ci")).
 							WithDescription("WithPlan enables the plan stage, making Check run `tofu plan` against the\nconfigured state or backend. Unlike fmt and validate, this one reaches the\nproviders: it needs whatever credentials the configuration's providers\nrequire, supplied through the Config's WithSecretVariable.\n\nPass failOnChanges to turn the pipeline into a drift detector — a non-empty\nplan against live infrastructure fails the check. Left false, the stage only\ngates on the plan *succeeding*, which is the right shape for a pull-request\ngate where pending changes are the whole point of the change.\n\nPass refreshOnly to plan with `-refresh-only`, as Config.Plan does: the plan\nthen covers only what changed outside tofu since the last apply, so a drift\ngate fails on infrastructure that moved and not on a configuration change\nstill waiting to be applied. It also applies to the plan Run returns.").
-							WithSourceMap(dag.SourceMap("ci.go", 77, 1)).
-							WithArg("failOnChanges", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Fail the check when the plan is non-empty.", SourceMap: dag.SourceMap("ci.go", 80, 2), DefaultValue: dagger.JSON("false")}).
-							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply.", SourceMap: dag.SourceMap("ci.go", 83, 2), DefaultValue: dagger.JSON("false")})).
+							WithSourceMap(dag.SourceMap("ci.go", 89, 1)).
+							WithArg("failOnChanges", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Fail the check when the plan is non-empty.", SourceMap: dag.SourceMap("ci.go", 92, 2), DefaultValue: dagger.JSON("false")}).
+							WithArg("refreshOnly", dag.TypeDef().WithKind(dagger.TypeDefKindBooleanKind), dagger.FunctionWithArgOpts{Description: "Plan only the changes made outside tofu since the last apply.", SourceMap: dag.SourceMap("ci.go", 95, 2), DefaultValue: dagger.JSON("false")})).
+					WithFunction(
+						dag.Function("WithTest",
+							dag.TypeDef().WithObject("Ci")).
+							WithDescription("WithTest enables the `tofu test` stage, which runs the root module's\n`*.tftest.hcl` files as Config.Test does. Like validate it initialises with\n-backend=false; what else it needs depends on the tests themselves — none\nfor a test against mock_provider, real provider credentials for one whose\nrun blocks reach a real provider.").
+							WithSourceMap(dag.SourceMap("ci.go", 70, 1))).
 					WithFunction(
 						dag.Function("WithValidate",
 							dag.TypeDef().WithObject("Ci")).
 							WithDescription("WithValidate enables the `tofu validate` stage. It initialises with\n-backend=false, so a configuration declaring a remote backend is checked\nwithout any credentials.").
-							WithSourceMap(dag.SourceMap("ci.go", 58, 1)))), nil
+							WithSourceMap(dag.SourceMap("ci.go", 60, 1)))), nil
 	default:
 		return nil, fmt.Errorf("unknown object %s", parentName)
 	}
