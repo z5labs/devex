@@ -36,6 +36,16 @@
 # frontmatter where it is declared and fence where a fenced block spawns it: a
 # declaration says a component may use the tool, a spawn that its flow does.
 #
+# A script can already handle what a rule describes: test CLAUDE_CODE_REMOTE and
+# skip the step, or recognise the refusal by its message and exit with one that
+# names it. A command rule's guard says how that reads: when another line of code
+# in the same script matches the guard's pattern, every match of the rule in that
+# script is rated at the guard's severity instead of the script severity. The
+# guard covers the whole file, and only scripts; a fence, a hook or frontmatter
+# keeps its severity. It is matched with the line's quoted text kept, so a grep
+# for the message counts, but a comment, a message command or a heredoc's text is
+# not code and guards nothing.
+#
 # Components call each other, and a verdict follows the call: a skill that runs
 # scripts/x.sh in a fenced block, a script that runs another by name, a fenced
 # Agent(subagent_type: "<agent>") spawn, a fenced mention of <plugin>:<skill>,
@@ -175,7 +185,14 @@ problems=$(jq -r '
             elif $k == "tool" and ($r.match.name_pattern // "x" | compiles | not) then "\($where): name_pattern does not compile"
             elif $k == "tool" and ($r.match.ignore_pattern // "x" | compiles | not) then "\($where): ignore_pattern does not compile"
             else empty end),
-        (($r.match.except // [])[] | . as $e | select($ids | has_item($e) | not) | "\($where): except names unknown rule \($e)")
+        (($r.match.except // [])[] | . as $e | select($ids | has_item($e) | not) | "\($where): except names unknown rule \($e)"),
+        (if $r.guard == null then empty
+         elif ($r.guard | type) != "object" then "\($where): guard is not an object"
+         elif $r.match.kind != "command" then "\($where): a guard needs a command match"
+         elif (($r.match["in"] | type) != "array") or ($r.match["in"] | has_item("script") | not) then "\($where): a guard applies in scripts, and this rule does not match there"
+         elif (($r.guard.pattern | type) != "string") or ($r.guard.pattern | compiles | not) then "\($where): guard pattern does not compile"
+         elif (["breaks", "needs-setup", "degrades", "info"] | has_item($r.guard.severity)) | not then "\($where): bad guard severity"
+         else empty end)
     )
 ' "$WORK/profiles.json" 2>&1) || die "cannot read profiles: $problems"
 [ -z "$problems" ] || die "cannot read profiles: $(printf '%s' "$problems" | paste -sd ';' - | sed 's/;/; /g')"
@@ -307,7 +324,8 @@ function trim(x) { sub(/^[ ]+/, "", x); sub(/[ ]+$/, "", x); return x }
 # Run contexts of a Markdown component: tool fields of its frontmatter and the
 # lines of its fenced shell blocks. In a console or shell-session block only the
 # `$ ` lines are commands; the rest is output.
-# Output: ctx \t line \t key \t msg \t code \t original line
+# Output: ctx \t line \t key \t msg \t code \t literal \t original line, where
+# literal is the code with its quoted text kept.
 md_lines() {
   awk "$AWK_LIB"'
     BEGIN { fm = 0; inf = 0; key = ""; inhd = 0 }
@@ -317,7 +335,7 @@ md_lines() {
       if ($0 ~ /^---[ ]*$/) { fm = 2; next }
       if ($0 ~ /^[A-Za-z0-9_-]+[ ]*:/) { key = $0; sub(/[ ]*:.*$/, "", key) }
       if (key == "allowed-tools" || key == "tools" || key == "skills" || key == "hooks" || key == "mcp-servers" || key == "mcpServers")
-        print "frontmatter\t" NR "\t" key "\t0\t" $0 "\t" $0
+        print "frontmatter\t" NR "\t" key "\t0\t" $0 "\t" $0 "\t" $0
       next
     }
     {
@@ -346,7 +364,7 @@ md_lines() {
       if (line == "" || line ~ /^#/) next
       code = code_of(blank(line))
       if (!inhd && heredoc(line)) inhd = 1
-      print "fence\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" $0
+      print "fence\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" code_of(line) "\t" $0
     }' "$1"
 }
 
@@ -355,7 +373,9 @@ md_lines() {
 # passed to a process call, so strings are kept; comments, docstrings and lines
 # that only print or raise are left out, and a list form such as
 # ["gh", "issue", "list"] reads as gh issue list.
-# Output: ctx \t line \t key \t msg \t code \t original line
+# Output: ctx \t line \t key \t msg \t code \t literal \t original line. A shell
+# line's literal is its code with the quoted text kept: no comment, no message
+# command, no heredoc text. Another language's is the line as written.
 script_lines() {
   local lang=sh
   case $1 in
@@ -374,7 +394,7 @@ script_lines() {
       if (t == "" || t ~ /^#/) next
       code = code_of(blank(t))
       if (!inhd && heredoc(t)) inhd = 1
-      print "script\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" $0
+      print "script\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" code_of(t) "\t" $0
       next
     }
     {
@@ -390,14 +410,14 @@ script_lines() {
       if (lang == "js" && t ~ /^\/\//) next
       msg = (t ~ /^(print|puts|warn|die|raise|throw|console\.(log|error|warn|info)|log(ger|ging)?\.[a-z]+|sys\.exit)[ (]/) ? 1 : 0
       code = t; gsub(/["\047`][ ]*,[ ]*["\047`]/, " ", code)
-      print "script\t" NR "\t\t" msg "\t" code "\t" $0
+      print "script\t" NR "\t\t" msg "\t" code "\t" t "\t" $0
     }' "$1"
 }
 
 emit_lines() { # cid kind comp file dir  <- TSV on stdin
   jq -cR --arg cid "$1" --arg kind "$2" --arg comp "$3" --arg file "$4" --arg dir "$5" '
     split("\t") | {cid: $cid, kind: $kind, comp: $comp, file: $file, dir: $dir,
-      ctx: .[0], line: (.[1] | tonumber), key: .[2], msg: (.[3] == "1"), text: .[4], original: (.[5:] | join("\t"))}' >>"$WORK/lines.ndjson"
+      ctx: .[0], line: (.[1] | tonumber), key: .[2], msg: (.[3] == "1"), text: .[4], literal: .[5], original: (.[6:] | join("\t"))}' >>"$WORK/lines.ndjson"
 }
 
 emit_comp() { # json object
@@ -484,7 +504,7 @@ hook_source() { # file jq-path-to-hooks-object
     jq -c --arg cid "$cid" --arg file "$(rel "$file")" --argjson line "$ln" '. + {cid: $cid, comp: "hooks", kind: "hook", file: $file, line: $line}' <<<"$e" >>"$WORK/hooks.ndjson"
     if [ -n "$runs" ]; then
       c1=$(printf '%s' "$runs" | tr '\t\n' '  ')
-      printf 'hook\t%s\t\t0\t%s\t%s\n' "$ln" "$c1" "$c1" | emit_lines "$cid" hook hooks "$(rel "$file")" ""
+      printf 'hook\t%s\t\t0\t%s\t%s\t%s\n' "$ln" "$c1" "$c1" "$c1" | emit_lines "$cid" hook hooks "$(rel "$file")" ""
     fi
   done <<<"$entries"
 }
@@ -674,7 +694,21 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
       context: ($f.context // null), evidence: $f.evidence,
       fix_in: $r.fix_in, remedy: $r.remedy, rule_remedy: $r.remedy, sources: $r.sources, basis: $r.basis,
       unconfirmed: ($r.basis == "unconfirmed"), checked: $r.checked, summary: $r.summary }
-    + (if $r.observed then {observed: $r.observed} else {} end);
+    + (if $r.observed then {observed: $r.observed} else {} end)
+    + (if $f.guard then {guard: ($f.guard | {line, evidence})} else {} end);
+
+  # The lines of code that guard a script against a rule: each script line whose
+  # literal — its code, quoted text kept — matches a command rule's guard pattern.
+  # Comments, message commands and heredoc text never reach a line's literal.
+  def guards_of($p):
+    [ $p.rules[] | select(.match.kind == "command" and (.guard | type) == "object") | . as $r
+      | $lines[] | select(.ctx == "script" and (.msg | not) and (.literal | test($r.guard.pattern)))
+      | {rule: $r.id, severity: $r.guard.severity, component: .comp, file: .file, line: .line, evidence: (.original | strip)} ];
+
+  # The guard, if any, that rates a rule's match on this line of this script:
+  # another line of the same script, the first in it.
+  def guard_for($guards; $rule; $script; $line):
+    [ $guards[] | select(.rule == $rule and .component == $script and .line != $line) ][0];
 
   def host_ok($allow): . as $h | any($allow[]; . as $a | if ($a | startswith("*.")) then ($h | endswith($a[1:])) else $h == $a end);
   def host_ignored:
@@ -709,11 +743,13 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
        file: (if ($paths | length) > 0 then $paths[0] else "\($PLUGIN_FILE)" end),
        line: (if ($paths | length) > 0 then $facts.declared[$paths[0]].line else 1 end)};
 
-  def match_rule($p; $r):
+  def match_rule($p; $r; $guards):
     $r.match as $m
     | if $m.kind == "command" then
         $lines[] | select((.msg | not) and (.ctx as $c | $m["in"] | has_item($c))) | select(.text | test($m.pattern))
-        | finding($p; $r; {severity: ($r.severity_in[.ctx] // $r.severity), component: .comp, kind: .kind, file: .file, line: .line, context: .ctx, evidence: (.original | strip)})
+        | (if .ctx == "script" then guard_for($guards; $r.id; .comp; .line) else null end) as $g
+        | finding($p; $r; {severity: (if $g then $g.severity else ($r.severity_in[.ctx] // $r.severity) end),
+                           component: .comp, kind: .kind, file: .file, line: .line, context: .ctx, evidence: (.original | strip), guard: $g})
       elif $m.kind == "url" then
         $lines[] | select((.msg | not) and (.ctx as $c | $m["in"] | has_item($c))) | . as $l
         | [ .text | scan("https?://([A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9])") | .[0] | ascii_downcase ] | unique[]
@@ -793,15 +829,20 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
         | select(any($fs[]; . as $g | ($ex | has_item($g.rule)) and $g.component == $f.component and $g.file == $f.file and $g.line == $f.line
                                  and (($g.severity | rank) >= ($f.severity | rank))) | not) ];
 
-  def review_for($p):
+  # A review finding on a script that carries its rule's guard — a call the scan
+  # cannot see, such as one made through the script's own shell function — takes
+  # the guard's severity unless it gives its own, as a scanned match would.
+  def review_for($p; $guards):
     [ $review[] | select(.target == $p.id) | . as $f
       | ($p.rules | map(select(.id == $f.rule)) | .[0]) as $r
-      | { target: $p.id, rule: $f.rule, severity: ($f.severity // $r.severity),
+      | (if $f.severity == null then guard_for($guards; $f.rule; $f.component; $f.line) else null end) as $g
+      | { target: $p.id, rule: $f.rule, severity: ($f.severity // $g.severity // $r.severity),
           component: $f.component, component_kind: ($f.component_kind // (if $f.component == "delivery" then "delivery" else ([ $comps[] | select(.name == $f.component) | .kind ][0]) end)),
           file: $f.file, line: $f.line, context: "review", evidence: $f.evidence,
           fix_in: ($f.fix_in // $r.fix_in), remedy: ($f.remedy // $r.remedy), rule_remedy: $r.remedy, sources: ($f.sources // $r.sources),
           basis: "review", unconfirmed: ($f.unconfirmed // ($r.basis == "unconfirmed")), checked: $r.checked, summary: $r.summary }
-        + (if $f.via then {via: $f.via} else {} end) ];
+        + (if $f.via then {via: $f.via} else {} end)
+        + (if $g then {guard: ($g | {line, evidence})} else {} end) ];
 
   def summarize: # findings -> per-rule entries
     group_by(.rule) | map(
@@ -833,8 +874,9 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
 | if ($review_errors | length) > 0 then {error: ($review_errors | unique | join("; "))} else
 
   [ $profiles[] | . as $p
-    | ([ $p.rules[] | . as $r | match_rule($p; $r) ] | drop_excepted($p)) as $scanned
-    | ($scanned + review_for($p)) as $fs
+    | guards_of($p) as $guards
+    | ([ $p.rules[] | . as $r | match_rule($p; $r; $guards) ] | drop_excepted($p)) as $scanned
+    | ($scanned + review_for($p; $guards)) as $fs
     | [ $fs[] | select(.component == "delivery") ] as $dfs
     | ([ $dfs[] | .severity ] | worst) as $dv
     | { assessed: $facts.known,
@@ -862,6 +904,7 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
         delivery: $delivery,
         components: $components,
         findings: ($fs | sort_by(-(.severity | rank), .rule, .file, (.line // 0))),
+        guards: $guards,
         review_rules: [ $p.rules[] | select(.match.kind == "review") | {id, severity, basis, summary, look_for: .match.look_for, remedy, fix_in, sources} ] } ]
   | . as $targets
   | { plugin: {name: $NAME, version: $VERSION, dir: $PLUGIN_DIR, manifest: $PLUGIN_FILE},
@@ -929,6 +972,7 @@ def why: [ .rules[] | select((.severity | rank) > 1) | entry_text ] | join("<br>
              + "- **Sources:** \($f.sources | join(", "))\n"
              + "- **Where:**\n"
              + ([ $g[] | "  - \(loc | code) — \(.component | code)\(if .context and .context != "review" then " (\(.context))" else "" end), \(.severity)\(if .basis == "review" then " (review)" else "" end): \(.evidence | clip | code)"
+                  + (if .guard then " — guarded at line \(.guard.line): \(.guard.evidence | clip | code)" else "" end)
                   + (if .remedy != .rule_remedy then " — \(.remedy)" else "" end)
                   + (if .basis == "review" and (.via // [] | length) > 0 then " — via \(.via | join(" → "))" else "" end) + "\n" ] | join(""))
            ] | join(""))
