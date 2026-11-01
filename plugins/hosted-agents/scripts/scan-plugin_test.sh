@@ -435,6 +435,8 @@ printf '{ "hooks": { "SessionStart": [ { "hooks": [\n  { "type": "command", "com
 scan "$TMP/fg.json" "$TMP/fg" --no-repo --target claude-code-cloud --targets-dir "$TMP/profiles-fence-guard"
 same "a guard rates scripts only: the fence and the hook keep their severity" "fence:breaks hook:breaks script:info" \
   "$(jq -r '[.targets[0].findings[] | select(.rule == "github-graphql") | "\(.context):\(.severity)"] | sort | join(" ")' "$TMP/fg.json")"
+same "and only the script's test is listed as a guard, not the fence's or the hook's" "scripts/x.sh:2" \
+  "$(jq -r '[.targets[0].guards[] | select(.rule == "github-graphql") | "\(.component):\(.line)"] | join(" ")' "$TMP/fg.json")"
 
 # ---------------------------------------------------------------------------
 printf '\nrules that defer to each other\n'
