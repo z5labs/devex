@@ -50,7 +50,7 @@ Run these once, before the first iteration, and stop if any fails:
    unscoped backlog instead. Locally, the token's classic scopes come back on the same read:
 
    ```
-   gh api --include "repos/$REPO" --jq .full_name | grep -i '^x-oauth-scopes:'
+   gh api --include "repos/$REPO" | grep -i '^x-oauth-scopes:'
    ```
 
    They must include **`read:project`** (or `project`); `repo` does not imply it, and without

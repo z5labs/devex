@@ -327,8 +327,11 @@ app_api() { gh api -H "Authorization: Bearer $JWT" "$@"; }
 # network failure or a 5xx never reached that question, and reporting any of
 # them as a mismatched pair sends the operator to rotate a key that is fine.
 APP_ERR=$(mktemp) || fail 3 "cannot create a temporary file for the GET /app read"
-# shellcheck disable=SC2064
-trap "rm -f '$APP_ERR' ${CLEANUP:+'$CLEANUP'}" EXIT
+# A function, read at exit, rather than a trap string built here: single quotes
+# inside a double-quoted ${CLEANUP:+...} are parsed differently across bash
+# releases, and the bash 3.2 macOS ships is one of the ones this has to run on.
+cleanup() { rm -f "$APP_ERR" ${CLEANUP:+"$CLEANUP"}; }
+trap cleanup EXIT
 SLUG=$(app_api /app --jq .slug 2>"$APP_ERR") || SLUG=""
 if [ -z "$SLUG" ] || [ "$SLUG" = null ]; then
   WHY=$(tr '\n' ' ' <"$APP_ERR" | sed 's/ *$//')

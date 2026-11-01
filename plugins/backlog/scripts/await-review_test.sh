@@ -332,9 +332,12 @@ printf '\nthe wait, against a gh that answers from files\n'
 # Every one of them is REST: the repository from `GET /repos/z5labs/devex`, as
 # repo.sh confirms the scratch checkout's origin remote, and the request as
 # `POST /pulls/{n}/requested_reviewers`. The request takes only for a login
-# listed in $FX/installed, and a request that takes adds the login to
-# $FX/requested, which is what the script reads back — so "the request was
-# placed" is an outcome of the stub, not a fixture asserting it. The stub
+# listed in $FX/installed, and a request that takes appends a `review_requested`
+# event to the timeline — which is where GitHub records a bot's request, since
+# `GET /pulls/{n}/requested_reviewers` does not list bots (observed on #482).
+# That endpoint answers from $FX/requested, which holds people and teams. So
+# "the request was placed" is an outcome of the stub, not a fixture asserting
+# it. The stub
 # sources the guard that refuses every GraphQL-backed call and logs it; the
 # last case of this file asserts nothing was refused.
 cat >"$SCRATCH/bin/gh" <<'STUB'
@@ -364,8 +367,12 @@ case "$path" in
       login=${field#reviewers[]=}
       grep -qxF -- "$login" "$FX/installed" 2>/dev/null \
         || { printf 'gh: Reviews may only be requested from collaborators. (HTTP 422)\n' >&2; exit 1; }
-      jq -c --arg l "$login" '.users += [{login: $l}]' "$FX/requested" >"$FX/requested.new" \
-        && mv "$FX/requested.new" "$FX/requested"
+      # GitHub names Copilot `Copilot` on the timeline; other bots by login.
+      shown=$login
+      [ "$login" = 'copilot-pull-request-reviewer[bot]' ] && shown=Copilot
+      jq -c --arg l "$shown" \
+        '. + [{event: "review_requested", created_at: "2027-01-01T00:00:00Z", requested_reviewer: {login: $l, type: "Bot"}}]' \
+        "$FX/timeline" >"$FX/timeline.new" && mv "$FX/timeline.new" "$FX/timeline"
       printf '{}\n'
       exit 0
     fi
@@ -386,11 +393,21 @@ export GH_GUARD_LOG="$SCRATCH/graphql-calls"
 git init -q "$SCRATCH" >/dev/null 2>&1 || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
 git -C "$SCRATCH" remote add origin https://github.com/z5labs/devex.git
 
+# requested_call_any — did the last run place a review request?
+requested_call_any() { grep -qE -- '--method POST .*requested_reviewers' "$SCRATCH/fx/calls" 2>/dev/null; }
+
 # installed <login>... — the bots a request can be placed with; none, with no args
 installed() { printf '%s\n' "$@" >"$SCRATCH/fx/installed"; [ $# -gt 0 ] || : >"$SCRATCH/fx/installed"; }
 installed
 
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+
+# asked <login> <created_at> — a review request on the timeline, as GitHub
+# records one for a bot
+asked() {
+  jq -nc --arg l "$1" --arg t "$2" \
+    '{event:"review_requested", created_at:$t, requested_reviewer:{login:$l, type:"Bot"}}'
+}
 
 reviewed() { # <login> <submitted_at> <body>
   jq -nc --arg l "$1" --arg t "$2" --arg b "$3" \
@@ -472,10 +489,17 @@ checkw 'a request that cannot be placed is unavailable' 3 12 copilot
 
 # The request took, and nothing has arrived yet. Silence is NOT unavailability:
 # a slow reviewer looks identical from here, and retiring it for the run on this
-# evidence is how a working reviewer gets dropped for three hours.
-printf '{"users":[{"login":"copilot-pull-request-reviewer[bot]"}],"teams":[]}\n' >"$SCRATCH/fx/requested"
-timeline
+# evidence is how a working reviewer gets dropped for three hours. The request
+# is on the timeline only — GitHub's requested_reviewers never lists a bot —
+# and that is enough to read it as placed.
+timeline "$(asked Copilot '2026-01-01T00:00:00Z')"
+: >"$SCRATCH/fx/calls"
 checkw 'an accepted request with nothing posted yet is not a verdict' 2 12 copilot
+if requested_call_any; then
+  bad 'and it is not requested a second time' "$(grep -- '--method POST' "$SCRATCH/fx/calls" | tr '\n' ';')"
+else
+  ok 'and it is not requested a second time' 'no POST'
+fi
 
 # The request is REST, and REST takes a bot only by its full `...[bot]` login.
 # One that took leaves the wait pending on a review that has not landed yet.
@@ -511,21 +535,26 @@ checkw_calls() {
   fi
 }
 
-# humus #747 on the timeline: the error review, and the one failed run behind
-# it. Copilot has left the requested reviewers, as it did there. The gate
-# re-requests — once — and goes back to waiting; exit 0 here was the bug.
-timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
+# humus #747 on the timeline: the request, the error review that answered it,
+# and the one failed run behind it. The review ended the request, so nothing is
+# outstanding. The gate re-requests — once — and goes back to waiting; exit 0
+# here was the bug.
+timeline "$(asked Copilot '2026-10-17T19:02:10Z')" \
+         "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
 checks "$(runs "$RUN_FAILED")"
 printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
 checkw_calls 'an errored run is re-requested, not passed' 2 yes 12 copilot
 
-# Re-entered before the re-request's run has appeared: Copilot is back among the
-# requested reviewers, and that is what stops a second request being placed.
-printf '{"users":[{"login":"copilot-pull-request-reviewer[bot]"}],"teams":[]}\n' >"$SCRATCH/fx/requested"
+# Re-entered before the re-request's run has appeared: a request newer than the
+# error review is on the timeline, and that is what stops a second one being
+# placed.
+timeline "$(asked Copilot '2026-10-17T19:02:10Z')" \
+         "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")" \
+         "$(asked Copilot '2026-10-17T19:04:30Z')"
 checkw_calls 'a re-request already placed is not placed again' 2 no 12 copilot
 
 # The re-request's run is going. Wait on it; ask for nothing.
-printf '{"users":[],"teams":[]}\n' >"$SCRATCH/fx/requested"
+timeline "$(reviewed 'copilot-pull-request-reviewer[bot]' "$REVIEWED_AT" "$COPILOT_ERROR")"
 checks "$(runs "$RUN_FAILED" "$(run in_progress '' '2026-10-17T19:05:00Z' '')")"
 checkw_calls 'a run in flight is waited on, not re-requested' 2 no 12 copilot
 

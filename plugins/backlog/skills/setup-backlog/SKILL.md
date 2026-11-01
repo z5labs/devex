@@ -47,7 +47,7 @@ it is rejected, which is a confusing place to discover it. A classic token's sco
 on the same read:
 
 ```
-gh api --include "repos/$REPO" --jq .full_name | grep -i '^x-oauth-scopes:'
+gh api --include "repos/$REPO" | grep -i '^x-oauth-scopes:'
 ```
 
 An empty or missing header is a token without classic scopes — a fine-grained token, an App

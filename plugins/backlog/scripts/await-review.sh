@@ -556,10 +556,32 @@ fi
 # Only the rungs that have someone to ask. The local reviewer posts its own
 # review through post-review.sh before this script is reached, so there is
 # nothing to request and a request step would have nothing to fail on.
+#
+# Whether this rung is currently requested, read two ways, either of which is
+# enough. `GET /pulls/{n}/requested_reviewers` lists people and teams, and does
+# NOT list a bot: on z5labs/devex #482 it answered `{"users":[],"teams":[]}`
+# while the timeline carried `review_requested` for Copilot (`type: Bot`), and
+# #474 reads the same. The old request path never noticed, because the GraphQL
+# mutation's own response was what confirmed it; with the request over REST,
+# reading back only that endpoint called every placed Copilot request a failure.
+#
+# So the timeline is read as well: this rung is requested while its most recent
+# `review_requested` is newer than its most recent `reviewed` and
+# `review_request_removed`. A review ends a request, which is also what tells a
+# re-request already placed after an errored review — still outstanding — from
+# one that has not been placed yet.
 requested() {
   gh api "repos/$REPO/pulls/$PR/requested_reviewers" \
     --jq '[.users[]?.login] + [.teams[]?.slug] | join(" ")' 2>/dev/null \
-  | grep -qiE -- "$REVIEWER_MATCH"
+  | grep -qiE -- "$REVIEWER_MATCH" && return 0
+
+  gh api --paginate "repos/$REPO/issues/$PR/timeline" \
+    --jq '.[] | select(.event == "review_requested" or .event == "review_request_removed" or .event == "reviewed")
+          | {event, at: (.created_at // .submitted_at // ""),
+             login: (.requested_reviewer.login // .user.login // "")}' 2>/dev/null \
+  | jq -s -e --arg match "$REVIEWER_MATCH" '
+      map(select(.login | test($match; "i"))) | sort_by(.at) | last
+      | . != null and .event == "review_requested"' >/dev/null 2>&1
 }
 
 # `POST /pulls/{n}/requested_reviewers`, with the full `...[bot]` login — the
