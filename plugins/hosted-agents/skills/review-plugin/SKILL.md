@@ -56,8 +56,15 @@ it) and judges delivery from it. If the plugin lives outside the repository that
 pass `--repo <that repository>`.
 
 Read `<work>/scan.json`. For each target it holds `delivery`, `components` (each with its `verdict`
-and the `rules` behind it), `findings`, and `review_rules` — the rules the profile leaves to you,
-each with what to `look_for`. The top-level `edges` are the calls the scan could see.
+and the `rules` behind it), `findings`, `guards` — each script line that carries a rule's guard —
+and `review_rules` — the rules the profile leaves to you, each with what to `look_for`. The
+top-level `edges` are the calls the scan could see.
+
+A script that already handles a restriction is rated by what happens there. A command rule with a
+`guard` rates every match in a script at the guard's severity when another line of code in that
+script matches the guard's pattern — a test of `CLAUDE_CODE_REMOTE` that skips the step, a grep
+that recognises the proxy's refusal by its message. A finding rated that way names its guard
+(`guard.line`), and whatever reaches the script inherits that severity.
 
 ## Step 2 — Read the prose
 
@@ -91,7 +98,12 @@ severity.
 
 A script can hide a command from the scan behind a shell function of its own: `app_api /app`,
 where `app_api` runs `gh api`. That is still a command where it runs. Cite the scanned rule at the
-line of the call, at the rule's script severity.
+line of the call, at the rule's script severity — unless the script carries that rule's guard.
+Then the call is cited at the guard's severity, as the scan rates the calls it can see: the
+backlog plugin's `app-token.sh` tests `CLAUDE_CODE_REMOTE` before it calls `app_api /app`, so
+`non-repository-endpoint` is cited there at `degrades`, not `breaks`. `guards` in `scan.json`
+says which scripts carry which rule's guard; leave `severity` out of the finding and the merge
+gives it the guard's.
 
 Subagents follow the same reasoning. On the Copilot targets the scan gives
 `subagents-unsupported` its lower `severity_in.frontmatter` for a tool that the frontmatter only
@@ -133,8 +145,9 @@ nothing:
 - `target`, `rule`, `component`, `file`, `line` and `evidence` are required. `component` and
   `file` are spelled as the scan spells them; `rule` must be a rule of that target's profile —
   a finding citing anything else is refused (exit 2).
-- `severity` defaults to the rule's. `remedy` and `fix_in` default to the rule's; give your own
-  only when the rule's would mislead for this passage. `sources` are the rule's.
+- `severity` defaults to the rule's — on a script that carries the rule's guard, the guard's.
+  `remedy` and `fix_in` default to the rule's; give your own only when the rule's would mislead
+  for this passage. `sources` are the rule's.
 - What you give is checked, and a finding that fails a check is refused:
   - `fix_in` must be `plugin`, `repository` or `environment`;
   - `sources`, if given, must be a non-empty list of https URLs;

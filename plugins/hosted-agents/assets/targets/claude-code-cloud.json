@@ -201,7 +201,11 @@
         "fence": "degrades",
         "frontmatter": "degrades"
       },
-      "remedy": "Call the REST API instead: gh api repos/{owner}/{repo}/... (issues, pulls, labels, check runs, timelines). For review threads, auto merge and draft/ready-for-review the 403 names REST routes the proxy serves: GET /repos/{owner}/{repo}/pulls/{n}/ccr/review_threads, POST .../pulls/{n}/ccr/comments/{id}/resolve, PUT or DELETE .../pulls/{n}/ccr/auto_merge, POST .../pulls/{n}/ccr/ready_for_review. APIs that exist only in GraphQL, such as Projects v2, cannot be reached at all. In a script the 403 is an exit code the caller cannot recover from; in a skill's fenced block the model sees the error and its REST hint, which is why that context only degrades the component.",
+      "guard": {
+        "pattern": "(?:\\[\\[?|(?<![A-Za-z0-9_.-])(?:test|case))\\s[^\\]]*\\$\\{?CLAUDE_CODE_REMOTE(?![A-Za-z0-9_])|(?:environ(?:\\.get)?[\\[(]|getenv\\(|ENV\\[|ENV\\.fetch\\(|process\\.env\\[)\\s*[\"']CLAUDE_CODE_REMOTE[\"']|process\\.env\\.CLAUDE_CODE_REMOTE(?![A-Za-z0-9_])|GraphQL is not available from Claude Code",
+        "severity": "degrades"
+      },
+      "remedy": "Call the REST API instead: gh api repos/{owner}/{repo}/... (issues, pulls, labels, check runs, timelines). For review threads, auto merge and draft/ready-for-review the 403 names REST routes the proxy serves: GET /repos/{owner}/{repo}/pulls/{n}/ccr/review_threads, POST .../pulls/{n}/ccr/comments/{id}/resolve, PUT or DELETE .../pulls/{n}/ccr/auto_merge, POST .../pulls/{n}/ccr/ready_for_review. APIs that exist only in GraphQL, such as Projects v2, cannot be reached at all: make that step optional in a cloud session (CLAUDE_CODE_REMOTE=true), or recognise the 403 by its message and fail with one that names the restriction. A script that does either carries this rule's guard, and its calls only degrade. In an unguarded script the 403 is an exit code the caller cannot recover from; in a skill's fenced block the model sees the error and its REST hint, which is why that context only degrades the component.",
       "fix_in": "plugin",
       "sources": [
         "https://code.claude.com/docs/en/cloud-environments#github-proxy",
@@ -216,7 +220,8 @@
           "result": "In a Claude Code cloud session on z5labs/devex: gh issue list, gh pr list, gh repo view, gh label list, gh release list and gh search issues returned HTTP 403 'GitHub GraphQL is not available from Claude Code sessions'; gh api graphql returned the same 403; gh api repos/z5labs/devex succeeded, as did the REST-backed gh run list and gh workflow list."
         }
       ],
-      "checked": "2026-10-31"
+      "notes": "The guard is that remedy, recognised: a test of CLAUDE_CODE_REMOTE ([ … ], [[ … ]], test or case reading it, or another language's environment lookup of it), or the 403's 'GraphQL is not available from Claude Code', on a line of code anywhere else in the script. A grep for the message counts; a comment or an echo of it does not. It covers the whole file, so a script that tests CLAUDE_CODE_REMOTE for some other reason is guarded too, and only scripts: a fence, a hook or frontmatter keeps its severity. The backlog plugin's select-issue.sh recognises the message after its project read and exits 4, naming project-scoped selection as local-only.",
+      "checked": "2026-11-01"
     },
     {
       "id": "gh-auth-status-fails",
@@ -297,7 +302,11 @@
       "severity_in": {
         "fence": "degrades"
       },
-      "remedy": "Ask a repos/{owner}/{repo}/... endpoint where one answers the same question: whether an account can work on the repository is repos/{owner}/{repo}/collaborators/{username}/permission, and who was asked to review is repos/{owner}/{repo}/pulls/{n}/requested_reviewers. Where none does, as for an App's own GET /app or an account looked up by login, make the step optional in a cloud session (CLAUDE_CODE_REMOTE=true) or fail with a message that names this restriction, so the caller can tell it from a wrong credential. In a script the refusal is an exit code; in a skill's fenced block the model reads the proxy's message, which names the repository-scoped alternative, so that context only degrades.",
+      "guard": {
+        "pattern": "(?:\\[\\[?|(?<![A-Za-z0-9_.-])(?:test|case))\\s[^\\]]*\\$\\{?CLAUDE_CODE_REMOTE(?![A-Za-z0-9_])|(?:environ(?:\\.get)?[\\[(]|getenv\\(|ENV\\[|ENV\\.fetch\\(|process\\.env\\[)\\s*[\"']CLAUDE_CODE_REMOTE[\"']|process\\.env\\.CLAUDE_CODE_REMOTE(?![A-Za-z0-9_])|not permitted through this proxy|sessions are bound to their configured repositories",
+        "severity": "degrades"
+      },
+      "remedy": "Ask a repos/{owner}/{repo}/... endpoint where one answers the same question: whether an account can work on the repository is repos/{owner}/{repo}/collaborators/{username}/permission, and who was asked to review is repos/{owner}/{repo}/pulls/{n}/requested_reviewers. Where none does, as for an App's own GET /app or an account looked up by login, make the step optional in a cloud session (CLAUDE_CODE_REMOTE=true) or fail with a message that names this restriction, so the caller can tell it from a wrong credential. A script that does either — tests CLAUDE_CODE_REMOTE, or recognises the proxy's message — carries this rule's guard, and its calls only degrade. In an unguarded script the refusal is an exit code; in a skill's fenced block the model reads the proxy's message, which names the repository-scoped alternative, so that context only degrades.",
       "fix_in": "plugin",
       "sources": [
         "https://code.claude.com/docs/en/cloud-environments#github-proxy",
@@ -312,7 +321,7 @@
           "result": "In a Claude Code cloud session on z5labs/devex: gh api orgs/z5labs, users/Zaba505, users/copilot-pull-request-reviewer%5Bbot%5D and orgs/z5labs/projectsV2/14 got 'This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...).'; gh api app got 'Access to this GitHub API path is not permitted through this proxy.'; repos/z5labs/devex/... and search/issues were served."
         }
       ],
-      "notes": "The pattern holds only what was observed: paths under orgs/ and users/, and app with the paths under it (app/installations/{id}/access_tokens). user (the signed-in account), apps/{slug}, installation/..., gists, notifications and the other top-level paths were not tried either way and stay out. search/users, which also gives an account's type and node_id, was not tried. A call made through a shell function of the script's own, such as the backlog plugin's app_api /app, is not a gh api line; the review-plugin skill reads for those. #472's closing comment first reported the restriction.",
+      "notes": "The pattern holds only what was observed: paths under orgs/ and users/, and app with the paths under it (app/installations/{id}/access_tokens). user (the signed-in account), apps/{slug}, installation/..., gists, notifications and the other top-level paths were not tried either way and stay out. search/users, which also gives an account's type and node_id, was not tried. The guard is the remedy, recognised: a test of CLAUDE_CODE_REMOTE ([ … ], [[ … ]], test or case reading it, or another language's environment lookup of it), or either observed message, on a line of code anywhere else in the script. A grep for a message counts; a comment or an echo of one does not. It covers the whole file, so a script that tests CLAUDE_CODE_REMOTE for some other reason is guarded too, and only scripts. A call made through a shell function of the script's own, such as the backlog plugin's app_api /app, is not a gh api line; the review-plugin skill reads for those, and cites one at the guard's severity when the script carries the guard, as app-token.sh does: it tests CLAUDE_CODE_REMOTE before it calls app_api /app, and greps for both messages after. #472's closing comment first reported the restriction.",
       "checked": "2026-11-01"
     },
     {

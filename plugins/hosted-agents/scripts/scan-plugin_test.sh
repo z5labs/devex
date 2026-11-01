@@ -28,6 +28,11 @@
 #     plugin without a manifest;
 #   - severity by context: a declared tool versus a fenced spawn, a script
 #     versus a fence;
+#   - guards: a script that tests CLAUDE_CODE_REMOTE or recognises the refusal
+#     by its message is rated at the guard's severity, and so is what reaches it
+#     and a review finding on it; guard text in a comment, a message, a heredoc
+#     or on the matched line itself is not a guard; fences and hooks keep their
+#     severity, and a profile's guard is checked like its patterns;
 #   - exit codes 0 / 1 / 2, and no network call.
 #
 # Run: plugins/hosted-agents/scripts/scan-plugin_test.sh
@@ -113,6 +118,9 @@ same "a file written in one session for a later one: needs-setup in the environm
   "$(rule claude-code-cloud session-files-not-kept '"\(.match.kind) \(.severity) \(.fix_in) \(.basis) \(.remedy | test("setup script")) \(.remedy | test("committed|commit the settings"))"')"
 same "bash-ten-minute-cap looks for a long run with no explicit timeout, moved at the 2-minute default" "true true" \
   "$(rule claude-code-cloud bash-ten-minute-cap '"\(.match.look_for | test("no explicit Bash timeout")) \(.summary | test("2-minute default"))"')"
+same "github-graphql and non-repository-endpoint carry a guard at degrades, and no other rule of any profile does" \
+  "claude-code-cloud/github-graphql:degrades claude-code-cloud/non-repository-endpoint:degrades" \
+  "$(for t in "${TARGETS[@]}"; do jq -r '.id as $p | .rules[] | select(.guard) | "\($p)/\(.id):\(.guard.severity)"' "$PROFILES/$t.json"; done | paste -sd ' ')"
 
 # ---------------------------------------------------------------------------
 printf '\neach rule'"'"'s fixture triggers that rule and no other\n'
@@ -295,9 +303,9 @@ done
 scan "$TMP/nre.json" "$DATA/rules/non-repository-endpoint" --no-repo --target claude-code-cloud
 same "users/, app and orgs/ are findings; repos/{owner}/{repo}/... and search/... are not" \
   "non-repository-endpoint/scripts/lookup.sh:4 non-repository-endpoint/scripts/lookup.sh:5 non-repository-endpoint/scripts/lookup.sh:6 non-repository-endpoint/skills/whois/SKILL.md:9" \
-  "$(found "$TMP/nre.json" 0 non-repository-endpoint)"
+  "$(found "$TMP/nre.json" 0 non-repository-endpoint | tr ' ' '\n' | grep -v app.sh | paste -sd ' ')"
 same "the script breaks, the fence where the model reads the proxy's message degrades" "fence:degrades script:breaks" \
-  "$(jq -r '[.targets[0].findings[] | "\(.context):\(.severity)"] | unique | join(" ")' "$TMP/nre.json")"
+  "$(jq -r '[.targets[0].findings[] | select(.file | endswith("app.sh") | not) | "\(.context):\(.severity)"] | unique | join(" ")' "$TMP/nre.json")"
 scan "$TMP/se.json" "$DATA/skills-edge" --no-repo --target claude-code-cloud
 same "skills: next-issue links to next-issue and not to issue" "edges:worker>edges:next-issue" \
   "$(jq -r '[.edges[] | "\(.from)>\(.to)"] | join(" ")' "$TMP/se.json")"
@@ -364,6 +372,71 @@ same "what the driver calls is judged on its own" "calls:step:works calls:worker
   "$(jq -r '[.targets[0].components[] | select(.component != "calls:driver") | "\(.component):\(.verdict)"] | sort | join(" ")' "$TMP/calls.json")"
 
 # ---------------------------------------------------------------------------
+printf '\na script that already handles the restriction\n'
+
+# rated <json> <rule> -> sorted file:line:severity of that rule's findings, paths from testdata/
+rated() { jq -r --arg r "$2" '[.targets[0].findings[] | select(.rule == $r) | "\(.file | sub(".*testdata/"; "")):\(.line):\(.severity)"] | sort | join(" ")' "$1"; }
+
+scan "$TMP/gg.json" "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud
+same "github-graphql: the script that recognises the 403 degrades; the one that names it only in a comment or a message breaks" \
+  "github-graphql/scripts/guarded.sh:4:degrades github-graphql/scripts/list.sh:2:breaks" "$(rated "$TMP/gg.json" github-graphql)"
+same "the guard is the grep on another line, after the call" "5" \
+  "$(jq -r '.targets[0].findings[] | select(.file | endswith("guarded.sh")) | .guard.line' "$TMP/gg.json")"
+same "a skill that runs the guarded script inherits degrades, not breaks" "degrades github-graphql scripts/guarded.sh" \
+  "$(jq -r '.targets[0].components[] | select(.component == "x:projects") | "\(.verdict) \(.set_by | join(",")) \(.rules[0].via | join(";"))"' "$TMP/gg.json")"
+same "scan.json lists, per target, the script lines that carry a rule's guard" "github-graphql scripts/guarded.sh:5" \
+  "$(jq -r '[.targets[0].guards[] | "\(.rule) \(.component):\(.line)"] | join(" ")' "$TMP/gg.json")"
+md=$("$SUT" "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud --format markdown 2>/dev/null)
+grep -q 'guarded.sh:4` .* degrades: .* — guarded at line 5: `if grep -qiE' <<<"$md" \
+  && ok "the report says which line guards the finding" || bad "the report says which line guards the finding"
+
+same "non-repository-endpoint: the script that tests CLAUDE_CODE_REMOTE first degrades; the one that names it only in comments breaks" \
+  "non-repository-endpoint/scripts/app.sh:8:degrades non-repository-endpoint/scripts/app.sh:9:degrades non-repository-endpoint/scripts/lookup.sh:4:breaks non-repository-endpoint/scripts/lookup.sh:5:breaks non-repository-endpoint/scripts/lookup.sh:6:breaks non-repository-endpoint/skills/whois/SKILL.md:9:degrades" \
+  "$(rated "$TMP/nre.json" non-repository-endpoint)"
+same "the guard is the test on another line, before the calls" "4 4" \
+  "$(jq -r '[.targets[0].findings[] | select(.file | endswith("app.sh")) | .guard.line] | join(" ")' "$TMP/nre.json")"
+
+# guard_case <name> <want> <file> <script> — github-graphql's severities in a one-script plugin
+gc=0
+guard_case() {
+  gc=$((gc + 1)); local d="$TMP/guard-$gc"
+  mkdir -p "$d/.claude-plugin" "$d/scripts"
+  printf '{ "name": "g" }\n' >"$d/.claude-plugin/plugin.json"
+  printf '%s\n' "$4" >"$d/scripts/$3"
+  scan "$TMP/gc.json" "$d" --no-repo --target claude-code-cloud
+  same "$1" "$2" "$(jq -r '[.targets[0].findings[] | select(.rule == "github-graphql") | .severity] | join(",")' "$TMP/gc.json")"
+}
+guard_case "[[ \$CLAUDE_CODE_REMOTE == true ]] guards" degrades x.sh \
+  $'#!/usr/bin/env bash\n[[ $CLAUDE_CODE_REMOTE == true ]] && exit 3\ngh issue list --json number'
+guard_case "test \"\$CLAUDE_CODE_REMOTE\" = true guards" degrades x.sh \
+  $'#!/usr/bin/env bash\ngh issue list --json number\ntest "$CLAUDE_CODE_REMOTE" = true && echo "local-only" >&2'
+guard_case "case \${CLAUDE_CODE_REMOTE:-} in guards" degrades x.sh \
+  $'#!/usr/bin/env bash\ncase ${CLAUDE_CODE_REMOTE:-} in true) exit 3 ;; esac\ngh issue list --json number'
+guard_case "Python's os.environ.get(\"CLAUDE_CODE_REMOTE\") guards" degrades x.py \
+  $'import os, subprocess, sys\nif os.environ.get("CLAUDE_CODE_REMOTE") == "true":\n    sys.exit(3)\nsubprocess.run(["gh", "api", "graphql"], check=True)'
+guard_case "the matched line's own test is not another line's" breaks x.sh \
+  $'#!/usr/bin/env bash\n[ "${CLAUDE_CODE_REMOTE:-}" = true ] || gh issue list --json number'
+guard_case "a heredoc's text does not guard" breaks x.sh \
+  $'#!/usr/bin/env bash\ncat <<EOF\nGraphQL is not available from Claude Code\nEOF\ngh issue list --json number'
+guard_case "another rule's guard does not guard this one" breaks x.sh \
+  $'#!/usr/bin/env bash\ngh issue list --json number 2>err || grep -q \'not permitted through this proxy\' err'
+guard_case "a variable merely set from CLAUDE_CODE_REMOTE is not a test of it" breaks x.sh \
+  $'#!/usr/bin/env bash\nremote=$CLAUDE_CODE_REMOTE\ngh issue list --json number'
+
+# Only scripts: with no lower fence severity and a guard at info, the fence and
+# the hook that carry the same test keep breaks while the script drops to info.
+mkdir -p "$TMP/profiles-fence-guard" "$TMP/fg/.claude-plugin" "$TMP/fg/scripts" "$TMP/fg/skills/fg" "$TMP/fg/hooks"
+jq '(.rules[] | select(.id == "github-graphql")) |= (del(.severity_in) | .guard.severity = "info")' \
+  "$PROFILES/claude-code-cloud.json" >"$TMP/profiles-fence-guard/claude-code-cloud.json"
+printf '{ "name": "fg" }\n' >"$TMP/fg/.claude-plugin/plugin.json"
+printf '#!/usr/bin/env bash\n[ "${CLAUDE_CODE_REMOTE:-}" = true ] && exit 3\ngh issue list --json number\n' >"$TMP/fg/scripts/x.sh"
+printf -- '---\nname: fg\ndescription: d\n---\n\n```bash\n[ "${CLAUDE_CODE_REMOTE:-}" = true ] && exit 3\ngh issue list --json number\n```\n' >"$TMP/fg/skills/fg/SKILL.md"
+printf '{ "hooks": { "SessionStart": [ { "hooks": [\n  { "type": "command", "command": "[ \\"${CLAUDE_CODE_REMOTE:-}\\" = true ] && exit 0" },\n  { "type": "command", "command": "gh issue list --json number" }\n] } ] } }\n' >"$TMP/fg/hooks/hooks.json"
+scan "$TMP/fg.json" "$TMP/fg" --no-repo --target claude-code-cloud --targets-dir "$TMP/profiles-fence-guard"
+same "a guard rates scripts only: the fence and the hook keep their severity" "fence:breaks hook:breaks script:info" \
+  "$(jq -r '[.targets[0].findings[] | select(.rule == "github-graphql") | "\(.context):\(.severity)"] | sort | join(" ")' "$TMP/fg.json")"
+
+# ---------------------------------------------------------------------------
 printf '\nrules that defer to each other\n'
 
 mkdir -p "$TMP/exc/.claude-plugin" "$TMP/exc/scripts"
@@ -399,7 +472,7 @@ review '[{"target": "claude-code-cloud", "rule": "github-graphql", "severity": "
   "file": "rules/github-graphql/scripts/list.sh", "line": 2, "evidence": "only a listing"}]'
 scan "$TMP/rv2.json" "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud --review "$TMP/review.json"
 same "a review finding cannot downgrade or drop a scanned one" "breaks 2" \
-  "$(jq -r '.targets[0] | "\(.components[0].verdict) \(.findings | length)"' "$TMP/rv2.json")"
+  "$(jq -r '.targets[0] | "\(.components[] | select(.component == "scripts/list.sh") | .verdict) \([.findings[] | select(.component == "scripts/list.sh")] | length)"' "$TMP/rv2.json")"
 
 review_rejected() { # <name> <json>
   review "$2"
@@ -427,6 +500,20 @@ review '[{"target": "claude-code-cloud", "rule": "github-graphql", "component": 
 md=$("$SUT" "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud --review "$TMP/review.json" --format markdown 2>/dev/null)
 grep -q '`github-graphql` breaks (scan and review)' <<<"$md" && ok "a rule found by the scan and by the review says both" \
   || bad "a rule found by the scan and by the review says both"
+
+# A call the scan cannot see — app_api /app, through the script's own function —
+# is the reviewer's to cite. On a script that carries the rule's guard it takes
+# the guard's severity unless the finding gives its own.
+review '[{"target": "claude-code-cloud", "rule": "non-repository-endpoint", "component": "scripts/app.sh",
+  "file": "non-repository-endpoint/scripts/app.sh", "line": 11, "evidence": "app_api --method POST \"/app/installations/$1/access_tokens\""},
+ {"target": "claude-code-cloud", "rule": "non-repository-endpoint", "component": "scripts/app.sh", "severity": "breaks",
+  "file": "non-repository-endpoint/scripts/app.sh", "line": 11, "evidence": "the same, with a severity of its own"},
+ {"target": "claude-code-cloud", "rule": "non-repository-endpoint", "component": "scripts/lookup.sh",
+  "file": "non-repository-endpoint/scripts/lookup.sh", "line": 3, "evidence": "a script without the guard"}]'
+scan "$TMP/rg.json" "$DATA/rules/non-repository-endpoint" --no-repo --target claude-code-cloud --review "$TMP/review.json"
+same "a review finding on a guarded script takes the guard's severity; one that gives its own, or on an unguarded script, does not" \
+  "scripts/app.sh:breaks:- scripts/app.sh:degrades:4 scripts/lookup.sh:breaks:-" \
+  "$(jq -r '[.targets[0].findings[] | select(.basis == "review") | "\(.component):\(.severity):\(.guard.line // "-")"] | sort | join(" ")' "$TMP/rg.json")"
 
 # ---------------------------------------------------------------------------
 printf '\noutput\n'
@@ -474,6 +561,22 @@ exit_case "a profile whose pattern does not compile, on a plugin with no lines: 
 exit_case "a profile whose pattern does not compile, on a plugin with lines: 2" 2 "$DATA/rules/github-graphql" --no-repo --targets-dir "$TMP/profiles-bad-pattern"
 exit_case "a profile rule with no source: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-no-sources"
 exit_case "a profile whose id is not its file name: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-wrong-id"
+# guard_profile <dir> <jq> — claude-code-cloud with one guard changed
+guard_profile() { mkdir -p "$TMP/$1"; jq "$2" "$PROFILES/claude-code-cloud.json" >"$TMP/$1/claude-code-cloud.json"; }
+guard_profile profiles-guard-pattern '(.rules[] | select(.id == "github-graphql") | .guard.pattern) = "(unclosed"'
+guard_profile profiles-guard-severity '(.rules[] | select(.id == "github-graphql") | .guard.severity) = "fine"'
+guard_profile profiles-guard-kind '(.rules[] | select(.id == "host-not-on-trusted-list") | .guard) = {"pattern": "x", "severity": "degrades"}'
+guard_profile profiles-guard-fence '(.rules[] | select(.id == "github-graphql") | .match.in) = ["fence"]'
+exit_case "a profile whose guard pattern does not compile: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-guard-pattern"
+exit_case "a profile whose guard severity is not a severity: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-guard-severity"
+exit_case "a profile with a guard on a rule that is not a command rule: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-guard-kind"
+exit_case "a profile with a guard on a rule that never matches in a script: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-guard-fence"
+if python3 -c 'import jsonschema' 2>/dev/null; then
+  same "target.schema.json refuses a guard on a rule that is not a command rule" "invalid" \
+    "$(python3 -c 'import json, sys, jsonschema
+v = jsonschema.Draft202012Validator(json.load(open(sys.argv[1])))
+print("invalid" if any(v.iter_errors(json.load(open(sys.argv[2])))) else "valid")' "$SCHEMA" "$TMP/profiles-guard-kind/claude-code-cloud.json")"
+fi
 
 # ---------------------------------------------------------------------------
 printf '\nthe skill\n'

@@ -174,6 +174,24 @@
             "$ref": "#/$defs/severity"
           }
         },
+        "guard": {
+          "description": "For a command rule: how a script that already handles what the rule describes is rated. When another line of code in the same script matches pattern (Oniguruma, as jq's test) — a test of CLAUDE_CODE_REMOTE that skips the step, a grep that recognises the refusal by its message — every match of this rule in that script is rated at severity instead of the script severity. The guard applies to the whole file: a matching line anywhere in the script, before or after the call, guards every call in it, and a component that reaches the script inherits that severity. It applies only in scripts; a fence, a hook or frontmatter keeps its severity. A line is matched as code with its quoted text kept, so a comment, a message command (echo, printf, fail …) or a heredoc's text never guards, and neither does the matched line itself.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "pattern",
+            "severity"
+          ],
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "minLength": 1
+            },
+            "severity": {
+              "$ref": "#/$defs/severity"
+            }
+          }
+        },
         "remedy": {
           "type": "string",
           "minLength": 1
@@ -225,6 +243,24 @@
             "properties": {
               "observed": {
                 "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "guard"
+            ]
+          },
+          "then": {
+            "properties": {
+              "match": {
+                "properties": {
+                  "kind": {
+                    "const": "command"
+                  }
+                }
               }
             }
           }
