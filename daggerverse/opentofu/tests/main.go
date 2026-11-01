@@ -149,7 +149,7 @@ func (t *Tests) All(
 	jobs = jobs.WithJob("CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges", t.CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges)
 	jobs = jobs.WithJob("CiCheckWithTestPasses", t.CiCheckWithTestPasses)
 	jobs = jobs.WithJob("CiCheckWithTestReportsFailingTest", t.CiCheckWithTestReportsFailingTest)
-	jobs = jobs.WithJob("CiCheckWithTestAloneIsAStage", t.CiCheckWithTestAloneIsAStage)
+	jobs = jobs.WithJob("CiCheckRunsTestStageAlone", t.CiCheckRunsTestStageAlone)
 	jobs = jobs.WithJob("CiRunProducesPlanArtifacts", t.CiRunProducesPlanArtifacts)
 	jobs = jobs.WithJob("CiRunFailsOnFailedCheck", t.CiRunFailsOnFailedCheck)
 

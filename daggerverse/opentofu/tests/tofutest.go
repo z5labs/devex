@@ -139,10 +139,10 @@ func (t *Tests) CiCheckWithTestReportsFailingTest(ctx context.Context) error {
 	return expectErrorContains(err, "tofu test failed", failingAssertion, "not formatted")
 }
 
-// CiCheckWithTestAloneIsAStage asserts WithTest is enough on its own to make a
+// CiCheckRunsTestStageAlone asserts WithTest is enough on its own to make a
 // pipeline: a Check with only the test stage enabled runs it rather than
 // rejecting the pipeline as empty.
-func (t *Tests) CiCheckWithTestAloneIsAStage(ctx context.Context) error {
+func (t *Tests) CiCheckRunsTestStageAlone(ctx context.Context) error {
 	err := opentofu().Config(fixture("tested-failing")).Ci().WithTest().Check(ctx)
 	if err != nil && strings.Contains(err.Error(), "no stages enabled") {
 		return fmt.Errorf("expected WithTest alone to enable a stage, got: %v", err)
