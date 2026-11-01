@@ -124,8 +124,24 @@
 #      present with no reviewer pair. None of the three is a rung being down, and
 #      reporting any of them as exit 3 would let a mistake and a migration both
 #      read as "this machine has no App".
+#
+# Why a Claude Code cloud session is exit 3 before anything else is read.
+#
+# Its GitHub proxy serves `repos/{owner}/{repo}/...` and refuses most paths
+# outside it. `GET /app` gets "Access to this GitHub API path is not permitted
+# through this proxy", and the token exchange lives under `/app/installations`,
+# so no credential can mint a token there — observed on z5labs/devex, #479.
+# That used to surface as the second sentence below, "not two halves of one App",
+# about a key GitHub never saw. So a session that says it is one
+# (CLAUDE_CODE_REMOTE=true) is told so up front, at no network cost, which is
+# what lets `post-review.sh --preflight` give the answer before a subagent is
+# spent; and a refusal of `GET /app` by that proxy is recognised by its message
+# wherever the variable is not set. Both are UNAVAILABLE, not a wrong credential:
+# the rung cannot run in that session, and runs from a local checkout.
 
 set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
 
 fail() { local code=$1; shift; printf 'app-token: %s\n' "$*" >&2; exit "$code"; }
 
@@ -187,6 +203,14 @@ if [ "$ID_ENV_SET" -eq 1 ] && [ "$KEY_ENV_SET" -eq 0 ]; then
 fi
 if [ "$KEY_ENV_SET" -eq 1 ] && [ "$ID_ENV_SET" -eq 0 ]; then
   fail 4 "--key-env names '$KEY_ENV' but --id-env was not given, so the ID would still be read from $ID_ENV -- one App's key against another App's ID. Pass both, or neither"
+fi
+
+# ---------------------------------------------------------- cloud session -----
+# Ahead of the credential state on purpose. Half a pair is exit 4 anywhere else,
+# but here the rung cannot run whatever the pair holds, and a run stopped on a
+# configuration it could not have used is a run stopped for nothing.
+if [ "${CLAUDE_CODE_REMOTE:-}" = true ]; then
+  fail 3 "this is a Claude Code cloud session (CLAUDE_CODE_REMOTE=true), whose GitHub proxy refuses GET /app and the token exchange under /app/installations, so the local rung cannot mint a token from a Claude Code cloud session whatever $ID_ENV and $KEY_ENV hold. Nothing here says the credential is wrong: the rung is unavailable in this session, and runs from a local checkout"
 fi
 
 # ----------------------------------------------------------- preconditions ----
@@ -297,9 +321,25 @@ app_api() { gh api -H "Authorization: Bearer $JWT" "$@"; }
 # lookup, and the remedies are "check the pair against one App's settings page"
 # and "install the App on this account" — which share no step, so a message that
 # offered both would be wrong for whichever reader acted on it.
-SLUG=$(app_api /app --jq .slug 2>/dev/null) || SLUG=""
-[ -n "$SLUG" ] && [ "$SLUG" != null ] \
-  || fail 3 "the App JWT was rejected by GET /app, so the ID in $ID_ENV and the key in $KEY_ENV are not two halves of one App -- the signature was produced, GitHub just does not accept it for App $APP_ID. Open one App's settings page and take both values from it, or the App has been deleted"
+#
+# Only GitHub's own answer is read as a verdict on the key. A 401 or a 404 is
+# GitHub saying the JWT is not App $APP_ID's; a proxy refusing the path, a
+# network failure or a 5xx never reached that question, and reporting any of
+# them as a mismatched pair sends the operator to rotate a key that is fine.
+APP_ERR=$(mktemp) || fail 3 "cannot create a temporary file for the GET /app read"
+# shellcheck disable=SC2064
+trap "rm -f '$APP_ERR' ${CLEANUP:+'$CLEANUP'}" EXIT
+SLUG=$(app_api /app --jq .slug 2>"$APP_ERR") || SLUG=""
+if [ -z "$SLUG" ] || [ "$SLUG" = null ]; then
+  WHY=$(tr '\n' ' ' <"$APP_ERR" | sed 's/ *$//')
+  if grep -qE 'not permitted through this proxy|sessions are bound to their configured repositories' "$APP_ERR"; then
+    fail 3 "GET /app was refused by a proxy before GitHub judged the key ($WHY). That is a Claude Code cloud session's GitHub proxy, which does not forward /app or the token exchange, so the local rung cannot mint a token from a Claude Code cloud session. Nothing here says $ID_ENV and $KEY_ENV are not one App's: the rung is unavailable in this session, and runs from a local checkout"
+  fi
+  if printf '%s' "$WHY" | grep -qE '\(HTTP 40[14]\)'; then
+    fail 3 "the App JWT was rejected by GET /app, so the ID in $ID_ENV and the key in $KEY_ENV are not two halves of one App -- the signature was produced, GitHub just does not accept it for App $APP_ID. Open one App's settings page and take both values from it, or the App has been deleted"
+  fi
+  fail 3 "GET /app did not answer whether the key in $KEY_ENV is App $APP_ID's (${WHY:-no response}), so nothing here says the pair is wrong; the rung is unavailable for now -- retry, or check the network between here and GitHub"
+fi
 
 if [ "$MODE" = --login ]; then
   # A bot's login is its slug plus `[bot]`, and that is the login the review
@@ -308,8 +348,10 @@ if [ "$MODE" = --login ]; then
   exit 0
 fi
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) || REPO=""
-[ -n "$REPO" ] || fail 3 "cannot resolve the repository slug from gh"
+# From the origin remote, confirmed over REST; repo.sh says why when it cannot.
+REPO=$("$HERE/repo.sh") || fail 3 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 3 "cannot resolve the repository; repo.sh printed no slug"
 OWNER=${REPO%%/*}
 
 # Not installed here, with the JWT already known good. This is the multi-account

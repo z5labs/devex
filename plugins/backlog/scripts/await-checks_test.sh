@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 #
-# await-checks_test.sh — the fixture corpus for await-checks.sh's classification.
+# await-checks_test.sh — the fixture corpus for await-checks.sh's classification,
+# and the wait itself against a `gh` that answers from files.
 #
 # Every `--classify` case is an array of `{name,bucket,state,link,sha}` checks —
 # the shape `--normalize` turns GitHub's check runs and commit statuses into —
@@ -226,6 +227,103 @@ usage_check '--classify --require needs a value' 4 --classify --require </dev/nu
 usage_check '--normalize takes no argument' 4 --normalize 12 </dev/null
 usage_check 'a SHA that is not a full hex SHA' 4 12 dfbf5c3a
 usage_check 'more than a pull request and a SHA' 4 12 "$NEW" extra
+
+printf '\nthe wait, against a gh that answers from files\n'
+
+# Everything above is the judgment; this is the plumbing that feeds it, run
+# whole against a scratch checkout and a `gh` that answers from files. Every read
+# is REST under `repos/{owner}/{repo}/...` — the pull request's base and head from
+# `GET /pulls/{n}`, the required checks, the commit's check runs and statuses —
+# because that is what a Claude Code cloud session's GitHub proxy serves. The
+# stub sources the guard that refuses everything GraphQL-backed and logs it, and
+# the last case here asserts nothing was refused.
+SCRATCH=$(mktemp -d) || { printf 'cannot create a scratch directory\n' >&2; exit 1; }
+trap 'rm -rf "$SCRATCH"' EXIT
+mkdir -p "$SCRATCH/bin" "$SCRATCH/fx"
+export GH_GUARD="$HERE/testdata/gh-guard.sh"
+export GH_GUARD_LOG="$SCRATCH/graphql-calls"
+: >"$GH_GUARD_LOG"
+
+git init -q "$SCRATCH/repo" >/dev/null 2>&1 || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+git -C "$SCRATCH/repo" remote add origin git@github.com:z5labs/devex.git
+
+# Routes, each answered from a file in $FX; an absent file is GitHub's 404.
+cat >"$SCRATCH/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+. "$GH_GUARD"
+q="" path="" prev=""
+for a in "$@"; do
+  [ "$prev" = --jq ] && q=$a
+  case "$a" in repos/*) path=$a ;; esac
+  prev=$a
+done
+[ "$1" = api ] && [ -n "$path" ] || { printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1; }
+route=${path%%\?*}
+case "$route" in
+  repos/z5labs/devex)                         f=repo ;;
+  repos/*/pulls/*)                            f="pull-${route##*/}" ;;
+  repos/*/rules/branches/*)                   f=rules ;;
+  repos/*/branches/*/protection/*)            f=protection ;;
+  repos/*/commits/*/check-runs)               f=check-runs ;;
+  repos/*/commits/*/status)                   f=status ;;
+  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
+esac
+[ -f "$FX/$f" ] || { printf '{"message":"Not Found"}'; printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; }
+if [ -n "$q" ]; then jq -r "$q" "$FX/$f"; else cat "$FX/$f"; fi
+STUB
+chmod +x "$SCRATCH/bin/gh"
+
+FX="$SCRATCH/fx"
+printf '{"full_name":"z5labs/devex","default_branch":"main"}\n' >"$FX/repo"
+printf '[{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"CI Gate"}]}}]\n' >"$FX/rules"
+
+# pull <number> <head sha> — the pull request as `GET /pulls/{n}` answers it
+pull() { printf '{"number":%s,"state":"open","merged":false,"base":{"ref":"main"},"head":{"sha":"%s"}}\n' "$1" "$2" >"$FX/pull-$1"; }
+# runs <check run json>... — the commit's check runs
+runs() { printf '{"total_count":%s,"check_runs":[%s]}\n' "$#" "$(IFS=,; printf '%s' "$*")" >"$FX/check-runs"; }
+# cr <name> <status> <conclusion|null> [sha] — one REST check run
+cr() { printf '{"name":"%s","status":"%s","conclusion":%s,"head_sha":"%s","html_url":"u"}' "$1" "$2" "$3" "${4:-$NEW}"; }
+printf '{"sha":"%s","statuses":[]}\n' "$NEW" >"$FX/status"
+
+# checke <name> <expected exit> <args...>
+checke() {
+  local name=$1 want=$2 out rc; shift 2
+  out=$(cd "$SCRATCH/repo" && PATH="$SCRATCH/bin:$PATH" FX="$FX" \
+    BACKLOG_CHECKS_POLL_COUNT=1 BACKLOG_CHECKS_POLL_SECONDS=0 "$SUT" "$@" 2>&1)
+  rc=$?
+  if [ "$rc" = "$want" ]; then
+    pass=$((pass + 1)); printf '  ok   %-58s [exit %s]\n' "$name" "$rc"
+  else
+    fail=$((fail + 1)); printf '  FAIL %-58s want exit %s got %s: %s\n' "$name" "$want" "$rc" "$(printf '%s' "$out" | tr '\n' ' ' | cut -c1-160)"
+  fi
+}
+
+pull 12 "$NEW"
+runs "$(cr 'CI Gate' completed '"success"')" "$(cr tests completed '"success"')"
+checke 'every check on the pushed head passed' 0 12 "$NEW"
+
+runs "$(cr 'CI Gate' completed '"failure"')"
+checke 'a failed check on the pushed head' 1 12 "$NEW"
+
+# The required check, read from `rules/branches`, has not registered yet.
+runs "$(cr tests completed '"success"')"
+checke 'a required check not registered yet is outstanding' 2 12 "$NEW"
+
+# The pull request's head, from `GET /pulls/{n}`, is still the previous commit.
+pull 12 "$OLD"
+runs "$(cr 'CI Gate' completed '"success"' "$OLD")"
+checke "the head is not the pushed commit yet" 5 12 "$NEW"
+
+# A pull request that does not exist is a precondition failure, read once before
+# any polling, not five minutes of "nothing gates this pull request".
+checke 'a pull request that does not exist' 4 99 "$NEW"
+
+printf '\nGraphQL\n'
+if [ -s "$GH_GUARD_LOG" ]; then
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'no GraphQL-backed gh call was made' "$(tr '\n' ';' <"$GH_GUARD_LOG")"
+else
+  pass=$((pass + 1)); printf '  ok   %-58s [%s]\n' 'no GraphQL-backed gh call was made' 'none'
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

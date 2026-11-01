@@ -37,8 +37,8 @@
 # Findings folded in here, each of which cost a debugging session:
 #
 #   * Copilot is a Bot, not a User. `reviewers[]=Copilot` on the REST endpoint
-#     returns 200 and does nothing; the GraphQL mutation takes `botIds`, and the
-#     REST form works only with the full `...[bot]` login.
+#     returns 200 and does nothing; the REST form works only with the full
+#     `...[bot]` login, which is the only form this script ever sends.
 #   * The wait polls the TIMELINE, not `pulls/<pr>/reviews`. The reviews
 #     endpoint has been seen empty for forty minutes after Copilot had in fact
 #     submitted, so polling it times out on a pull request that was reviewed.
@@ -64,6 +64,17 @@
 # and the rest is shared. The `local` rung has no request step at all: its
 # review is produced by a subagent and POSTed by `post-review.sh` before this
 # script is called, so here it is a wait and a classification and nothing else.
+#
+# Every GitHub call here is REST under `repos/{owner}/{repo}/...`, which is what
+# a Claude Code cloud session's GitHub proxy serves. The request used to go
+# through GraphQL's `requestReviews` first, after looking the bot up at
+# `GET /users/{login}` for its node ID and its account type; the proxy refuses
+# GraphQL, and refuses `users/...` as outside the session's repository. So the
+# request is the REST one alone, and whether a login is a Bot is read from the
+# login itself: every Bot's login ends `[bot]`, and a person's login cannot hold
+# a bracket at all. That is checked before anything is read or requested, so a
+# login without it can never reach the request as a person — which the account
+# lookup used to guard against, and which a failed lookup let through.
 #
 # UNAVAILABILITY versus REFUSAL, which is the distinction the roster turns on.
 # A rung that reviewed the pull request and refused it has said something true
@@ -180,8 +191,11 @@ VERDICT=""
 COPILOT_LOGIN='copilot-pull-request-reviewer[bot]'
 # A refusal satisfies any `length > 0` test, which is exactly how it was missed.
 # The apostrophe is matched loosely because GitHub has rendered it both as ' and
-# as a typographic quote.
-COPILOT_REFUSAL="was(n.?t| not) able to review"
+# as a typographic quote — and up to three of any character, not one, because
+# the typographic quote is three bytes of UTF-8 and grep counts bytes under the
+# C or POSIX locale. A Claude Code cloud session runs in exactly that locale, and
+# `.?` there let "wasn’t able to review" through as a completed review.
+COPILOT_REFUSAL="was(n.{0,3}t| not) able to review"
 # The check run Copilot's Actions workflow leaves on the commit it reviewed.
 # Its name is not a documented contract either, but a rename surfaces as "no
 # check run" — exit 5, a human reads it — where a reworded body slipped through
@@ -259,16 +273,24 @@ resolve_reviewer() { # <reviewer>
         copilot) REVIEWER_LOGIN=$COPILOT_LOGIN ;;
         *)       REVIEWER_LOGIN=${1#bot:} ;;
       esac
+      # A Bot's login ends `[bot]`; a person's GitHub login is letters, digits
+      # and hyphens, and cannot hold a bracket. So a login without the suffix is
+      # not a Bot, and this rung is unavailable before anything is read or
+      # requested — a REST request under that login would ask a PERSON for the
+      # review the roster says a bot gives. Unavailable rather than a usage
+      # error, as a login that resolved to a person always was.
+      case "$REVIEWER_LOGIN" in
+        ?*'[bot]') ;;
+        *) fail 3 "'$REVIEWER_LOGIN' is not a Bot's login -- a Bot's login ends in [bot], and a person's cannot hold a bracket -- so no review can be requested from it as a bot. This rung is unavailable: advance the roster and remember it. If it is a bot, name it in review.reviewers as bot:$REVIEWER_LOGIN[bot]" ;;
+      esac
       if [ "$REVIEWER_LOGIN" = "$COPILOT_LOGIN" ]; then
         REVIEWER_MATCH='copilot'
       else
         # The `[bot]` suffix is dropped before escaping rather than matched,
         # because the timeline has carried both spellings for the same bot and
-        # the match is an unanchored substring test. So `bot:coderabbitai[bot]`
-        # and `bot:coderabbitai` filter identically, and only the login sent to
-        # GitHub — which REST accepts in the full form only — differs.
+        # the match is an unanchored substring test. The login sent to GitHub
+        # keeps it: REST accepts a bot in the full form only.
         REVIEWER_MATCH=$(regex_escape "${REVIEWER_LOGIN%"[bot]"}")
-        [ -n "$REVIEWER_MATCH" ] || REVIEWER_MATCH=$(regex_escape "$REVIEWER_LOGIN")
       fi
       ;;
   esac
@@ -457,9 +479,10 @@ case "$PR" in ''|*[!0-9]*) fail 4 "pull request number must be an integer (got '
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
 command -v jq >/dev/null 2>&1 || fail 4 "jq is not on PATH"
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
-  || fail 4 "cannot resolve the repository slug from gh"
-[ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
+# From the origin remote, confirmed over REST; repo.sh says why when it cannot.
+REPO=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 4 "cannot resolve the repository; repo.sh printed no slug"
 
 resolve_reviewer "${ARGS[1]:-copilot}"
 
@@ -539,45 +562,17 @@ requested() {
   | grep -qiE -- "$REVIEWER_MATCH"
 }
 
-# The bot's node ID is looked up by login rather than hard-coded, so a change on
-# GitHub's side surfaces here as a failed lookup instead of a silent no-op. The
-# account TYPE comes back from the same call, because `requestReviews` takes
-# `botIds` and a login that is not a Bot cannot be passed to it — while the REST
-# fallback would happily request a REVIEW FROM A PERSON under that login. So a
-# login that resolves to anything but a Bot is unavailable before the fallback
-# is reached. A lookup that fails outright says nothing about the type and is
-# left to the fallback, exactly as it was.
+# `POST /pulls/{n}/requested_reviewers`, with the full `...[bot]` login — the
+# only form REST accepts for a bot. A bare `reviewers[]=Copilot` returns 200
+# while doing nothing at all, and the wait below would then time out on a review
+# that was never requested; that is also why the answer is not the POST's status
+# but `requested`, which reads the pull request back. A bot that is not installed
+# on the repository is refused here, reads back as not requested, and is
+# unavailable. The login was checked for its `[bot]` suffix before this point, so
+# nothing here can ask a person.
 request_review() {
-  local pr_id account acct_type bot_id
-  pr_id=$(gh pr view "$PR" --repo "$REPO" --json id --jq .id 2>/dev/null) || pr_id=""
-  account=$(gh api "/users/$REVIEWER_LOGIN" --jq '"\(.type // "")|\(.node_id // "")"' 2>/dev/null) || account=""
-  acct_type=${account%%|*}
-  bot_id=${account#*|}
-
-  if [ -n "$acct_type" ] && [ "$acct_type" != Bot ]; then
-    fail 3 "$REVIEWER_LOGIN is a $acct_type on GitHub, not a Bot, so no review can be requested from it as one. This rung is unavailable: advance the roster and remember it"
-  fi
-
-  if [ -n "$pr_id" ] && [ -n "$bot_id" ]; then
-    if gh api graphql -f query='
-      mutation($pr:ID!, $bot:ID!) {
-        requestReviews(input: {pullRequestId: $pr, botIds: [$bot], union: true}) {
-          pullRequest { reviewRequests(first:10) { nodes {
-            requestedReviewer { __typename ... on Bot { login } } } } }
-        }
-      }' -f pr="$pr_id" -f bot="$bot_id" 2>/dev/null | grep -qiE -- "$REVIEWER_MATCH"; then
-      note "review requested from $REVIEWER via the GraphQL requestReviews mutation"
-      return 0
-    fi
-    note "the GraphQL mutation did not take; falling back to REST"
-  fi
-
-  # REST works only with the full bot login. A bare `reviewers[]=Copilot`
-  # returns 200 while doing nothing at all, and the wait below would then time
-  # out on a review that was never requested.
   gh api --method POST "repos/$REPO/pulls/$PR/requested_reviewers" \
     -f "reviewers[]=$REVIEWER_LOGIN" >/dev/null 2>&1 || true
-
   requested
 }
 

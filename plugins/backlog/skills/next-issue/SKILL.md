@@ -18,6 +18,17 @@ scope, dependency convention, verify commands, merge label and worktree director
 from `.claude/backlog.json` — where every selector among them is a **default** that an
 argument to step 1 can replace for this run alone.
 
+**Every GitHub call in this cycle is REST, against `repos/{owner}/{repo}/...`** — through the
+plugin's scripts, through `gh api` in the blocks below, and through `gh run`, which is
+REST-backed already. That is what lets the cycle run in a Claude Code cloud session, whose
+GitHub proxy refuses GraphQL (and with it `gh repo view`, `gh issue`, `gh pr`, `gh label
+list`, `gh project` and `gh search`) and refuses most paths outside the session's repository.
+Do not reach for one of those commands as a shortcut: in a cloud session it fails with
+`HTTP 403`, and the REST call beside it is the one that works everywhere. Two things stay
+local-only, and say so when they are reached: a **project-scoped** selection (step 1), because
+Projects v2 exists only in GraphQL, and the **`local`** review rung (step 7), because the
+proxy refuses the App endpoints it mints a token from.
+
 ## 0. Load the configuration
 
 Two reads, in this order. Both must succeed before anything else happens.
@@ -60,12 +71,17 @@ wrong.
 
 **The repository.** Slug and default branch come from GitHub, not from the config — a fork
 or a rename must not be able to leave a stale slug pointing the cycle at someone else's
-repository:
+repository. The origin remote names it and `GET /repos/{owner}/{repo}` confirms it, and the
+slug printed is GitHub's `full_name`, so a clone made before a rename resolves to the new
+name:
 
 ```
-read -r REPO DEFAULT_BRANCH <<<"$(gh repo view --json nameWithOwner,defaultBranchRef \
-  --jq '"\(.nameWithOwner) \(.defaultBranchRef.name)"')"
+IFS=$'\t' read -r REPO DEFAULT_BRANCH <<<"$("${CLAUDE_PLUGIN_ROOT}/scripts/repo.sh")"
 ```
+
+Exit 4 from `repo.sh` is `BLOCKED`: it names the remote it could not read, or the reason
+GitHub gave for the repository — in a cloud session, usually that the repository is not
+attached to the session.
 
 Shell state does not survive between Bash calls, so those two variables are gone by your
 next command. Note the values down and substitute them literally into the commands below,
@@ -126,12 +142,13 @@ Two rules the script enforces, both worth knowing before you are refused:
   exit 11 `BLOCKED` naming them, never selected.
 
 A **milestone that does not exist** is exit 4 naming the ones that do, whether it came from
-the flag or from the config. That check is there because `gh issue list --milestone` answers
+the flag or from the config. That check is there because `gh issue list --milestone` answered
 `[]` with exit 0 for a milestone that was deleted or renamed, and an empty candidate list
 prints `BACKLOG EMPTY` — which halts the loop as a success over a backlog that is fully
-workable. If that fires, the answer is a `--milestone` (or `--no-milestone-filter`) argument
-on this run and an issue against the repository whose config went stale; it is **not** a
-reason to edit `.claude/backlog.json` yourself.
+workable. The same read now resolves the title to the milestone's number, which is what the
+REST issue list filters by. If that fires, the answer is a `--milestone` (or
+`--no-milestone-filter`) argument on this run and an issue against the repository whose
+config went stale; it is **not** a reason to edit `.claude/backlog.json` yourself.
 
 ### Scoping the run to one project field value
 
@@ -176,6 +193,11 @@ Three things to know when it fails:
 - It needs the **`read:project`** token scope, which `repo` does not include, and it needs it
   however the scope was assembled — a scope built entirely from flags reads the same API.
   `gh auth refresh -s read:project` grants it.
+- It is **local-only in a Claude Code cloud session.** Projects v2 exists only in GraphQL,
+  which the session's GitHub proxy refuses, so a requested scope there is exit 4 saying so.
+  Report `BLOCKED` with that message. The scope is run from a local checkout; dropping it to
+  run the whole backlog instead is a different run, and only the person who asked for the
+  scope can ask for that one.
 - Every project failure is exit 4 — a token without that scope, an unknown project, a field
   that does not exist or is not a single-select, a value that is not one of the field's
   options, an axis named with no value to match on it. **Do not retry without the flag.**
@@ -221,11 +243,13 @@ heading. The reference has to follow the phrase immediately, so `Depends on the 
 landing, see #99` is not a dependency on 99. A phrase negated in the same clause — `no longer
 depends on #17` — is a note that a dependency was removed, not a live one.
 
-**`native`** — GitHub's own typed issue dependencies, the `blockedBy` edges you write with
-`gh issue edit <n> --add-blocked-by <n>`. The body is not read at all under this style. A
-typed edge cannot be written ambiguously, it renders as a real relationship on the issue, and
-it survives a rewording of the body — so where a repository has populated them, they are
-strictly better than anything parsed out of prose.
+**`native`** — GitHub's own typed issue dependencies, the "blocked by" edges on the issue,
+read from `GET /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by`. The body is not read
+at all under this style. A typed edge cannot be written ambiguously, it renders as a real
+relationship on the issue, and it survives a rewording of the body — so where a repository has
+populated them, they are strictly better than anything parsed out of prose. Each edge names
+its blocker's repository and state in the same response, so a cross-repository edge is
+resolved without a second read.
 
 The reason this is **declared and never fallen back to**: an unpopulated edge set and an
 unblocked issue are the same response. A repository that writes its ordering in prose and has
@@ -234,8 +258,10 @@ which reads as an unblocked backlog and is the one wrong answer that gets work d
 wrong order rather than not at all. So a body parse finding nothing never escalates to
 `native`, and `native` coming back empty never falls back to reading the body. Each style
 answers wrongly for a repository using the other, and the config is what says which. When
-you *write* an issue for a `native` repository, add the edge with `gh issue edit`; a
-`Blocked by:` line in the body is decoration there and blocks nothing.
+you *write* an issue for a `native` repository, add the edge as a typed dependency — the
+issue sidebar, or `POST /repos/{owner}/{repo}/issues/{n}/dependencies/blocked_by` with the
+blocker's numeric `issue_id` (its `.id`, not its number); a `Blocked by:` line in the body is
+decoration there and blocks nothing.
 
 **`none`** — the backlog declares no ordering. Bodies are not parsed at all; every open issue
 carrying the label is eligible and the lowest-numbered one wins.
@@ -248,11 +274,13 @@ dependency therefore decays when its blocker lands, exactly like one here — wh
 makes a story in one repository able to wait on work in another.
 
 A dependency whose state cannot be *read* — a private repository, a token without the scope,
-a deleted issue — is `UNREADABLE` and stays a blocker. That makes *that issue* ineligible and
+a deleted issue, or in a cloud session any repository not attached to the session — is
+`UNREADABLE` and stays a blocker. That makes *that issue* ineligible and
 is named in the report, rather than being skipped and the issue called eligible, but the walk
 continues, so one unreadable reference does not starve a backlog whose other issues are
-workable. Under `native` a dependency query that fails outright is treated the same way: that
-issue is ineligible with the error recorded, never eligible-by-default.
+workable. Under `native` a dependency read that fails outright is treated the same way: that
+issue is ineligible with the error recorded, never eligible-by-default — and so, under the
+body styles, is an issue whose body cannot be read.
 
 **Post-merge criteria** — read under every style, because they are not about ordering. Some
 work can only happen once the pull request has merged: commenting on a discussion with a link
@@ -344,6 +372,15 @@ request:
 ...
 ```
 
+Run each one as its own blocking `Bash` call with the tool's `timeout` set to **`600000`**,
+the ten-minute maximum. Without one the call gets the two-minute default, and a command still
+running then is moved to the background — a `dagger check` routinely runs past two minutes —
+which hands its result to a later turn and leaves this one reading an unfinished command as
+though it had returned. Step 6's rules on waiting apply: not `run_in_background`, and no
+reading its output file to see how it is getting on. A command that cannot finish inside ten
+minutes is not one this cycle can gate on; say so in the report rather than splitting it into
+calls of your own.
+
 Some verify commands report a problem by printing rather than by exiting non-zero — a
 formatter listing the files it would rewrite is the usual case. For those, **non-empty
 output is the failure.** Fix what it lists rather than reading the exit code and moving on.
@@ -361,8 +398,15 @@ around it.
 git add -A
 git commit -m "<type>(<scope>): <summary>"   # match the issue title's prefix
 git push -u origin HEAD
-gh pr create --title "<issue title>" --body "<body>"
+gh api --method POST repos/<repo>/pulls \
+  -f title="<issue title>" -f head=issue-<n> -f base=<default-branch> \
+  -F body=@/tmp/pr-<n>-body.md \
+  --jq '"\(.number) \(.html_url)"'
 ```
+
+Write the body to `/tmp/pr-<n>-body.md` first and pass it as `-F body=@<file>`, which reads
+the field from the file — a body held in a shell string loses its backticks and dollar signs
+to the shell on the way through. The response's `number` is the `<pr>` of every step below.
 
 The pull request body must include `Closes #<n>`, the acceptance criteria checked off one by
 one, a note on any judgment call that shaped the public API, and how it was verified. Keep
@@ -385,26 +429,34 @@ text in this body it would make the merge close #757 — early, before the comme
 criterion asks for, and as *completed* rather than whatever the criterion says. Leave the
 heading out when the script printed `[]`.
 
-Then assert that the closing reference actually registered:
+Then check the body's closing keywords:
 
 ```
-gh pr view <pr> --repo <repo> --json closingIssuesReferences \
-  --jq '[.closingIssuesReferences[].number]'
+"${CLAUDE_PLUGIN_ROOT}/scripts/closing-refs.sh" <pr> <n>
 ```
 
-It must be exactly `[<n>]`. An empty array means GitHub did not parse the keyword — usually
-because the line is missing, misspelled, or names a cross-repository issue — and the link is
-established at creation time, so fixing the body later is the moment to re-check. Any number
-besides `<n>` is an issue the merge would close that this story did not set out to close —
-most often one a post-merge criterion names, written outside its fence. Edit the body and
-check again.
+Exit 0 means the body, read over REST, holds exactly one closing keyword outside a fence, and
+it names `#<n>`. Exit 1 says what it found instead: no closing keyword at all — the line is
+missing or misspelled — or an issue besides `<n>`, which the merge would close although this
+story did not set out to close it, most often one a post-merge criterion names, written
+outside its fence. Fix the body with `gh api --method PATCH repos/<repo>/pulls/<pr> -F
+body=@<file>` and run the check again. Exit 4 is the body or the repository not being
+readable, and is `BLOCKED`.
+
+**This is weaker than the check it replaces, and the report should not claim more.** It used
+to read `closingIssuesReferences`, GitHub's own parse of the body, which exists only in
+GraphQL and so cannot be read from a cloud session. A parse of the text can tell that the
+keyword is written and that nothing else is named beside it; it cannot tell that GitHub
+*linked* it — a reference GitHub declines, such as one naming a repository the token cannot
+see, looks the same here as one it accepted. `scripts/closing-refs_test.sh` is the corpus for
+what it does and does not count.
 
 This check costs one call and it is diagnostic, not preventive. It is expected to *pass* and
-for the issue to stay open anyway after the merge: the reference registers correctly and
-nothing acts on it when a workflow's `GITHUB_TOKEN` performs the merge, which is why step 10
-closes the issue explicitly. Running it here is what separates those two failures — a link
-that never formed from a link nothing honoured — instead of leaving them to look identical
-ten minutes later.
+for the issue to stay open anyway after the merge: the reference registers and nothing acts
+on it when a workflow's `GITHUB_TOKEN` performs the merge, which is why step 10 closes the
+issue explicitly. Running it here is what separates those two failures — a keyword that was
+never written from a link nothing honoured — instead of leaving them to look identical ten
+minutes later.
 
 ## 6. Wait for checks — one call, and then another if it is not finished
 
@@ -490,7 +542,7 @@ the gate you had reached —
 ```
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-checks.sh" <pr>          # step 6 — from the worktree
 "${CLAUDE_PLUGIN_ROOT}/scripts/await-review.sh" <pr> <rung>   # step 7 — idempotent
-gh pr view <pr> --repo <repo> --json state,autoMergeRequest   # step 9
+gh api repos/<repo>/pulls/<pr> --jq '{state, merged, auto_merge: (.auto_merge != null)}'   # step 9
 "${CLAUDE_PLUGIN_ROOT}/scripts/finish-issue.sh" <n> <pr> issue-<n>   # step 10 — guarded
 ```
 
@@ -582,8 +634,11 @@ shell does not glob it:
 
 Requesting and waiting are identical to `copilot` — which is itself sugar for
 `bot:copilot-pull-request-reviewer[bot]`, and writing the desugared form behaves the same.
-A login that resolves to a person rather than a Bot, or to nothing at all, is exit 3:
-unavailable, advance the roster, record the rung.
+The request is `POST /pulls/<pr>/requested_reviewers` with that full login. A login that does
+not end in `[bot]` is not a Bot's — a person's GitHub login cannot hold a bracket — and is
+exit 3 before anything is requested, so the rung can never ask a person for a bot's review.
+A bot that is not installed on the repository is exit 3 too. Either way: unavailable, advance
+the roster, record the rung.
 
 **Classification is the part that is not identical, and it is the reason this rung is safe.**
 The plugin knows how to ask a bot and how to tell that it answered; it does not know how that
@@ -624,11 +679,13 @@ Four steps, in this order:
 "${CLAUDE_PLUGIN_ROOT}/scripts/post-review.sh" --preflight
 ```
 
-Exit 3 means the rung is unavailable — the configured pair is absent from the environment, or
-`openssl` is not on PATH. That is a fallthrough, not a crash, and it costs no network call:
-advance the roster and record the rung. The preflight is first because everything after it
-costs a fresh agent and a whole diff, and learning afterwards that the App was never
-configured is the expensive way to learn it.
+Exit 3 means the rung is unavailable — the configured pair is absent from the environment,
+`openssl` is not on PATH, or this is a **Claude Code cloud session**, whose GitHub proxy
+refuses the App endpoints a token is minted from (`GET /app` and the exchange under
+`/app/installations`), whatever credentials it holds. That is a fallthrough, not a crash, and
+it costs no network call: advance the roster and record the rung, quoting the reason. The
+preflight is first because everything after it costs a fresh agent and a whole diff, and
+learning afterwards that the App was never configured is the expensive way to learn it.
 
 Quote the message rather than paraphrasing it. It names the variable this repository is
 configured to read and never the default, and an operator told to export
@@ -654,7 +711,7 @@ like one.
 **2. Spawn the reviewer.** A `general-purpose` subagent, given the diff and nothing else:
 
 ```
-gh pr diff <pr> > /tmp/pr-<pr>.diff
+gh api repos/<repo>/pulls/<pr> -H 'Accept: application/vnd.github.diff' > /tmp/pr-<pr>.diff
 ```
 
 Its prompt gives it the diff, the pull request title and the issue's acceptance criteria, and
@@ -734,11 +791,11 @@ of the longest part of the cycle.
 Findings that live inside the script rather than in prose here, each of which cost a debugging
 session:
 
-- Copilot is a **Bot**, not a User. The GraphQL mutation takes `botIds`; a bare
-  `reviewers[]=Copilot` on the REST endpoint returns 200 while doing nothing, and the wait
-  then times out on a review that was never requested. REST works only with the full
-  `copilot-pull-request-reviewer[bot]` login. The bot's node ID is looked up rather than
-  hard-coded.
+- Copilot is a **Bot**, not a User. A bare `reviewers[]=Copilot` on the REST endpoint
+  returns 200 while doing nothing, and the wait then times out on a review that was never
+  requested. REST works only with the full `copilot-pull-request-reviewer[bot]` login, which
+  is the only form the gate sends, and the gate reads the requested reviewers back rather
+  than trusting the POST's status.
 - The wait polls the **timeline**, not `pulls/<pr>/reviews`. The reviews endpoint has been
   seen empty for forty minutes after Copilot had in fact submitted, so polling it times out
   on a pull request that *was* reviewed. That is why the polling lives in the script and is
@@ -752,9 +809,11 @@ session:
   wait and one review would count as two.
 - The `local` rung's login is **discovered** from the App rather than written down. The App is
   the operator's and its slug is not this plugin's to know.
-- A `bot:<login>` rung's account **type** is checked before the request. `requestReviews` takes
-  `botIds`, so a login that is a person cannot be requested as a bot — and the REST fallback
-  would otherwise quietly request a review from that human instead.
+- A `bot:<login>` rung's login must end in **`[bot]`**, which every Bot's does and no person's
+  can. The REST request would otherwise quietly request a review from a human who holds that
+  login. The account type used to be looked up at `GET /users/{login}`, which a cloud session
+  refuses as outside its repository; the suffix answers the same question from the login
+  alone, before anything is read or requested.
 - The refusal wording is **per rung**, and absent means escalate rather than complete. This is
   the finding the generic rung was held back for: an unrecognised refusal matches nothing,
   falls through to the success path and returns as a completed review, which is a merge.
@@ -824,10 +883,11 @@ fails. And a *subagent* that merges emits a security banner into its caller's co
 blocks the caller's next agent spawn — killing the loop on its second iteration, one
 iteration after the mistake, where the cause is no longer visible.
 
-Hand the merge to GitHub instead:
+Hand the merge to GitHub instead — a pull request's labels are its issue's labels, so this is
+the issues route:
 
 ```
-gh pr edit <pr> --add-label <merge.label>
+gh api --method POST repos/<repo>/issues/<pr>/labels -f "labels[]=<merge.label>" --jq '[.[].name]'
 ```
 
 `.github/workflows/<merge.workflow>` picks up the `labeled` event and enables native auto
@@ -875,13 +935,18 @@ There are **two** successful outcomes, and checking only for an armed auto merge
 will report a false failure on the more common one:
 
 ```
-gh pr view <pr> --json state,autoMergeRequest -q '"\(.state) \(.autoMergeRequest.enabledAt // "not-armed")"'
+gh api repos/<repo>/pulls/<pr> \
+  --jq '"\(if .merged then "MERGED" else (.state | ascii_upcase) end) \(if .auto_merge then "armed" else "not-armed" end)"'
 ```
+
+`GET /pulls/<pr>` says `closed` for a merged pull request and an abandoned one alike, so
+`merged` is what is read for the first word, and `auto_merge` — present while auto merge is
+armed, `null` otherwise — for the second.
 
 - `MERGED …` — already merged. `gh pr merge --auto` merges immediately when the required
   checks have already passed, and since this cycle labels only after they pass, this is the
   usual result. `not-armed` beside `MERGED` is correct, not a fault.
-- `OPEN <timestamp>` — auto merge is armed and waiting on a check still running.
+- `OPEN armed` — auto merge is armed and waiting on a check still running.
 - `OPEN not-armed` with the merge run still in progress, on a repository without native auto
   merge — the gated path is waiting for checks. It never arms anything, so `not-armed` is all
   it will ever show before `MERGED`.
@@ -976,25 +1041,35 @@ finish-issue: OK — PR #<pr> MERGED as <sha>, issue #<n> CLOSED, local cleanup 
 ```
 
 If that line carries no `as <sha>`, GitHub had not reported the merge commit yet; read it
-with `gh pr view <pr> --repo <repo> --json mergeCommit -q .mergeCommit.oid`.
+with `gh api repos/<repo>/pulls/<pr> --jq .merge_commit_sha`.
 
 Then carry out each criterion **in order**, one at a time, exactly as written. "A link to
 the merged pull request" is `https://github.com/<repo>/pull/<pr>`; "what changed" is a
 sentence or two from the pull request body, not the diff. You are now in the main checkout
-— the worktree is gone — so a criterion acts on GitHub, through `gh`. A discussion is
-reached through `gh api graphql`: `addDiscussionComment` to comment, `closeDiscussion` with
-`reason: RESOLVED` to close it as resolved, and the discussion's node ID from
-`repository.discussion(number:)`.
+— the worktree is gone — so a criterion acts on GitHub, through `gh api`, over the REST
+routes under `repos/<repo>/...`: an issue is commented on with
+`POST repos/<repo>/issues/<k>/comments` and closed with `PATCH repos/<repo>/issues/<k>` and
+`state=closed` plus the `state_reason` the criterion asks for (`completed`, or `not_planned`).
+
+A **discussion** is the exception: it exists only in GraphQL — `addDiscussionComment` to
+comment, `closeDiscussion` with `reason: RESOLVED` to close it, and the discussion's node ID
+from `repository.discussion(number:)`, all through `gh api graphql`. **In a Claude Code cloud
+session that cannot be carried out at all**: the session's GitHub proxy refuses GraphQL, and
+there is no REST route to a discussion. Treat it as a failed criterion, below — record it as
+`FAILED: discussions are GraphQL-only, and a Claude Code cloud session's GitHub proxy refuses
+GraphQL`, carry out none after it, and report `BLOCKED` with the pull request merged and the
+issue closed, so that someone runs it from a local checkout. Do not try another route to it.
 
 This step ends one of two ways, and neither leaves the issue open. The issue stays
 `CLOSED` whatever happens here: reopening it, or never having closed it, puts merged work
 back in front of the next iteration's selection, which implements it again.
 
 - **Every criterion succeeded.** Post **one** comment on the closed issue recording what each
-  one did, with its link where it left one:
+  one did, with its link where it left one, written to a file first for the same reason as
+  step 5's body:
 
   ```
-  gh issue comment <n> --repo <repo> --body "<record>"
+  gh api --method POST repos/<repo>/issues/<n>/comments -F body=@/tmp/issue-<n>-record.md --jq .html_url
   ```
 
   ```
@@ -1069,9 +1144,11 @@ order, and check the state after the close rather than assuming it:
 ```
 # 1. wait for MERGED, bounded and in the foreground; CLOSED without merging is a failure,
 #    and a bound reached is "call it again", not "it failed"
-# 2. gh issue view <n> --repo <repo> --json state -q .state
-# 3. if OPEN: gh issue close <n> --repo <repo> --comment "Implemented in #<pr>, merged as <sha>."
-# 4. re-read the state and confirm CLOSED
+#    gh api repos/<repo>/pulls/<pr> --jq '{state, merged}'
+# 2. gh api repos/<repo>/issues/<n> --jq .state
+# 3. if open: gh api --method POST repos/<repo>/issues/<n>/comments -f body="Implemented in #<pr>, merged as <sha>."
+#             gh api --method PATCH repos/<repo>/issues/<n> -f state=closed -f state_reason=completed
+# 4. re-read the state and confirm closed
 # 5. git worktree remove <worktreeDir>/issue-<n>
 #    MAIN=$(git worktree list --porcelain | head -1 | cut -d' ' -f2-)
 #    git -C "$MAIN" branch -D issue-<n>

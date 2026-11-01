@@ -2,8 +2,9 @@
 #
 # post-merge-criteria_test.sh — the fixture corpus for post-merge-criteria.sh.
 #
-# Offline. Every case is an issue body fed to `--extract`, and the assertion is
-# the exact JSON array that comes back. A criterion read as post-merge when it
+# Offline. Every case but the last few is an issue body fed to `--extract`, and
+# the assertion is the exact JSON array that comes back; the last few read the
+# body from a `gh` that answers from files. A criterion read as post-merge when it
 # is not is work the worker defers past the merge and never checks before the
 # pull request; one missed is a box the worker cannot satisfy, so it stops or
 # improvises. Both directions are cases here.
@@ -167,6 +168,70 @@ usage_check 'no arguments' 4
 usage_check 'an issue number that is not a number' 4 not-a-number
 usage_check '--extract takes no other argument' 4 --extract 12
 usage_check 'an unknown flag' 4 --bogus
+
+printf '\nthe body, read from GitHub\n'
+
+# The one network call, run whole against a scratch checkout and a `gh` that
+# answers from files: the repository from the origin remote, confirmed over REST,
+# and the body from `GET /repos/{owner}/{repo}/issues/{n}`. `gh issue view` was
+# the call here, and it is GraphQL-backed, which a Claude Code cloud session's
+# GitHub proxy refuses. The stub sources the guard that refuses everything
+# GraphQL-backed and logs it, and the last case here asserts nothing was.
+SCRATCH=$(mktemp -d) || { printf 'cannot create a scratch directory\n' >&2; exit 1; }
+trap 'rm -rf "$SCRATCH"' EXIT
+mkdir -p "$SCRATCH/bin" "$SCRATCH/fx"
+export GH_GUARD="$HERE/testdata/gh-guard.sh"
+export GH_GUARD_LOG="$SCRATCH/graphql-calls"
+: >"$GH_GUARD_LOG"
+git init -q "$SCRATCH/repo" >/dev/null 2>&1 || { printf 'cannot init a scratch repository\n' >&2; exit 1; }
+git -C "$SCRATCH/repo" remote add origin https://github.com/z5labs/devex.git
+
+cat >"$SCRATCH/bin/gh" <<'STUB'
+#!/usr/bin/env bash
+. "$GH_GUARD"
+q="" path="" prev=""
+for a in "$@"; do [ "$prev" = --jq ] && q=$a; case "$a" in repos/*) path=$a ;; esac; prev=$a; done
+out() { if [ -n "$q" ]; then jq -r "$q"; else cat; fi; }
+case "$path" in
+  repos/z5labs/devex)            printf '{"full_name":"z5labs/devex","default_branch":"main"}\n' | out ;;
+  repos/z5labs/devex/issues/*)
+    f="$FX/issue-${path##*/}"
+    [ -f "$f" ] || { printf '{"message":"Not Found"}'; printf 'gh: Not Found (HTTP 404)\n' >&2; exit 1; }
+    out <"$f" ;;
+  *) printf 'stub gh: unexpected call: %s\n' "$*" >&2; exit 1 ;;
+esac
+STUB
+chmod +x "$SCRATCH/bin/gh"
+
+jq -n --arg b $'### Acceptance Criteria\n\n- [ ] The fix lands.\n- [ ] After merge: close #757 as Resolved.' \
+  '{number: 5, state: "open", body: $b}' >"$SCRATCH/fx/issue-5"
+# An issue created with no description answers `"body": null`.
+printf '{"number":6,"state":"open","body":null}\n' >"$SCRATCH/fx/issue-6"
+
+# fetch <name> <issue> <expected exit> <expected stdout, or ''>
+fetch() {
+  local got rc
+  got=$(cd "$SCRATCH/repo" && PATH="$SCRATCH/bin:$PATH" FX="$SCRATCH/fx" "$SUT" "$2" 2>/dev/null)
+  rc=$?
+  if [ "$rc" = "$3" ] && { [ -z "$4" ] || [ "$got" = "$4" ]; }; then
+    pass=$((pass + 1)); printf '  ok   %-58s\n' "$1"
+  else
+    fail=$((fail + 1)); printf '  FAIL %-58s\n       want exit %s [%s]\n       got  exit %s [%s]\n' "$1" "$3" "$4" "$rc" "$got"
+  fi
+}
+
+fetch 'the criteria of an issue read over REST' 5 0 '["After merge: close #757 as Resolved."]'
+fetch 'an issue with no body has none, and is not a failure' 6 0 '[]'
+# Unreadable is never `[]`: a follow-up the cycle never learned about is one
+# that silently never happens.
+fetch 'an issue that cannot be read is exit 4, not []' 7 4 ''
+
+printf '\nGraphQL\n'
+if [ -s "$GH_GUARD_LOG" ]; then
+  fail=$((fail + 1)); printf '  FAIL %-58s %s\n' 'no GraphQL-backed gh call was made' "$(tr '\n' ';' <"$GH_GUARD_LOG")"
+else
+  pass=$((pass + 1)); printf '  ok   %-58s\n' 'no GraphQL-backed gh call was made'
+fi
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

@@ -28,12 +28,38 @@ Run these once, before the first iteration, and stop if any fails:
 2. **Main checkout clean.** `git status --porcelain` in the repository root. Uncommitted
    changes you did not make are a stop condition for the cycle, so they are a stop condition
    for the loop; report what is dirty and let the user decide.
-3. **Auth.** `gh auth status`. An expired token turns every iteration into the same
-   opaque failure. If this run carries a **project** scope (below) — or the config pins one —
-   the scopes it prints must include **`read:project`**; `repo` does not imply it, and without
+3. **Access.** One REST read of the repository, which every iteration makes first anyway:
+
+   ```
+   IFS=$'\t' read -r REPO DEFAULT_BRANCH <<<"$("${CLAUDE_PLUGIN_ROOT}/scripts/repo.sh")"
+   gh api "repos/$REPO" --jq .full_name
+   ```
+
+   It prints the slug when the session can reach the repository, and otherwise carries
+   GitHub's reason — an expired token, or in a Claude Code cloud session a repository not
+   attached to it — which would turn every iteration into the same opaque failure. This is
+   the probe rather than `gh auth status`, which cannot vouch for a cloud session's token: it
+   reports the proxy's placeholder token as invalid and exits 1 while every request is
+   authenticated.
+
+   **Only if this run carries a project scope** (below), or the config pins a non-null
+   `select.project.value`, check the token can read projects too. In a Claude Code cloud
+   session (`CLAUDE_CODE_REMOTE=true`) it cannot, by any token: Projects v2 is GraphQL-only and
+   the session's proxy refuses GraphQL, so stop and say that project-scoped runs are
+   local-only, and that the user can run this scope from a local checkout or ask for the
+   unscoped backlog instead. Locally, the token's classic scopes come back on the same read:
+
+   ```
+   gh api --include "repos/$REPO" --jq .full_name | grep -i '^x-oauth-scopes:'
+   ```
+
+   They must include **`read:project`** (or `project`); `repo` does not imply it, and without
    it every iteration fails identically at selection. `gh auth refresh -s read:project` grants
-   it; report and stop rather than dropping the scope and running the whole backlog. A run
-   narrowed only by milestone or label needs nothing beyond `repo`.
+   it; report and stop rather than dropping the scope and running the whole backlog. An empty
+   or missing header is a token without classic scopes — a fine-grained or App token — whose
+   project access shows only when selection reads the board; the first iteration's selection
+   says so if it cannot. A run narrowed only by milestone or label needs nothing beyond
+   access to the repository.
 
 Also settle the **bound** now. It is the skill's integer argument when one was given;
 otherwise default to **10** iterations. Say the number in your first message. An unbounded

@@ -69,6 +69,8 @@
 
 set -uo pipefail
 
+HERE=$(cd "$(dirname "$0")" && pwd)
+
 POLL_COUNT=${BACKLOG_CHECKS_POLL_COUNT:-20}
 POLL_SECONDS=${BACKLOG_CHECKS_POLL_SECONDS:-15}
 
@@ -189,15 +191,19 @@ fi
 
 command -v gh >/dev/null 2>&1 || fail 4 "gh is not on PATH"
 
-REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null) \
-  || fail 4 "cannot resolve the repository slug from gh"
-[ -n "$REPO" ] || fail 4 "cannot resolve the repository slug from gh"
+# From the origin remote, confirmed over REST. Every read below is REST against
+# `repos/{owner}/{repo}/...`, which is what a Claude Code cloud session's GitHub
+# proxy serves; `gh pr view` and `gh repo view` are GraphQL-backed, and it
+# refuses those.
+REPO=$("$HERE/repo.sh") || fail 4 "cannot resolve the repository; see the repo: line above"
+REPO=${REPO%%$'\t'*}
+[ -n "$REPO" ] || fail 4 "cannot resolve the repository; repo.sh printed no slug"
 
 # Read the pull request once before polling. Without this a mistyped number
 # polls for the whole bound and then reports exit 3 — "nothing gates this pull
 # request" — which is a very wrong answer to give about a pull request that does
 # not exist.
-BASE=$(gh pr view "$PR" --repo "$REPO" --json baseRefName --jq .baseRefName 2>/dev/null) \
+BASE=$(gh api "repos/$REPO/pulls/$PR" --jq '.base.ref // ""' 2>/dev/null) \
   || fail 4 "cannot read PR #$PR in $REPO"
 [ -n "$BASE" ] || fail 4 "cannot read PR #$PR in $REPO"
 
@@ -218,7 +224,7 @@ required=$(
 # a mismatch is first read as "not there yet" and only becomes exit 5 at the
 # bound.
 head_sha() {
-  gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid 2>/dev/null
+  gh api "repos/$REPO/pulls/$PR" --jq '.head.sha // ""' 2>/dev/null
 }
 
 # The commit's own check runs and statuses — not the pull request's rollup. A

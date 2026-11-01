@@ -24,17 +24,35 @@ Work through the steps in order and finish with one report covering all of them.
 
 ```
 git rev-parse --show-toplevel
-gh auth status
-read -r REPO DEFAULT_BRANCH <<<"$(gh repo view --json nameWithOwner,defaultBranchRef \
-  --jq '"\(.nameWithOwner) \(.defaultBranchRef.name)"')"
+IFS=$'\t' read -r REPO DEFAULT_BRANCH <<<"$("${CLAUDE_PLUGIN_ROOT}/scripts/repo.sh")"
+gh api "repos/$REPO" --jq .full_name
 ```
 
 Everything below runs from the repository root. `<repo>` and `<default-branch>` are those
-two values — resolved from GitHub, never written into any file this skill produces.
+two values — resolved from GitHub, never written into any file this skill produces: the
+origin remote names the repository, `GET /repos/{owner}/{repo}` confirms it, and its
+`full_name` is the slug used, so a renamed repository resolves to its new name.
 
-Check the token's scopes in the `gh auth status` output while you are here. Pushing a file
-under `.github/workflows/` requires the `workflow` scope; without it step 3's file writes
-fine and the push that carries it is rejected, which is a confusing place to discover it.
+The last line is the access probe: it prints the slug when this session can reach the
+repository, and GitHub's reason when it cannot. It is the probe rather than `gh auth status`,
+which a Claude Code cloud session fails by design — the session's `GH_TOKEN` is a placeholder
+its GitHub proxy swaps for real credentials, so `gh` reports it invalid and exits 1 while
+every request is authenticated. Every GitHub call in this skill is REST for the same reason:
+that proxy refuses GraphQL, and with it `gh repo view`, `gh issue`, `gh pr`, `gh label list`
+and `gh project`. The one exception is project discovery in step 1, which says so.
+
+Check the token's scopes while you are here. Pushing a file under `.github/workflows/`
+requires the `workflow` scope; without it step 3's file writes fine and the push that carries
+it is rejected, which is a confusing place to discover it. A classic token's scopes come back
+on the same read:
+
+```
+gh api --include "repos/$REPO" --jq .full_name | grep -i '^x-oauth-scopes:'
+```
+
+An empty or missing header is a token without classic scopes — a fine-grained token, an App
+token, or a cloud session's proxied one — and then the push itself is the only test; say so in
+the report rather than reporting the scope present.
 
 ## 1. Infer the configuration
 
@@ -67,11 +85,13 @@ unattended run will otherwise spend its three fix attempts on it.
 Read an actual issue body. Do not ask.
 
 ```
-gh issue list --state open --limit 20 --json number --jq '.[].number'
+gh api "repos/<repo>/issues?state=open&per_page=30" --jq '.[] | select(.pull_request | not) | .number'
 ```
 
-Fetch a handful of those bodies (`gh issue view <n> --json body --jq .body`) and look for
-which convention is in use:
+That route returns pull requests too, since every pull request is an issue there, which is
+what the `select` drops. Fetch a handful of those bodies
+(`gh api repos/<repo>/issues/<n> --jq '.body // ""'`) and look for which convention is in
+use:
 
 - A line opening with `Blocked by:` followed by `- #N` items → `blocked-by`.
 - `Depends on #N` written inline → `depends-on`.
@@ -82,7 +102,7 @@ your reading of the body — they are not the same thing, and the one that decid
 is the extractor:
 
 ```
-gh issue view <n> --json body --jq .body \
+gh api repos/<repo>/issues/<n> --jq '.body // ""' \
   | "${CLAUDE_PLUGIN_ROOT}/scripts/select-issue.sh" --extract <style>
 ```
 
@@ -112,8 +132,10 @@ for n in <the numbers you listed>; do
 done
 ```
 
-The REST route is enough to count; `select-issue.sh` reads the same edges over GraphQL
-because it needs the owning repository named on each one, which this shape does not carry.
+This is the same route `select-issue.sh` reads under `native`. Typed dependencies need no
+GraphQL: each blocker in the response names its own repository in `repository_url` and its
+`state` beside it, which is everything selection needs to resolve an edge, cross-repository
+ones included.
 
 A repository with edges already populated on issues whose bodies *also* declare ordering in
 prose is the clear case for `native`, and worth raising. A repository with none anywhere is
@@ -122,8 +144,8 @@ either way and let the user choose; do not switch the style on their behalf.
 
 ### The rest
 
-- `select.label` — the label the backlog uses. `gh label list --json name --jq '.[].name'`;
-  if `story` exists, take it. If the repository clearly uses another (`feature`, `task`),
+- `select.label` — the label the backlog uses.
+  `gh api --paginate repos/<repo>/labels --jq '.[].name'`; if `story` exists, take it. If the repository clearly uses another (`feature`, `task`),
   take that and say so. If none exists, `story`, and step 4 creates it. A run that wants
   another for once passes `select-issue.sh --label <name>`, so this is a default and not a
   commitment.
@@ -151,6 +173,12 @@ either way and let the user choose; do not switch the style on their behalf.
   the number and `gh project field-list <number> --owner <owner>` gives the field names — both
   need the `read:project` token scope, which `repo` does not include, so say so in the report
   along with `gh auth refresh -s read:project`.
+
+  **Project discovery works only locally.** Projects v2 exists only in GraphQL, both `gh
+  project` commands are built on it, and a Claude Code cloud session's GitHub proxy refuses
+  GraphQL — so there they fail with `HTTP 403`, and so does every project-scoped selection
+  afterwards. In a cloud session, say that in the report and leave `select.project` for the
+  user to fill in from a local checkout; do not write a board you could not read.
 
   Write `owner` and `number` — which board the work lives on is a property of the repository,
   and they are the only keys the block requires. Write `field` as the axis the backlog is
@@ -211,8 +239,9 @@ either way and let the user choose; do not switch the style on their behalf.
 
 Write the result to `.claude/backlog.json`, validated against
 `${CLAUDE_PLUGIN_ROOT}/assets/backlog.schema.json`. Neither the repository slug nor the
-default branch goes in it — `backlog:next-issue` reads both from `gh repo view`, so a fork
-or a rename cannot leave the config describing a repository it is no longer in.
+default branch goes in it — `backlog:next-issue` reads both from `scripts/repo.sh`, which
+takes them from the origin remote and GitHub, so a fork or a rename cannot leave the config
+describing a repository it is no longer in.
 
 If `.claude/backlog.json` already exists, do not overwrite it. Diff your inference against
 it, report the differences, and let the user decide.
@@ -270,24 +299,24 @@ needs a commit, and that pushing it needs the `workflow` token scope from step 0
 
 Both must exist before the cycle runs: the backlog label is what selects issues, and the
 merge label is what the workflow's `labeled` guard matches. A missing merge label is
-especially quiet — `gh pr edit --add-label` fails, or creates it and no workflow reacts.
+especially quiet — the cycle's label step fails, or creates it and no workflow reacts.
 
 Idempotent, so re-running this skill is safe:
 
 ```
-gh label list --json name --jq '.[].name'
+gh api --paginate repos/<repo>/labels --jq '.[].name'
 ```
 
 Create only what is missing:
 
 ```
-gh label create <select.label> --description "Backlog work item" --color 0E8A16
-gh label create <merge.label>  --description "Hand this pull request to the auto merge workflow" --color 1D76DB
+gh api --method POST repos/<repo>/labels -f name=<select.label> -f color=0E8A16 -f description="Backlog work item"
+gh api --method POST repos/<repo>/labels -f name=<merge.label>  -f color=1D76DB -f description="Hand this pull request to the auto merge workflow"
 ```
 
-Report each as created or already present. `gh label create` on an existing label exits
-non-zero with `already exists`; that is a no-op, not a failure, but check the list first
-rather than swallowing errors.
+Report each as created or already present. Creating a label that exists is `HTTP 422` with
+`already_exists`; that is a no-op, not a failure, but check the list first rather than
+swallowing errors.
 
 ## 5. Verify the environment
 
@@ -439,8 +468,16 @@ never the code, and quote it:
 | `'<slug>' is not installed on <repo>` | the credential names a real App that cannot act here. This is the two-account failure, and it is a **wrong** credential rather than an absent one | install that App on the repository's account with **Pull requests: read and write**, or export the pair belonging to the App already installed there and name it in `review.app` — see the section below |
 | `grants Pull requests at read` / `no Pull requests permission at all` | the App is installed here and the installation is missing the one permission the rung uses | set Pull requests to **Read and write** on the installation. Left alone this surfaces as a 403 on the review POST, after a subagent has read the diff and written the review |
 
-Three more results are not the mint failing, and are reported differently:
+Four more results are not the mint failing, and are reported differently:
 
+- `cannot mint a token from a Claude Code cloud session` → this is a cloud session, and the
+  row is **unverified here**, not failed. The session's GitHub proxy refuses `GET /app` and
+  the token exchange under `/app/installations`, so no credential can mint a token from it —
+  `app-token.sh` says so before it reads the credential at all, and recognises the proxy's
+  refusal by its message where the session does not announce itself. Nothing in either
+  message is a verdict on the ID or the key, so never report the pair as mismatched on it.
+  Say that the `local` rung is unavailable in cloud sessions and runs from a local checkout,
+  and hand the user `app-token.sh --login` to run there, where the mint is the whole test.
 - `are not set in the environment ... not configured on this machine` → the rung is simply
   **not configured here**, which is an absence and not a mistake. Report it as **needs a
   change** only if the user wants the `local` rung; otherwise it is the expected state of a
@@ -564,35 +601,38 @@ blocker. Report it as one.
 ### Squash-only merging
 
 ```
-gh repo view --json squashMergeAllowed,mergeCommitAllowed,rebaseMergeAllowed,deleteBranchOnMerge
+gh api repos/<repo> \
+  --jq '{allow_squash_merge, allow_merge_commit, allow_rebase_merge, delete_branch_on_merge, allow_auto_merge, private}'
 ```
 
-- `squashMergeAllowed: false` → **needs a change**, and it is load bearing: both of the
+The merge settings are left out of this response for a token without push access, so a key
+that comes back `null` is **unverified**, not `false` — report it as needing a look from
+someone with push rights, never as the setting being off.
+
+- `allow_squash_merge: false` → **needs a change**, and it is load bearing: both of the
   workflow's merge paths pass `--squash`, which fails outright.
-- `mergeCommitAllowed` or `rebaseMergeAllowed` true → hygiene. The workflow always squashes,
+- `allow_merge_commit` or `allow_rebase_merge` true → hygiene. The workflow always squashes,
   so nothing breaks; it just means a human can land history in another shape.
-- `deleteBranchOnMerge` either way → note it and move on. It does **not** cover this cycle:
+- `delete_branch_on_merge` either way → note it and move on. It does **not** cover this cycle:
   it fires for a merge a person performs, not for one the workflow performs with its
   `GITHUB_TOKEN`, which is exactly why the workflow carries its own `delete-merged-branch`
   job.
 
 ### Native auto merge
 
-The workflow has two merge paths, and this setting decides which one runs. Read it the way
-the workflow does, over GraphQL. `gh repo view` has no field for it, and REST
-`allow_auto_merge` is left out of the response for a token without push access, so a missing
-key there cannot be told apart from `false`:
+The workflow has two merge paths, and this setting decides which one runs. It is
+`allow_auto_merge` in the same `GET /repos/<repo>` response as the squash settings above,
+with `private` beside it. The workflow reads it as GraphQL's `autoMergeAllowed` at merge time,
+which is the same setting; GraphQL is not read here because a Claude Code cloud session's
+GitHub proxy refuses it.
 
-```
-gh api graphql -f owner=<owner> -f name=<name> -f query='
-  query($owner: String!, $name: String!) {
-    repository(owner: $owner, name: $name) { autoMergeAllowed isPrivate }
-  }' --jq .data.repository
-```
+`allow_auto_merge` is one of the keys left out for a token without push access, and a missing
+key cannot be told apart from `false`. So `null` is **unverified**: say which merge path that
+leaves undetermined, and that someone with push rights can read it. Do not report it as off.
 
-- `autoMergeAllowed: true` → **ok**. The workflow arms native auto merge, and GitHub merges
+- `allow_auto_merge: true` → **ok**. The workflow arms native auto merge, and GitHub merges
   once the default branch's required checks pass.
-- `autoMergeAllowed: false` → the workflow gates the merge itself. It waits for every check
+- `allow_auto_merge: false` → the workflow gates the merge itself. It waits for every check
   reported on the pull request, at most fifteen minutes, then merges with the App token.
   Nothing merges while a check is failing or still running. Spell out how this differs from
   native auto merge. A failing check **fails the merge run** rather than staying armed, so
@@ -641,7 +681,7 @@ gh api repos/<repo>/rules/branches/<default-branch> \
   private repository on GitHub Free, protection and rulesets both answer this way. Report it
   as **needs a change** with the three real remedies: upgrade the plan, make the repository
   public, or let the workflow gate the merge. The third needs nothing more from the operator
-  if the installed workflow is the current asset. The same plan leaves `autoMergeAllowed`
+  if the installed workflow is the current asset. The same plan leaves `allow_auto_merge`
   `false`, so the gated path in "Native auto merge" above already runs there. Say what it does
   *not* replace. A human can still merge anything by hand, because nothing on the branch
   enforces a check.
@@ -672,7 +712,7 @@ that generated no comments leaves none behind. Check recent pull request timelin
 `reviewed` events survive a comment-free review:
 
 ```
-for pr in $(gh pr list --state all --limit 5 --json number --jq '.[].number'); do
+for pr in $(gh api "repos/<repo>/pulls?state=all&per_page=5" --jq '.[].number'); do
   gh api --paginate "repos/<repo>/issues/$pr/timeline" \
     --jq '.[]|select(.event=="reviewed")|select(.user.login|test("copilot";"i"))|.user.login'
 done
@@ -731,8 +771,7 @@ Core list, language-agnostic:
       "Bash(git branch*)", "Bash(git fetch*)", "Bash(git pull*)", "Bash(git push*)",
       "Bash(git rebase*)", "Bash(git merge*)", "Bash(git worktree*)", "Bash(git remote*)",
       "Bash(git rev-parse*)",
-      "Bash(gh issue*)", "Bash(gh pr*)", "Bash(gh run*)", "Bash(gh api*)",
-      "Bash(gh repo view*)", "Bash(gh label*)", "Bash(gh workflow*)", "Bash(gh auth status*)",
+      "Bash(gh api*)", "Bash(gh run*)", "Bash(gh workflow*)",
       "Bash(ls*)", "Bash(mkdir*)", "Bash(jq*)", "Bash(rg*)", "Bash(find*)", "Bash(diff*)"
     ],
     "deny": [
@@ -751,8 +790,8 @@ Then append only the toolchain entries the `verify` list from step 1 actually ne
 build*`, `go test*`, `gofmt*`, `npm*`, `dagger*`, a linter. Granting a language's toolchain
 to an operator who does not write that language is noise in the file they read most.
 
-Three entries carry a reason, because each of them was a difference between two repositories
-running this same cycle:
+Four entries carry a reason — the first three because each was a difference between two
+repositories running this same cycle:
 
 - **`Bash(git stash*)` is denied.** The stash stack is shared across every worktree of a
   repository, so a pop can restore work belonging to another session. An unattended loop is
@@ -763,6 +802,12 @@ running this same cycle:
 - **`Skill` is granted.** Without it the `issue-worker` agent cannot invoke
   `backlog:next-issue` at all, and the failure surfaces as a subagent that returns having
   done nothing.
+- **`gh` is granted as `gh api`, `gh run` and `gh workflow` only.** Those are every `gh`
+  command the cycle runs: everything else it asks GitHub goes through `gh api` against
+  `repos/{owner}/{repo}/...`, so the same list works in a Claude Code cloud session, whose
+  GitHub proxy refuses the GraphQL that `gh issue`, `gh pr` and `gh repo view` are built on.
+  An older copy of this list granted those too; they can stay in an operator's file for their
+  own use, and the cycle no longer needs them.
 
 `gh api --method DELETE` is denied while `gh api` is allowed, and the order matters: deny
 rules win, so the broad allow does not reopen the narrow deny.
@@ -805,7 +850,8 @@ One report, covering:
    **ok**, **needs a change**, or **needs admin rights**, with the consequence spelled out for
    anything not ok.
 
-   **Native auto merge** — `autoMergeAllowed`, and which merge path that selects. On the
+   **Native auto merge** — `allow_auto_merge`, and which merge path that selects, or
+   **unverified** when the token could not see it. On the
    gated path, give the three differences: a failing check fails the run and needs the label
    added again, the wait costs Actions minutes, and every reported check is waited on rather
    than a required set. Where a `403` said `Upgrade to GitHub Pro`, quote it and name it as a
@@ -824,7 +870,9 @@ One report, covering:
    identity `local` reviews on this repository will be authored under. On a failure, give the
    one sentence and the one remedy that match the message — a key that will not sign, an ID and
    key from two Apps, an App not installed here, or an installation without Pull requests:
-   write — and never the other three.
+   write — and never the other three. From a Claude Code cloud session the row is
+   **unverified**: no mint can happen there, the message says so, and the row says the `local`
+   rung is local-only rather than naming anything wrong with the credential.
 
    The asymmetry is the point of showing both: one row was proven and one was looked up, and a
    report that presents them as equally checked has told its reader something untrue about the
