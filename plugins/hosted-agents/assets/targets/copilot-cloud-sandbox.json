@@ -123,7 +123,7 @@
     },
     {
       "id": "subagents-unsupported",
-      "summary": "A component spawns subagents with the Agent (Task) tool, declared in its frontmatter or spawned from a fenced Agent(subagent_type: …) call. The customization cheat sheet marks subagents as not supported on GitHub.com, while the custom agents reference maps the agent, custom-agent and Task aliases to 'custom agent' tools in the cloud. The pages disagree.",
+      "summary": "A component spawns subagents with the Agent (Task) tool, declared in its frontmatter or spawned from a fenced Agent(subagent_type: …) call. The customization cheat sheet marks subagents as not supported on GitHub.com, while the custom agents reference maps the agent, custom-agent and Task aliases to 'custom agent' tools in the cloud. The pages disagree. Declaring the tool in frontmatter says a component may spawn, not that it depends on it, so a declaration alone degrades; a fenced spawn, which the flow runs, breaks.",
       "match": {
         "kind": "tool",
         "fields": [
@@ -144,6 +144,9 @@
         ]
       },
       "severity": "breaks",
+      "severity_in": {
+        "frontmatter": "degrades"
+      },
       "remedy": "Do the subagent's work inline, in the one agent's context, or split it into separate sessions a person starts.",
       "fix_in": "plugin",
       "sources": [
