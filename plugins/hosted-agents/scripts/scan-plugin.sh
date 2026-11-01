@@ -11,17 +11,24 @@
 # repository the plugin is delivered from, and the profiles.
 #
 # What it reads, per component:
-#   - skills, commands and agents: their frontmatter's tool fields, and their
-#     fenced shell blocks (no info string, or sh/bash/shell/zsh/console);
-#   - hooks: every hook command, from hooks/hooks.json or the manifest;
+#   - skills, commands and agents: their frontmatter's tool fields, their fenced
+#     shell blocks (no info string, or sh/bash/shell/zsh; in a console or
+#     shell-session block, only the `$ ` lines), and the Agent(subagent_type: …)
+#     spawns in those blocks;
+#   - hooks: every hook entry of every type, from hooks/hooks.json or the
+#     manifest; a command hook's command and an http hook's URL are matched;
 #   - scripts: every line that is not a comment, anywhere in the plugin except
-#     assets/, tests and test data;
+#     assets/, tests and test data. Shell is read as shell; Python, JavaScript,
+#     Ruby and Perl keep their strings, where their commands are;
 #   - .mcp.json and .lsp.json servers, and the manifest's own declarations.
+# The manifest itself is optional, as it is for Claude Code: without one, the
+# plugin is the standard layout it finds, named after its directory. A
+# component file that is not valid JSON is an error (exit 2), not an absence.
+#
 # Commands are matched only where they run. A skill whose prose says "never run
 # `gh pr merge`" is not a finding; the same command in a fenced shell block or a
-# script is. In a script, a line that only prints a message (echo, printf, fail,
-# die, say, …) is not a command either, and anywhere a quoted string with a
-# space in it and no command substitution is text, not a command.
+# script is. On a shell line, quoted text, message commands, trailing comments
+# and heredoc bodies are not commands; AWK_LIB below says exactly how.
 #
 # Where a command runs can also set how bad it is: a rule's severity_in gives a
 # fenced block, where the model sees the failure and can adapt, a lower severity
@@ -29,16 +36,19 @@
 #
 # Components call each other, and a verdict follows the call: a skill that runs
 # scripts/x.sh in a fenced block, a script that runs another by name, a fenced
-# Agent(subagent_type: "<agent>") spawn, and a fenced mention of <plugin>:<skill>
-# are edges, and a component's verdict counts what it reaches. An invocation
-# written only in prose ("invoke the backlog:next-issue skill") is not an edge;
-# the review-plugin skill reads for those.
+# Agent(subagent_type: "<agent>") spawn, a fenced mention of <plugin>:<skill>,
+# and an agent's `skills:` frontmatter are edges, and a component's verdict
+# counts what it reaches. An invocation written only in prose ("invoke the
+# backlog:next-issue skill") is not an edge; the review-plugin skill reads for
+# those.
 #
 # Delivery comes first. Each profile's delivery rules decide, from the
 # repository, whether the plugin reaches a session on that target at all. A
-# plugin that cannot be delivered is `breaks` for every component. With no
-# repository (--no-repo, or a plugin outside any git work tree), delivery is not
-# assessed and the report says so.
+# plugin that cannot be delivered is `breaks` for every component. A repository
+# that commits only the plugin's skills, agents and commands delivers only
+# those, and the profile's vendored rules report what that leaves behind. With
+# no repository (--no-repo, or a plugin outside any git work tree), delivery is
+# not assessed and the report says so.
 #
 # Usage:
 #   scan-plugin.sh <plugin-dir> [--target <id>]... [--repo <dir> | --no-repo]
@@ -96,11 +106,20 @@ case $FORMAT in json|markdown) ;; *) die "--format is json or markdown, not $FOR
 
 [ -d "$PLUGIN" ] || die "$PLUGIN is not a plugin: not a directory"
 P=$(cd "$PLUGIN" && pwd)
+# The manifest is optional: without one, Claude Code loads the components it
+# finds in the standard layout and names the plugin after its directory.
 MANIFEST="$P/.claude-plugin/plugin.json"
-[ -f "$MANIFEST" ] || die "$PLUGIN is not a plugin: no .claude-plugin/plugin.json"
-NAME=$(jq -er 'if type == "object" and (.name | type) == "string" and (.name | length) > 0 then .name else error("no name") end' "$MANIFEST" 2>/dev/null) \
-  || die "$PLUGIN is not a plugin: .claude-plugin/plugin.json is not a JSON object with a name"
-VERSION=$(jq -r '.version // "" | tostring' "$MANIFEST")
+if [ -f "$MANIFEST" ]; then
+  NAME=$(jq -er 'if type == "object" and (.name | type) == "string" and (.name | length) > 0 then .name else error("no name") end' "$MANIFEST" 2>/dev/null) \
+    || die "$PLUGIN is not a plugin: .claude-plugin/plugin.json is not a JSON object with a name"
+  VERSION=$(jq -r '.version // "" | tostring' "$MANIFEST")
+else
+  layout=false
+  for d in skills commands agents; do [ -d "$P/$d" ] && layout=true; done
+  for f in hooks/hooks.json .mcp.json .lsp.json; do [ -f "$P/$f" ] && layout=true; done
+  $layout || die "$PLUGIN is not a plugin: no .claude-plugin/plugin.json, and none of skills/, commands/, agents/, hooks/hooks.json, .mcp.json or .lsp.json"
+  MANIFEST="" NAME=$(basename "$P") VERSION=""
+fi
 
 WORK=$(mktemp -d) || die "cannot create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
@@ -132,7 +151,7 @@ jq -s '.' "$WORK/profiles.ndjson" >"$WORK/profiles.json"
 problems=$(jq -r '
   def has_item($x): any(.[]; . == $x);
   def ok_date: type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
-  def compiles: (try ("" | test(.) | "ok") catch "bad") == "ok";
+  def compiles: . as $p | (try ("" | test($p) | "ok") catch "bad") == "ok";
   .[] | . as $p | ($p.rules | map(.id)) as $ids
   | (if ($ids | length) != ($ids | unique | length) then "\($p.id): duplicate rule ids" else empty end),
     ($p.rules[] | . as $r | "\($p.id): rule \($r.id // "?")" as $where
@@ -144,9 +163,12 @@ problems=$(jq -r '
         (if ($r.checked | ok_date) then empty else "\($where): no checked date" end),
         (if ($r.remedy | type) == "string" then empty else "\($where): no remedy" end),
         ($r.match.kind as $k
-          | if (["command", "url", "tool", "component", "delivery", "review"] | has_item($k)) | not then "\($where): unknown match kind \($k)"
+          | if (["command", "url", "env", "tool", "component", "delivery", "vendored", "review"] | has_item($k)) | not then "\($where): unknown match kind \($k)"
             elif $k == "command" and (($r.match.pattern | type) != "string" or ($r.match.pattern | compiles | not)) then "\($where): pattern does not compile"
-            elif ($k == "command" or $k == "url") and ($r.match["in"] | type) != "array" then "\($where): no contexts"
+            elif $k == "env" and (($r.match.name_pattern | type) != "string" or ($r.match.name_pattern | compiles | not)) then "\($where): name_pattern does not compile"
+            elif $k == "vendored" and ($r.match.pattern != null) and (($r.match.pattern | type) != "string" or ($r.match.pattern | compiles | not)) then "\($where): pattern does not compile"
+            elif $k == "vendored" and ($r.match.pattern == null) and (($r.match.types | type) != "array") then "\($where): needs a pattern or types"
+            elif ($k == "command" or $k == "url" or $k == "env") and ($r.match["in"] | type) != "array" then "\($where): no contexts"
             elif $k == "url" and ($r.match.allow | type) != "array" then "\($where): no allow list"
             elif $k == "tool" and ($r.match.name_pattern // "x" | compiles | not) then "\($where): name_pattern does not compile"
             elif $k == "tool" and ($r.match.ignore_pattern // "x" | compiles | not) then "\($where): ignore_pattern does not compile"
@@ -176,11 +198,35 @@ fm_name() { # the frontmatter's name:, if any
        NR > 1 && /^name[ \t]*:/ { v = $0; sub(/^name[ \t]*:[ \t]*/, "", v); gsub(/["'\'']/, "", v); sub(/[ \t]+$/, "", v); print v; exit }' "$1"
 }
 
-# A quoted string with a space in it and no command substitution is text, not a
-# command: a message, a jq program, a title. Its content is dropped from what the
-# rules match; a quoted path or "${VAR}" keeps its content.
-AWK_BLANK='
-function blank(s,   out, i, n, c, q, seg) {
+# What the rules match on a shell line is its code, reduced in four steps:
+#   - a quoted string with a space in it and no command substitution is text (a
+#     message, a jq program, a title): its content is dropped, but the $VAR and
+#     ${VAR} references in a double-quoted one stay, because the shell expands
+#     them. A string handed to bash -c, sh -c, eval or ssh is a command and stays;
+#   - the line splits on unquoted |, ||, && and ;, and a part whose first word is
+#     a message command (echo, printf, fail, die, say, …) is dropped, so
+#     `printf … | gh issue comment` keeps the gh and `cmd || fail "gh … failed"`
+#     keeps only the cmd;
+#   - an unquoted # that starts a word ends the line;
+#   - a heredoc's body is skipped unless the heredoc feeds a shell or an
+#     interpreter (bash, sh, ssh, python, node, …).
+# A line left with no code is marked as a message.
+AWK_LIB='
+function vars_of(s,   out, t) {
+  out = ""
+  while (match(s, /\$\{[!#]?[A-Za-z_][A-Za-z0-9_]*|\$[A-Za-z_][A-Za-z0-9_]*/)) {
+    t = substr(s, RSTART, RLENGTH); if (substr(t, 2, 1) == "{") t = t "}"
+    out = (out == "" ? t : out " " t)
+    s = substr(s, RSTART + RLENGTH)
+  }
+  return out
+}
+function shell_arg(pre) {
+  return (pre ~ /(^|[^A-Za-z0-9_.\/-])(bash|sh|zsh|dash|ksh)([ ]+-[A-Za-z]+)*[ ]+-[A-Za-z]*c[A-Za-z]*[ ]+$/ \
+       || pre ~ /(^|[^A-Za-z0-9_.\/-])eval[ ]+$/ \
+       || pre ~ /(^|[^A-Za-z0-9_.\/-])ssh([ ]+[^ ]+)+[ ]+$/)
+}
+function blank(s,   out, i, n, c, q, seg, bt) {
   out = ""; q = ""; seg = ""; n = length(s)
   for (i = 1; i <= n; i++) {
     c = substr(s, i, 1)
@@ -191,8 +237,10 @@ function blank(s,   out, i, n, c, q, seg) {
     } else {
       if (q == "\"" && c == "\\") { seg = seg c substr(s, i + 1, 1); i++; continue }
       if (c == q) {
-        if (index(seg, " ") && !(q == "\"" && (index(seg, "$(") || index(seg, "`")))) out = out q q
-        else out = out q seg q
+        bt = seg; gsub(/\\`/, "", bt)
+        if (shell_arg(out) || !index(seg, " ") || (q == "\"" && (index(seg, "$(") || index(bt, "`")))) out = out q seg q
+        else if (q == "\"") out = out q vars_of(seg) q
+        else out = out q q
         q = ""; continue
       }
       seg = seg c
@@ -200,13 +248,67 @@ function blank(s,   out, i, n, c, q, seg) {
   }
   if (q != "") out = out q seg
   return out
-}'
+}
+function says_first(seg,   u, changed) {
+  u = seg; sub(/^[ ]+/, "", u); changed = 1
+  while (changed) {
+    changed = 0
+    if (sub(/^(then|else|elif|do|if|while|until|time|!|\{|\()[ ]+/, "", u)) changed = 1
+    else if (u ~ /^[^ ()]+\)[ ]/) { sub(/^[^ ()]+\)[ ]+/, "", u); changed = 1 }
+  }
+  return (u ~ /^(echo|printf|say|fail|die|warn|err|error|log|info|note|usage|print)([ (]|$)/)
+}
+function code_of(b,   n, i, c, q, seg, k, segs, out, prev, t) {
+  n = length(b); q = ""; seg = ""; k = 0; prev = " "
+  for (i = 1; i <= n; i++) {
+    c = substr(b, i, 1)
+    if (q != "") {
+      seg = seg c
+      if (c == "\\" && q == "\"") { seg = seg substr(b, i + 1, 1); i++ }
+      else if (c == q) q = ""
+      prev = c; continue
+    }
+    if (c == "\\") { seg = seg c substr(b, i + 1, 1); i++; prev = "x"; continue }
+    if (c == "\"" || c == "\047") { q = c; seg = seg c; prev = c; continue }
+    if (c == "#" && (prev == " " || prev == "(")) break
+    if (c == "|" || c == ";" || (c == "&" && substr(b, i + 1, 1) == "&")) {
+      segs[++k] = seg; seg = ""
+      if (substr(b, i + 1, 1) == c) i++
+      prev = " "; continue
+    }
+    seg = seg c; prev = c
+  }
+  segs[++k] = seg
+  out = ""
+  for (i = 1; i <= k; i++) {
+    t = segs[i]; sub(/^[ ]+/, "", t); sub(/[ ]+$/, "", t)
+    if (t == "" || (says_first(t) && !index(t, "$(") && !index(t, "`"))) continue
+    out = (out == "" ? t : out " ; " t)
+  }
+  return out
+}
+function heredoc(t,   p, w, pre) {
+  p = t
+  while (match(p, /<<-?[ ]*["\047]?[A-Za-z_][A-Za-z0-9_]*["\047]?/)) {
+    if (RSTART > 1 && substr(p, RSTART - 1, 1) == "<") { p = substr(p, RSTART + RLENGTH); continue }
+    w = substr(p, RSTART, RLENGTH); pre = substr(p, 1, RSTART - 1)
+    sub(/^<<-?[ ]*["\047]?/, "", w); sub(/["\047]$/, "", w)
+    HD_END = w
+    HD_RUN = (pre ~ /(^|[ ;|&(])(bash|sh|zsh|dash|ksh|ssh|python[0-9.]*|node|ruby|perl)([ ]|$)/)
+    return 1
+  }
+  return 0
+}
+function trim(x) { sub(/^[ ]+/, "", x); sub(/[ ]+$/, "", x); return x }
+'
 
 # Run contexts of a Markdown component: tool fields of its frontmatter and the
-# lines of its fenced shell blocks. Output: ctx \t line \t key \t msg \t text
+# lines of its fenced shell blocks. In a console or shell-session block only the
+# `$ ` lines are commands; the rest is output.
+# Output: ctx \t line \t key \t msg \t code \t original line
 md_lines() {
-  awk "$AWK_BLANK"'
-    BEGIN { fm = 0; inf = 0; key = "" }
+  awk "$AWK_LIB"'
+    BEGIN { fm = 0; inf = 0; key = ""; inhd = 0 }
     { gsub(/\t/, "    "); sub(/\r$/, "") }
     NR == 1 && /^---[ ]*$/ { fm = 1; next }
     fm == 1 {
@@ -224,45 +326,69 @@ md_lines() {
           info = substr(s, n + 1)
           if (c == "`" && index(info, "`") > 0) next
           sub(/^[ ]+/, "", info); sub(/[ {].*$/, "", info); info = tolower(info)
-          fchar = c; flen = n; inf = 1
-          run = (info == "" || info == "sh" || info == "bash" || info == "shell" || info == "zsh" || info == "console" || info == "shell-session" || info == "sh-session")
+          fchar = c; flen = n; inf = 1; inhd = 0
+          console = (info == "console" || info == "shell-session" || info == "sh-session")
+          run = (info == "" || info == "sh" || info == "bash" || info == "shell" || info == "zsh" || console)
         }
         next
       }
       if (c == fchar) {
         n = 0; while (substr(s, n + 1, 1) == fchar) n++
         rest = substr(s, n + 1)
-        if (n >= flen && rest ~ /^[ ]*$/) { inf = 0; next }
+        if (n >= flen && rest ~ /^[ ]*$/) { inf = 0; inhd = 0; next }
       }
-      if (run && s != "" && s !~ /^#/) print "fence\t" NR "\t\t0\t" blank($0) "\t" $0
+      if (!run) next
+      if (inhd) { if (trim(s) == HD_END) { inhd = 0; next } if (!HD_RUN) next }
+      line = s
+      if (console) { if (line !~ /^\$ /) next; line = substr(line, 3) }
+      if (line == "" || line ~ /^#/) next
+      code = code_of(blank(line))
+      if (!inhd && heredoc(line)) inhd = 1
+      print "fence\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" $0
     }' "$1"
 }
 
-# Lines of a script that are not comments. A line that only prints a message
-# (echo, printf, fail, die, say, …), even behind `||`, `then` or a case pattern, is
-# marked, and a message chained after a command is cut off the text matched, so
-# a command quoted in an error message is not taken for one.
+# Lines of a script that are not comments. Shell scripts are reduced as
+# described above. In Python, JavaScript, Ruby and Perl a command is a string
+# passed to a process call, so strings are kept; comments, docstrings and lines
+# that only print or raise are left out, and a list form such as
+# ["gh", "issue", "list"] reads as gh issue list.
 # Output: ctx \t line \t key \t msg \t code \t original line
 script_lines() {
-  local js=0
-  case $1 in *.js|*.mjs|*.cjs|*.ts) js=1 ;; esac
-  awk -v js="$js" "$AWK_BLANK"'
-    BEGIN { says = "(echo|printf|say|fail|die|warn|err|error|log|info|note|usage|print|console\\.log)" }
-    { gsub(/\t/, "    "); sub(/\r$/, ""); t = $0; sub(/^[ ]+/, "", t) }
-    t == "" { next }
-    t ~ /^#/ { next }
-    js == 1 && t ~ /^\/\// { next }
+  local lang=sh
+  case $1 in
+    *.js|*.mjs|*.cjs|*.ts) lang=js ;;
+    *.py) lang=py ;;
+    *.rb) lang=rb ;;
+    *.pl) lang=pl ;;
+    *) head -n 1 "$1" 2>/dev/null | grep -Eq '^#!.*\b(python[0-9.]*|node|deno|bun|ruby|perl)\b' \
+         && lang=$(head -n 1 "$1" | sed -E 's/.*\b(python[0-9.]*|node|deno|bun|ruby|perl)\b.*/\1/; s/^python.*/py/; s/^(node|deno|bun)$/js/; s/^ruby$/rb/; s/^perl$/pl/') ;;
+  esac
+  awk -v lang="$lang" "$AWK_LIB"'
+    BEGIN { inhd = 0; inblock = 0 }
+    { gsub(/\t/, "    "); sub(/\r$/, ""); t = trim($0) }
+    lang == "sh" {
+      if (inhd) { if (t == HD_END) { inhd = 0; next } if (!HD_RUN) next }
+      if (t == "" || t ~ /^#/) next
+      code = code_of(blank(t))
+      if (!inhd && heredoc(t)) inhd = 1
+      print "script\t" NR "\t\t" (code == "" ? 1 : 0) "\t" code "\t" $0
+      next
+    }
     {
-      u = t; changed = 1
-      while (changed) {
-        changed = 0
-        if (sub(/^(\|\||&&|;|then|else|do)[ ]*/, "", u)) changed = 1
-        else if (u ~ /^[^ ()]+\)[ ]/) { sub(/^[^ ()]+\)[ ]+/, "", u); changed = 1 }
+      if (inblock) { if (index(t, blockend)) inblock = 0; next }
+      if (lang == "js" && t ~ /^\/\*/) { if (!index(substr(t, 3), "*/")) { inblock = 1; blockend = "*/" } next }
+      if (lang == "py" && (t ~ /^"""/ || t ~ /^\047\047\047/)) {
+        q = substr(t, 1, 3); if (!index(substr(t, 4), q)) { inblock = 1; blockend = q } next
       }
-      msg = (u ~ ("^" says "([ (]|$)")) ? 1 : 0
-      code = t
-      if (!msg && match(code, ("(\\|\\||&&|;)[ ]*((then|else|do)[ ]+)?" says "[ (]"))) code = substr(code, 1, RSTART - 1)
-      print "script\t" NR "\t\t" msg "\t" blank(code) "\t" $0
+      if (lang == "rb" && t ~ /^=begin/) { inblock = 1; blockend = "=end"; next }
+      if (lang == "pl" && t ~ /^=[a-z]/) { inblock = 1; blockend = "=cut"; next }
+      if (t == "") next
+      if (lang != "js" && t ~ /^#/) next
+      if (lang == "js" && t ~ /^\/\//) next
+      msg = (t ~ /^(print|puts|warn|die|raise|throw|console\.(log|error|warn|info)|log(ger|ging)?\.[a-z]+|sys\.exit)[ (]/) ? 1 : 0
+      code = t; gsub(/["\047`][ ]*,[ ]*["\047`]/, " ", code)
+      print "script\t" NR "\t\t" msg "\t" code "\t" $0
     }' "$1"
 }
 
@@ -277,6 +403,7 @@ emit_comp() { # json object
 }
 
 manifest_paths() { # key -> plugin-relative paths the manifest declares for it
+  [ -n "$MANIFEST" ] || return 0
   jq -r --arg k "$1" '.[$k] // empty | if type == "string" then . elif type == "array" then .[] | select(type == "string") else empty end' "$MANIFEST" 2>/dev/null \
     | sed 's#^\./##'
 }
@@ -296,8 +423,8 @@ while IFS= read -r f; do
   [ -n "$f" ] || continue
   d=$(dirname "$f"); short=$(fm_name "$f"); [ -n "$short" ] || short=$(basename "$d")
   cid="skill:$short"; comp="$NAME:$short"
-  emit_comp "$(jq -nc --arg id "$cid" --arg name "$comp" --arg short "$short" --arg file "$(rel "$f")" --arg dir "$(prel "$d")" \
-    '{id: $id, kind: "skill", name: $name, short: $short, file: $file, dir: $dir, line: 1}')"
+  emit_comp "$(jq -nc --arg id "$cid" --arg name "$comp" --arg short "$short" --arg file "$(rel "$f")" --arg prel "$(prel "$f")" --arg dir "$(prel "$d")" \
+    '{id: $id, kind: "skill", name: $name, short: $short, file: $file, prel: $prel, dir: $dir, line: 1}')"
   md_lines "$f" | emit_lines "$cid" skill "$comp" "$(rel "$f")" "$(prel "$d")"
 done <"$WORK/skills.txt"
 
@@ -318,52 +445,65 @@ for kind in command agent; do
     short=$(basename "$f" .md)
     [ $kind = agent ] && { n=$(fm_name "$f"); [ -n "$n" ] && short=$n; }
     cid="$kind:$short"; comp="$NAME:$short"
-    emit_comp "$(jq -nc --arg id "$cid" --arg kind "$kind" --arg name "$comp" --arg short "$short" --arg file "$(rel "$f")" --arg dir "$(prel "$(dirname "$f")")" \
-      '{id: $id, kind: $kind, name: $name, short: $short, file: $file, dir: $dir, line: 1, evidence: "\($kind) \($name)"}')"
+    emit_comp "$(jq -nc --arg id "$cid" --arg kind "$kind" --arg name "$comp" --arg short "$short" --arg file "$(rel "$f")" --arg prel "$(prel "$f")" --arg dir "$(prel "$(dirname "$f")")" \
+      '{id: $id, kind: $kind, name: $name, short: $short, file: $file, prel: $prel, dir: $dir, line: 1, evidence: "\($kind) \($name)"}')"
     md_lines "$f" | emit_lines "$cid" "$kind" "$comp" "$(rel "$f")" "$(prel "$(dirname "$f")")"
   done <"$WORK/$dir.txt"
 done
 
 # Hooks: hooks/hooks.json, files the manifest names, and hooks inline in it.
-line_of() { # file needle [after-line] -> first line number containing needle
-  awk -v n="$2" -v after="${3:-0}" 'NR > after && index($0, n) { print NR; exit }' "$1"
+line_of() { # file needle [after-line] -> first line number containing needle, taken literally
+  NEEDLE=$2 awk -v after="${3:-0}" 'NR > after && index($0, ENVIRON["NEEDLE"]) { print NR; exit }' "$1"
+}
+valid_json() { # a component file that does not parse is an error, not an absence
+  jq empty "$1" >/dev/null 2>&1 || die "cannot read $(rel "$1"): not valid JSON"
 }
 hook_source() { # file jq-path-to-hooks-object
   local file=$1 path=$2 last=0 cid="hooks:$(rel "$1")"
   local entries
+  valid_json "$file"
+  # Every hook type counts as a hook: command, http, mcp_tool, prompt, agent. A
+  # command hook's command and an http hook's URL are where it runs.
   entries=$(jq -c "$path"' | if type == "object" then (if (.hooks | type) == "object" then .hooks else . end) else empty end
     | to_entries[] | .key as $e | (.value | if type == "array" then .[] else empty end) | (.matcher // "") as $m
-    | (.hooks // [])[] | select(.type == "command" and (.command | type) == "string") | {event: $e, matcher: $m, command}' "$file" 2>/dev/null) || return 0
+    | (.hooks // [])[] | select(type == "object") | (.type // "command") as $t
+    | {event: $e, matcher: $m, type: $t,
+       runs: (if $t == "command" then (.command // "") elif $t == "http" then (.url // "") else "" end),
+       what: (.command // .url // .prompt // .tool // .agent // "" | tostring)}' "$file" 2>/dev/null) || return 0
   [ -n "$entries" ] || return 0
-  emit_comp "$(jq -nc --arg id "$cid" --arg file "$(rel "$file")" '{id: $id, kind: "hook", name: "hooks", short: "hooks", file: $file, dir: "", line: 1}')"
+  emit_comp "$(jq -nc --arg id "$cid" --arg file "$(rel "$file")" --arg prel "$(prel "$file")" \
+    '{id: $id, kind: "hook", name: "hooks", short: "hooks", file: $file, prel: $prel, dir: "", line: 1}')"
   while IFS= read -r e; do
-    local cmd needle ln
-    cmd=$(jq -r .command <<<"$e")
-    needle=$(jq -r '.command | tojson | .[1:-1] | .[0:60]' <<<"$e")
+    local runs needle ln
+    runs=$(jq -r .runs <<<"$e")
+    needle=$(jq -r '(if .what != "" then .what else "\"type\": \"\(.type)\"" end) | tojson | .[1:-1] | .[0:60]' <<<"$e")
     ln=$(line_of "$file" "$needle" "$last"); [ -n "$ln" ] || ln=$(line_of "$file" "$needle" 0); [ -n "$ln" ] || ln=1
     last=$ln
     jq -c --arg cid "$cid" --arg file "$(rel "$file")" --argjson line "$ln" '. + {cid: $cid, comp: "hooks", kind: "hook", file: $file, line: $line}' <<<"$e" >>"$WORK/hooks.ndjson"
-    c1=$(printf '%s' "$cmd" | tr '\t\n' '  ')
-    printf 'hook\t%s\t\t0\t%s\t%s\n' "$ln" "$c1" "$c1" | emit_lines "$cid" hook hooks "$(rel "$file")" ""
+    if [ -n "$runs" ]; then
+      c1=$(printf '%s' "$runs" | tr '\t\n' '  ')
+      printf 'hook\t%s\t\t0\t%s\t%s\n' "$ln" "$c1" "$c1" | emit_lines "$cid" hook hooks "$(rel "$file")" ""
+    fi
   done <<<"$entries"
 }
 [ -f "$P/hooks/hooks.json" ] && hook_source "$P/hooks/hooks.json" '.'
 while IFS= read -r p; do [ -f "$P/$p" ] && [ "$P/$p" != "$P/hooks/hooks.json" ] && hook_source "$P/$p" '.'; done < <(manifest_paths hooks)
-[ "$(jq -r '.hooks | type' "$MANIFEST")" = object ] && hook_source "$MANIFEST" '.hooks'
+[ -n "$MANIFEST" ] && [ "$(jq -r '.hooks | type' "$MANIFEST")" = object ] && hook_source "$MANIFEST" '.hooks'
 
 # MCP and LSP servers: .mcp.json / .lsp.json, files the manifest names, inline.
 server_source() { # kind file jq-path
   local kind=$1 file=$2 path=$3
+  valid_json "$file"
   jq -c "$path"' | if type == "object" then (if (.mcpServers | type) == "object" then .mcpServers else . end) else empty end
     | to_entries[] | select(.value | type == "object") | {server: .key,
       transport: (.value.type // (if .value.url then "http" else "stdio" end)),
-      has_headers: ((.value.headers // {}) | length > 0)}' "$file" 2>/dev/null \
+      has_headers: (((.value.headers // {}) | length > 0) or (.value.headersHelper != null))}' "$file" 2>/dev/null \
   | while IFS= read -r s; do
       local server ln
       server=$(jq -r .server <<<"$s")
       ln=$(line_of "$file" "\"$server\""); [ -n "$ln" ] || ln=1
-      emit_comp "$(jq -c --arg kind "$kind" --arg file "$(rel "$file")" --argjson line "$ln" \
-        '{id: "\($kind):\(.server)", kind: $kind, name: "\($kind):\(.server)", short: .server, file: $file, dir: "", line: $line,
+      emit_comp "$(jq -c --arg kind "$kind" --arg file "$(rel "$file")" --arg prel "$(prel "$file")" --argjson line "$ln" \
+        '{id: "\($kind):\(.server)", kind: $kind, name: "\($kind):\(.server)", short: .server, file: $file, prel: $prel, dir: "", line: $line,
           transport, has_headers, evidence: "\($kind) server \(.server) (\(.transport)\(if .has_headers then ", with headers" else "" end))"}' <<<"$s")"
     done
 }
@@ -371,7 +511,7 @@ for kind in mcp lsp; do
   key=$([ $kind = mcp ] && echo mcpServers || echo lspServers)
   [ -f "$P/.$kind.json" ] && server_source "$kind" "$P/.$kind.json" '.'
   while IFS= read -r p; do [ -f "$P/$p" ] && [ "$P/$p" != "$P/.$kind.json" ] && server_source "$kind" "$P/$p" '.'; done < <(manifest_paths "$key")
-  [ "$(jq -r --arg k "$key" '.[$k] | type' "$MANIFEST")" = object ] && server_source "$kind" "$MANIFEST" ".$key"
+  [ -n "$MANIFEST" ] && [ "$(jq -r --arg k "$key" '.[$k] | type' "$MANIFEST")" = object ] && server_source "$kind" "$MANIFEST" ".$key"
 done
 
 # Scripts: anything executable-looking outside assets/, tests and test data.
@@ -386,7 +526,7 @@ while IFS= read -r f; do
   esac
   r=$(prel "$f"); cid="script:$r"
   emit_comp "$(jq -nc --arg id "$cid" --arg name "$r" --arg file "$(rel "$f")" --arg base "$b" --arg dir "$(prel "$(dirname "$f")")" \
-    '{id: $id, kind: "script", name: $name, short: $base, rel: $name, base: $base, file: $file, dir: $dir, line: 1}')"
+    '{id: $id, kind: "script", name: $name, short: $base, rel: $name, prel: $name, base: $base, file: $file, dir: $dir, line: 1}')"
   script_lines "$f" | emit_lines "$cid" script "$r" "$(rel "$f")" "$(prel "$(dirname "$f")")"
 done <"$WORK/files.txt"
 
@@ -413,12 +553,23 @@ if [ -n "$REPO" ]; then
       '. + {($p): {exists: true, declared: ($key != ""), key: $key, line: $line}}' <<<"$declared")
   done < <(jq -r '.. | objects | select(has("declared_in")) | .declared_in' "$WORK/profiles.json" | sort -u)
 
+  # Two ways a repository can commit a plugin where a target loads it: the whole
+  # plugin under one of the layout's plugin_dirs (its manifest and every component
+  # file), or each skill, agent and command where the layout says that kind loads.
+  # The second delivers only those three kinds, which the vendored rules report.
   vendored='{}'
+  jq -r '[.[] | .prel // empty] | unique[]' "$WORK/comps.json" >"$WORK/prels.txt"
   while IFS= read -r t; do
     profile=$(jq -c --arg t "$t" '.[] | select(.id == $t)' "$WORK/profiles.json")
-    present=false missing=()
+    via=null missing=()
     while IFS= read -r pat; do
-      [ -n "$pat" ] && [ -e "$REPO/${pat//\{plugin\}/$NAME}" ] && present=true
+      [ -n "$pat" ] || continue
+      d="$REPO/${pat//\{plugin\}/$NAME}"
+      [ -d "$d" ] || continue
+      [ -z "$MANIFEST" ] || [ -f "$d/.claude-plugin/plugin.json" ] || continue
+      whole=true
+      while IFS= read -r r; do [ -e "$d/$r" ] || { whole=false; break; }; done <"$WORK/prels.txt"
+      $whole && [ -s "$WORK/prels.txt" ] && { via='"plugin_dir"'; break; }
     done < <(jq -r '.layout.plugin_dirs[]?' <<<"$profile")
     total=0
     while IFS=$'\t' read -r kind short; do
@@ -429,12 +580,10 @@ if [ -n "$REPO" ]; then
       done < <(jq -r --arg k "${kind}s" '.layout[$k][]?' <<<"$profile")
       $found || missing+=("$kind $short")
     done < <(jq -r '.[] | select(.kind == "skill" or .kind == "agent" or .kind == "command") | "\(.kind)\t\(.short)"' "$WORK/comps.json")
-    v=false
-    if $present || { [ "$total" -gt 0 ] && [ ${#missing[@]} -eq 0 ]; }; then v=true; fi
-    vendored=$(jq -c --arg t "$t" --argjson v "$v" --argjson total "$total" \
+    if [ "$via" = null ] && [ "$total" -gt 0 ] && [ ${#missing[@]} -eq 0 ]; then via='"components"'; fi
+    vendored=$(jq -c --arg t "$t" --argjson via "$via" --argjson total "$total" \
       --argjson missing "$(printf '%s\n' "${missing[@]+"${missing[@]}"}" | jq -R . | jq -sc 'map(select(length > 0))')" \
-      --argjson where "$(jq -c '[.layout.skills[]?, .layout.agents[]?, .layout.commands[]?, .layout.plugin_dirs[]?]' <<<"$profile")" \
-      '. + {($t): {vendored: $v, components: $total, missing: $missing, where: $where}}' <<<"$vendored")
+      '. + {($t): {vendored: ($via != null), via: $via, components: $total, missing: $missing}}' <<<"$vendored")
   done < <(jq -r '.[].id' "$WORK/profiles.json")
   facts=$(jq -nc --arg root "$REPO" --argjson declared "$declared" --argjson vendored "$vendored" \
     '{known: true, root: $root, declared: $declared, vendored: $vendored}')
@@ -466,12 +615,17 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
 | ($comps | map({(.id): .}) | add // {}) as $byid
 
 # Tool names a frontmatter line declares.
-| [ $lines[] | select(.ctx == "frontmatter" and (.key == "allowed-tools" or .key == "tools")) | . as $l
+| ([ $lines[] | select(.ctx == "frontmatter" and (.key == "allowed-tools" or .key == "tools")) | . as $l
     | .text
     | (if test("^\\s*-\\s") then sub("^\\s*-\\s*"; "") else sub("^[^:]*:\\s*"; "") end)
     | gsub("\\([^)]*\\)"; "") | gsub("[\\[\\]\"']"; "")
     | [splits("[,\\s]+")] | map(select(length > 0) | capture("^(?<n>[A-Za-z0-9_*/.:-]+)").n)
-    | .[] | {cid: $l.cid, comp: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, field: $l.key, tool: .} ] as $tools
+    | .[] | {cid: $l.cid, comp: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, field: $l.key, tool: ., evidence: "\($l.key): \(.)"} ]
+  # A fenced Agent(subagent_type: …) spawn uses the Agent tool whether or not the
+  # frontmatter declares it: allowed-tools only pre-approves.
+  + [ $lines[] | select(.ctx == "fence" and (.msg | not) and (.original | test("subagent_type\\s*[:=]")))
+      | {cid, comp, kind, file, line, field: "spawn", tool: "Agent", evidence: "spawn: \(.original | strip)"} ])
+  as $tools
 
 # Edges: who runs, spawns or invokes whom, where it runs.
 | [ $comps[] | select(.kind == "script") ] as $scripts
@@ -494,8 +648,10 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
             | select($l.original | test("(?<![A-Za-z0-9_-])" + ($s.name | rx) + "(?![A-Za-z0-9_-])"))
             | {from: $l.cid, to: $s.id, file: $l.file, line: $l.line} )
         elif $l.ctx == "frontmatter" and $l.key == "skills" then
-          ( $skills[] | . as $s
-            | select($l.text | test("(^|[\\s,\\[:-])(" + ($s.name | split(":")[0] | rx) + ":)?" + ($s.short | rx) + "($|[\\s,\\]])"))
+          ( ($l.text | (if test("^\\s*-\\s") then sub("^\\s*-\\s*"; "") else sub("^[^:]*:\\s*"; "") end)
+              | [splits("[,\\s\\[\\]\"']+")] | map(select(length > 0))) as $toks
+            | $skills[] | . as $s
+            | select($toks | any(. == $s.short or . == $s.name))
             | {from: $l.cid, to: $s.id, file: $l.file, line: $l.line} )
         else empty end )
   ] | unique_by([.from, .to]) as $edges
@@ -524,11 +680,13 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
     or test("(^|\\.)(example\\.(com|org|net)|example|test|invalid|local|localhost|internal)$");
 
   def evalwhen($w; $tid):
-    if $w["declared_in"] then ($facts.declared[$w["declared_in"]].declared // false)
-    elif $w["vendored"] then ($facts.vendored[$tid].vendored // false)
-    elif $w["not"] then (evalwhen($w["not"]; $tid) | not)
-    elif $w["all"] then all($w["all"][]; evalwhen(.; $tid))
-    elif $w["any"] then any($w["any"][]; evalwhen(.; $tid))
+    if $w | has("declared_in") then ($facts.declared[$w["declared_in"]].declared // false)
+    elif $w | has("vendored") then
+      (if $w["vendored"] == true then ($facts.vendored[$tid].vendored // false)
+       else ($facts.vendored[$tid].via // null) == $w["vendored"] end)
+    elif $w | has("not") then (evalwhen($w["not"]; $tid) | not)
+    elif $w | has("all") then all($w["all"][]; evalwhen(.; $tid))
+    elif $w | has("any") then any($w["any"][]; evalwhen(.; $tid))
     else false end;
 
   def delivery_evidence($p; $w):
@@ -540,7 +698,8 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
             elif $d.exists then "\($path) does not enable \($NAME)"
             else "\($path) does not exist" end ]
         + (if $usesv then
-             [ if $v.vendored then "\($NAME)'s components are committed where \($p.id) loads them"
+             [ if $v.via == "plugin_dir" then "the whole plugin is committed where \($p.id) loads repository plugins"
+               elif $v.via == "components" then "\($NAME)'s skills, agents and commands are committed where \($p.id) loads them"
                elif $v.components == 0 then "\($NAME) has no skill, agent or command to commit"
                else "not committed where \($p.id) loads components: \($v.missing | join(", ")) missing" end ]
            else [] end) ) | join("; ")
@@ -558,6 +717,38 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
         | [ .text | scan("https?://([A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9])") | .[0] | ascii_downcase ] | unique[]
         | select(contains(".") and (host_ignored | not) and (host_ok($m.allow) | not))
         | finding($p; $r; {severity: ($r.severity_in[$l.ctx] // $r.severity), component: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, context: $l.ctx, evidence: "\(.): \($l.original | strip)"})
+      elif $m.kind == "env" then
+        # A credential read from the environment: $NAME, ${NAME…}, ${!NAME}, a bare
+        # NAME on the right of an assignment (a variable that holds the name), an
+        # `export NAME=` in a fenced block (an instruction to set it), and the
+        # environment lookups of other languages. A name the same file assigns
+        # itself is a local variable, not the environment.
+        ( [ $lines[] | select(.ctx == "script" or .ctx == "fence") | .file as $f | .ctx as $c | .text
+            | capture(if $c == "script" then "^\\s*(?:export\\s+|local\\s+|readonly\\s+|typeset\\s+|declare(?:\\s+-\\w+)*\\s+)?(?<n>[A-Za-z_][A-Za-z0-9_]*)="
+                      else "^\\s*(?:local\\s+|readonly\\s+|typeset\\s+|declare(?:\\s+-\\w+)*\\s+)?(?<n>[A-Za-z_][A-Za-z0-9_]*)=" end).n // empty
+            | {file: $f, name: .} ] | group_by(.file) | map({(.[0].file): map(.name)}) | add // {} ) as $assigned
+        | $lines[] | select((.msg | not) and (.ctx as $c | $m["in"] | has_item($c))) | . as $l
+        | ([ (.text | scan("\\$\\{?!?([A-Z][A-Z0-9_]*)") | .[0]),
+             (.text | scan("=([A-Z][A-Z0-9_]*)(?![A-Za-z0-9_])") | .[0]),
+             (if .ctx == "fence" then (.text | scan("^\\s*export\\s+([A-Z][A-Z0-9_]*)=") | .[0]) else empty end),
+             (.text | scan("(?:environ(?:\\.get)?[\\[(]|getenv\\(|ENV\\[|ENV\\.fetch\\()[\"']([A-Z][A-Z0-9_]*)") | .[0]),
+             (.text | scan("process\\.env\\.([A-Z][A-Z0-9_]*)") | .[0]) ] | unique) as $names
+        | $names[] | . as $n | select(($n | test($m.name_pattern)) and ((($assigned[$l.file] // []) | has_item($n)) | not))
+        | finding($p; $r; {severity: ($r.severity_in[$l.ctx] // $r.severity), component: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, context: $l.ctx, evidence: "\(.): \($l.original | strip)"})
+      elif $m.kind == "vendored" then
+        # Only when the repository delivers the plugin by committing its skills,
+        # agents and commands: what that route does not carry.
+        if $facts.known and (($facts.vendored[$p.id].via // null) == ($m.via // "components")) then
+          ( if $m.types then
+              $comps[] | select(.kind as $k | $m.types | has_item($k))
+              | finding($p; $r; {component: .name, kind: .kind, file: .file, line: .line, evidence: "\(.kind) \(.name) is not carried by the committed skills"})
+            else empty end ),
+          ( if $m.pattern then
+              $lines[] | select((.msg | not) and (.kind == "skill" or .kind == "agent" or .kind == "command") and (.ctx as $c | ($m["in"] // ["fence"]) | has_item($c)))
+              | select(.text | test($m.pattern))
+              | finding($p; $r; {component: .comp, kind: .kind, file: .file, line: .line, context: .ctx, evidence: (.original | strip)})
+            else empty end )
+        else empty end
       elif $m.kind == "tool" then
         $tools[] | select((.kind as $k | $m.components | has_item($k)) and (.field as $f | $m.fields | has_item($f)))
         # Tool names compare case-insensitively: Copilot's tool aliases are.
@@ -568,11 +759,11 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
             else
               (($m.names // []) | map(ascii_downcase) | has_item($lt)) or (if $m.name_pattern then ($t | test($m.name_pattern; "i")) else false end)
             end)
-        | finding($p; $r; {component: .comp, kind: .kind, file: .file, line: .line, context: "frontmatter", evidence: "\(.field): \(.tool)"})
+        | finding($p; $r; {component: .comp, kind: .kind, file: .file, line: .line, context: (if .field == "spawn" then "fence" else "frontmatter" end), evidence: .evidence})
       elif $m.kind == "component" then
         if $m.type == "hook" then
           $hooks[] | finding($p; $r; {component: .comp, kind: "hook", file: .file, line: .line, context: "hook",
-            evidence: "\(.event)\(if .matcher != "" then "[\(.matcher)]" else "" end): \(.command)"})
+            evidence: "\(.event)\(if .matcher != "" then "[\(.matcher)]" else "" end): \(.type) \(.what)"})
         else
           $comps[] | select(.kind == $m.type) | . as $c
           | select(($m.where.transport == null or ($m.where.transport | has_item($c.transport)))
@@ -590,7 +781,8 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
     . as $fs
     | [ $fs[] | . as $f
         | ([ $p.rules[] | select(.id == $f.rule) | .match.except // [] ] | add // []) as $ex
-        | select(any($fs[]; . as $g | ($ex | has_item($g.rule)) and $g.component == $f.component and $g.file == $f.file and $g.line == $f.line) | not) ];
+        | select(any($fs[]; . as $g | ($ex | has_item($g.rule)) and $g.component == $f.component and $g.file == $f.file and $g.line == $f.line
+                                 and (($g.severity | rank) >= ($f.severity | rank))) | not) ];
 
   def review_for($p):
     [ $review[] | select(.target == $p.id) | . as $f
@@ -607,7 +799,7 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
       (map(.severity) | worst) as $w
       | { rule: .[0].rule, severity: $w,
           unconfirmed: all(.[] | select(.severity == $w); .unconfirmed),
-          review: any(.[]; .basis == "review"),
+          review: (if all(.[]; .basis == "review") then "all" elif any(.[]; .basis == "review") then "some" else null end),
           own: (map(select(.inherited | not)) | length),
           via: (map(select((.via // []) | length > 0) | (if .basis == "review" then "(review) " else "" end) + (.via | join(" → "))) | unique) })
     | sort_by(-(.severity | rank), .rule);
@@ -623,6 +815,11 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
       elif (($f.component | type) != "string") or ($f.component != "delivery" and ([ $comps[] | .name ] | has_item($f.component) | not)) then "review finding \($f.rule) names component \($f.component // "?"), which the plugin does not have"
       elif (($f.file | type) != "string") or (($f.evidence | type) != "string") then "review finding \($f.rule) needs file and evidence"
       elif ($f.line != null and ($f.line | type) != "number") then "review finding \($f.rule) has a line that is not a number"
+      elif ($f.fix_in != null and (["plugin", "repository", "environment"] | has_item($f.fix_in) | not)) then "review finding \($f.rule) has a fix_in that is not plugin, repository or environment"
+      elif ($f.sources != null and ((($f.sources | type) != "array") or ($f.sources | length) == 0 or any($f.sources[]; (type != "string") or (test("^https://") | not)))) then "review finding \($f.rule) has sources that are not a non-empty list of https URLs"
+      elif ($f.component_kind != null and ($f.component_kind != (if $f.component == "delivery" then "delivery" else ([ $comps[] | select(.name == $f.component) | .kind ] | if has_item($f.component_kind) then $f.component_kind else null end) end))) then "review finding \($f.rule) gives component_kind \($f.component_kind), which \($f.component) is not"
+      elif ($f.via != null and ((($f.via | type) != "array") or any($f.via[]; type != "string"))) then "review finding \($f.rule) has a via that is not a list of component names"
+      elif ($f.remedy != null and ($f.remedy | type) != "string") then "review finding \($f.rule) has a remedy that is not text"
       else empty end ] as $review_errors
 | if ($review_errors | length) > 0 then {error: ($review_errors | unique | join("; "))} else
 
@@ -673,7 +870,7 @@ result=$(jq -n \
   --slurpfile facts "$WORK/facts.json" --slurpfile review "$WORK/review.json" \
   --arg NAME "$NAME" --arg VERSION "$VERSION" \
   --arg PLUGIN_DIR "$(if [ "$BASE" = "$REPO" ] && [ -n "$REPO" ]; then rel "$P"; else printf '%s' "$P"; fi)" \
-  --arg PLUGIN_FILE "$(rel "$MANIFEST")" \
+  --arg PLUGIN_FILE "$(if [ -n "$MANIFEST" ]; then rel "$MANIFEST"; else rel "$P"; fi)" \
   "$SCAN" 2>"$WORK/err") || die "scan failed: $(cat "$WORK/err")"
 err=$(jq -r '.error // empty' <<<"$result")
 [ -z "$err" ] || die "--review $REVIEW: $err"
@@ -688,7 +885,7 @@ def loc: if .line then "\(.file):\(.line)" else "\(.file) (absent)" end;
 def clip: if length > 120 then .[0:117] + "…" else . end;
 def verdict_text: (if .verdict == "works" or .verdict == "not assessed" then .verdict else "**\(.verdict)**" end)
   + (if .unconfirmed then ", unconfirmed" else "" end);
-def entry_text: "\(.rule | code) \(.severity)\(if .unconfirmed then " (unconfirmed)" else "" end)\(if .review then " (review)" else "" end)"
+def entry_text: "\(.rule | code) \(.severity)\(if .unconfirmed then " (unconfirmed)" else "" end)\(if .review == "all" then " (review)" elif .review == "some" then " (scan and review)" else "" end)"
   + (if (.via | length) > 0 then " via " + ((.via[0:3] | join("; ")) + (if (.via | length) > 3 then "; +\((.via | length) - 3) more" else "" end)) else "" end);
 def why: [ .rules[] | select((.severity | rank) > 1) | entry_text ] | join("<br>") | cell;
 

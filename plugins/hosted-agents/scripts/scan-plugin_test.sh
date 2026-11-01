@@ -17,8 +17,14 @@
 #     finding, while the same command in a fenced shell block or a script is;
 #   - a verdict set by an unconfirmed finding is marked unconfirmed;
 #   - verdicts follow calls: a script a skill runs, a spawned agent, a named skill;
-#   - review findings merge in as basis review, can only add, and must cite a
-#     rule of the profile;
+#   - review findings merge in as basis review, can only add, must cite a rule of
+#     the profile, and are refused when malformed;
+#   - what a shell line's command is: pipes, message commands, quoted text,
+#     ${VAR} references, bash -c / ssh / eval, trailing comments, heredocs and
+#     console transcripts; and the commands in Python and JavaScript strings;
+#   - a repository that commits only part of a plugin delivers only that part;
+#   - every hook type, hook line numbers, fenced subagent spawns, skills: edges,
+#     credentials read versus assigned, and a plugin without a manifest;
 #   - exit codes 0 / 1 / 2, and no network call.
 #
 # Run: plugins/hosted-agents/scripts/scan-plugin_test.sh
@@ -91,7 +97,7 @@ same "the user-settings result links pull request #470" "true" \
 # ---------------------------------------------------------------------------
 printf '\neach rule'"'"'s fixture triggers that rule and no other\n'
 
-scanned_rules=$(for t in "${TARGETS[@]}"; do jq -r '.rules[] | select(.match.kind != "delivery" and .match.kind != "review") | .id' "$PROFILES/$t.json"; done | sort -u)
+scanned_rules=$(for t in "${TARGETS[@]}"; do jq -r '.rules[] | select(.match.kind != "delivery" and .match.kind != "review" and .match.kind != "vendored") | .id' "$PROFILES/$t.json"; done | sort -u)
 for id in $scanned_rules; do
   [ -d "$DATA/rules/$id" ] || { bad "$id has a fixture" "no $DATA/rules/$id"; continue; }
   for t in "${TARGETS[@]}"; do
@@ -163,9 +169,20 @@ settings "$TMP/repo-copilot/.github/copilot/settings.json"
 delivery_case "enabled in .github/copilot/settings.json only" "$TMP/repo-copilot" \
   "claude-code-cloud:plugin-not-delivered copilot-actions:plugin-settings-unconfirmed copilot-cloud-sandbox:plugin-settings-unconfirmed"
 
+mkdir -p "$TMP/repo-plugindir/.claude/skills"
+cp -r "$DATA/clean" "$TMP/repo-plugindir/.claude/skills/clean"
+delivery_case "the whole plugin committed as .claude/skills/<plugin>/" "$TMP/repo-plugindir" \
+  "claude-code-cloud:committed-plugin-dir copilot-actions:no-plugins-in-actions copilot-cloud-sandbox:no-plugin-settings"
+same "and that route is unconfirmed" "needs-setup true" \
+  "$(jq -r '.targets[] | select(.id == "claude-code-cloud") | .delivery | "\(.verdict) \(.unconfirmed)"' "$TMP/d.json")"
+mkdir -p "$TMP/repo-manifest-only/.claude/skills/clean/.claude-plugin"
+cp "$DATA/clean/.claude-plugin/plugin.json" "$TMP/repo-manifest-only/.claude/skills/clean/.claude-plugin/"
+delivery_case "a plugin directory holding only the manifest delivers nothing" "$TMP/repo-manifest-only" \
+  "claude-code-cloud:plugin-not-delivered copilot-actions:no-plugins-in-actions copilot-cloud-sandbox:no-plugin-settings"
+
 delivery_rules=$(for t in "${TARGETS[@]}"; do jq -r '.id as $t | .rules[] | select(.match.kind == "delivery") | "\($t):\(.id)"' "$PROFILES/$t.json"; done | sort)
 seen=$({ jq -r '.targets[] | .id as $t | .findings[] | select(.component == "delivery") | "\($t):\(.rule)"' "$TMP/vend.json"
-  for r in repo-empty repo-claude repo-copilot; do scan "$TMP/s.json" "$DATA/clean" --repo "$TMP/$r"; jq -r '.targets[] | .id as $t | .findings[] | select(.component == "delivery") | "\($t):\(.rule)"' "$TMP/s.json"; done; } | sort -u)
+  for r in repo-empty repo-claude repo-copilot repo-plugindir; do scan "$TMP/s.json" "$DATA/clean" --repo "$TMP/$r"; jq -r '.targets[] | .id as $t | .findings[] | select(.component == "delivery") | "\($t):\(.rule)"' "$TMP/s.json"; done; } | sort -u)
 same "every delivery rule is reached by one of these layouts" "$delivery_rules" "$seen"
 
 scan "$TMP/und.json" "$DATA/clean" --repo "$TMP/repo-empty" --target copilot-actions; rc=$?
@@ -182,6 +199,85 @@ else bad "undeliverable: the report says so before the component table" "line $s
 scan "$TMP/sand.json" "$DATA/clean" --repo "$TMP/repo-empty" --target copilot-cloud-sandbox
 same "a delivery verdict set by an unconfirmed rule is unconfirmed" "needs-setup true" \
   "$(jq -r '.targets[0].delivery | "\(.verdict) \(.unconfirmed)"' "$TMP/sand.json")"
+
+# ---------------------------------------------------------------------------
+printf '\na repository that commits only the skills\n'
+
+# vendored/ has a skill that runs a script through ${CLAUDE_PLUGIN_ROOT}, a hook
+# and an MCP server. Committing only the skill delivers only the skill.
+vrepo="$TMP/repo-vendored-part"
+mkdir -p "$vrepo/.claude/skills/fmt"
+cp "$DATA/vendored/skills/fmt/SKILL.md" "$vrepo/.claude/skills/fmt/SKILL.md"
+scan "$TMP/vp.json" "$DATA/vendored" --repo "$vrepo" --target claude-code-cloud; rc=$?
+same "committed skills: exit 1, because the skill's script path no longer resolves" 1 "$rc"
+same "committed skills: the rules that fire" "committed-components vendored-parts-not-loaded vendored-plugin-root-unset" \
+  "$(jq -r '[.targets[0].findings[].rule] | unique | join(" ")' "$TMP/vp.json")"
+same "the hook and the MCP server are not carried by the committed skill" "hooks:needs-setup mcp:notes:needs-setup" \
+  "$(jq -r '[.targets[0].components[] | select(.kind == "hook" or .kind == "mcp") | "\(.component):\(.verdict)"] | sort | join(" ")' "$TMP/vp.json")"
+same "the skill breaks at the line that uses \${CLAUDE_PLUGIN_ROOT}" "vendored/skills/fmt/SKILL.md:7 breaks" \
+  "$(jq -r '.targets[0].findings[] | select(.rule == "vendored-plugin-root-unset") | "\(.file):\(.line) \(.severity)"' "$TMP/vp.json")"
+vendored_rules=$(for t in "${TARGETS[@]}"; do jq -r '.id as $t | .rules[] | select(.match.kind == "vendored") | "\($t):\(.id)"' "$PROFILES/$t.json"; done | sort)
+same "every vendored rule is reached here" "$vendored_rules" \
+  "$(jq -r '.targets[] | .id as $t | .findings[] | select(.rule | startswith("vendored-")) | "\($t):\(.rule)"' "$TMP/vp.json" | sort -u)"
+scan "$TMP/vw.json" "$DATA/vendored" --repo "$TMP/repo-plugindir" --target claude-code-cloud
+same "with no repository route, the vendored rules stay quiet" "" \
+  "$(jq -r '[.targets[0].findings[] | select(.rule | startswith("vendored-")) | .rule] | join(",")' "$TMP/vw.json")"
+
+# ---------------------------------------------------------------------------
+printf '\nwhat a shell line runs\n'
+
+# found <json> <target-index> <rule> -> sorted file:line of that rule's findings, paths from testdata/
+found() { jq -r --argjson i "$2" --arg r "$3" '[.targets[$i].findings[] | select(.rule == $r) | "\(.file | sub(".*testdata/"; "")):\(.line)"] | sort | join(" ")' "$1"; }
+scan "$TMP/sl.json" "$DATA/shell-lines" --no-repo --target claude-code-cloud
+same "a command after printf |, echo | or echo && is found, and one inside \$(…) in a message" \
+  "shell-lines/scripts/piped.sh:2 shell-lines/scripts/piped.sh:3 shell-lines/scripts/piped.sh:4 shell-lines/scripts/piped.sh:5" \
+  "$(found "$TMP/sl.json" 0 github-graphql | tr ' ' '\n' | grep piped | paste -sd ' ')"
+same "messages, quoted text, \${VAR:-default} text and escaped backticks are not commands" "" \
+  "$(jq -r '[.targets[0].findings[] | select(.file | test("messages.sh")) | "\(.rule):\(.line)"] | join(" ")' "$TMP/sl.json")"
+same "a command handed to bash -c, ssh or eval is a command" \
+  "shell-lines/scripts/quoted.sh:2 shell-lines/scripts/quoted.sh:3 shell-lines/scripts/quoted.sh:4" \
+  "$(found "$TMP/sl.json" 0 github-graphql | tr ' ' '\n' | grep quoted | paste -sd ' ')"
+same "a trailing comment and a heredoc's text are not commands; a heredoc fed to bash is" "shell-lines/scripts/comments.sh:7" \
+  "$(found "$TMP/sl.json" 0 github-graphql | tr ' ' '\n' | grep comments | paste -sd ' ')"
+same "in a console block only the \$ line is a command" "shell-lines/skills/console/SKILL.md:7" \
+  "$(found "$TMP/sl.json" 0 github-graphql | tr ' ' '\n' | grep console | paste -sd ' ')"
+scan "$TMP/sl2.json" "$DATA/shell-lines" --no-repo --target copilot-cloud-sandbox
+same "a \$VAR inside a quoted header is still read" "shell-lines/scripts/quoted.sh:5" "$(found "$TMP/sl2.json" 0 no-github-token)"
+scan "$TMP/ol.json" "$DATA/other-languages" --no-repo --target claude-code-cloud
+same "Python and JavaScript: process calls are commands; comments, docstrings and prints are not" \
+  "other-languages/scripts/list.js:4 other-languages/scripts/list.py:6 other-languages/scripts/list.py:7" \
+  "$(found "$TMP/ol.json" 0 github-graphql)"
+
+# ---------------------------------------------------------------------------
+printf '\nhooks, spawns, edges, environment, manifest\n'
+
+scan "$TMP/ht.json" "$DATA/hook-types" --no-repo --target copilot-actions
+same "every hook type is a hook, at its own line" "hook-types/hooks/hooks.json:10 hook-types/hooks/hooks.json:11 hook-types/hooks/hooks.json:4" \
+  "$(found "$TMP/ht.json" 0 plugin-hooks-not-loaded)"
+scan "$TMP/ht2.json" "$DATA/hook-types" --no-repo --target claude-code-cloud
+same "an http hook's URL is checked against the allow list" "hook-types/hooks/hooks.json:10" "$(found "$TMP/ht2.json" 0 host-not-on-trusted-list)"
+mkdir -p "$TMP/badhooks/.claude-plugin" "$TMP/badhooks/hooks" "$TMP/badmcp/.claude-plugin"
+printf '{ "name": "badhooks" }\n' >"$TMP/badhooks/.claude-plugin/plugin.json"; printf '{ "hooks": \n' >"$TMP/badhooks/hooks/hooks.json"
+printf '{ "name": "badmcp" }\n' >"$TMP/badmcp/.claude-plugin/plugin.json"; printf '{ "mcpServers": [ \n' >"$TMP/badmcp/.mcp.json"
+"$SUT" "$TMP/badhooks" --no-repo >/dev/null 2>&1; same "a hooks.json that does not parse: exit 2" 2 "$?"
+"$SUT" "$TMP/badmcp" --no-repo >/dev/null 2>&1; same "an .mcp.json that does not parse: exit 2" 2 "$?"
+
+scan "$TMP/sp.json" "$DATA/spawn" --no-repo --target copilot-cloud-sandbox
+same "a fenced subagent spawn with no frontmatter tools is a subagent" "spawn/skills/fan/SKILL.md:8" "$(found "$TMP/sp.json" 0 subagents-unsupported)"
+scan "$TMP/se.json" "$DATA/skills-edge" --no-repo --target claude-code-cloud
+same "skills: next-issue links to next-issue and not to issue" "edges:worker>edges:next-issue" \
+  "$(jq -r '[.edges[] | "\(.from)>\(.to)"] | join(" ")' "$TMP/se.json")"
+same "so the agent does not inherit issue's finding" "works" \
+  "$(jq -r '.targets[0].components[] | select(.component == "edges:worker") | .verdict' "$TMP/se.json")"
+
+scan "$TMP/env.json" "$DATA/env-reads" --no-repo --target claude-code-cloud
+same "a credential read, a variable naming one, and os.environ count; a local CACHE_KEY does not" \
+  "env-reads/scripts/env.py:2 env-reads/scripts/env.sh:5" "$(found "$TMP/env.json" 0 credential-from-environment)"
+same "repos/ means a repository only after gh api, not in a local path" "env-reads/scripts/env.sh:7" "$(found "$TMP/env.json" 0 repository-not-attached)"
+
+scan "$TMP/ml.json" "$DATA/manifest-less" --no-repo; rc=$?
+same "a plugin without a manifest is scanned, named after its directory" "0 manifest-less manifest-less:hello" \
+  "$rc $(jq -r '"\(.plugin.name) \([.components[].name] | join(","))"' "$TMP/ml.json")"
 
 # ---------------------------------------------------------------------------
 printf '\nprose is not a command\n'
@@ -226,6 +322,25 @@ same "what the driver calls is judged on its own" "calls:step:works calls:worker
   "$(jq -r '[.targets[0].components[] | select(.component != "calls:driver") | "\(.component):\(.verdict)"] | sort | join(" ")' "$TMP/calls.json")"
 
 # ---------------------------------------------------------------------------
+printf '\nrules that defer to each other\n'
+
+mkdir -p "$TMP/exc/.claude-plugin" "$TMP/exc/scripts"
+printf '{ "name": "exc" }\n' >"$TMP/exc/.claude-plugin/plugin.json"
+printf '#!/usr/bin/env bash\ngh pr checks "$1" --watch\ngh pr merge --squash "$1"\n' >"$TMP/exc/scripts/wait.sh"
+scan "$TMP/exc.json" "$TMP/exc" --no-repo --target copilot-cloud-sandbox
+same "a less severe rule does not take a finding's place; an equally severe one does" \
+  "cannot-merge-approve-ready:3 gh-auth-undocumented:2 pull-request-workflows-need-approval:2" \
+  "$(jq -r '[.targets[0].findings[] | "\(.rule):\(.line)"] | sort | join(" ")' "$TMP/exc.json")"
+mkdir -p "$TMP/mcph/.claude-plugin"
+printf '{ "name": "mcph" }\n' >"$TMP/mcph/.claude-plugin/plugin.json"
+printf '{ "mcpServers": { "helper": { "type": "http", "url": "https://mcp.acme.dev/mcp", "headersHelper": "./auth.sh" } } }\n' >"$TMP/mcph/.mcp.json"
+scan "$TMP/mcph.json" "$TMP/mcph" --no-repo --target copilot-actions
+same "a remote with a headersHelper is not taken for OAuth" "mcp-needs-repository-config" "$(jq -r '[.targets[0].findings[].rule] | join(",")' "$TMP/mcph.json")"
+scan "$TMP/oauth.json" "$DATA/rules/mcp-oauth-remote" --no-repo --target copilot-actions
+same "and a remote with no headers is OAuth only unconfirmed" "breaks true" \
+  "$(jq -r '.targets[0].components[0] | "\(.verdict) \(.unconfirmed)"' "$TMP/oauth.json")"
+
+# ---------------------------------------------------------------------------
 printf '\nreview findings\n'
 
 review() { printf '%s\n' "$1" >"$TMP/review.json"; }
@@ -258,6 +373,18 @@ review_rejected "a review finding on a component the plugin lacks" \
 review_rejected "a review finding for a target not scanned" \
   '[{"target": "copilot-actions", "rule": "waits-for-user", "severity": "breaks", "component": "clean:hello", "file": "x", "line": 1, "evidence": "e"}]'
 review_rejected "a review file that is not an array" '{"rule": "waits-for-user"}'
+review_rejected "a review finding with a fix_in outside the enum" \
+  '[{"target": "copilot-cloud-sandbox", "rule": "waits-for-user", "fix_in": "nowhere", "component": "clean:hello", "file": "x", "line": 1, "evidence": "e"}]'
+review_rejected "a review finding with no sources" \
+  '[{"target": "copilot-cloud-sandbox", "rule": "waits-for-user", "sources": [], "component": "clean:hello", "file": "x", "line": 1, "evidence": "e"}]'
+review_rejected "a review finding whose component_kind is not its component's" \
+  '[{"target": "copilot-cloud-sandbox", "rule": "waits-for-user", "component_kind": "agent", "component": "clean:hello", "file": "x", "line": 1, "evidence": "e"}]'
+review_rejected "a review finding whose via is not a list" \
+  '[{"target": "copilot-cloud-sandbox", "rule": "waits-for-user", "via": "clean:helper", "component": "clean:hello", "file": "x", "line": 1, "evidence": "e"}]'
+review '[{"target": "claude-code-cloud", "rule": "github-graphql", "component": "scripts/list.sh", "file": "rules/github-graphql/scripts/list.sh", "line": 2, "evidence": "also read"}]'
+md=$("$SUT" "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud --review "$TMP/review.json" --format markdown 2>/dev/null)
+grep -q '`github-graphql` breaks (scan and review)' <<<"$md" && ok "a rule found by the scan and by the review says both" \
+  || bad "a rule found by the scan and by the review says both"
 
 # ---------------------------------------------------------------------------
 printf '\noutput\n'
@@ -287,7 +414,7 @@ exit_case() { # <name> <want> <args...>
 exit_case "no finding breaks: 0" 0 "$DATA/clean" --no-repo
 exit_case "a finding breaks: 1" 1 "$DATA/rules/github-graphql" --no-repo --target claude-code-cloud
 exit_case "only needs-setup: 0" 0 "$DATA/rules/credential-from-environment" --no-repo --target claude-code-cloud
-exit_case "a directory without .claude-plugin/plugin.json: 2" 2 "$DATA/not-a-plugin" --no-repo
+exit_case "a directory with neither a manifest nor a component directory: 2" 2 "$DATA/not-a-plugin" --no-repo
 exit_case "a path that does not exist: 2" 2 "$DATA/no-such-plugin" --no-repo
 exit_case "no plugin argument: 2" 2
 exit_case "an unknown option: 2" 2 "$DATA/clean" --bogus
@@ -295,14 +422,24 @@ exit_case "a target with no profile: 2" 2 "$DATA/clean" --no-repo --target no-su
 
 mkdir -p "$TMP/profiles-bad-json" "$TMP/profiles-bad-pattern" "$TMP/profiles-no-sources" "$TMP/profiles-wrong-id"
 printf '{ "id": "broken", \n' >"$TMP/profiles-bad-json/broken.json"
-jq '.rules[0] = (.rules[] | select(.match.kind == "command") | .match.pattern = "(unclosed")' \
+jq '(.rules[] | select(.id == "github-graphql") | .match.pattern) = "(unclosed"' \
   "$PROFILES/claude-code-cloud.json" >"$TMP/profiles-bad-pattern/claude-code-cloud.json"
 jq '.rules[0].sources = []' "$PROFILES/claude-code-cloud.json" >"$TMP/profiles-no-sources/claude-code-cloud.json"
 jq '.id = "something-else"' "$PROFILES/claude-code-cloud.json" >"$TMP/profiles-wrong-id/claude-code-cloud.json"
 exit_case "a profile that is not JSON: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-bad-json"
-exit_case "a profile whose pattern does not compile: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-bad-pattern"
+same "the bad-pattern profile is one document" 1 "$(jq -s length "$TMP/profiles-bad-pattern/claude-code-cloud.json")"
+exit_case "a profile whose pattern does not compile, on a plugin with no lines: 2" 2 "$DATA/rules/commands-unsupported" --no-repo --targets-dir "$TMP/profiles-bad-pattern"
+exit_case "a profile whose pattern does not compile, on a plugin with lines: 2" 2 "$DATA/rules/github-graphql" --no-repo --targets-dir "$TMP/profiles-bad-pattern"
 exit_case "a profile rule with no source: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-no-sources"
 exit_case "a profile whose id is not its file name: 2" 2 "$DATA/clean" --no-repo --targets-dir "$TMP/profiles-wrong-id"
+
+# ---------------------------------------------------------------------------
+printf '\nthe skill\n'
+
+SKILL="$HERE/../skills/review-plugin/SKILL.md"
+same "the skill prints its scratch directory" 1 "$(grep -c 'work=$(mktemp -d) && echo "work=$work"' "$SKILL")"
+same "and outside that block uses it as <work>, never as \$work" "" \
+  "$(awk '/^```/ { inb = !inb } !(inb && /\$work/) && /\$work/' "$SKILL" | grep -v 'do not expand' )"
 
 # ---------------------------------------------------------------------------
 printf '\nno network\n'

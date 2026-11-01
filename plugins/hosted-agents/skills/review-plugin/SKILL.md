@@ -38,10 +38,12 @@ the report go in a scratch directory, or where `--out` says.
 ## Step 1 — Scan
 
 ```bash
-work=$(mktemp -d)
+work=$(mktemp -d) && echo "work=$work"
 "${CLAUDE_PLUGIN_ROOT}/scripts/scan-plugin.sh" <plugin-dir> [--target <id>]... >"$work/scan.json"
 echo "exit $?"
 ```
+
+The first line prints the scratch directory. Below it is written `<work>`: use the printed path, in full, everywhere it appears. The Read and Write tools do not expand `$work`, and a later Bash call does not keep the variable.
 
 | Exit | Meaning | Do |
 |---|---|---|
@@ -53,7 +55,7 @@ The scan finds the repository the plugin is delivered from by itself (the git wo
 it) and judges delivery from it. If the plugin lives outside the repository that will deliver it,
 pass `--repo <that repository>`.
 
-Read `$work/scan.json`. For each target it holds `delivery`, `components` (each with its `verdict`
+Read `<work>/scan.json`. For each target it holds `delivery`, `components` (each with its `verdict`
 and the `rules` behind it), `findings`, and `review_rules` — the rules the profile leaves to you,
 each with what to `look_for`. The top-level `edges` are the calls the scan could see.
 
@@ -96,7 +98,7 @@ command. A finding needs a passage that makes the component do the thing.
 
 ## Step 3 — Write the review findings and the report
 
-Write your findings to `$work/review.json` with the Write tool — a JSON array, empty if you found
+Write your findings to `<work>/review.json` with the Write tool — a JSON array, empty if you found
 nothing:
 
 ```json
@@ -118,13 +120,18 @@ nothing:
   a finding citing anything else is refused (exit 2).
 - `severity` defaults to the rule's. `remedy` and `fix_in` default to the rule's; give your own
   only when the rule's would mislead for this passage. `sources` are the rule's.
+- What you give is checked, and a finding that fails a check is refused:
+  - `fix_in` must be `plugin`, `repository` or `environment`;
+  - `sources`, if given, must be a non-empty list of https URLs;
+  - `via` must be a list of component names;
+  - leave out `component_kind`: it is the named component's.
 - Do not set `basis`; the merge sets it to `review`.
 
 Merge them and render the report:
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/scan-plugin.sh" <plugin-dir> [--target <id>]... \
-  --review "$work/review.json" --format markdown >"$work/report.md"
+  --review "<work>/review.json" --format markdown >"<work>/report.md"
 echo "exit $?"
 ```
 

@@ -121,12 +121,13 @@
     },
     {
       "id": "subagents-unsupported",
-      "summary": "A component spawns subagents with the Agent (Task) tool. The customization cheat sheet marks subagents as not supported on GitHub.com, while the custom agents reference maps the agent, custom-agent and Task aliases to 'custom agent' tools in the cloud. The pages disagree.",
+      "summary": "A component spawns subagents with the Agent (Task) tool, declared in its frontmatter or spawned from a fenced Agent(subagent_type: …) call. The customization cheat sheet marks subagents as not supported on GitHub.com, while the custom agents reference maps the agent, custom-agent and Task aliases to 'custom agent' tools in the cloud. The pages disagree.",
       "match": {
         "kind": "tool",
         "fields": [
           "allowed-tools",
-          "tools"
+          "tools",
+          "spawn"
         ],
         "components": [
           "skill",
@@ -148,7 +149,7 @@
         "https://docs.github.com/en/copilot/reference/custom-agents-configuration#tool-aliases"
       ],
       "basis": "unconfirmed",
-      "checked": "2026-10-31",
+      "checked": "2026-11-01",
       "notes": "Even if the agent tool works, it invokes a custom agent from .github/agents, not a plugin's agent."
     },
     {
@@ -294,8 +295,8 @@
       "id": "no-github-token",
       "summary": "GITHUB_TOKEN is not set in a cloud agent session; GITHUB_COPILOT_GIT_TOKEN and GITHUB_COPILOT_API_TOKEN are.",
       "match": {
-        "kind": "command",
-        "pattern": "\\$\\{?GITHUB_TOKEN\\b",
+        "kind": "env",
+        "name_pattern": "^GITHUB_TOKEN$",
         "in": [
           "script",
           "hook",
@@ -310,7 +311,7 @@
         "https://docs.github.com/en/copilot/concepts/security-governance-and-network-settings/risks-and-mitigations"
       ],
       "basis": "docs",
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
     },
     {
       "id": "agent-cannot-git-push",
@@ -453,7 +454,7 @@
     },
     {
       "id": "mcp-oauth-remote",
-      "summary": "The plugin declares a remote (http or sse) MCP server with no static headers, which means it authenticates by OAuth. For MCP servers configured in repository settings or custom agent profiles, the cloud agent does not support OAuth remotes.",
+      "summary": "The plugin declares a remote (http or sse) MCP server with no static headers and no headersHelper, which usually means it authenticates by OAuth. For MCP servers configured in repository settings or custom agent profiles, the cloud agent does not support OAuth remotes.",
       "match": {
         "kind": "component",
         "type": "mcp",
@@ -472,8 +473,9 @@
         "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/configure-mcp-servers",
         "https://docs.github.com/en/copilot/concepts/copilot-surfaces/copilot-on-github"
       ],
-      "basis": "docs",
-      "checked": "2026-10-31"
+      "basis": "unconfirmed",
+      "checked": "2026-11-01",
+      "notes": "That a remote with no headers authenticates by OAuth is the scanner's inference; a public, unauthenticated server looks the same. That the cloud agent does not support OAuth remotes configured in repository settings or custom agent profiles is documented."
     },
     {
       "id": "host-not-on-firewall-allowlist",
@@ -719,10 +721,10 @@
     },
     {
       "id": "credential-from-environment",
-      "summary": "A command reads a credential from an environment variable. An Actions session gets secrets and variables from the repository's Agents secrets.",
+      "summary": "A command reads a credential from the environment. An Actions session gets secrets and variables from the repository's Agents secrets.",
       "match": {
-        "kind": "command",
-        "pattern": "\\b(?!GH_TOKEN\\b|GITHUB_TOKEN\\b|CLAUDE_|COPILOT_MCP_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)\\b",
+        "kind": "env",
+        "name_pattern": "^(?!GH_TOKEN$|GITHUB_TOKEN$|CLAUDE_|COPILOT_MCP_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)$",
         "in": [
           "script",
           "hook",
@@ -736,7 +738,7 @@
         "https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/configure-secrets-and-variables"
       ],
       "basis": "docs",
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
     },
     {
       "id": "waits-for-user",

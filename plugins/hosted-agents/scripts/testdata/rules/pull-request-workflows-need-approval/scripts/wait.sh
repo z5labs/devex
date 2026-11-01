@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-gh pr checks "$1" --watch
+curl -fsS "https://api.github.com/repos/$REPO/commits/$SHA/check-runs"

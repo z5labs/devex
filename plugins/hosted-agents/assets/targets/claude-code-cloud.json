@@ -22,28 +22,49 @@
       ".claude/commands/{name}.md"
     ],
     "plugin_dirs": [
-      ".claude/skills/{plugin}/.claude-plugin/plugin.json"
+      ".claude/skills/{plugin}"
     ]
   },
   "rules": [
     {
       "id": "committed-components",
-      "summary": "The plugin's components are committed under .claude/, which a cloud session loads from the clone with no install step.",
+      "summary": "The plugin's skills, agents and commands are committed under .claude/, which a cloud session loads from the clone with no install step.",
       "match": {
         "kind": "delivery",
         "when": {
-          "vendored": true
+          "vendored": "components"
         }
       },
       "severity": "info",
-      "remedy": "Nothing to do. Keep the committed copy in step with the plugin: a session runs what is committed, not the plugin's latest version.",
+      "remedy": "Keep the committed copy in step with the plugin. This route carries only skills, agents and commands: the plugin's hooks and MCP and LSP servers do not come with them, and ${CLAUDE_PLUGIN_ROOT} is not set for a skill that belongs to no plugin (see vendored-parts-not-loaded and vendored-plugin-root-unset).",
       "fix_in": "repository",
       "sources": [
         "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
         "https://code.claude.com/docs/en/claude-code-on-the-web#manage-context"
       ],
       "basis": "docs",
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "committed-plugin-dir",
+      "summary": "The whole plugin, manifest and every component, is committed as .claude/skills/<plugin>/. A plugin placed there is a repository plugin, which loads only after the same trust check that applies to project allow rules; whether a cloud session, which never shows the workspace trust dialog, passes that check is not documented.",
+      "match": {
+        "kind": "delivery",
+        "when": {
+          "vendored": "plugin_dir"
+        }
+      },
+      "severity": "needs-setup",
+      "remedy": "Start a cloud session and check that the plugin's skills are offered; record the result here as basis: observed. If they are not, deliver it from the environment's setup script, which writes it into user settings.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://code.claude.com/docs/en/plugins/loading#trust-check-and-component-limits-for-repository-plugins",
+        "https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup"
+      ],
+      "basis": "unconfirmed",
+      "notes": "A cloud session applies the repository's .claude/settings.json permission rules, which pass the same trust check, yet it does not add the marketplaces that file lists, because that needs the trust dialog. The pages leave this route open.",
+      "checked": "2026-11-01"
     },
     {
       "id": "repository-settings-ignored",
@@ -119,6 +140,50 @@
       "checked": "2026-10-31"
     },
     {
+      "id": "vendored-parts-not-loaded",
+      "summary": "The repository delivers the plugin by committing its skills, agents and commands under .claude/, and that does not carry this component: a cloud session reads hooks from settings files and MCP servers from .mcp.json, not from a plugin directory that is not loaded as a plugin.",
+      "match": {
+        "kind": "vendored",
+        "via": "components",
+        "types": [
+          "hook",
+          "mcp",
+          "lsp"
+        ]
+      },
+      "severity": "needs-setup",
+      "remedy": "Commit the hooks into the repository's .claude/settings.json and the MCP servers into .mcp.json at its root, with paths that do not use ${CLAUDE_PLUGIN_ROOT}, or deliver the plugin as a plugin from the environment's setup script.",
+      "fix_in": "repository",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository",
+        "https://code.claude.com/docs/en/hooks",
+        "https://code.claude.com/docs/en/mcp"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "vendored-plugin-root-unset",
+      "summary": "A committed skill, agent or command runs a path under ${CLAUDE_PLUGIN_ROOT}. That variable is the directory of the plugin a component belongs to; a skill loaded from .claude/skills belongs to none, so the path collapses to /scripts/….",
+      "match": {
+        "kind": "vendored",
+        "via": "components",
+        "pattern": "CLAUDE_PLUGIN_ROOT",
+        "in": [
+          "fence"
+        ]
+      },
+      "severity": "breaks",
+      "remedy": "Commit the scripts the skill runs into the repository and call them by a repository path, or deliver the plugin as a plugin from the environment's setup script.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/plugins-reference#environment-variables",
+        "https://code.claude.com/docs/en/plugins/loading#plugins-shared-through-a-repository"
+      ],
+      "basis": "docs",
+      "checked": "2026-11-01"
+    },
+    {
       "id": "github-graphql",
       "summary": "GitHub GraphQL is blocked: gh pr, gh issue, gh project, gh repo view, gh label list, gh release list, gh search and gh api graphql get HTTP 403 'GitHub GraphQL is not available from Claude Code sessions'. REST through gh api works.",
       "match": {
@@ -192,7 +257,7 @@
       "summary": "The GitHub proxy serves API requests only for the repositories attached to the session. A request naming another repository, or a source archive of one, gets HTTP 403 'GitHub access to this repository is not enabled for this session'.",
       "match": {
         "kind": "command",
-        "pattern": "\\brepos/(?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|(?:\\s-R|--repo)[ =](?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|codeload\\.github\\.com|github\\.com/[^/\\s]+/[^/\\s]+/archive/",
+        "pattern": "\\bgh\\s+api\\s+(?:[^|;&]*\\s)?[\"']?/?repos/(?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|api\\.github\\.com/repos/(?![{<$])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|(?:\\s-R|--repo)[ =](?![{<$\"'])[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+|codeload\\.github\\.com|github\\.com/[^/\\s]+/[^/\\s]+/archive/",
         "in": [
           "script",
           "hook",
@@ -214,7 +279,7 @@
           "result": "In a cloud session attached only to z5labs/devex: gh api repos/z5labs/humus and gh api repos/cli/cli returned HTTP 403 'GitHub access to this repository is not enabled for this session'. git ls-remote https://github.com/cli/cli succeeded, so plain git reads of a public repository are not refused."
         }
       ],
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
     },
     {
       "id": "push-tag-or-delete-refused",
@@ -468,10 +533,10 @@
     },
     {
       "id": "credential-from-environment",
-      "summary": "A command reads a credential from an environment variable. A cloud session has only what the environment provides: environment variables (which every user of the environment can read, and which the setup script cannot see) or network secrets the agent proxy attaches to requests for listed hosts without the session seeing them.",
+      "summary": "A command reads a credential from the environment. A cloud session has only what the environment provides: environment variables (which every user of the environment can read, and which the setup script cannot see) or network secrets the agent proxy attaches to requests for listed hosts without the session seeing them.",
       "match": {
-        "kind": "command",
-        "pattern": "\\b(?!GH_TOKEN\\b|GITHUB_TOKEN\\b|CLAUDE_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)\\b",
+        "kind": "env",
+        "name_pattern": "^(?!GH_TOKEN$|GITHUB_TOKEN$|CLAUDE_)[A-Z][A-Z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD|PASSPHRASE|PEM|CREDENTIALS?)$",
         "in": [
           "script",
           "hook",
@@ -486,7 +551,7 @@
         "https://code.claude.com/docs/en/cloud-environments#add-network-secrets"
       ],
       "basis": "docs",
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
     },
     {
       "id": "lsp-not-started",
