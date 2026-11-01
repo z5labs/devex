@@ -68,7 +68,9 @@ are the ones the profiles define today:
 | Rule | What to look for |
 |---|---|
 | `waits-for-user` | "Stop and ask", "wait for the user", a checkpoint after each step, "do not proceed without" an answer |
-| `bash-ten-minute-cap` (`claude-code-cloud`) | one command expected to block longer than 10 minutes in the foreground |
+| `bash-ten-minute-cap` (`claude-code-cloud`) | one command expected to block longer than 10 minutes in the foreground, or a long build or test run (a verify step, a full suite) started with no explicit Bash `timeout`, which is moved to the background at the 2-minute default |
+| `pushes-own-branch` (`claude-code-cloud`) | a flow that creates a branch other than the session's own, pushes it and works from it |
+| `session-files-not-kept` (`claude-code-cloud`) | a file written outside the committed repository — `~/.claude/settings.json`, `.claude/settings.local.json` — that a later session is expected to find |
 | `session-time-limit` (`copilot-actions`) | a flow that runs past an hour end to end, or a wait bounded beyond it — a two-hour bound, a loop of five-minute waits |
 | `several-pull-requests` (Copilot) | a flow that opens more than one pull request, or works across branches |
 | `several-repositories` (Copilot) | work in repositories other than the one the session started in |
@@ -76,7 +78,8 @@ are the ones the profiles define today:
 | `background-work-lost-on-reclaim`, `background-work-across-resume` | waits, watchers or subagents that must survive the session going idle |
 
 Take the rule's own `severity` in that target. Do not raise or lower it: the profile decided it,
-with sources.
+with sources. An `info` rule such as `pushes-own-branch` is still worth recording: it tells the
+reader the assumption was checked and holds.
 
 Prose can also tell the model to run a command outside any fenced block — "3. **Auth.** `gh auth
 status`". That is a command where it runs, and a scanned rule applies to it. Cite that rule. Where
@@ -85,6 +88,18 @@ adapt. The exception is prose that makes the failure final for the whole compone
 these before the first iteration and stop if any fails": then use the rule's base `severity`. A
 failure confined to one step, such as a last step that cannot create its issues, keeps the fence
 severity.
+
+A script can hide a command from the scan behind a shell function of its own: `app_api /app`,
+where `app_api` runs `gh api`. That is still a command where it runs. Cite the scanned rule at the
+line of the call, at the rule's script severity.
+
+Subagents follow the same reasoning. On the Copilot targets the scan gives
+`subagents-unsupported` its lower `severity_in.frontmatter` for a tool that the frontmatter only
+declares, because a declaration says a component *may* spawn, not that it depends on it. Where the
+prose spawns a subagent the flow cannot do without — "spawn the reviewer for each file", with
+nothing said for a session that has no `Agent` tool — cite the rule at its base `severity`, at the
+line of that passage. Where the prose says what to do without the tool, the declaration's lower
+severity stands and there is nothing to add.
 
 Then look for **calls written only in prose**. The scan follows a script run from a fenced block, a
 fenced `Agent(subagent_type: …)` spawn and a fenced `<plugin>:<skill>` mention; it does not follow

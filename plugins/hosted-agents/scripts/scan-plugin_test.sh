@@ -24,7 +24,10 @@
 #     console transcripts; and the commands in Python and JavaScript strings;
 #   - a repository that commits only part of a plugin delivers only that part;
 #   - every hook type, hook line numbers, fenced subagent spawns, skills: edges,
-#     credentials read versus assigned, and a plugin without a manifest;
+#     credentials read versus assigned or only tested for presence, and a
+#     plugin without a manifest;
+#   - severity by context: a declared tool versus a fenced spawn, a script
+#     versus a fence;
 #   - exit codes 0 / 1 / 2, and no network call.
 #
 # Run: plugins/hosted-agents/scripts/scan-plugin_test.sh
@@ -89,10 +92,27 @@ missing=$(for t in "${TARGETS[@]}"; do jq -r '.id as $p | .rules[]
 same "every rule has a source, a basis and a checked date; every observed rule says where" "" "$missing"
 
 obs=$(jq -r '[.rules[] | select(.basis == "observed") | .id] | sort | join(",")' "$PROFILES/claude-code-cloud.json")
-same "claude-code-cloud records the GraphQL, gh auth, repository-scope and settings observations" \
-  "gh-auth-status-fails,github-graphql,repository-not-attached,repository-settings-ignored" "$obs"
+same "claude-code-cloud records the GraphQL, gh auth, repository-scope, endpoint, push and settings observations" \
+  "gh-auth-status-fails,github-graphql,non-repository-endpoint,push-tag-or-delete-refused,pushes-own-branch,repository-not-attached,repository-settings-ignored" "$obs"
 same "the user-settings result links pull request #470" "true" \
   "$(jq '[.rules[] | .observed // [] | .[] | .url] | any(. == "https://github.com/z5labs/devex/pull/470")' "$PROFILES/claude-code-cloud.json")"
+
+# rule <profile> <id> <jq> — a field of one rule
+rule() { jq -r --arg id "$2" ".rules[] | select(.id == \$id) | $3" "$PROFILES/$1.json"; }
+push_obs="https://github.com/z5labs/devex/issues/479#issuecomment-6560392041"
+same "a flow that pushes its own branch: a review rule whose severity and basis come from the push observation" \
+  "review info observed $push_obs" \
+  "$(rule claude-code-cloud pushes-own-branch '"\(.match.kind) \(.severity) \(.basis) \(.observed[0].url)"')"
+same "the refused deletion in that observation backs push-tag-or-delete-refused" "observed $push_obs" \
+  "$(rule claude-code-cloud push-tag-or-delete-refused '"\(.basis) \(.observed[0].url)"')"
+same "non-repository-endpoint: breaks in a script, degrades in a fence, observed on #479" \
+  "command breaks degrades observed https://github.com/z5labs/devex/issues/479" \
+  "$(rule claude-code-cloud non-repository-endpoint '"\(.match.kind) \(.severity) \(.severity_in.fence) \(.basis) \(.observed[0].url)"')"
+same "a file written in one session for a later one: needs-setup in the environment, from the docs" \
+  "review needs-setup environment docs true true" \
+  "$(rule claude-code-cloud session-files-not-kept '"\(.match.kind) \(.severity) \(.fix_in) \(.basis) \(.remedy | test("setup script")) \(.remedy | test("committed|commit the settings"))"')"
+same "bash-ten-minute-cap looks for a long run with no explicit timeout, moved at the 2-minute default" "true true" \
+  "$(rule claude-code-cloud bash-ten-minute-cap '"\(.match.look_for | test("no explicit Bash timeout")) \(.summary | test("2-minute default"))"')"
 
 # ---------------------------------------------------------------------------
 printf '\neach rule'"'"'s fixture triggers that rule and no other\n'
@@ -264,6 +284,20 @@ printf '{ "name": "badmcp" }\n' >"$TMP/badmcp/.claude-plugin/plugin.json"; print
 
 scan "$TMP/sp.json" "$DATA/spawn" --no-repo --target copilot-cloud-sandbox
 same "a fenced subagent spawn with no frontmatter tools is a subagent" "spawn/skills/fan/SKILL.md:8" "$(found "$TMP/sp.json" 0 subagents-unsupported)"
+for t in copilot-cloud-sandbox copilot-actions; do
+  scan "$TMP/sa.json" "$DATA/rules/subagents-unsupported" --no-repo --target "$t"
+  same "$t: declaring Agent degrades, a fenced spawn breaks" "x:fan-out:frontmatter:degrades x:review-each:fence:breaks" \
+    "$(jq -r '[.targets[0].findings[] | select(.rule == "subagents-unsupported") | "\(.component):\(.context):\(.severity)"] | sort | join(" ")' "$TMP/sa.json")"
+  same "$t: and so do the components' verdicts" "x:fan-out:degrades x:review-each:breaks" \
+    "$(jq -r '[.targets[0].components[] | "\(.component):\(.verdict)"] | sort | join(" ")' "$TMP/sa.json")"
+done
+
+scan "$TMP/nre.json" "$DATA/rules/non-repository-endpoint" --no-repo --target claude-code-cloud
+same "users/, app and orgs/ are findings; repos/{owner}/{repo}/... and search/... are not" \
+  "non-repository-endpoint/scripts/lookup.sh:4 non-repository-endpoint/scripts/lookup.sh:5 non-repository-endpoint/scripts/lookup.sh:6 non-repository-endpoint/skills/whois/SKILL.md:9" \
+  "$(found "$TMP/nre.json" 0 non-repository-endpoint)"
+same "the script breaks, the fence where the model reads the proxy's message degrades" "fence:degrades script:breaks" \
+  "$(jq -r '[.targets[0].findings[] | "\(.context):\(.severity)"] | unique | join(" ")' "$TMP/nre.json")"
 scan "$TMP/se.json" "$DATA/skills-edge" --no-repo --target claude-code-cloud
 same "skills: next-issue links to next-issue and not to issue" "edges:worker>edges:next-issue" \
   "$(jq -r '[.edges[] | "\(.from)>\(.to)"] | join(" ")' "$TMP/se.json")"
@@ -274,6 +308,14 @@ scan "$TMP/env.json" "$DATA/env-reads" --no-repo --target claude-code-cloud
 same "a credential read, a variable naming one, and os.environ count; a local CACHE_KEY does not" \
   "env-reads/scripts/env.py:2 env-reads/scripts/env.sh:5" "$(found "$TMP/env.json" 0 credential-from-environment)"
 same "repos/ means a repository only after gh api, not in a local path" "env-reads/scripts/env.sh:7" "$(found "$TMP/env.json" 0 repository-not-attached)"
+
+# Names tested only for presence are not read; a line that uses the value is.
+for t in "${TARGETS[@]}"; do
+  scan "$TMP/cfe.json" "$DATA/rules/credential-from-environment" --no-repo --target "$t"
+  same "$t: a presence test is not a read; a use of the value, even after one, is" \
+    "credential-from-environment/scripts/sign.sh:5 credential-from-environment/scripts/sign.sh:6" \
+    "$(found "$TMP/cfe.json" 0 credential-from-environment)"
+done
 
 scan "$TMP/ml.json" "$DATA/manifest-less" --no-repo; rc=$?
 same "a plugin without a manifest is scanned, named after its directory" "0 manifest-less manifest-less:hello" \

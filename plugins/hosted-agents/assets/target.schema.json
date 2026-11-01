@@ -293,7 +293,7 @@
           }
         },
         {
-          "description": "A credential-shaped name read from the environment where commands run: $NAME, ${NAME}, ${!NAME}, a bare NAME on the right of an assignment, an export NAME= in a fenced block, and os.environ / getenv / process.env lookups. A name the same file assigns itself is a local variable and does not count.",
+          "description": "A credential-shaped name read from the environment where commands run: $NAME, ${NAME}, ${!NAME}, a bare NAME on the right of an assignment, an export NAME= in a fenced block, and os.environ / getenv / process.env lookups. A name the same file assigns itself is a local variable and does not count, and neither does a name tested only for presence ([ -n \"${NAME:-}\" ], [ -z \"${NAME:-}\" ], test -n \"$NAME\"), whose value is never used.",
           "additionalProperties": false,
           "required": [
             "kind",
@@ -318,7 +318,7 @@
           }
         },
         {
-          "description": "A tool a skill, command or agent uses: declared in a frontmatter field (allowed-tools, tools), or, as spawn, used by a fenced Agent(subagent_type: …) call. Matched by name, by pattern, or as any name outside a known set; names compare case-insensitively.",
+          "description": "A tool a skill, command or agent uses: declared in a frontmatter field (allowed-tools, tools), or, as spawn, used by a fenced Agent(subagent_type: …) call. Matched by name, by pattern, or as any name outside a known set; names compare case-insensitively. For severity_in, a declaration's context is frontmatter and a spawn's is fence.",
           "additionalProperties": false,
           "required": [
             "kind",

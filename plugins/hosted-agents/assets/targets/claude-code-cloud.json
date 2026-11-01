@@ -282,6 +282,40 @@
       "checked": "2026-11-01"
     },
     {
+      "id": "non-repository-endpoint",
+      "summary": "The GitHub proxy refuses API requests under orgs/ and users/ with 'This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...).', and GET /app with 'Access to this GitHub API path is not permitted through this proxy.' Requests under repos/{owner}/{repo}/... and search/issues are served.",
+      "match": {
+        "kind": "command",
+        "pattern": "\\bgh\\s+api\\s+(?:[^|;&]*\\s)?[\"']?/?(?:(?:orgs|users)/[^\\s\"'/?]|app(?![A-Za-z0-9_.-]))|api\\.github\\.com/(?:(?:orgs|users)/[^\\s\"'/?]|app(?![A-Za-z0-9_.-]))",
+        "in": [
+          "script",
+          "hook",
+          "fence"
+        ]
+      },
+      "severity": "breaks",
+      "severity_in": {
+        "fence": "degrades"
+      },
+      "remedy": "Ask a repos/{owner}/{repo}/... endpoint where one answers the same question: whether an account can work on the repository is repos/{owner}/{repo}/collaborators/{username}/permission, and who was asked to review is repos/{owner}/{repo}/pulls/{n}/requested_reviewers. Where none does, as for an App's own GET /app or an account looked up by login, make the step optional in a cloud session (CLAUDE_CODE_REMOTE=true) or fail with a message that names this restriction, so the caller can tell it from a wrong credential. In a script the refusal is an exit code; in a skill's fenced block the model reads the proxy's message, which names the repository-scoped alternative, so that context only degrades.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://github.com/z5labs/devex/issues/479",
+        "https://github.com/z5labs/devex/issues/472"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/479",
+          "date": "2026-11-01",
+          "result": "In a Claude Code cloud session on z5labs/devex: gh api orgs/z5labs, users/Zaba505, users/copilot-pull-request-reviewer%5Bbot%5D and orgs/z5labs/projectsV2/14 got 'This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...).'; gh api app got 'Access to this GitHub API path is not permitted through this proxy.'; repos/z5labs/devex/... and search/issues were served."
+        }
+      ],
+      "notes": "The pattern holds only what was observed: paths under orgs/ and users/, and app with the paths under it (app/installations/{id}/access_tokens). user (the signed-in account), apps/{slug}, installation/..., gists, notifications and the other top-level paths were not tried either way and stay out. search/users, which also gives an account's type and node_id, was not tried. A call made through a shell function of the script's own, such as the backlog plugin's app_api /app, is not a gh api line; the review-plugin skill reads for those. #472's closing comment first reported the restriction.",
+      "checked": "2026-11-01"
+    },
+    {
       "id": "push-tag-or-delete-refused",
       "summary": "The GitHub proxy rejects branch deletions and pushes of anything other than a branch, such as a tag.",
       "match": {
@@ -297,10 +331,18 @@
       "remedy": "Push branches only. Create tags and releases from a workflow (gh workflow run, or a release workflow on merge), and let the merge workflow or GitHub's 'delete head branches' setting remove merged branches.",
       "fix_in": "plugin",
       "sources": [
-        "https://code.claude.com/docs/en/cloud-environments#github-proxy"
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://github.com/z5labs/devex/issues/479#issuecomment-6560392041"
       ],
-      "basis": "docs",
-      "checked": "2026-10-31"
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/479#issuecomment-6560392041",
+          "date": "2026-11-01",
+          "result": "In a Claude Code cloud session on z5labs/devex: git push origin --delete issue-479-push-probe got 'error: RPC failed; HTTP 403' and exited 1, and the branch stayed on GitHub."
+        }
+      ],
+      "checked": "2026-11-01"
     },
     {
       "id": "host-not-on-trusted-list",
@@ -616,19 +658,20 @@
     },
     {
       "id": "bash-ten-minute-cap",
-      "summary": "A foreground Bash command runs for 2 minutes by default and 10 at most; at its timeout Claude Code moves it to the background, where it may run up to 30 more minutes, unless it starts with sleep.",
+      "summary": "A foreground Bash command runs for 2 minutes by default and 10 at most; at its timeout Claude Code moves it to the background, where it may run up to 30 more minutes, unless it starts with sleep. A long build or test run started with no explicit Bash timeout is moved to the background at the 2-minute default, so the step that needs its result gets a background task to wait on instead.",
       "match": {
         "kind": "review",
-        "look_for": "A single command the instructions expect to block for longer than 10 minutes: a long build or test run, or a wait whose bound is longer than 10 minutes (for example a wait bounded at two hours), run in the foreground."
+        "look_for": "A single command the instructions expect to block for longer than 10 minutes in the foreground: a long build or test run, or a wait whose bound is longer than 10 minutes (for example a wait bounded at two hours). Also a long build or test run, such as a verify step, a full test suite or a dagger check, that the instructions start with no explicit Bash timeout, because it is moved to the background once it passes the 2-minute default."
       },
       "severity": "degrades",
-      "remedy": "Bound each blocking call under 10 minutes and have the caller re-run it (the backlog plugin's await-*.sh scripts return exit 2 after five minutes for this reason), or raise BASH_MAX_TIMEOUT_MS on the environment.",
+      "remedy": "Bound each blocking call under 10 minutes and have the caller re-run it (the backlog plugin's await-*.sh scripts return exit 2 after five minutes for this reason), and have the instructions pass an explicit Bash timeout, up to 600000 ms, for a long build or test run. Or raise BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS on the environment.",
       "fix_in": "plugin",
       "sources": [
-        "https://code.claude.com/docs/en/cloud-environments#time-limits"
+        "https://code.claude.com/docs/en/cloud-environments#time-limits",
+        "https://code.claude.com/docs/en/tools-reference#foreground-commands-that-move-to-the-background"
       ],
       "basis": "docs",
-      "checked": "2026-10-31"
+      "checked": "2026-11-01"
     },
     {
       "id": "background-work-lost-on-reclaim",
@@ -646,6 +689,51 @@
       ],
       "basis": "docs",
       "checked": "2026-10-31"
+    },
+    {
+      "id": "pushes-own-branch",
+      "summary": "A flow that creates a branch of its own and pushes it works. A cloud session starts on one working branch, but the GitHub proxy does not limit which branch a push creates or updates. Deleting that branch afterwards is refused (push-tag-or-delete-refused).",
+      "match": {
+        "kind": "review",
+        "look_for": "A flow that creates a branch other than the session's own (git checkout -b, git switch -c, a worktree on a new branch), pushes it, and works from it: a branch per issue, a release branch, a pull request opened from it."
+      },
+      "severity": "info",
+      "remedy": "Nothing to do for the push. Leave the branch for GitHub's 'Automatically delete head branches' setting or the merge workflow to remove, because the session's own git push --delete is refused.",
+      "fix_in": "plugin",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#github-proxy",
+        "https://github.com/z5labs/devex/issues/479#issuecomment-6560392041"
+      ],
+      "basis": "observed",
+      "observed": [
+        {
+          "url": "https://github.com/z5labs/devex/issues/479#issuecomment-6560392041",
+          "date": "2026-11-01",
+          "result": "In a Claude Code cloud session on z5labs/devex started on claude/compassionate-cray-sf9f83: git push -u origin issue-479-push-probe created that branch, and a second push of a new commit to it was accepted; git push origin --delete issue-479-push-probe got HTTP 403."
+        }
+      ],
+      "notes": "The cloud-environments page agrees: the proxy 'doesn't limit which branches a push can update'. Opening a pull request from such a branch was not tried; gh pr create uses GraphQL (github-graphql), while POST repos/{owner}/{repo}/pulls is repository-scoped.",
+      "checked": "2026-11-01"
+    },
+    {
+      "id": "session-files-not-kept",
+      "summary": "Each cloud session starts on a fresh VM with a fresh clone of the repository, so a file written during a session outside what the repository commits is gone in the next session: user settings in ~/.claude/settings.json, and .claude/settings.local.json, which is not in the clone. A reopened session whose VM was reclaimed gets a fresh VM too.",
+      "match": {
+        "kind": "review",
+        "look_for": "A flow that writes a file outside the committed repository, such as ~/.claude/settings.json or .claude/settings.local.json (a permission allow list, an autoMode statement, a default mode), and relies on it still being there in a later session: a setup step run once so that later unattended runs do not stop on a permission prompt."
+      },
+      "severity": "needs-setup",
+      "remedy": "Write the file from the environment's setup script, which runs before Claude Code starts and whose result the environment cache keeps for later sessions, or commit the settings to the repository's .claude/settings.json, whose permission rules a cloud session with one repository applies. A file a plugin step writes during a session lasts only for that session.",
+      "fix_in": "environment",
+      "sources": [
+        "https://code.claude.com/docs/en/cloud-environments#what-carries-over-from-your-setup",
+        "https://code.claude.com/docs/en/cloud-environments#environment-caching",
+        "https://code.claude.com/docs/en/settings#settings-in-cloud-sessions",
+        "https://code.claude.com/docs/en/claude-code-on-the-web#environment-expired"
+      ],
+      "basis": "docs",
+      "notes": "The cloud-environments page: 'each session gets a fresh virtual machine (VM) ... with your repository cloned', and the cache is 'a filesystem snapshot' taken after the setup script, so it keeps what the setup script writes and nothing a session writes later. User settings written inside the VM before Claude Code starts are read (#470, under repository-settings-ignored).",
+      "checked": "2026-11-01"
     }
   ]
 }

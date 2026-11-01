@@ -32,7 +32,9 @@
 #
 # Where a command runs can also set how bad it is: a rule's severity_in gives a
 # fenced block, where the model sees the failure and can adapt, a lower severity
-# than a script, where the failure is an exit code.
+# than a script, where the failure is an exit code. For a tool, the context is
+# frontmatter where it is declared and fence where a fenced block spawns it: a
+# declaration says a component may use the tool, a spawn that its flow does.
 #
 # Components call each other, and a verdict follows the call: a skill that runs
 # scripts/x.sh in a fenced block, a script that runs another by name, a fenced
@@ -722,17 +724,21 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
         # NAME on the right of an assignment (a variable that holds the name), an
         # `export NAME=` in a fenced block (an instruction to set it), and the
         # environment lookups of other languages. A name the same file assigns
-        # itself is a local variable, not the environment.
+        # itself is a local variable, not the environment. A name tested only for
+        # presence — [ -n "${NAME:-}" ], [[ -z $NAME ]], test -n "$NAME" — is
+        # not read either: the line asks whether the credential is set, to
+        # explain a misconfiguration, and never uses its value.
         ( [ $lines[] | select(.ctx == "script" or .ctx == "fence") | .file as $f | .ctx as $c | .text
             | capture(if $c == "script" then "^\\s*(?:export\\s+|local\\s+|readonly\\s+|typeset\\s+|declare(?:\\s+-\\w+)*\\s+)?(?<n>[A-Za-z_][A-Za-z0-9_]*)="
                       else "^\\s*(?:local\\s+|readonly\\s+|typeset\\s+|declare(?:\\s+-\\w+)*\\s+)?(?<n>[A-Za-z_][A-Za-z0-9_]*)=" end).n // empty
             | {file: $f, name: .} ] | group_by(.file) | map({(.[0].file): map(.name)}) | add // {} ) as $assigned
         | $lines[] | select((.msg | not) and (.ctx as $c | $m["in"] | has_item($c))) | . as $l
-        | ([ (.text | scan("\\$\\{?!?([A-Z][A-Z0-9_]*)") | .[0]),
-             (.text | scan("=([A-Z][A-Z0-9_]*)(?![A-Za-z0-9_])") | .[0]),
-             (if .ctx == "fence" then (.text | scan("^\\s*export\\s+([A-Z][A-Z0-9_]*)=") | .[0]) else empty end),
-             (.text | scan("(?:environ(?:\\.get)?[\\[(]|getenv\\(|ENV\\[|ENV\\.fetch\\()[\"']([A-Z][A-Z0-9_]*)") | .[0]),
-             (.text | scan("process\\.env\\.([A-Z][A-Z0-9_]*)") | .[0]) ] | unique) as $names
+        | (.text | gsub("(?:\\[\\[?|(?<![A-Za-z0-9_.-])test)\\s+-[nz]\\s+\"?\\$\\{?[A-Za-z_][A-Za-z0-9_]*(?::?[-=+?][^}\"\\s]*)?\\}?\"?(?:\\s+\\]\\]?)?"; " ")) as $text
+        | ([ ($text | scan("\\$\\{?!?([A-Z][A-Z0-9_]*)") | .[0]),
+             ($text | scan("=([A-Z][A-Z0-9_]*)(?![A-Za-z0-9_])") | .[0]),
+             (if .ctx == "fence" then ($text | scan("^\\s*export\\s+([A-Z][A-Z0-9_]*)=") | .[0]) else empty end),
+             ($text | scan("(?:environ(?:\\.get)?[\\[(]|getenv\\(|ENV\\[|ENV\\.fetch\\()[\"']([A-Z][A-Z0-9_]*)") | .[0]),
+             ($text | scan("process\\.env\\.([A-Z][A-Z0-9_]*)") | .[0]) ] | unique) as $names
         | $names[] | . as $n | select(($n | test($m.name_pattern)) and ((($assigned[$l.file] // []) | has_item($n)) | not))
         | finding($p; $r; {severity: ($r.severity_in[$l.ctx] // $r.severity), component: $l.comp, kind: $l.kind, file: $l.file, line: $l.line, context: $l.ctx, evidence: "\(.): \($l.original | strip)"})
       elif $m.kind == "vendored" then
@@ -759,7 +765,10 @@ $profiles[0] as $profiles | $comps[0] as $comps | $lines[0] as $lines | $hooks[0
             else
               (($m.names // []) | map(ascii_downcase) | has_item($lt)) or (if $m.name_pattern then ($t | test($m.name_pattern; "i")) else false end)
             end)
-        | finding($p; $r; {component: .comp, kind: .kind, file: .file, line: .line, context: (if .field == "spawn" then "fence" else "frontmatter" end), evidence: .evidence})
+        # A declaration is frontmatter, a spawn is a fence: severity_in can tell a
+        # component that may use the tool from one whose flow runs it.
+        | (if .field == "spawn" then "fence" else "frontmatter" end) as $ctx
+        | finding($p; $r; {severity: ($r.severity_in[$ctx] // $r.severity), component: .comp, kind: .kind, file: .file, line: .line, context: $ctx, evidence: .evidence})
       elif $m.kind == "component" then
         if $m.type == "hook" then
           $hooks[] | finding($p; $r; {component: .comp, kind: "hook", file: .file, line: .line, context: "hook",
