@@ -309,6 +309,19 @@ func (r *OpentofuCi) WithPlan(opts ...OpentofuCiWithPlanOpts) *OpentofuCi {
 	}
 }
 
+// WithTest enables the `tofu test` stage, which runs the root module's
+// `*.tftest.hcl` files as Config.Test does. Like validate it initialises with
+// -backend=false; what else it needs depends on the tests themselves — none
+// for a test against mock_provider, real provider credentials for one whose
+// run blocks reach a real provider.
+func (r *OpentofuCi) WithTest() *OpentofuCi {
+	q := r.query.Select("withTest")
+
+	return &OpentofuCi{
+		query: q,
+	}
+}
+
 // WithValidate enables the `tofu validate` stage. It initialises with
 // -backend=false, so a configuration declaring a remote backend is checked
 // without any credentials.
@@ -336,6 +349,7 @@ type OpentofuConfig struct { // opentofu (../../../../:0:0)
 	show      *string
 	stateList *string
 	stateShow *string
+	test      *string
 	validate  *Void
 }
 type WithOpentofuConfigFunc func(r *OpentofuConfig) *OpentofuConfig
@@ -775,6 +789,38 @@ func (r *OpentofuConfig) Taint(address string) *Directory {
 	return &Directory{
 		query: q,
 	}
+}
+
+// Test runs the root module's test files (`*.tftest.hcl`, beside the
+// configuration and under tests/) with `tofu test`, and returns its output.
+//
+// Like Validate it initialises with `-backend=false` first: a test run keeps
+// its own state in memory, so it never needs the backend, and a configuration
+// declaring a remote one is tested without its credentials. Providers are
+// installed, because even a mock_provider needs the real provider's schema.
+//
+// The variables, variable files, environment variables and secrets bound to
+// the Config apply here as they do everywhere else, so a test file sees the
+// same inputs a plan would.
+//
+// A failing test is an error, and the error carries tofu's own output — the
+// failed assertion's message among it — because Dagger drops a function's
+// value whenever its error is non-nil.
+//
+// It is never cached, and stamps a nonce onto the run. A test file whose run
+// blocks use `command = apply` against a real provider creates and destroys
+// real infrastructure, so a cached pass would hide a change on the provider's
+// side.
+func (r *OpentofuConfig) Test(ctx context.Context) (string, error) {
+	if r.test != nil {
+		return *r.test, nil
+	}
+	q := r.query.Select("test")
+
+	var response string
+
+	q = q.Bind(&response)
+	return response, q.Execute(ctx)
 }
 
 // Untaint clears the mark Taint set (`tofu untaint <address>`) and returns the

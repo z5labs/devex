@@ -36,6 +36,9 @@ type Tests struct { // tests (../../../../../:0:0)
 	ciCheckWithPlanPassesOnAppliedState                   *Void
 	ciCheckWithRefreshOnlyPlanDetectsDrift                *Void
 	ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges *Void
+	ciCheckWithTestAloneIsAstage                          *Void
+	ciCheckWithTestPasses                                 *Void
+	ciCheckWithTestReportsFailingTest                     *Void
 	ciCheckWithoutStagesIsRejected                        *Void
 	ciCheckWithoutValidateSkipsIt                         *Void
 	ciRunFailsOnFailedCheck                               *Void
@@ -98,6 +101,10 @@ type Tests struct { // tests (../../../../../:0:0)
 	stateShowRejectsUnknownAddress                        *Void
 	stateShowReturnsResourceJson                          *Void
 	taintProposesReplacement                              *Void
+	testFailsOnFailingAssertion                           *Void
+	testPassesWithMockProvider                            *Void
+	testReceivesBoundVariables                            *Void
+	testShouldNotBeCached                                 *Void
 	untaintClearsReplacement                              *Void
 	validateAcceptsValidConfiguration                     *Void
 	validateRejectsInvalidConfiguration                   *Void
@@ -330,6 +337,42 @@ func (r *Tests) CiCheckWithRefreshOnlyPlanIgnoresConfigurationChanges(ctx contex
 		return nil
 	}
 	q := r.query.Select("ciCheckWithRefreshOnlyPlanIgnoresConfigurationChanges")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithTestAloneIsAStage asserts WithTest is enough on its own to make a
+// pipeline: a Check with only the test stage enabled runs it rather than
+// rejecting the pipeline as empty.
+func (r *Tests) CiCheckWithTestAloneIsAstage(ctx context.Context) error {
+	if r.ciCheckWithTestAloneIsAstage != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithTestAloneIsAstage")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithTestPasses asserts the test stage passes a module whose mocked
+// test passes, beside the fmt and validate stages.
+func (r *Tests) CiCheckWithTestPasses(ctx context.Context) error {
+	if r.ciCheckWithTestPasses != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithTestPasses")
+
+	return q.Execute(ctx)
+}
+
+// CiCheckWithTestReportsFailingTest asserts the test stage gates the pipeline,
+// and that its error joins the other stages' rather than replacing them: the
+// tested-failing fixture is unformatted too, so the fmt stage's failure has to
+// be reported alongside the failed assertion.
+func (r *Tests) CiCheckWithTestReportsFailingTest(ctx context.Context) error {
+	if r.ciCheckWithTestReportsFailingTest != nil {
+		return nil
+	}
+	q := r.query.Select("ciCheckWithTestReportsFailingTest")
 
 	return q.Execute(ctx)
 }
@@ -1158,6 +1201,56 @@ func (r *Tests) TaintProposesReplacement(ctx context.Context) error {
 		return nil
 	}
 	q := r.query.Select("taintProposesReplacement")
+
+	return q.Execute(ctx)
+}
+
+// TestFailsOnFailingAssertion asserts a failing assertion fails Test, and that
+// the error carries tofu's own output — the assertion's message included —
+// rather than a bare exit code.
+func (r *Tests) TestFailsOnFailingAssertion(ctx context.Context) error {
+	if r.testFailsOnFailingAssertion != nil {
+		return nil
+	}
+	q := r.query.Select("testFailsOnFailingAssertion")
+
+	return q.Execute(ctx)
+}
+
+// TestPassesWithMockProvider asserts a module whose test runs against a
+// mock_provider passes, and that Test returns tofu's report of it.
+func (r *Tests) TestPassesWithMockProvider(ctx context.Context) error {
+	if r.testPassesWithMockProvider != nil {
+		return nil
+	}
+	q := r.query.Select("testPassesWithMockProvider")
+
+	return q.Execute(ctx)
+}
+
+// TestReceivesBoundVariables asserts every way of binding a variable to a
+// Config reaches `tofu test`: -var, -var-file, a secret bound as TF_VAR_<name>,
+// and a plain environment variable. The fixture's variable has no default, and
+// the first case proves an unbound run fails, so a pass below is the bound
+// value arriving rather than the assertion being vacuous.
+func (r *Tests) TestReceivesBoundVariables(ctx context.Context) error {
+	if r.testReceivesBoundVariables != nil {
+		return nil
+	}
+	q := r.query.Select("testReceivesBoundVariables")
+
+	return q.Execute(ctx)
+}
+
+// TestShouldNotBeCached asserts two consecutive runs of Test genuinely re-run
+// tofu. The tested-nonce fixture fails on purpose with a fresh UUID in its
+// assertion's message, so two failures carrying the same UUID would mean the
+// second run was served from a cache.
+func (r *Tests) TestShouldNotBeCached(ctx context.Context) error {
+	if r.testShouldNotBeCached != nil {
+		return nil
+	}
+	q := r.query.Select("testShouldNotBeCached")
 
 	return q.Execute(ctx)
 }
