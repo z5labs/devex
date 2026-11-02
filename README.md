@@ -105,7 +105,12 @@ the plugins and marketplaces declared in `.claude/settings.json`, because adding
 them needs the workspace trust dialog and a cloud session never shows one.
 [`.claude/hooks/install-plugins.sh`](.claude/hooks/install-plugins.sh) declares
 them in the session's user settings instead, with the marketplace pointing at
-the checkout, so the plugins load from the branch the session is on.
+the checkout, so the plugins load from the branch the session is on. It is a
+byte-identical copy of the `backlog` plugin's
+[`assets/install-plugins.sh`](plugins/backlog/assets/install-plugins.sh), which
+other repositories get from `backlog:setup-backlog`;
+[`.claude/hooks/install-plugins_test.sh`](.claude/hooks/install-plugins_test.sh)
+fails if the two drift apart.
 
 Claude Code loads plugins when it starts, so where the script runs decides
 when they appear:
@@ -123,6 +128,55 @@ when they appear:
 - **The `SessionStart` hook in `.claude/settings.json`**, which runs it in every
   cloud session without any environment setup. Claude Code has started by then,
   so run `/reload-plugins` once to load them, or start the next session.
+
+#### Running the backlog on another repository
+
+The same script delivers the `backlog` plugin to a cloud session on any
+repository, not only this one. In a repository that declares the `z5labs-devex`
+marketplace rather than being it, the script copies the declared `github`
+source into user settings. When it runs from the environment's setup script, it
+also registers the marketplace and installs the plugin with `claude plugin`
+before Claude Code starts. Settings alone are not enough for a marketplace
+fetched from GitHub: on a fresh configuration, Claude Code 2.1.316 registered
+it on the first start and installed its plugins only on the next, and a cloud
+container is fresh every session.
+
+1. **Prepare the repository.** Run `/backlog:setup-backlog` in it, from a local
+   checkout with the plugin installed (`/plugin marketplace add z5labs/devex`,
+   then `/plugin install backlog@z5labs-devex`). Its "Cloud sessions" step copies
+   the script to `.claude/hooks/install-plugins.sh`. It merges three entries
+   into `.claude/settings.json`: the marketplace, `backlog@z5labs-devex`, and a
+   `SessionStart` hook that runs the script. It commits nothing, so commit and
+   push both files.
+2. **Set up the cloud environment.** The report from step 1 ends with the
+   environment's setup script, written out in full. Paste it into the
+   environment's [setup script](https://code.claude.com/docs/en/cloud-environments#setup-scripts).
+   It does three things, in this order:
+   - It writes the permission allow-list, and the `autoMode` statement if you
+     want one, to `~/.claude/settings.json`. A cloud session drops the
+     `permissions.allow` rules in a repository's `.claude/settings.json`,
+     because it never trusts the workspace. It keeps nothing in
+     `~/.claude/settings.json` between sessions. And `autoMode` is read only
+     from user settings. So the setup script, which runs before every session,
+     is the one place these stay in force.
+   - It runs `bash /home/user/<repo>/.claude/hooks/install-plugins.sh /home/user/<repo> || true`,
+     so the plugin loads from the first prompt.
+   - It installs the tools the repository's `verify` commands need, at the
+     versions its CI pins. The cloud image's own copies can be too old: on
+     2026-11-01 its `golangci-lint` 2.5.0 refused z5labs/humus's Go 1.27 code.
+     [`.claude/hooks/install-dagger.sh`](.claude/hooks/install-dagger.sh) is the
+     example for `dagger`. Allow the hosts each install fetches from under the
+     environment's network access.
+3. **Run it.** Start a cloud session on the repository and run
+   `/backlog:run-backlog`, or `/backlog:next-issue` for one issue.
+
+Two parts of the cycle are local-only, because the session's GitHub proxy
+refuses what they need. One is the `local` reviewer, which mints a GitHub App
+token. The other is project-scoped selection (`select.project`,
+`--project-value`), which reads Projects over GraphQL. So in a cloud session,
+`copilot` is the only reviewer a `["copilot", "local"]` roster has. With no
+trailing `"none"`, a run there ends in `BLOCKED` whenever Copilot is
+unavailable. Work the backlog from a local checkout until it is back.
 
 ## Dagger in cloud sessions
 

@@ -1,6 +1,6 @@
 ---
 name: setup-backlog
-description: Bootstrap a repository for the unattended backlog cycle and verify the environment it depends on — write `.claude/backlog.json` with the label, dependency convention and verify commands inferred from the repository, install the auto-merge workflow, create the backlog and merge labels, and check squash-only merging, whether native auto merge is available, the default branch's required status checks (telling a plan limit from missing admin rights) and whether Copilot code review is actually enabled. Use this whenever the user wants to set up, bootstrap, install, onboard or enable the backlog loop on a repository, when `backlog:next-issue` stops because `.claude/backlog.json` is missing, or when the user wants to know why an unattended run keeps stalling. Skip this when the repository is already configured and the user simply wants work done — that is `backlog:next-issue` or `backlog:run-backlog`.
+description: Bootstrap a repository for the unattended backlog cycle and verify the environment it depends on — write `.claude/backlog.json` with the label, dependency convention and verify commands inferred from the repository, install the auto-merge workflow, create the backlog and merge labels, and check squash-only merging, whether native auto merge is available, the default branch's required status checks (telling a plan limit from missing admin rights) and whether Copilot code review is actually enabled — and get the repository ready for Claude Code cloud sessions: the script that delivers the plugin there, the settings that run it, and the environment setup script to paste. Use this whenever the user wants to set up, bootstrap, install, onboard or enable the backlog loop on a repository, when `backlog:next-issue` stops because `.claude/backlog.json` is missing, or when the user wants to know why an unattended run keeps stalling, or the user wants to run the backlog from a cloud session on a repository other than z5labs/devex. Skip this when the repository is already configured and the user simply wants work done — that is `backlog:next-issue` or `backlog:run-backlog`.
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, AskUserQuestion
 ---
 
@@ -744,6 +744,9 @@ the roster runs out.
 An unattended loop that stops on a permission dialog looks like a hang. The allow-list is
 what prevents it.
 
+In a Claude Code cloud session (`CLAUDE_CODE_REMOTE` is `true`), the list is the same, and
+where it goes is not: skip to "In a cloud session" below once you have built it.
+
 It belongs in **`~/.claude/settings.json`**, not in the repository. This list is not
 repository-specific, it is *operator*-specific — the same `git`, `gh` and worktree calls on
 every repository the operator runs the loop against. Per-repository copies are how two
@@ -812,30 +815,192 @@ repositories running this same cycle:
 `gh api --method DELETE` is denied while `gh api` is allowed, and the order matters: deny
 rules win, so the broad allow does not reopen the narrow deny.
 
-### The per-repository half
+### In a cloud session
 
-One thing genuinely does stay per-repository, in `.claude/settings.local.json`: the
-operator's statement that *this* repository's loop is authorised to run unattended. Without
-it, a subagent reporting that it landed a pull request with no human approval can read as a
-policy violation and cause the following iterations to be denied.
+When `CLAUDE_CODE_REMOTE` is `true`, **do not write `~/.claude/settings.json`, and do not
+offer the repository's `.claude/settings.json` in its place.** Neither reaches the run the
+list is for:
+
+- **`~/.claude/settings.json` goes with the container.** Every cloud session starts from a
+  fresh one, so a list written now is gone by the next session (`session-files-not-kept` in
+  the hosted-agents plugin's `claude-code-cloud` target). In auto mode an agent's write to it
+  is refused anyway: the classifier rates it `[Self-Modification]`, observed in a cloud
+  session on z5labs/humus on Claude Code 2.1.316
+  ([#484](https://github.com/z5labs/devex/issues/484)).
+- **The repository's `.claude/settings.json` gives a cloud session no `allow` rules.**
+  `permissions.allow` in the shared file waits for workspace trust, and a cloud session
+  never shows the trust dialog. Observed on Claude Code 2.1.316, in a cloud session on
+  z5labs/devex: `Dropped 1 project-scoped permissions.allow entry — workspace not yet
+  trusted`. The same file's `deny` rules still apply, but a loop stops on the allows it is
+  missing. The docs say a cloud session reads this file; it does, and drops these rules.
+
+Offer the list as part of **the environment's setup script** instead. The setup script is
+the operator's: it is configured on the cloud environment, not committed, and it runs before
+Claude Code starts, so a user settings file it writes is in place from the first prompt.
+User settings need no trust. Observed on 2.1.316 in an untrusted checkout, a `Bash` rule in
+user settings let its command run, and the same rule in `.claude/settings.json` did not.
+The setup script is also where the operator-specific list belongs, which is the reason it
+is in `~/.claude/settings.json` on a laptop.
+
+The block that writes it opens the setup script, before the `install-plugins.sh` line from
+step 7, which merges into this file rather than replacing it:
+
+```bash
+mkdir -p ~/.claude
+cat > ~/.claude/settings.json <<'EOF'
+{
+  "permissions": {
+    "allow": [ "...the core list, plus the toolchain entries..." ],
+    "deny":  [ "...the core list..." ]
+  }
+}
+EOF
+```
+
+Write it out in full, with the real entries, in the step 8 report. Never call it installed:
+pasting it into the environment is the operator's job, and nothing you can run will show
+whether they did. `cat >` replaces the file. That is right in a fresh container, and wrong
+when the setup script already writes user settings for something else. In that case, say to
+merge these entries into what it writes.
+
+### The authorisation statement
+
+One thing is specific to a repository: the operator's statement that *this* repository's
+loop is authorised to run unattended. Without it, a subagent reporting that it landed a pull
+request with no human approval can read as a policy violation and cause the following
+iterations to be denied.
+
+It goes in **`~/.claude/settings.json`**, as a top-level `autoMode` key, and names the
+repository. `autoMode` is read from user and managed settings only, never from a
+repository's `.claude/settings.json` or `.claude/settings.local.json`, and it is not a key
+under `permissions`. An older copy of this skill showed it as `permissions.autoMode` in
+`.claude/settings.local.json`, and that shape is ignored twice over. Observed with
+`claude auto-mode config` on Claude Code 2.1.316: a top-level `autoMode` in user settings
+shows in the effective config. Under `permissions`, or in either repository file, it does
+not. If you are diffing a repository that has the old shape, say so: the statement it holds
+has never been in force. Because user settings reach every repository, the statement names
+the one it authorises. A second repository adds its own sentence to the same `allow` list.
 
 Show the user this and let them decide — do not write it for them. It is an authorisation,
 and an agent writing its own authorisation is not one:
 
 ```json
 {
-  "permissions": {
-    "autoMode": {
-      "allow": [
-        "$defaults",
-        "The backlog loop in this repository is authorized by the repository owner to run unattended. Spawning a subagent per story issue is expected. Landing a pull request once CI passes and the configured automated review has landed is the intended workflow: no human approval is required on these pull requests by design, and their absence is not a reason to block. A subagent reporting that it landed such a pull request without human review is reporting the expected outcome, not a policy violation, and must not cause subsequent iterations to be denied."
-      ]
-    }
+  "autoMode": {
+    "allow": [
+      "$defaults",
+      "The backlog loop in <owner>/<repo> is authorized by the repository owner to run unattended. Spawning a subagent per story issue is expected. Landing a pull request once CI passes and the configured automated review has landed is the intended workflow: no human approval is required on these pull requests by design, and their absence is not a reason to block. A subagent reporting that it landed such a pull request without human review is reporting the expected outcome, not a policy violation, and must not cause subsequent iterations to be denied."
+    ]
   }
 }
 ```
 
-## 7. Report
+In a cloud session, show the same `autoMode` key as part of the environment's setup script
+instead, beside `permissions` in the user settings block above, and say why. The setup
+script is the operator's, it runs before every session, and user settings are the only file
+a cloud session would read the statement from. `.claude/settings.local.json` would not do
+either: it is gone with the container, and `autoMode` is never read from it.
+
+## 7. Cloud sessions
+
+A Claude Code cloud session on this repository starts without the backlog plugin, even
+once `.claude/settings.json` names it. A cloud session ignores that file's
+`extraKnownMarketplaces` and `enabledPlugins`, because adding a marketplace a repository
+declares needs the workspace trust dialog, and a cloud session never shows one
+(`repository-settings-ignored` in the `claude-code-cloud` target). The plugin's
+`install-plugins.sh` declares them in the session's user settings instead, which need no
+trust. This step puts that script and its settings in the repository. It only writes files,
+so it runs the same from a laptop or from a cloud session.
+
+### Install the script
+
+```
+mkdir -p .claude/hooks
+cp "${CLAUDE_PLUGIN_ROOT}/assets/install-plugins.sh" .claude/hooks/install-plugins.sh
+chmod +x .claude/hooks/install-plugins.sh
+```
+
+**Refuse to clobber**, as step 3 does for the workflow. If `.claude/hooks/install-plugins.sh`
+already exists, do not copy over it. Diff the two and report:
+
+```
+diff -u .claude/hooks/install-plugins.sh "${CLAUDE_PLUGIN_ROOT}/assets/install-plugins.sh"
+```
+
+Identical → nothing to do, say so. Different → show the diff and let the user choose. One
+difference is worth naming if you see it: a copy taken from z5labs/devex before
+[#484](https://github.com/z5labs/devex/issues/484) handles only a repository that is itself a
+marketplace. In any other repository it stops with `cannot read the marketplace name`, and
+the session gets no plugins.
+
+### Declare the plugin in `.claude/settings.json`
+
+Merge three entries in. Replace nothing that is already there:
+
+- **The marketplace**, under `extraKnownMarketplaces`: `z5labs-devex`, with the source
+  `{"source": "github", "repo": "z5labs/devex"}`, which is where this plugin is published.
+  If the file already declares a marketplace that `enabledPlugins` takes `backlog` from,
+  keep that one and use its name below.
+- **`backlog@<marketplace>`**, under `enabledPlugins`, set to `true`. If the key is already
+  there, leave it alone; a `false` is the user's decision.
+- **A `SessionStart` hook that runs the script**, unless a hook already runs
+  `install-plugins.sh`.
+
+```
+f=.claude/settings.json
+[ -e "$f" ] || printf '{}\n' >"$f"
+jq --arg m z5labs-devex --argjson src '{"source": "github", "repo": "z5labs/devex"}' '
+  (if (.extraKnownMarketplaces // {}) | has($m) then . else .extraKnownMarketplaces[$m] = {source: $src} end)
+  | (if (.enabledPlugins // {}) | has("backlog@" + $m) then . else .enabledPlugins["backlog@" + $m] = true end)
+  | (if [.hooks.SessionStart[]?.hooks[]?.command | strings | select(test("install-plugins\\.sh"))] | length > 0
+     then .
+     else .hooks.SessionStart += [{matcher: "startup|resume",
+                                   hooks: [{type: "command",
+                                            command: "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/install-plugins.sh"}]}]
+     end)
+' "$f" >"$f.tmp" && mv "$f.tmp" "$f" || rm -f "$f.tmp"
+git diff -- "$f"
+```
+
+If `jq` cannot read the file, `mv` never runs and the file stays as it was. Report that the file is
+not valid JSON, and stop this half of the step. Do not rewrite a file you could not parse.
+
+The hook is the fallback. A cloud session does run the `SessionStart` hooks in a
+repository's `.claude/settings.json`; this repository's hooks run there. But by the time a
+hook runs, Claude Code has started. So the hook writes the settings in every cloud session,
+with no environment setup, and the plugins may still need `/reload-plugins` once before
+they are offered. The script says so when it runs as the hook.
+
+### The setup-script line
+
+Print the line for the environment's setup script. A cloud session clones the repository
+to `/home/user/<name>`, where `<name>` is the part of `<repo>` after the slash:
+
+```
+bash /home/user/<name>/.claude/hooks/install-plugins.sh /home/user/<name> || true
+```
+
+Say why it beats the hook. The setup script runs before Claude Code starts, so the plugins
+load from the first prompt, with no `/reload-plugins`. From there the script also registers
+the `z5labs-devex` marketplace and installs `backlog` with `claude plugin`, which it cannot
+safely do from inside a running session. Writing the settings alone is not enough for a
+marketplace fetched from GitHub. Observed on Claude Code 2.1.316 with a fresh configuration,
+the first start registered the marketplace and installed nothing from it, and the plugin
+came only on the next start. A cloud container is fresh every session, so that next start
+never comes. With the marketplace registered and the plugin installed beforehand, the first
+start offered `backlog:next-issue`, `backlog:run-backlog`, `backlog:setup-backlog` and
+`backlog:issue-worker`.
+
+`|| true` keeps a failure from failing the environment. The script always exits 0 anyway,
+and says what it could not do.
+
+### Do not commit or push
+
+As in step 3: leave both files in the working tree. Say in the report that they need a
+commit, and that a cloud session gets the hook and the settings only from the branch it
+starts on, which is the default branch unless someone picks another.
+
+## 8. Report
 
 One report, covering:
 
@@ -885,10 +1050,56 @@ One report, covering:
    Name the break here as well when the loop's environment carries `BACKLOG_APP_*` and no
    reviewer pair: the first `local` review after this update fails with a sentence naming both
    variables, and two exports end it.
-5. Permissions — written where, or declined.
-6. What is left for a human: the commit and push of the workflow file (and the `workflow`
-   token scope it needs), anything needing admin rights, and the `autoMode` statement if
-   they want one.
+5. Permissions — written where, or declined. From a cloud session: not written, and why,
+   with the list itself in the Cloud sessions section below.
+6. **Cloud sessions.** First what step 7 did: the script (copied, identical, or differing
+   with the diff) and the three settings entries (each added or already there). Then what
+   the operator has to do, which is everything else this section covers:
+
+   - **The environment's setup script, written out whole**, in the order it has to run, as
+     one block the operator can paste:
+
+     ```bash
+     # 1. User settings: the permission allow-list (step 6), and the autoMode statement if
+     #    the operator wants one. Before install-plugins.sh, which merges into this file.
+     mkdir -p ~/.claude
+     cat > ~/.claude/settings.json <<'EOF'
+     { "permissions": { "allow": [...], "deny": [...] }, "autoMode": { "allow": [...] } }
+     EOF
+     # 2. The backlog plugin, registered and installed before Claude Code starts (step 7).
+     bash /home/user/<name>/.claude/hooks/install-plugins.sh /home/user/<name> || true
+     # 3. The tools the verify commands need (below).
+     ```
+
+     Fill in the real entries, never the ellipses. Give the setup-script line its reason:
+     the plugins load from the first prompt, with no `/reload-plugins`. Mark the
+     `autoMode` part as the operator's choice, and leave it out if they declined.
+   - **The tools `verify` needs.** Name each one from the commands in `verify`: the
+     program each command runs (`go`, `dagger`, `npm`, `golangci-lint`). For a
+     `bash <script>` entry, read the script and name what it calls. The environment's setup
+     script has to install any the cloud image lacks. Where CI pins a tool's version, name
+     that version and say the setup script has to install it, because the cloud image's own
+     copy may be too old. On 2026-11-01 the image's `golangci-lint` 2.5.0 refused
+     z5labs/humus's Go 1.27 code. From a cloud session, `command -v <tool>` and
+     `<tool> --version` show what the image has. Say which you checked. For `dagger`,
+     z5labs/devex's
+     [`.claude/hooks/install-dagger.sh`](https://github.com/z5labs/devex/blob/main/.claude/hooks/install-dagger.sh)
+     is the worked example. It installs the CLI at the version CI pins and starts `dockerd`
+     for the engine, and it needs `dl.dagger.io` and `registry.dagger.io` on the
+     environment's allowed domains. Name the hosts any other install fetches from, too. A
+     host the network policy does not allow fails that install.
+   - **What does not work there.** The `local` reviewer and project-scoped runs are
+     local-only. A cloud session's GitHub proxy refuses the App-token exchange `local` needs
+     and the GraphQL a project read needs. Then read the roster this repository actually
+     has. If `copilot` is its only rung that works in a cloud session, and it has no
+     trailing `none` (`["copilot"]`, `["copilot", "local"]`), a cloud run ends in
+     `BLOCKED` whenever Copilot is unavailable: an exhausted allowance, or review not
+     enabled. Say that in as many words. Never offer `none` as the fix. It is the downgrade
+     from step 5, and the operator decides on it there. The other remedy is running from a
+     local checkout while Copilot is down.
+7. What is left for a human: the commit and push of the workflow file (and the `workflow`
+   token scope it needs), the commit of step 7's files, anything needing admin rights, the
+   environment's setup script, and the `autoMode` statement if they want one.
 
 Finish by naming the next step: `backlog:run-backlog` to work the backlog, or
 `backlog:next-issue` for a single issue.
