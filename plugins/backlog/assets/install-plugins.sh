@@ -22,10 +22,15 @@
 #   - every plugin .claude/settings.json enables from one of those marketplaces.
 #     That file stays the one list: enabling a plugin there is enough.
 #
-# When it runs matters. Claude Code fixes its plugin set at startup, so plugins
-# declared by the SessionStart hook may reach the session only after
-# `/reload-plugins`. The environment's setup script runs before Claude Code
-# starts, so calling this from there loads them from the first prompt.
+# When it runs matters. Claude Code fixes its plugin set at startup, so the
+# environment's setup script, which runs before Claude Code starts, is what loads
+# the plugins in a cloud session: called from there, this has them offered from
+# the first prompt. The SessionStart hook only declares the settings. By the time
+# it runs, the session has started, so it cannot count on the session offering
+# them; a cloud session refuses `/reload-plugins` ("isn't available over a remote
+# connection"); and the next session starts in a fresh container, where the hook
+# is too late again. So when the hook is the one that writes the settings, which
+# means the setup script did not run this, it prints the setup-script line to add.
 #
 # Writing the settings is enough for a `directory` marketplace, whose plugins load
 # in place. It is not enough for one Claude Code has to fetch: observed with
@@ -140,7 +145,11 @@ if [ "$(jq -S . <<<"$current")" != "$(jq -S . <<<"$merged")" ]; then
   if printf '%s\n' "$merged" >"$tmp" && mv "$tmp" "$settings"; then
     from=$(jq -r 'to_entries | map("\(.key) (" + ([.value.source.source, (.value.source.repo // .value.source.url // .value.source.path // .value.source.package // empty)] | map(tostring) | join(" ")) + ")") | join(", ")' <<<"$markets")
     if [ "$mode" = hook ]; then
-      say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from; run /reload-plugins to load them in this session"
+      # A cloud session clones the repository to /home/user/<name>, and the setup
+      # script names it there.
+      name=$(basename "$root")
+      line="bash /home/user/$name/.claude/hooks/install-plugins.sh /home/user/$name || true"
+      say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from after Claude Code started, so this session may not offer them, and the next one starts in a fresh container; add this line to the environment's setup script and they load from the first prompt of the next new session: $line"
     else
       say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from"
     fi
@@ -179,9 +188,18 @@ pending=$(jq -r --argjson plugins "$plugins" '
 [ -n "$pending" ] || exit 0
 
 if ! command -v claude >/dev/null 2>&1; then
-  say "claude is not on PATH, so these are not registered before Claude Code starts: $(cut -f1 <<<"$pending" | paste -sd, - | sed 's/,/, /g'); the session registers them itself, and their plugins may need /reload-plugins there"
+  say "claude is not on PATH, so these are not registered before Claude Code starts and the session may start without their plugins: $(cut -f1 <<<"$pending" | paste -sd, - | sed 's/,/, /g'); put claude on PATH in the environment's setup script before the line that runs this"
   exit 0
 fi
+
+# host <kind> <source> — the host a marketplace source is fetched from: GitHub for
+# a `github` source, otherwise the host of the URL, scheme, user and port removed.
+host() {
+  case $1 in
+    github) printf 'github.com' ;;
+    *) sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#^[^@/]*@##; s#[:/].*$##' <<<"$2" ;;
+  esac
+}
 
 # claude_cli <args...> — the CLI, bounded, with no terminal to wait on.
 claude_cli() {
@@ -195,11 +213,11 @@ claude_cli() {
 while IFS=$'\t' read -r name kind source; do
   [ -n "$name" ] || continue
   if [ -z "$source" ]; then
-    say "cannot register $name before Claude Code starts: \`claude plugin marketplace add\` cannot take its $kind source as declared; the session registers it itself, and its plugins may need /reload-plugins there"
+    say "cannot register $name before Claude Code starts, so the session may start without its plugins: \`claude plugin marketplace add\` cannot take its $kind source as declared; give it a source that command can take in $project, a github source with only a repo or a git or url source with only a url"
     continue
   fi
   if ! out=$(claude_cli plugin marketplace add "$source" --scope user); then
-    say "could not register $name from $source before Claude Code starts: $(tail -n 1 <<<"$out"); the session registers it itself, and its plugins may need /reload-plugins there"
+    say "could not register $name from $source before Claude Code starts, so the session may start without its plugins: $(tail -n 1 <<<"$out"); if the environment's network access does not allow $(host "$kind" "$source"), allow it"
     continue
   fi
   installed=()

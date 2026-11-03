@@ -103,6 +103,21 @@ setup() {
 }
 
 calls() { cat "$1.calls" 2>/dev/null; }
+
+# line <repo> — the setup-script line the hook names for a checkout: a cloud
+# session clones the repository to /home/user/<name>.
+line() { printf 'bash /home/user/%s/.claude/hooks/install-plugins.sh /home/user/%s || true' "${1##*/}" "${1##*/}"; }
+
+# told <name> <output> <repo> — the hook said what to do: the setup-script line for
+# this checkout, that the plugins load from the next new session's first prompt,
+# and not /reload-plugins, which a cloud session refuses.
+told() {
+  if [[ $2 == *"$(line "$3")" ]] && [[ $2 == *"first prompt of the next new session"* ]] && [[ $2 != *reload-plugins* ]]; then
+    ok "$1"
+  else
+    bad "$1" "want the line '$(line "$3")' and no /reload-plugins; output: $2"
+  fi
+}
 user() { jq -c "$2" "$1/settings.json" 2>/dev/null; }
 
 printf '\nwhen it runs\n'
@@ -131,9 +146,10 @@ got=$(user "$cfg" '{m: .extraKnownMarketplaces, p: .enabledPlugins}')
 want=$(jq -nc --arg p "$repo" '{m: {acme: {source: {source: "directory", path: $p}}}, p: {"alpha@acme": true, "beta@acme": true}}')
 check 'the marketplace at the checkout, and exactly the plugins it enables' "$got" "$want"
 case $out in
-  *alpha@acme*beta@acme*reload-plugins*) ok 'says what it declared and how to load it now' ;;
-  *) bad 'says what it declared and how to load it now' "output: $out" ;;
+  *"declared alpha@acme, beta@acme from acme (directory $repo)"*) ok 'says what it declared' ;;
+  *) bad 'says what it declared' "output: $out" ;;
 esac
+told 'names the setup-script line for this checkout, not /reload-plugins' "$out" "$repo"
 
 before=$(stat -c '%Y %i' "$cfg/settings.json"); sleep 1
 out=$(hook "$repo" "$cfg")
@@ -168,9 +184,10 @@ check 'each declared source is copied as declared' \
   '{"ext":{"source":{"source":"github","repo":"o/ext"}},"spare":{"source":{"source":"git","url":"https://example.com/spare.git"}}}'
 check 'exactly the plugins it enables from them' "$(user "$cfg" '.enabledPlugins')" '{"backlog@ext":true}'
 case $out in
-  *backlog@ext*"github o/ext"*reload-plugins*) ok 'says what it declared, with the source' ;;
+  *backlog@ext*"github o/ext"*) ok 'says what it declared, with the source' ;;
   *) bad 'says what it declared, with the source' "output: $out" ;;
 esac
+told '... and the setup-script line for this checkout, not /reload-plugins' "$out" "$repo"
 check 'the hook never runs claude' "$(calls "$cfg")" ''
 
 repo="$WORK/r7"; cfg="$WORK/c7"; mkdir -p "$repo/.claude"
@@ -233,6 +250,19 @@ if [ "$(user "$cfg" '.enabledPlugins')" = '{"backlog@ext":true}' ] \
 else
   bad 'a refused registration is said, the settings stay written, and exit 0' "output: $out"
 fi
+if [[ $out == *"does not allow github.com, allow it"* ]] && [[ $out != *reload-plugins* ]]; then
+  ok '... and says to allow the host, not to /reload-plugins'
+else
+  bad '... and says to allow the host, not to /reload-plugins' "output: $out"
+fi
+
+repo="$WORK/r11u"; cfg="$WORK/c11u"; declares "$repo"
+jq '.enabledPlugins["x@spare"] = true' "$repo/.claude/settings.json" >"$repo/s" && mv "$repo/s" "$repo/.claude/settings.json"
+out=$(FAKE_CLAUDE_EXIT=1 setup "$repo" "$cfg")
+case $out in
+  *"could not register spare from https://example.com/spare.git"*"does not allow example.com, allow it"*) ok "a url source's host is the one named" ;;
+  *) bad "a url source's host is the one named" "output: $out" ;;
+esac
 
 repo="$WORK/r12"; cfg="$WORK/c12"; declares "$repo"
 out=$(env -u CLAUDE_CODE_REMOTE -u CLAUDECODE CLAUDE_CONFIG_DIR="$cfg" PATH="$NOCLAUDE" "$SUT" "$repo"; echo "exit=$?")
@@ -240,6 +270,11 @@ if [ "$(user "$cfg" '.enabledPlugins')" = '{"backlog@ext":true}' ] && [[ $out ==
   ok 'no claude on PATH: declared anyway, said, and exit 0'
 else
   bad 'no claude on PATH: declared anyway, said, and exit 0' "output: $out"
+fi
+if [[ $out == *"put claude on PATH in the environment's setup script"* ]] && [[ $out != *reload-plugins* ]]; then
+  ok '... and says to put claude on PATH, not to /reload-plugins'
+else
+  bad '... and says to put claude on PATH, not to /reload-plugins' "output: $out"
 fi
 
 repo="$WORK/r13"; cfg="$WORK/c13"; declares "$repo"
@@ -250,6 +285,11 @@ if [ -z "$(calls "$cfg")" ] && [ "$(user "$cfg" '.extraKnownMarketplaces.ext.sou
   ok 'a source the CLI cannot take as declared (a ref) is copied, not registered, and said'
 else
   bad 'a source the CLI cannot take as declared (a ref) is copied, not registered, and said' "calls: $(calls "$cfg") output: $out"
+fi
+if [[ $out == *"give it a source that command can take in $repo/.claude/settings.json"* ]] && [[ $out != *reload-plugins* ]]; then
+  ok '... and says to give it a source the CLI can take, not to /reload-plugins'
+else
+  bad '... and says to give it a source the CLI can take, not to /reload-plugins' "output: $out"
 fi
 
 printf '\nwhen it cannot\n'
