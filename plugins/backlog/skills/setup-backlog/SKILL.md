@@ -842,8 +842,9 @@ user settings let its command run, and the same rule in `.claude/settings.json` 
 The setup script is also where the operator-specific list belongs, which is the reason it
 is in `~/.claude/settings.json` on a laptop.
 
-The block that writes it opens the setup script, before the `install-plugins.sh` line from
-step 7, which merges into this file rather than replacing it:
+The block that writes it opens the setup script, before the plugin line from step 7: the
+`install-plugins.sh` line, or the `cloud-setup.sh` wrapper's line that runs it.
+`install-plugins.sh` merges into this file rather than replacing it:
 
 ```bash
 mkdir -p ~/.claude
@@ -934,7 +935,9 @@ marketplace. In any other repository it stops with `cannot read the marketplace 
 the session gets no plugins. Another is a copy taken before
 [#487](https://github.com/z5labs/devex/issues/487). When it runs as the hook it tells a
 cloud session to run `/reload-plugins`, which a cloud session refuses. The current asset
-names the setup-script line instead.
+names the setup-script line instead. A third is a copy taken before
+[#489](https://github.com/z5labs/devex/issues/489). In a repository with a `cloud-setup.sh`
+wrapper (below), it names `install-plugins.sh`'s own line, not the wrapper's.
 
 ### Declare the plugin in `.claude/settings.json`
 
@@ -976,7 +979,8 @@ also refuses `/reload-plugins` ("isn't available over a remote connection"), and
 session starts in a fresh container, where the hook is too late again. In a cloud session,
 the setup script below is what loads the plugin on a new session. When the hook finds the
 settings still to write, which means the setup script did not run `install-plugins.sh`
-first, it prints the setup-script line for this repository.
+first, it prints the setup-script line for this repository. That is the wrapper's line when
+the repository has one.
 
 ### The setup-script line
 
@@ -987,7 +991,31 @@ to `/home/user/<name>`, where `<name>` is the part of `<repo>` after the slash:
 bash /home/user/<name>/.claude/hooks/install-plugins.sh /home/user/<name> || true
 ```
 
-Say that a cloud session needs it, and why the hook cannot stand in for it. The setup
+**Unless the repository wraps its environment setup in `.claude/hooks/cloud-setup.sh`.**
+Some repositories keep their environment setup in that versioned script, which runs
+`install-plugins.sh` along with the rest of what a session needs. The environment's setup
+script then holds one line. z5labs/humus's wrapper merges the repository's `permissions`
+into user settings, runs `install-plugins.sh`, and installs `golangci-lint`. There, the line
+above would load the plugins and drop everything else. So when the wrapper has a line
+outside a comment that names `install-plugins.sh`, print the wrapper's line in its place:
+
+```
+bash /home/user/<name>/.claude/hooks/cloud-setup.sh || true
+```
+
+This check applies the same rule as the script running as the hook, so the two name the
+same line. It prints `wraps` for such a wrapper:
+
+```
+f=.claude/hooks/cloud-setup.sh
+[ -f "$f" ] && sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' "$f" | grep -q 'install-plugins\.sh' && echo wraps
+```
+
+A wrapper that mentions `install-plugins.sh` only in comments does not run it. It gets the
+line above. When the wrapper does run it, read the rest of the wrapper and note what else it
+does, because step 8's report says so.
+
+Say that a cloud session needs the line, and why the hook cannot stand in for it. The setup
 script runs before Claude Code starts, so the plugins load from the first prompt of every
 new session. From there the script also registers
 the `z5labs-devex` marketplace and installs `backlog` with `claude plugin`, which it cannot
@@ -1061,8 +1089,9 @@ One report, covering:
 5. Permissions — written where, or declined. From a cloud session: not written, and why,
    with the list itself in the Cloud sessions section below.
 6. **Cloud sessions.** First what step 7 did: the script (copied, identical, or differing
-   with the diff) and the three settings entries (each added or already there). Then what
-   the operator has to do, which is everything else this section covers:
+   with the diff), the three settings entries (each added or already there), and whether a
+   `.claude/hooks/cloud-setup.sh` wrapper runs the script. Then what the operator has to do,
+   which is everything else this section covers:
 
    - **The environment's setup script, written out whole**, in the order it has to run, as
      one block the operator can paste:
@@ -1085,6 +1114,13 @@ One report, covering:
      hook only declares the settings, after the session has started, and a cloud session
      refuses `/reload-plugins`. Mark the `autoMode` part as the operator's choice, and
      leave it out if they declined.
+
+     When step 7 found a `cloud-setup.sh` wrapper that runs the script, part 2 is the
+     wrapper's line, `bash /home/user/<name>/.claude/hooks/cloud-setup.sh || true`, in place
+     of the `install-plugins.sh` line, never beside it. Say that the wrapper is what runs
+     `install-plugins.sh`, and name what else it does. Where it already covers another
+     part of the block, say so rather than repeating it there. For example, it may install
+     a tool `verify` needs, or merge permissions into user settings.
    - **The tools `verify` needs.** Name each one from the commands in `verify`: the
      program each command runs (`go`, `dagger`, `npm`, `golangci-lint`). For a
      `bash <script>` entry, read the script and name what it calls. The environment's setup
