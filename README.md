@@ -112,12 +112,12 @@ other repositories get from `backlog:setup-backlog`;
 [`.claude/hooks/install-plugins_test.sh`](.claude/hooks/install-plugins_test.sh)
 fails if the two drift apart.
 
-Claude Code loads plugins when it starts, so where the script runs decides
-when they appear:
+Claude Code loads plugins when it starts, so in a cloud session the script has
+to run from the environment's setup script. The hook only declares the settings:
 
 - **The environment's [setup script](https://code.claude.com/docs/en/cloud-environments#setup-scripts)**,
-  which runs before Claude Code starts. The plugins are there from the first
-  prompt. Add this line to it:
+  which runs before Claude Code starts, is what loads the plugins on a new
+  session. They are there from the first prompt. This line is required:
 
   ```
   bash /home/user/devex/.claude/hooks/install-plugins.sh /home/user/devex || true
@@ -125,9 +125,12 @@ when they appear:
 
   Setup scripts belong to the environment, not the repository, so if the
   environment also serves other repositories, the line still names this one.
-- **The `SessionStart` hook in `.claude/settings.json`**, which runs it in every
-  cloud session without any environment setup. Claude Code has started by then,
-  so run `/reload-plugins` once to load them, or start the next session.
+- **The `SessionStart` hook in `.claude/settings.json`** runs it in every cloud
+  session without any environment setup, and declares the settings only.
+  Claude Code has started by then, so the session cannot be counted on to offer
+  the plugins. A cloud session refuses `/reload-plugins`, and the next session
+  starts in a fresh container, where the hook is too late again. When the hook
+  is the one that writes the settings, it prints the setup-script line above.
 
 #### Running the backlog on another repository
 

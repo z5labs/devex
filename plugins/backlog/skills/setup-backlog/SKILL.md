@@ -931,7 +931,10 @@ Identical → nothing to do, say so. Different → show the diff and let the use
 difference is worth naming if you see it: a copy taken from z5labs/devex before
 [#484](https://github.com/z5labs/devex/issues/484) handles only a repository that is itself a
 marketplace. In any other repository it stops with `cannot read the marketplace name`, and
-the session gets no plugins.
+the session gets no plugins. Another is a copy taken before
+[#487](https://github.com/z5labs/devex/issues/487). When it runs as the hook it tells a
+cloud session to run `/reload-plugins`, which a cloud session refuses. The current asset
+names the setup-script line instead.
 
 ### Declare the plugin in `.claude/settings.json`
 
@@ -965,11 +968,15 @@ git diff -- "$f"
 If `jq` cannot read the file, `mv` never runs and the file stays as it was. Report that the file is
 not valid JSON, and stop this half of the step. Do not rewrite a file you could not parse.
 
-The hook is the fallback. A cloud session does run the `SessionStart` hooks in a
-repository's `.claude/settings.json`; this repository's hooks run there. But by the time a
-hook runs, Claude Code has started. So the hook writes the settings in every cloud session,
-with no environment setup, and the plugins may still need `/reload-plugins` once before
-they are offered. The script says so when it runs as the hook.
+The hook declares the settings, and only that. A cloud session does run the `SessionStart`
+hooks in a repository's `.claude/settings.json`; this repository's hooks run there. But by
+the time a hook runs, Claude Code has started, and it fixed its plugin set when it did. So
+the session that ran the hook cannot be counted on to offer the plugins. A cloud session
+also refuses `/reload-plugins` ("isn't available over a remote connection"), and the next
+session starts in a fresh container, where the hook is too late again. In a cloud session,
+the setup script below is what loads the plugin on a new session. When the hook finds the
+settings still to write, which means the setup script did not run `install-plugins.sh`
+first, it prints the setup-script line for this repository.
 
 ### The setup-script line
 
@@ -980,8 +987,9 @@ to `/home/user/<name>`, where `<name>` is the part of `<repo>` after the slash:
 bash /home/user/<name>/.claude/hooks/install-plugins.sh /home/user/<name> || true
 ```
 
-Say why it beats the hook. The setup script runs before Claude Code starts, so the plugins
-load from the first prompt, with no `/reload-plugins`. From there the script also registers
+Say that a cloud session needs it, and why the hook cannot stand in for it. The setup
+script runs before Claude Code starts, so the plugins load from the first prompt of every
+new session. From there the script also registers
 the `z5labs-devex` marketplace and installs `backlog` with `claude plugin`, which it cannot
 safely do from inside a running session. Writing the settings alone is not enough for a
 marketplace fetched from GitHub. Observed on Claude Code 2.1.316 with a fresh configuration,
@@ -1071,9 +1079,12 @@ One report, covering:
      # 3. The tools the verify commands need (below).
      ```
 
-     Fill in the real entries, never the ellipses. Give the setup-script line its reason:
-     the plugins load from the first prompt, with no `/reload-plugins`. Mark the
-     `autoMode` part as the operator's choice, and leave it out if they declined.
+     Fill in the real entries, never the ellipses. Call the setup-script line
+     **required** for cloud sessions, not an improvement on the hook, and give its
+     reason: it is what loads the plugin, from the first prompt of each new session. The
+     hook only declares the settings, after the session has started, and a cloud session
+     refuses `/reload-plugins`. Mark the `autoMode` part as the operator's choice, and
+     leave it out if they declined.
    - **The tools `verify` needs.** Name each one from the commands in `verify`: the
      program each command runs (`go`, `dagger`, `npm`, `golangci-lint`). For a
      `bash <script>` entry, read the script and name what it calls. The environment's setup
