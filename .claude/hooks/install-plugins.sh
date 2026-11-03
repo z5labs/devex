@@ -31,6 +31,10 @@
 # connection"); and the next session starts in a fresh container, where the hook
 # is too late again. So when the hook is the one that writes the settings, which
 # means the setup script did not run this, it prints the setup-script line to add.
+# That line runs this script, unless the checkout has .claude/hooks/cloud-setup.sh
+# and a line of it outside a comment names install-plugins.sh. A repository that
+# wraps its environment setup in that script gets the wrapper's line instead, so
+# the setup script it is sent to does everything the wrapper does, not only this.
 #
 # Writing the settings is enough for a `directory` marketplace, whose plugins load
 # in place. It is not enough for one Claude Code has to fetch: observed with
@@ -58,6 +62,22 @@
 set -uo pipefail
 
 say() { printf 'install-plugins: %s\n' "$*"; }
+
+# wraps <file> — whether <file> runs this script: a line of it names
+# install-plugins.sh once its comment is set aside. A comment is a line whose
+# first non-blank character is `#`, or the rest of a line from a `#` that follows
+# whitespace. The environment's setup script is out of reach from here; a wrapper
+# in the checkout that runs this is what the setup script is meant to call.
+wraps() {
+  local l
+  [ -f "$1" ] && [ -r "$1" ] || return 1
+  while IFS= read -r l || [ -n "$l" ]; do
+    [[ $l =~ ^[[:space:]]*# ]] && continue
+    l=${l%%[[:space:]]#*}
+    [[ $l == *install-plugins.sh* ]] && return 0
+  done <"$1"
+  return 1
+}
 
 if [ $# -ge 1 ]; then
   root=$1
@@ -149,7 +169,12 @@ if [ "$(jq -S . <<<"$current")" != "$(jq -S . <<<"$merged")" ]; then
       # script names it there.
       name=$(basename "$root")
       line="bash /home/user/$name/.claude/hooks/install-plugins.sh /home/user/$name || true"
-      say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from after Claude Code started, so this session may not offer them, and the next one starts in a fresh container; add this line to the environment's setup script and they load from the first prompt of the next new session: $line"
+      via=
+      if wraps "$root/.claude/hooks/cloud-setup.sh"; then
+        line="bash /home/user/$name/.claude/hooks/cloud-setup.sh || true"
+        via="this repository's .claude/hooks/cloud-setup.sh runs this script with the rest of its environment setup, so "
+      fi
+      say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from after Claude Code started, so this session may not offer them, and the next one starts in a fresh container; ${via}add this line to the environment's setup script and they load from the first prompt of the next new session: $line"
     else
       say "declared $(jq -r 'join(", ")' <<<"$plugins") from $from"
     fi

@@ -104,18 +104,23 @@ setup() {
 
 calls() { cat "$1.calls" 2>/dev/null; }
 
-# line <repo> — the setup-script line the hook names for a checkout: a cloud
+# line <repo> — the setup-script line that runs the script for a checkout: a cloud
 # session clones the repository to /home/user/<name>.
 line() { printf 'bash /home/user/%s/.claude/hooks/install-plugins.sh /home/user/%s || true' "${1##*/}" "${1##*/}"; }
 
-# told <name> <output> <repo> — the hook said what to do: the setup-script line for
-# this checkout, that the plugins load from the next new session's first prompt,
-# and not /reload-plugins, which a cloud session refuses.
+# wrapper <repo> — the setup-script line for a checkout whose
+# .claude/hooks/cloud-setup.sh runs the script.
+wrapper() { printf 'bash /home/user/%s/.claude/hooks/cloud-setup.sh || true' "${1##*/}"; }
+
+# told <name> <output> <named> <not named> — the hook said what to do: the
+# setup-script line <named>, last, so it copies whole; not the line <not named>;
+# that the plugins load from the next new session's first prompt; and not
+# /reload-plugins, which a cloud session refuses.
 told() {
-  if [[ $2 == *"$(line "$3")" ]] && [[ $2 == *"first prompt of the next new session"* ]] && [[ $2 != *reload-plugins* ]]; then
+  if [[ $2 == *"$3" ]] && [[ $2 != *"$4"* ]] && [[ $2 == *"first prompt of the next new session"* ]] && [[ $2 != *reload-plugins* ]]; then
     ok "$1"
   else
-    bad "$1" "want the line '$(line "$3")' and no /reload-plugins; output: $2"
+    bad "$1" "want the line '$3', not '$4', and no /reload-plugins; output: $2"
   fi
 }
 user() { jq -c "$2" "$1/settings.json" 2>/dev/null; }
@@ -149,7 +154,7 @@ case $out in
   *"declared alpha@acme, beta@acme from acme (directory $repo)"*) ok 'says what it declared' ;;
   *) bad 'says what it declared' "output: $out" ;;
 esac
-told 'names the setup-script line for this checkout, not /reload-plugins' "$out" "$repo"
+told 'names the setup-script line for this checkout, not /reload-plugins' "$out" "$(line "$repo")" "$(wrapper "$repo")"
 
 before=$(stat -c '%Y %i' "$cfg/settings.json"); sleep 1
 out=$(hook "$repo" "$cfg")
@@ -187,7 +192,7 @@ case $out in
   *backlog@ext*"github o/ext"*) ok 'says what it declared, with the source' ;;
   *) bad 'says what it declared, with the source' "output: $out" ;;
 esac
-told '... and the setup-script line for this checkout, not /reload-plugins' "$out" "$repo"
+told '... and the setup-script line for this checkout, not /reload-plugins' "$out" "$(line "$repo")" "$(wrapper "$repo")"
 check 'the hook never runs claude' "$(calls "$cfg")" ''
 
 repo="$WORK/r7"; cfg="$WORK/c7"; mkdir -p "$repo/.claude"
@@ -291,6 +296,49 @@ if [[ $out == *"give it a source that command can take in $repo/.claude/settings
 else
   bad '... and says to give it a source the CLI can take, not to /reload-plugins' "output: $out"
 fi
+
+printf '\na repository that wraps its environment setup in .claude/hooks/cloud-setup.sh\n'
+
+# wrapped <dir> — a repository that declares a marketplace, with a
+# .claude/hooks/cloud-setup.sh read from stdin.
+wrapped() { declares "$1"; mkdir -p "$1/.claude/hooks"; cat >"$1/.claude/hooks/cloud-setup.sh"; }
+
+repo="$WORK/r19"; cfg="$WORK/c19"
+wrapped "$repo" <<'EOF'
+#!/usr/bin/env bash
+# Environment setup for cloud sessions: permissions, plugins, golangci-lint.
+here=$(cd "$(dirname "$0")" && pwd)
+bash "$here/merge-permissions.sh" || true
+bash "$here/install-plugins.sh" "$(cd "$here/../.." && pwd)" || true
+bash "$here/install-golangci-lint.sh" || true
+EOF
+out=$(hook "$repo" "$cfg")
+told "one that runs the script: names the wrapper's line, not the script's own" "$out" "$(wrapper "$repo")" "$(line "$repo")"
+case $out in
+  *"cloud-setup.sh runs this script"*) ok '... and says the wrapper is what runs it' ;;
+  *) bad '... and says the wrapper is what runs it' "output: $out" ;;
+esac
+check '... and declares the same settings as without one' "$(user "$cfg" '.enabledPlugins')" '{"backlog@ext":true}'
+
+repo="$WORK/r20"; cfg="$WORK/c20"
+wrapped "$repo" <<'EOF'
+#!/usr/bin/env bash
+# install-plugins.sh runs from the environment's setup script, not from here.
+	# Nor install-plugins.sh, indented.
+bash "$(dirname "$0")/install-golangci-lint.sh" || true  # plugins: see install-plugins.sh
+EOF
+out=$(hook "$repo" "$cfg")
+told "one that names it only in comments: names the script's own line, not the wrapper's" "$out" "$(line "$repo")" "$(wrapper "$repo")"
+if [[ $out != *cloud-setup.sh* ]]; then
+  ok '... and does not mention the wrapper'
+else
+  bad '... and does not mention the wrapper' "output: $out"
+fi
+
+repo="$WORK/r21"; cfg="$WORK/c21"; declares "$repo"; mkdir -p "$repo/.claude/hooks"
+cp "$SUT" "$repo/.claude/hooks/install-plugins.sh"
+out=$(hook "$repo" "$cfg")
+told "no wrapper beside the script: names the script's own line, not a wrapper's" "$out" "$(line "$repo")" "$(wrapper "$repo")"
 
 printf '\nwhen it cannot\n'
 

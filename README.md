@@ -131,6 +131,8 @@ to run from the environment's setup script. The hook only declares the settings:
   the plugins. A cloud session refuses `/reload-plugins`, and the next session
   starts in a fresh container, where the hook is too late again. When the hook
   is the one that writes the settings, it prints the setup-script line above.
+  In a repository with a `cloud-setup.sh` wrapper ([below](#a-cloud-setupsh-wrapper)),
+  it prints the wrapper's line instead.
 
 #### Running the backlog on another repository
 
@@ -163,7 +165,9 @@ container is fresh every session.
      from user settings. So the setup script, which runs before every session,
      is the one place these stay in force.
    - It runs `bash /home/user/<repo>/.claude/hooks/install-plugins.sh /home/user/<repo> || true`,
-     so the plugin loads from the first prompt.
+     so the plugin loads from the first prompt. In a repository with a
+     [`cloud-setup.sh` wrapper](#a-cloud-setupsh-wrapper), it runs the wrapper's
+     line instead.
    - It installs the tools the repository's `verify` commands need, at the
      versions its CI pins. The cloud image's own copies can be too old: on
      2026-11-01 its `golangci-lint` 2.5.0 refused z5labs/humus's Go 1.27 code.
@@ -172,6 +176,24 @@ container is fresh every session.
      environment's network access.
 3. **Run it.** Start a cloud session on the repository and run
    `/backlog:run-backlog`, or `/backlog:next-issue` for one issue.
+
+##### A `cloud-setup.sh` wrapper
+
+Some repositories keep their environment setup in a versioned
+`.claude/hooks/cloud-setup.sh`. The environment's setup script is then one line:
+
+```
+bash /home/user/<repo>/.claude/hooks/cloud-setup.sh || true
+```
+
+The wrapper does the rest. On z5labs/humus, it merges the repository's
+`permissions` into user settings, runs `install-plugins.sh`, and installs
+`golangci-lint`. The line that runs `install-plugins.sh` directly would load the
+plugins and drop the rest. So when the wrapper has a line outside a comment that
+names `install-plugins.sh`, the hook's message and `backlog:setup-backlog`'s
+report name the wrapper's line in place of the script's own. Neither can read
+the environment's setup script, so the wrapper in the checkout is what they go
+by. A wrapper that mentions `install-plugins.sh` only in comments does not count.
 
 Two parts of the cycle are local-only, because the session's GitHub proxy
 refuses what they need. One is the `local` reviewer, which mints a GitHub App
